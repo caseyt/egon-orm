@@ -1059,6 +1059,84 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         });
       });
 
+      describe("keys compared by content", () => {
+        class Blob extends Schema("rt_blob_keys", { id: t.binary().primaryKey(), n: t.integer() }) {}
+        class Path extends Schema("rt_path_keys", {
+          path: t.array(t.string()).primaryKey(),
+          n: t.integer(),
+        }) {}
+        class Tagged extends Schema("rt_tagged_keys", {
+          a: t.integer().primaryKey(),
+          tags: t.array(t.string()).primaryKey(),
+          n: t.integer(),
+        }) {}
+
+        async function create(
+          schema: AnySchema,
+          rows: readonly Readonly<Record<string, unknown>>[],
+        ): Promise<void> {
+          const schemaMeta = meta(schema);
+          const columns = schemaMeta.persisted.map(
+            (field) => `${field.column} ${profile.columnType(field.type) as string} not null`,
+          );
+          const key = schemaMeta.primaryKey.map((field) => field.column).join(", ");
+          await db.exec(
+            `create table ${schemaMeta.source as string} (${columns.join(", ")}, primary key (${key}))`,
+          );
+          await insertRows(adapter(), profile, schema, rows);
+        }
+
+        test("a binary key", async (context) => {
+          if (profile.columnType(meta(Blob).primaryKey[0]?.type as never) === undefined)
+            return context.skip("no binary column");
+          await create(Blob, [
+            { id: Uint8Array.from([1, 2, 3]), n: 1 },
+            { id: Uint8Array.from([0, 255]), n: 2 },
+          ]);
+          const r = repo();
+          const blobs = await r.all(from(Blob, "b").orderBy(({ b }) => b.n));
+          expect((await r.reloadOrThrow(blobs)).map((each) => each.n)).toEqual([1, 2]);
+          expect((await r.get(Blob, Uint8Array.from([0, 255])))?.n).toBe(2);
+          await db.exec("delete from rt_blob_keys where n = 1");
+          expect((await r.reload(blobs)).map((each) => each?.n ?? null)).toEqual([null, 2]);
+        });
+
+        test("an array key", async (context) => {
+          if (profile.columnType(meta(Path).primaryKey[0]?.type as never) === undefined)
+            return context.skip("no array column");
+          await create(Path, [
+            { path: ["a", "b"], n: 1 },
+            { path: ["a,b"], n: 2 },
+            { path: [], n: 3 },
+          ]);
+          const r = repo();
+          const paths = await r.all(from(Path, "p").orderBy(({ p }) => p.n));
+          expect((await r.reloadOrThrow(paths)).map((each) => each.n)).toEqual([1, 2, 3]);
+          expect((await r.get(Path, ["a,b"]))?.n).toBe(2);
+          expect((await r.get(Path, ["a", "b"]))?.n).toBe(1);
+          await db.exec("delete from rt_path_keys where n = 1");
+          expect((await r.reload(paths)).map((each) => each?.n ?? null)).toEqual([null, 2, 3]);
+        });
+
+        test("a composite key with an array field, values that would collide as text", async (context) => {
+          if (profile.columnType(meta(Tagged).fieldsByName.get("tags")?.type as never) === undefined) {
+            return context.skip("no array column");
+          }
+          await create(Tagged, [
+            { a: 1, tags: ["a,b"], n: 1 },
+            { a: 1, tags: ["a", "b"], n: 2 },
+            { a: 2, tags: ["x"], n: 3 },
+          ]);
+          const r = repo();
+          const tagged = await r.all(from(Tagged, "g").orderBy(({ g }) => g.n));
+          expect((await r.reloadOrThrow(tagged)).map((each) => each.n)).toEqual([1, 2, 3]);
+          expect((await r.get(Tagged, { a: 1, tags: ["a", "b"] }))?.n).toBe(2);
+          await db.exec("delete from rt_tagged_keys where n = 2");
+          expect((await r.reload(tagged)).map((each) => each?.n ?? null)).toEqual([1, null, 3]);
+          await expect(r.reloadOrThrow(tagged)).rejects.toThrow(NoResultsError);
+        });
+      });
+
       test("rows with a composite key", async () => {
         const r = repo();
         const memberships = await r.all(Membership);

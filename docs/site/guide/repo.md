@@ -78,10 +78,13 @@ and methods) unless the query has a `select`.
   the aggregate in the query's own select and read it with `one` instead.
 - **`reload`** reads a row again from the table and database schema it was read from. Rows
   of one schema are read together: on Postgres in one statement whatever their number
-  (each key field's values go as one array); elsewhere in statements of at most 1,000
-  rows. An array comes back in the same order, with `null` for a row that is gone.
+  (each key field's values go as one array); elsewhere, and for a key column that holds
+  arrays or JSON, in statements of at most 1,000 rows. Keys are compared by content
+  (bytes, dates, arrays included). An array comes back in the same order, with `null` for
+  a row that is gone.
   Preloaded associations are not read again.
-- **`get` with an array** throws `QueryError` (unless the key column itself holds arrays):
+- **`get` with an array** throws `QueryError` (unless the key column itself holds arrays
+  or JSON):
   to read several rows by key, use `where(({ u }) => u.id.in(ids))`.
 
 ### Parameters and options

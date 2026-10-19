@@ -1092,7 +1092,7 @@ export function byKey(schema: AnySchema, id: unknown): Query<unknown, unknown, n
  * those rows matched instead of failing.
  */
 function checkKeyValue(schemaMeta: SchemaMeta, field: FieldMeta, value: unknown): void {
-  if (Array.isArray(value) && field.type.db.kind !== "array") {
+  if (Array.isArray(value) && !comparedWhole(field)) {
     throw new QueryError(
       `repo.get(${schemaMeta.name}, id): the key field "${field.name}" holds one value, but it was given an array. To read several rows by key, use repo.all(from(${schemaMeta.name}, "x").where(({ x }) => x.${field.name}.in(ids))).`,
     );
@@ -1290,18 +1290,46 @@ class RowSource {
 }
 
 /** A value that identifies one primary key, for matching reloaded rows to the given ones. */
-function keyOf(row: Readonly<Record<string, unknown>>, key: readonly FieldMeta[]): unknown {
-  if (key.length === 1) return normalizeKey(row[(key[0] as FieldMeta).name]);
+function keyOf(row: Readonly<Record<string, unknown>>, key: readonly FieldMeta[]): string {
   let out = "";
-  for (const field of key) {
-    const value = normalizeKey(row[field.name]);
-    out += `${typeof value}:${String(value)}\u0000`;
-  }
+  for (const field of key) out += encodeKey(row[field.name]);
   return out;
 }
 
-function normalizeKey(value: unknown): unknown {
-  return value instanceof Date ? value.getTime() : value;
+/**
+ * An encoding of a key value in which two different values never share a string, and
+ * the encodings of a key's fields can be concatenated without ambiguity: each starts with
+ * a letter for its kind, and every variable-length part carries its length. Values are
+ * compared by content, not identity: bytes by their hex digits, dates by their instant,
+ * arrays element by element, JSON by its text.
+ *
+ * @example
+ * ```ts
+ * encodeKey(["a", "b"]) === encodeKey(["a,b"]); // false
+ * encodeKey(Uint8Array.from([1])) === encodeKey(Uint8Array.from([1])); // true
+ * ```
+ */
+export function encodeKey(value: unknown): string {
+  if (value === null || value === undefined) return "n;";
+  if (typeof value === "string") return `s${value.length}:${value}`;
+  if (typeof value === "number") return `d${String(value)};`;
+  if (typeof value === "bigint") return `b${value};`;
+  if (typeof value === "boolean") return value ? "t;" : "f;";
+  if (value instanceof Date) return `D${value.getTime()};`;
+  if (value instanceof Uint8Array) {
+    let hex = "";
+    for (const byte of value) hex += byte.toString(16).padStart(2, "0");
+    return `x${hex.length}:${hex}`;
+  }
+  if (Array.isArray(value)) {
+    let out = `a${value.length}[`;
+    for (const element of value) out += encodeKey(element);
+    return `${out}]`;
+  }
+  const text = JSON.stringify(value, (_key, inner: unknown) =>
+    typeof inner === "bigint" ? `${inner}n` : inner,
+  );
+  return `o${text.length}:${text}`;
 }
 
 /** The schema class of a row: the class its prototype belongs to. */
@@ -1364,7 +1392,7 @@ export async function reload(
   for (const bySchema of groups.values()) {
     for (const group of bySchema.values()) {
       const key = group.schemaMeta.primaryKey;
-      const size = reloadChunkSize(core, key.length);
+      const size = reloadChunkSize(core, key);
       for (let from = 0; from < group.indexes.length; from += size) {
         const indexes = group.indexes.slice(from, from + size);
         const given = indexes.map((index) => rows[index] as Readonly<Record<string, unknown>>);
@@ -1392,21 +1420,32 @@ export const RELOAD_CHUNK_ROWS = 1_000;
  * `(k1, k2) in (select * from unnest($1, $2))`, so one statement of fixed size reads any
  * number of rows.
  */
-function keysAsArrays(core: ReadCore): boolean {
+function keysAsArrays(core: ReadCore, key: readonly FieldMeta[]): boolean {
   const capabilities = core.adapter.capabilities;
-  return capabilities.arrayParams && capabilities.arrays;
+  return capabilities.arrayParams && capabilities.arrays && !key.some(comparedWhole);
 }
+
+/**
+ * Whether a key field holds a value that is compared whole (an array, JSON): an array of
+ * such values cannot be passed as one parameter (`unnest` flattens a two-dimensional
+ * array, and `= any` compares elements), so rows with such a key are matched one by one.
+ */
+function comparedWhole(field: FieldMeta): boolean {
+  return WHOLE_KINDS.has(field.type.db.kind);
+}
+
+const WHOLE_KINDS: ReadonlySet<string> = new Set(["array", "json", "jsonb"]);
 
 /**
  * How many rows one `reload` statement reads: all of them when the keys go as arrays;
  * otherwise at most {@link RELOAD_CHUNK_ROWS}, and never more parameters than
  * `capabilities.maxParams` allows.
  */
-function reloadChunkSize(core: ReadCore, keyFields: number): number {
-  if (keysAsArrays(core)) return Number.POSITIVE_INFINITY;
+function reloadChunkSize(core: ReadCore, key: readonly FieldMeta[]): number {
+  if (keysAsArrays(core, key)) return Number.POSITIVE_INFINITY;
   return Math.max(
     1,
-    Math.min(RELOAD_CHUNK_ROWS, Math.floor(core.adapter.capabilities.maxParams / keyFields)),
+    Math.min(RELOAD_CHUNK_ROWS, Math.floor(core.adapter.capabilities.maxParams / key.length)),
   );
 }
 
@@ -1479,11 +1518,13 @@ function reloadQuery(
     const columns = (bindings as Readonly<Record<string, Readonly<Record<string, Col<unknown>>>>>)[
       alias
     ] as Readonly<Record<string, Col<unknown>>>;
-    if (key.length === 1) {
-      const field = key[0] as FieldMeta;
-      return (columns[field.name] as Col<unknown>).in(rows.map((row) => row[field.name]) as never) as never;
+    const single = key.length === 1 ? (key[0] as FieldMeta) : undefined;
+    if (single !== undefined && !comparedWhole(single)) {
+      // `= any($1)`, or `in (…)` on a dialect that expands lists (chunked).
+      return (columns[single.name] as Col<unknown>).in(rows.map((row) => row[single.name]) as never) as never;
     }
-    if (keysAsArrays(core)) return keysInArrays(alias, key, rows) as never;
+    if (single === undefined && keysAsArrays(core, key)) return keysInArrays(alias, key, rows) as never;
+    // Row by row: `(k1 = $1 and k2 = $2) or …`, at most RELOAD_CHUNK_ROWS rows.
     const matches = rows.map((row) =>
       and(...key.map((field) => (columns[field.name] as Col<unknown>).eq(row[field.name] as never))),
     );

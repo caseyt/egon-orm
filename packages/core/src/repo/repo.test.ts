@@ -925,6 +925,36 @@ describe("reload", () => {
     expect(driver.statements.map((each) => each.params.length)).toEqual([2, 1]);
   });
 
+  test("keys holding arrays are matched row by row, and bytes by content", async () => {
+    class Path extends Schema("paths", { path: t.array(t.string()).primaryKey(), n: t.integer() }) {}
+    class Tagged extends Schema("tagged", {
+      a: t.integer().primaryKey(),
+      tags: t.array(t.string()).primaryKey(),
+    }) {}
+    class Blob extends Schema("blobs", { id: t.binary().primaryKey() }) {}
+    const { repo, driver } = fake();
+    driver.respond = () => [
+      { c0: ["a", "b"], c1: 1 },
+      { c0: ["a,b"], c1: 2 },
+    ];
+    const paths = await repo.all(Path);
+    driver.statements.length = 0;
+    driver.respond = () => [{ c0: ["a,b"], c1: 2 }];
+    const fresh = await repo.reload(paths);
+    expect(fresh.map((each) => each?.n ?? null)).toEqual([null, 2]);
+    expect(driver.statements[0]?.sql).toMatch(/where "paths"\."path" = \$1 or "paths"\."path" = \$2$/);
+    expect(driver.statements[0]?.params).toEqual([["a", "b"], ["a,b"]]);
+    driver.respond = () => [{ c0: 1, c1: ["x"] }];
+    const tagged = await repo.all(Tagged);
+    driver.statements.length = 0;
+    await repo.reload(tagged);
+    expect(driver.statements[0]?.sql).toMatch(/where "tagged"\."a" = \$1 and "tagged"\."tags" = \$2$/);
+    driver.respond = () => [{ c0: Uint8Array.from([1, 2]) }];
+    const blobs = await repo.all(Blob);
+    driver.respond = () => [{ c0: Uint8Array.from([1, 2]) }];
+    expect(await repo.reloadOrThrow(blobs)).toHaveLength(1);
+  });
+
   test("rows of a composite key go as one array per key field, in one statement", async () => {
     const orgId = "0190d8a0-0000-7000-8000-00000000000a";
     const member = { c0: orgId, c1: "2", c2: "member" };

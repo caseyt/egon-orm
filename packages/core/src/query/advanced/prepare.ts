@@ -1,0 +1,175 @@
+/**
+ * `prepare(q)`: a query whose compiled plan is kept on the query itself, for a query run
+ * many times with different named parameters.
+ *
+ * A plan depends on the adapter that compiles it (its dialect and its driver conversions),
+ * so it is made the first time the prepared query runs on an adapter, and kept: every
+ * later run on that adapter takes it from the prepared query, without even a lookup in the
+ * adapter's plan cache. A plan holds no values, so one plan serves every set of named
+ * parameters.
+ *
+ * @module
+ */
+import type { Adapter, CompiledQuery } from "../../contracts/adapter.js";
+import type { NamedParamNode, QueryAst, QueryOperation } from "../../contracts/query.js";
+import { QueryError } from "../../errors.js";
+import { Query, type QueryLike, type QueryParams, type QueryResult } from "../builder.js";
+
+/** What compiles a prepared query: an adapter, or anything with its `compile`. */
+type PlanSource = Pick<Adapter, "compile">;
+
+/** What a prepared query keeps of the query it was made from. */
+interface PreparedFrom {
+  readonly ast: QueryAst;
+  readonly named: readonly NamedParamNode[];
+  namedParams(): readonly string[];
+  toString(): string;
+}
+
+/** The plan kept for the first adapter, operation and database schema a prepared query runs with. */
+interface Pinned {
+  readonly source: PlanSource;
+  readonly operation: QueryOperation;
+  readonly schema: string | undefined;
+  readonly plan: CompiledQuery;
+}
+
+/**
+ * A query prepared with {@link prepare}: what the repo runs like any other query, with its
+ * compiled plan kept on it. `R` is the row type, `P` the named parameters each run needs.
+ *
+ * @example
+ * ```ts
+ * const byEmail: PreparedQuery<User, { email: string }> = prepare(
+ *   from(User, "u").where(({ u }) => u.email.eq(param("email", t.string()))).limit(1),
+ * );
+ * ```
+ */
+export class PreparedQuery<R, P> implements QueryLike {
+  /** Type information only; there is no such property at run time. */
+  declare readonly "~query": {
+    readonly bindings: unknown;
+    readonly result: R;
+    readonly params: (params: P) => void;
+    readonly root: string;
+  };
+  /** The query as data. */
+  readonly ast: QueryAst;
+  /** The query that was prepared. */
+  readonly query: PreparedFrom;
+  #pinned: Pinned | undefined;
+  /** Plans for any other adapter, operation or database schema, made on first use. */
+  #others: WeakMap<PlanSource, Map<string, CompiledQuery>> | undefined;
+
+  /**
+   * Internal: made by {@link prepare}.
+   *
+   * @example
+   * ```ts
+   * new PreparedQuery(query);
+   * ```
+   */
+  constructor(query: PreparedFrom) {
+    this.query = query;
+    this.ast = query.ast;
+    this.#pinned = undefined;
+    this.#others = undefined;
+  }
+
+  /**
+   * The named parameters the query's AST uses, in canonical order with repeats.
+   *
+   * @example
+   * ```ts
+   * byEmail.named[0]?.name; // "email"
+   * ```
+   */
+  get named(): readonly NamedParamNode[] {
+    return this.query.named;
+  }
+
+  /**
+   * The names of every named parameter a run needs, its preloads' included, each once.
+   *
+   * @example
+   * ```ts
+   * byEmail.namedParams(); // ["email"]
+   * ```
+   */
+  namedParams(): readonly string[] {
+    return this.query.namedParams();
+  }
+
+  /**
+   * The compiled plan for running the query with `source` (an adapter) as `operation` in
+   * database schema `schema`: compiled the first time and kept on this object.
+   *
+   * @example
+   * ```ts
+   * const plan = byEmail.plan(adapter, "all", undefined);
+   * ```
+   *
+   * @throws QueryError (from the adapter) when the query cannot be compiled.
+   */
+  plan(source: PlanSource, operation: QueryOperation = "all", schema: string | undefined = undefined): CompiledQuery {
+    const pinned = this.#pinned;
+    if (pinned !== undefined && pinned.source === source && pinned.operation === operation && pinned.schema === schema) {
+      return pinned.plan;
+    }
+    if (pinned === undefined) {
+      const plan = source.compile(this.ast, operation, schema);
+      this.#pinned = { source, operation, schema, plan };
+      return plan;
+    }
+    let bySource = this.#others;
+    if (bySource === undefined) {
+      bySource = new WeakMap();
+      this.#others = bySource;
+    }
+    let plans = bySource.get(source);
+    if (plans === undefined) {
+      plans = new Map();
+      bySource.set(source, plans);
+    }
+    const key = schema === undefined ? `${operation}:` : `${operation}:${schema}`;
+    let plan = plans.get(key);
+    if (plan === undefined) {
+      plan = source.compile(this.ast, operation, schema);
+      plans.set(key, plan);
+    }
+    return plan;
+  }
+
+  /**
+   * A compact, SQL-like rendering of the query, without values.
+   *
+   * @example
+   * ```ts
+   * byEmail.toString(); // "from users as u where u.email = :email limit ?"
+   * ```
+   */
+  toString(): string {
+    return this.query.toString();
+  }
+}
+
+/**
+ * Prepares a query to run many times: the plan is compiled once, the first time it runs,
+ * and kept on the returned object, so later runs skip even the plan-cache lookup. Run it
+ * as any query, with its named parameters: `repo.one(byEmail, { email })`. Named
+ * parameters are what changes between runs; a value written into the query is fixed.
+ *
+ * @example
+ * ```ts
+ * const byEmail = prepare(from(User, "u").where(({ u }) => u.email.eq(param("email", t.string()))).limit(1));
+ * await repo.one(byEmail, { email });
+ * ```
+ *
+ * @throws QueryError when the argument is not a query.
+ */
+export function prepare<Q extends QueryLike>(query: Q): PreparedQuery<QueryResult<Q>, QueryParams<Q>> {
+  if (!(query instanceof Query)) {
+    throw new QueryError('prepare() takes a query: prepare(from(User, "u").where(…)).');
+  }
+  return new PreparedQuery<QueryResult<Q>, QueryParams<Q>>(query);
+}

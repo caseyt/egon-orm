@@ -53,6 +53,27 @@ import { QueryError } from "../errors.js";
 export type RowLeaf = Extract<OutputPlan, { readonly kind: "row" }>;
 
 /**
+ * An `object` output whose every value is a `value` leaf: what a subquery or CTE that
+ * selects an object of expressions returns.
+ *
+ * @example
+ * ```ts
+ * const columns: ObjectOfValues = { kind: "object", keys: ["n"], values: [{ kind: "value", alias: "n", type: undefined }] };
+ * ```
+ */
+export interface ObjectOfValues {
+  readonly kind: "object";
+  readonly keys: readonly string[];
+  readonly values: readonly Extract<OutputPlan, { readonly kind: "value" }>[];
+}
+
+function objectOfValues(output: OutputPlan | undefined): ObjectOfValues | undefined {
+  if (output?.kind !== "object") return undefined;
+  for (const value of output.values) if (value.kind !== "value") return undefined;
+  return output as ObjectOfValues;
+}
+
+/**
  * How a query names its output columns: `"statement"` (`c0`, `c1`, …; also scalar and
  * `IN` subqueries) or `"source"` (names an outer query can refer to). `"exists"` names
  * them as a statement does, but a query with no select returns no columns at all
@@ -82,6 +103,11 @@ export interface BindingEntry {
   readonly schema: string | undefined;
   /** For a subquery or CTE whose output is whole rows: that leaf, whose aliases are the binding's columns. */
   readonly inner: RowLeaf | undefined;
+  /**
+   * For a subquery or CTE whose output is an object of values: that output, whose leaves'
+   * aliases are the binding's columns. A query over it with no select returns those objects.
+   */
+  readonly columns: ObjectOfValues | undefined;
   /** Whether the binding is a table (its columns are the table's). */
   readonly table: boolean;
   /** On the optional side of an outer join (or its inner leaf is). */
@@ -268,6 +294,7 @@ function bindSource(
         meta: source.meta,
         schema: resolveTableSchema(source.schema, source.meta, querySchema),
         inner: undefined,
+        columns: undefined,
         table: true,
         nullable,
       };
@@ -289,7 +316,15 @@ function bindSource(
     }
     case "values":
     case "fragmentSource":
-      entry = { alias, meta: undefined, schema: undefined, inner: undefined, table: false, nullable };
+      entry = {
+        alias,
+        meta: undefined,
+        schema: undefined,
+        inner: undefined,
+        columns: undefined,
+        table: false,
+        nullable,
+      };
       break;
     default:
       throw new QueryError(`Unknown source kind "${String((source as { kind: unknown }).kind)}".`);
@@ -316,6 +351,7 @@ function innerEntry(
     meta,
     schema: inner === undefined ? meta?.schema : inner.schema,
     inner,
+    columns: inner === undefined && meta === undefined ? objectOfValues(output) : undefined,
     table: false,
     nullable: nullable || (inner?.nullable ?? false),
   };
@@ -423,6 +459,7 @@ export function planSelect(
   if (select === undefined) {
     if (operation !== "all" || mode === "exists") return { items: p.items, output: undefined };
     const entry = scope.bindings.get(root);
+    if (entry?.columns !== undefined) return { items: p.items, output: columnsOutput(p, root, entry.columns) };
     if (entry?.meta === undefined) {
       throw new QueryError(
         `The query has no select, and its root binding "${root}" has no schema to read rows of. Add a select.`,
@@ -499,6 +536,21 @@ function planExpr(
   }
   addItem(p, { kind: "expr", expr: node, alias });
   return { kind: "value", alias, type };
+}
+
+/**
+ * The output of a query with no select over a subquery or CTE that returns objects of
+ * values: the same objects, one select item per key, reading the source's columns.
+ */
+function columnsOutput(p: Planner, alias: string, columns: ObjectOfValues): OutputPlan {
+  const values: OutputPlan[] = [];
+  for (let i = 0; i < columns.keys.length; i++) {
+    const leaf = columns.values[i] as ObjectOfValues["values"][number];
+    const name = p.mode === "source" ? (columns.keys[i] as string) : positional(p);
+    addItem(p, { kind: "column", binding: alias, column: leaf.alias, alias: name });
+    values.push({ kind: "value", alias: name, type: leaf.type });
+  }
+  return { kind: "object", keys: columns.keys, values };
 }
 
 /**

@@ -34,6 +34,7 @@ import type {
   SourceNode,
   TableSourceNode,
   UnaryOp,
+  WindowNode,
 } from "../contracts/query.js";
 import type {
   AnySchema,
@@ -93,6 +94,25 @@ import {
   type SubqueryOperand,
   type Untyped,
 } from "./expr.js";
+import { assignments, RETURNING_SELECTS } from "./advanced/assignments.js";
+import {
+  checkCombination,
+  combinationNode,
+  combinationShape,
+  type SetOperation,
+} from "./advanced/set-operations.js";
+import {
+  checkWindow,
+  checkWindows,
+  collectWindows,
+  selectExpressions,
+  type WindowCheck,
+  type WindowDefParams,
+  type WindowDefs,
+  windowDef,
+  windowNames,
+} from "./advanced/windows.js";
+import { type CteOptions, cteShape, withCteNode } from "./advanced/with-cte.js";
 import { and } from "./functions.js";
 import { type BuiltSelect, buildSelect, mergeSelects, type Sel } from "./select.js";
 
@@ -207,7 +227,7 @@ type AddParams<Q extends QueryLike, X> = [keyof X] extends [never]
           readonly root: infer A2 extends string;
         };
       }
-    ? Query<B2, R2, JoinParams<P2, X>, A2>
+    ? Query<B2, R2, JoinParams<P2, X>, A2, WindowsOf<Q>>
     : never;
 
 /** `P` with the named parameters `X` added. */
@@ -358,6 +378,52 @@ type SelectTypes<X> = [Extract<SelectLeaves<X>, Untyped>] extends [never]
 /** The named parameters of the expressions a select returned. */
 type SelectParams<X> = ParamsOfAll<SelectLeaves<X>[]>;
 
+/** The expressions an `orderBy` callback returned: one item, or each of an array. */
+type OrderLeaves<X> = X extends readonly unknown[] ? X[number] : X;
+
+/** `unknown` when `A` and `B` are the same type; otherwise an error type, so the call does not compile. */
+type SameResult<A, B> =
+  SameType<A, B> extends true
+    ? unknown
+    : { readonly "~error": "both sides of a set operation must return the same type: select the same keys, with the same types" };
+
+/** The value a bulk update may assign to a field of type `T`: a value of it, or an expression of it. */
+type SetValue<T> = T | Expr<T, SomeParams>;
+
+/**
+ * What `set` takes for schema `S`: field name to value, for the fields that are columns.
+ *
+ * @example
+ * ```ts
+ * const values: SetInput<typeof Post> = { published: true, views: 0 };
+ * ```
+ */
+export type SetInput<S extends AnySchema> = {
+  readonly [K in ColumnNames<S>]?: SetValue<K extends keyof Row<S> ? Row<S>[K] : never>;
+};
+
+/**
+ * The checks of a `set` argument `X` on schema `S`: every key is a column (an object
+ * literal assigned to a type parameter is not checked for extra keys otherwise), and no
+ * value is an {@link Untyped} expression.
+ */
+type SetChecks<X, S> = ([Exclude<keyof X, ColumnNames<S>>] extends [never]
+  ? unknown
+  : {
+      readonly "~error": `set() was given "${Exclude<keyof X, ColumnNames<S>> & string}", which is not a column of the root binding`;
+    }) &
+  ([Extract<X[keyof X], Untyped>] extends [never]
+    ? unknown
+    : {
+        readonly "~error": "a value set has no type and is not text: give it one, val(value, t.integer())";
+      });
+
+/** The named parameters of the expressions among the values of a `set` argument. */
+type SetParams<X> = ParamsOfAll<readonly X[keyof X][]>;
+
+/** The named windows a query declares; `never` for a query that declares none. */
+type WindowsOf<Q extends QueryLike> = Q["~query"] extends { readonly windows: infer W extends string } ? W : never;
+
 /** `A` with the keys of `B` replaced and added. */
 type Merge<A, B> = { [K in keyof A as K extends keyof B ? never : K]: A[K] } & B extends infer M
   ? { [K in keyof M]: M[K] }
@@ -405,7 +471,11 @@ export type ExcludableClause =
   | "limit"
   | "offset"
   | "lock"
-  | "preload";
+  | "preload"
+  | "set"
+  | "windows"
+  | "withCte"
+  | "setOperations";
 
 /**
  * The result type after `exclude(clause)`: without its select a query returns its root's
@@ -486,6 +556,7 @@ export type QueryWith<Bs extends { readonly [alias: string]: AnySchema } = Recor
   { readonly [K in keyof Bs]: Binding<Bs[K], boolean> },
   unknown,
   SomeParams,
+  string,
   string
 >;
 
@@ -504,7 +575,7 @@ type PreloadCheck<S, K extends string, Q extends QueryLike> = K extends keyof S
   : unknown;
 
 /** A query as the implementation handles it, whatever its type parameters. */
-type AnyInternal = Query<unknown, unknown, never, string>;
+type AnyInternal = Query<unknown, unknown, never, string, string>;
 
 /** The bindings of a query. */
 type BindingsOf<Q extends QueryLike> = Q["~query"]["bindings"];
@@ -530,7 +601,13 @@ type SelectResult<Q extends QueryLike, X> = [X] extends [RootBinding<BindingsOf<
   : Sel<X>;
 
 /** What a method of `Q` returns: the bindings `B2`, the result `R2`, and the named parameters `X` added. */
-type Next<Q extends QueryLike, B2, R2, X> = Query<B2, R2, WithParams<QueryParams<Q>, X>, RootOf<Q>>;
+type Next<Q extends QueryLike, B2, R2, X> = Query<
+  B2,
+  R2,
+  WithParams<QueryParams<Q>, X>,
+  RootOf<Q>,
+  WindowsOf<Q>
+>;
 
 /** `Q` with the result type `R2`, and the named parameters `X` added. Read from `"~query"`, without matching `Q` against the class. */
 type WithResult<Q extends QueryLike, R2, X = NoParams> = Next<Q, BindingsOf<Q>, R2, X>;
@@ -602,9 +679,20 @@ const ORDER_BYS = 7;
 const LIMIT = 8;
 const OFFSET = 9;
 const LOCK = 10;
+const COMBINATIONS = 11;
+const CTES = 12;
+const WINDOWS = 13;
 const PRELOADS = 14;
+const UPDATES = 15;
 const SCHEMA = 16;
 const PROPERTIES = 18;
+
+/**
+ * The properties a combined query (one with a set operation) may still change: the order,
+ * limit and offset of the combined rows, more set operations, its CTEs and its database
+ * schema. Anything else would apply to the left side only.
+ */
+const AFTER_SET_OPERATION: ReadonlySet<number> = new Set([ORDER_BYS, LIMIT, OFFSET, COMBINATIONS, CTES, SCHEMA]);
 
 // The seeds of the clause kinds whose shapes the builder computes from the shapes its
 // expressions already carry, as `shapeOf` in ast.ts defines them (the tests check
@@ -724,11 +812,11 @@ function patched(
     limit: prop === LIMIT ? (value as QueryAst["limit"]) : prev.limit,
     offset: prop === OFFSET ? (value as QueryAst["offset"]) : prev.offset,
     lock: prop === LOCK ? (value as QueryAst["lock"]) : prev.lock,
-    combinations: prev.combinations,
-    ctes: prev.ctes,
-    windows: prev.windows,
+    combinations: prop === COMBINATIONS ? (value as QueryAst["combinations"]) : prev.combinations,
+    ctes: prop === CTES ? (value as QueryAst["ctes"]) : prev.ctes,
+    windows: prop === WINDOWS ? (value as QueryAst["windows"]) : prev.windows,
     preloads: prop === PRELOADS ? (value as QueryAst["preloads"]) : prev.preloads,
-    updates: prev.updates,
+    updates: prop === UPDATES ? (value as QueryAst["updates"]) : prev.updates,
     schema: prop === SCHEMA ? (value as QueryAst["schema"]) : prev.schema,
     hints: prev.hints,
     params,
@@ -1056,7 +1144,8 @@ const TOKEN: unique symbol = Symbol("egon.query");
 /**
  * A query: an immutable description of what to read. `B` is its bindings (alias to
  * binding), `R` the type of the rows it returns, `P` the named parameters it needs when it
- * runs and `A` the alias of its root binding.
+ * runs, `A` the alias of its root binding and `W` the names of the windows it declares
+ * with {@link Query.windows}.
  *
  * Every method returns a new query and leaves this one unchanged, so a base query can be
  * kept and extended in several directions. Building runs nothing; a repo runs it.
@@ -1069,13 +1158,16 @@ const TOKEN: unique symbol = Symbol("egon.query");
  *   .limit(10);
  * ```
  */
-export class Query<B, R, P = NoParams, A extends string = string> implements SubqueryOperand<R, P> {
+export class Query<B, R, P = NoParams, A extends string = string, W extends string = never>
+  implements SubqueryOperand<R, P>
+{
   /** Type information only; there is no such property at run time. */
   declare readonly "~query": {
     readonly bindings: B;
     readonly result: R;
     readonly params: (params: P) => void;
     readonly root: A;
+    readonly windows: W;
   };
   /** The query as data: what the compiler reads. */
   readonly ast: QueryAst;
@@ -1208,8 +1300,13 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
     named: readonly NamedParamNode[],
     scope: Scope = this.#scope,
     preloadNamed: readonly NamedParamNode[] = this.#preloadNamed,
-  ): Query<B, R, P, A> {
+  ): Query<B, R, P, A, W> {
     const ast = this.ast;
+    if (ast.combinations.length > 0 && !AFTER_SET_OPERATION.has(prop)) {
+      throw new QueryError(
+        "This query is combined with union(), intersect() or except(), and only orderBy(), limit(), offset(), more set operations, withCte() and schema() apply to the combined rows. Add any other clause to a side before combining, or wrap the combined query: from(subquery(q), \"s\").",
+      );
+    }
     const counts = this.#counts;
     const listCounts = this.#lists;
     const at = replace ? offsetOf(counts, prop) : offsetOf(counts, prop + 1);
@@ -1217,7 +1314,7 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
     const removed = replace ? (counts[prop] as number) : 0;
     const removedLists = replace ? (listCounts[prop] as number) : 0;
     const shapes = withEntry(this.#shapes, prop, shape);
-    return new Query<B, R, P, A>(
+    return new Query<B, R, P, A, W>(
       TOKEN,
       patched(
         ast,
@@ -1239,7 +1336,7 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
   }
 
   /** Recomputes the named parameters of a query that lost a clause, refusing to drop one its type still requires. */
-  #dropping(next: Query<unknown, unknown, never, string>, clause: string): Query<B, R, P, A> {
+  #dropping(next: Query<unknown, unknown, never, string, string>, clause: string): Query<B, R, P, A, W> {
     const named: NamedParamNode[] = [];
     collectParams(next.ast, [], undefined, named);
     const before = this.namedParams();
@@ -1252,7 +1349,7 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
         );
       }
     }
-    return new Query<B, R, P, A>(
+    return new Query<B, R, P, A, W>(
       TOKEN,
       next.ast,
       next.#counts,
@@ -1269,7 +1366,7 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
     op: "and" | "or",
     expr: AnyExpr,
     clause: string,
-  ): Query<B, R, P, A> {
+  ): Query<B, R, P, A, W> {
     const node = boolNode(op, expr.node);
     const list = prop === WHERES ? this.ast.wheres : this.ast.havings;
     const nodes = list.slice();
@@ -1321,7 +1418,7 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
     op: "and" | "or",
     clause: string,
     input: unknown,
-  ): Query<B, R, P, A> {
+  ): Query<B, R, P, A, W> {
     if (typeof input === "function") {
       return this.#addBool(prop, op, condition(run(clause, input, this.#scope.arg), clause), clause);
     }
@@ -1720,18 +1817,24 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
    */
   select<Q0 extends QueryLike, X extends SelectInput>(
     this: Q0,
-    fn: (bindings: BindingsOf<Q0>) => X & SelectTypes<X>,
+    fn: (bindings: BindingsOf<Q0>) => X & SelectTypes<X> & WindowCheck<SelectLeaves<X>, WindowsOf<Q0>>,
   ): WithResult<Q0, SelectResult<Q0, X>, SelectParams<X>> {
     return (this as unknown as AnyInternal).#select(fn) as never;
   }
 
   #select(fn: unknown): unknown {
+    if (this.ast.updates.length > 0) {
+      throw new QueryError(
+        "select() was called on a query with set(…) assignments, an update. Declare what the update returns with returning(): returning(({ p }) => p.id).",
+      );
+    }
     if (this.ast.select !== undefined) {
       throw new QueryError(
-        'select() was called on a query that already has a select. A query has one: use selectMerge() to add keys, or exclude("select") first.',
+        `select() was called on a query that already has a ${RETURNING_SELECTS.has(this.ast.select) ? "returning()" : "select"}. A query has one: use selectMerge() to add keys, or exclude("select") first.`,
       );
     }
     const built = buildSelect(run("select", fn, this.#scope.arg), "select");
+    checkWindows("select", selectExpressions(built.node.shape), this.ast.windows);
     this.#checkPreloadSelect(built.node, "select");
     return this.#setSelect(built, this.#withNamed("select", this.#named, built.named)) as never;
   }
@@ -1748,7 +1851,7 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
    */
   selectMerge<Q0 extends QueryLike, X extends SelectInput & object>(
     this: Q0,
-    fn: (bindings: BindingsOf<Q0>) => X & SelectTypes<X>,
+    fn: (bindings: BindingsOf<Q0>) => X & SelectTypes<X> & WindowCheck<SelectLeaves<X>, WindowsOf<Q0>>,
   ): WithResult<Q0, Merge<QueryResult<Q0>, Sel<X>>, SelectParams<X>> {
     return (this as unknown as AnyInternal).#selectMerge(fn) as never;
   }
@@ -1766,8 +1869,11 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
         `selectMerge() needs its callback to return an object of keys to add; it returned ${describeShape(extra.node.shape)}.`,
       );
     }
+    checkWindows("selectMerge", selectExpressions(extra.node.shape), this.ast.windows);
     const named = this.#withNamed("selectMerge", this.#named, extra.named);
     const merged = mergeSelects(current, extra.node);
+    // Keys merged into a returning() list stay a returning() list.
+    if (RETURNING_SELECTS.has(current)) RETURNING_SELECTS.add(merged.node);
     const next = this.#setSelect(merged, named);
     const replaced = (extra.node.shape.keys as readonly string[]).some((key) =>
       (current.shape as { readonly keys: readonly string[] }).keys.includes(key),
@@ -1775,7 +1881,7 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
     return (replaced ? this.#dropping(next as never, "selectMerge() replacing a key") : next) as never;
   }
 
-  #setSelect(built: BuiltSelect, named: readonly NamedParamNode[]): Query<B, R, P, A> {
+  #setSelect(built: BuiltSelect, named: readonly NamedParamNode[]): Query<B, R, P, A, W> {
     return this.#next(
       SELECT,
       built.node,
@@ -1888,9 +1994,10 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
    * @throws QueryError when the callback does not return expressions or order items.
    */
   orderBy<X extends OrderItem | readonly OrderItem[] | readonly []>(
-    fn: (bindings: B) => X,
+    fn: (bindings: B) => X & WindowCheck<OrderLeaves<X>, W>,
   ): AddParams<this, ParamsOfList<X>> {
     const items = orderItems(run("orderBy", fn, this.#scope.arg), "orderBy");
+    for (const item of items) checkWindow("orderBy", item.node.expr, this.ast.windows);
     const nodes = this.ast.orderBys.slice();
     let params: readonly unknown[] = NONE;
     let lists: readonly number[] = NONE;
@@ -1945,7 +2052,7 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
     );
     const ast = this.ast;
     const shapes = withEntry(this.#shapes, ORDER_BYS, listShape(nodes));
-    return new Query<B, R, P, A>(
+    return new Query<B, R, P, A, W>(
       TOKEN,
       patched(ast, ORDER_BYS, nodes, ast.params, ast.listLengths, combineQueryShape(shapes)),
       this.#counts,
@@ -1959,7 +2066,7 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
 
   // --- paging and locks -------------------------------------------------------
 
-  #bound(prop: typeof LIMIT | typeof OFFSET, clause: string, value: unknown): Query<B, R, P, A> {
+  #bound(prop: typeof LIMIT | typeof OFFSET, clause: string, value: unknown): Query<B, R, P, A, W> {
     let expr: AnyExpr;
     if (isExpr(value)) expr = value;
     else if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
@@ -2046,7 +2153,7 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
   lock<X extends Expr<unknown, SomeParams>>(clause: X): AddParams<this, ParamsOf<X>>;
   lock(mode: unknown, options?: unknown): unknown {
     const replacing = this.ast.lock !== undefined;
-    let next: Query<B, R, P, A>;
+    let next: Query<B, R, P, A, W>;
     if (isExpr(mode)) {
       if (mode.node.kind !== "fragment" || options !== undefined) {
         throw new QueryError(
@@ -2096,29 +2203,376 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
     return this.#next(SCHEMA, name, true, NONE, NONE, schemaShape(name), this.#named) as never;
   }
 
+  // --- set operations ---------------------------------------------------------
+  //
+  // The query a set operation is called on is the left side. The combined query's
+  // orderBy, limit and offset apply to the combined rows; any other clause belongs on a
+  // side before the two are combined (advanced/set-operations.ts).
+
+  #combine(method: string, op: SetOperation, all: boolean, other: unknown): unknown {
+    if (!(other instanceof Query)) {
+      throw new QueryError(`${method}() takes another query: q.${method}(from(Post, "p").select(…)).`);
+    }
+    const right = other.ast;
+    checkCombination(method, this.ast, right);
+    const node = combinationNode(op, all, right);
+    const nodes = this.ast.combinations.slice();
+    nodes.push(node);
+    return this.#next(
+      COMBINATIONS,
+      nodes,
+      false,
+      right.params,
+      right.listLengths,
+      hashInt(this.#shapes[COMBINATIONS] as number, combinationShape(op, all, right.shape)),
+      this.#withNamed(method, this.#named, other.named),
+    );
+  }
+
+  /**
+   * `UNION`: the rows of this query and of `other`, without duplicates. Both must return
+   * the same type, with keys in the same order. An `orderBy`, `limit` or `offset` added
+   * after it applies to the combined rows.
+   *
+   * @example
+   * ```ts
+   * from(User, "u").select(({ u }) => ({ email: u.email }))
+   *   .union(from(Invite, "i").select(({ i }) => ({ email: i.email })))
+   *   .orderBy(({ u }) => u.email);
+   * ```
+   *
+   * @throws QueryError when `other` is not a query, this query has an `orderBy`, `limit`,
+   * `offset` or lock, either side has preloads, a plain selected value or `set(…)`, or the
+   * two sides select different shapes.
+   */
+  union<Q0 extends QueryLike, Q2 extends QueryLike>(
+    this: Q0,
+    other: Q2 & SameResult<QueryResult<Q0>, QueryResult<Q2>>,
+  ): WithResult<Q0, QueryResult<Q0>, QueryParams<Q2>> {
+    return (this as unknown as AnyInternal).#combine("union", "union", false, other) as never;
+  }
+
+  /**
+   * `UNION ALL`: the rows of this query and of `other`, duplicates kept. See {@link union}.
+   *
+   * @example
+   * ```ts
+   * roots.unionAll(children);
+   * ```
+   *
+   * @throws QueryError as {@link union}.
+   */
+  unionAll<Q0 extends QueryLike, Q2 extends QueryLike>(
+    this: Q0,
+    other: Q2 & SameResult<QueryResult<Q0>, QueryResult<Q2>>,
+  ): WithResult<Q0, QueryResult<Q0>, QueryParams<Q2>> {
+    return (this as unknown as AnyInternal).#combine("unionAll", "union", true, other) as never;
+  }
+
+  /**
+   * `INTERSECT`: the rows both queries return, without duplicates. See {@link union}.
+   *
+   * @example
+   * ```ts
+   * authors.intersect(commenters);
+   * ```
+   *
+   * @throws QueryError as {@link union}.
+   */
+  intersect<Q0 extends QueryLike, Q2 extends QueryLike>(
+    this: Q0,
+    other: Q2 & SameResult<QueryResult<Q0>, QueryResult<Q2>>,
+  ): WithResult<Q0, QueryResult<Q0>, QueryParams<Q2>> {
+    return (this as unknown as AnyInternal).#combine("intersect", "intersect", false, other) as never;
+  }
+
+  /**
+   * `INTERSECT ALL`: the rows both queries return, as often as both have them. See {@link union}.
+   *
+   * @example
+   * ```ts
+   * authors.intersectAll(commenters);
+   * ```
+   *
+   * @throws QueryError as {@link union}.
+   */
+  intersectAll<Q0 extends QueryLike, Q2 extends QueryLike>(
+    this: Q0,
+    other: Q2 & SameResult<QueryResult<Q0>, QueryResult<Q2>>,
+  ): WithResult<Q0, QueryResult<Q0>, QueryParams<Q2>> {
+    return (this as unknown as AnyInternal).#combine("intersectAll", "intersect", true, other) as never;
+  }
+
+  /**
+   * `EXCEPT`: the rows of this query that `other` does not return, without duplicates.
+   * See {@link union}.
+   *
+   * @example
+   * ```ts
+   * everyone.except(banned);
+   * ```
+   *
+   * @throws QueryError as {@link union}.
+   */
+  except<Q0 extends QueryLike, Q2 extends QueryLike>(
+    this: Q0,
+    other: Q2 & SameResult<QueryResult<Q0>, QueryResult<Q2>>,
+  ): WithResult<Q0, QueryResult<Q0>, QueryParams<Q2>> {
+    return (this as unknown as AnyInternal).#combine("except", "except", false, other) as never;
+  }
+
+  /**
+   * `EXCEPT ALL`: the rows of this query that `other` does not return, counting
+   * duplicates. See {@link union}.
+   *
+   * @example
+   * ```ts
+   * everyone.exceptAll(banned);
+   * ```
+   *
+   * @throws QueryError as {@link union}.
+   */
+  exceptAll<Q0 extends QueryLike, Q2 extends QueryLike>(
+    this: Q0,
+    other: Q2 & SameResult<QueryResult<Q0>, QueryResult<Q2>>,
+  ): WithResult<Q0, QueryResult<Q0>, QueryParams<Q2>> {
+    return (this as unknown as AnyInternal).#combine("exceptAll", "except", true, other) as never;
+  }
+
+  // --- CTEs and windows -------------------------------------------------------
+
+  /**
+   * Attaches a common table expression (`WITH name AS (query)`), which the query reads as
+   * a source with `cte(name, shape)`. With `{ recursive: true }` the CTE's query may read
+   * the CTE itself (`WITH RECURSIVE`); `materialized` asks the database to compute it
+   * once, or (`false`) to inline it.
+   *
+   * @example
+   * ```ts
+   * from(cte("tree", Category), "t").withCte("tree", roots.unionAll(children), { recursive: true });
+   * ```
+   *
+   * @throws QueryError when the name is empty or taken, the options are not
+   * `{ recursive?, materialized? }`, or the query has preloads or `set(…)`.
+   */
+  withCte<Q0 extends QueryLike, Q2 extends QueryLike>(
+    this: Q0,
+    name: string,
+    query: Q2,
+    options?: CteOptions,
+  ): WithResult<Q0, QueryResult<Q0>, QueryParams<Q2>> {
+    return (this as unknown as AnyInternal).#withCte(name, query, options) as never;
+  }
+
+  #withCte(name: unknown, query: unknown, options: unknown): unknown {
+    if (!(query instanceof Query)) {
+      throw new QueryError(
+        `withCte(${typeof name === "string" ? `"${name}"` : "name"}, query) takes a query as its second argument.`,
+      );
+    }
+    const node = withCteNode(name, query.ast, options, this.ast.ctes);
+    const nodes = this.ast.ctes.slice();
+    nodes.push(node);
+    return this.#next(
+      CTES,
+      nodes,
+      false,
+      query.ast.params,
+      query.ast.listLengths,
+      hashInt(this.#shapes[CTES] as number, cteShape(node, query.ast.shape)),
+      this.#withNamed("withCte", this.#named, query.named),
+    );
+  }
+
+  /**
+   * Declares named windows (`WINDOW w AS (…)`), each a callback that receives the bindings
+   * and returns `{ partitionBy, orderBy, frame }`. Window functions and aggregates use one
+   * with `.over("w")`; the name is checked against the windows declared, so declare them
+   * before the select that uses them.
+   *
+   * @example
+   * ```ts
+   * from(Post, "p")
+   *   .windows({ byAuthor: ({ p }) => ({ partitionBy: [p.authorId], orderBy: [p.createdAt.desc()] }) })
+   *   .select(({ p }) => ({ id: p.id, n: rowNumber().over("byAuthor") }));
+   * ```
+   *
+   * @throws QueryError when a name is not an identifier or is declared already, or a
+   * callback does not return a window.
+   */
+  windows<Q0 extends QueryLike, const D extends WindowDefs<B>>(
+    this: Q0,
+    defs: D,
+  ): Query<
+    BindingsOf<Q0>,
+    QueryResult<Q0>,
+    WithParams<QueryParams<Q0>, WindowDefParams<D>>,
+    RootOf<Q0>,
+    WindowsOf<Q0> | (keyof D & string)
+  > {
+    return (this as unknown as AnyInternal).#windows(defs) as never;
+  }
+
+  #windows(defs: unknown): unknown {
+    const names = windowNames(defs, this.ast.windows);
+    const added = [];
+    for (const name of names) {
+      const fn = (defs as Readonly<Record<string, unknown>>)[name];
+      added.push(windowDef(name, run(`windows({ ${name} })`, fn, this.#scope.arg)));
+    }
+    const built = collectWindows(added);
+    const nodes = this.ast.windows.slice();
+    let shape = this.#shapes[WINDOWS] as number;
+    for (let i = 0; i < added.length; i++) {
+      nodes.push(added[i] as (typeof added)[number]);
+      shape = hashInt(shape, built.shapes[i] as number);
+    }
+    return this.#next(
+      WINDOWS,
+      nodes,
+      false,
+      built.params,
+      built.lists,
+      shape,
+      this.#withNamed("windows", this.#named, built.named),
+    );
+  }
+
+  // --- bulk updates and deletes -------------------------------------------------
+
+  /**
+   * Makes the query a bulk update (`repo.updateAll`): `UPDATE … SET field = value` for
+   * every row the query matches. Values are plain values (bound with the field's type) or
+   * expressions, given as an object or by a callback that receives the bindings. A later
+   * call adds fields, and a field set again takes the later value. Joins become
+   * `UPDATE … FROM`.
+   *
+   * @example
+   * ```ts
+   * from(Post, "p").where(({ p }) => p.authorId.eq(1)).set({ published: true });
+   * from(Post, "p").set(({ p }) => ({ views: p.views.add(1), tagList: p.tagList.append("hot") }));
+   * ```
+   *
+   * @throws QueryError when the root is not a schema's table, the query has a select
+   * (declare `RETURNING` with {@link returning}) or preloads, or a key is not a column, a
+   * value `undefined`, or `null` for a field that is not nullable.
+   */
+  set<Q0 extends QueryLike, const X extends SetInput<RootSchemaOf<Q0>>>(
+    this: Q0,
+    values: X & SetChecks<X, RootSchemaOf<Q0>>,
+  ): WithResult<Q0, QueryResult<Q0>, SetParams<X>>;
+  set<Q0 extends QueryLike, X extends SetInput<RootSchemaOf<Q0>>>(
+    this: Q0,
+    fn: (bindings: BindingsOf<Q0>) => X & SetChecks<X, RootSchemaOf<Q0>>,
+  ): WithResult<Q0, QueryResult<Q0>, SetParams<X>>;
+  set(input: unknown): unknown {
+    const root = this.#scope.root;
+    if (root.meta === undefined || this.ast.from.kind !== "table") {
+      throw new QueryError(
+        `set() updates the rows of a table, and the root binding "${root.alias}" is not a schema's table.`,
+      );
+    }
+    if (this.ast.preloads.length > 0) {
+      throw new QueryError("set() was called on a query with preloads; an update cannot preload. exclude(\"preload\") first.");
+    }
+    const select = this.ast.select;
+    if (select !== undefined && !RETURNING_SELECTS.has(select)) {
+      throw new QueryError(
+        "set() was called on a query with a select. An update says what it returns with returning(), not select(): exclude(\"select\"), then returning(({ p }) => p.id).",
+      );
+    }
+    const values = typeof input === "function" ? run("set", input, this.#scope.arg) : input;
+    const built = assignments(values, root.meta, this.ast.updates, this.#updateShapes());
+    const params: unknown[] = [];
+    const lists: number[] = [];
+    const collected: NamedParamNode[] = [];
+    for (const node of built.nodes) collectParams(node, params, lists, collected);
+    let shape = HASH_SEED;
+    for (const value of built.shapes) shape = hashInt(shape, value);
+    // The new assignments' named parameters (the earlier ones are the query's already),
+    // checked against the rest of the query.
+    let named = this.#named;
+    for (const node of collected) if (!this.#named.includes(node)) named = this.#withNamed("set", named, [node]);
+    const next = this.#next(
+      UPDATES,
+      built.nodes,
+      true,
+      params.length === 0 ? NONE : params,
+      lists.length === 0 ? NONE : lists,
+      shape,
+      named,
+    );
+    return built.replaced ? this.#dropping(next as never, "set() replacing a field") : next;
+  }
+
+  /** The shapes of the query's assignments, in order. */
+  #updateShapes(): readonly number[] {
+    const out: number[] = [];
+    for (const node of this.ast.updates) out.push(shapeOf(node));
+    return out;
+  }
+
+  /**
+   * What a bulk update or delete returns (`RETURNING …`), in the shapes `select` takes:
+   * `repo.updateAll` and `repo.deleteAll` then return those rows. On an update use this
+   * instead of `select`.
+   *
+   * @example
+   * ```ts
+   * from(Post, "p").where(({ p }) => p.authorId.eq(1)).set({ published: true }).returning(({ p }) => p.id);
+   * ```
+   *
+   * @throws QueryError when the query already has a select or `returning`, or has preloads,
+   * or the value holds something that cannot be selected.
+   */
+  returning<Q0 extends QueryLike, X extends SelectInput>(
+    this: Q0,
+    fn: (bindings: BindingsOf<Q0>) => X & SelectTypes<X>,
+  ): WithResult<Q0, SelectResult<Q0, X>, SelectParams<X>> {
+    return (this as unknown as AnyInternal).#returning(fn) as never;
+  }
+
+  #returning(fn: unknown): unknown {
+    if (this.ast.select !== undefined) {
+      throw new QueryError(
+        `returning() was called on a query that already has a ${RETURNING_SELECTS.has(this.ast.select) ? "returning()" : "select"}. A query returns one shape: exclude("select") first.`,
+      );
+    }
+    if (this.ast.preloads.length > 0) {
+      throw new QueryError("returning() was called on a query with preloads; an update or delete cannot preload.");
+    }
+    const built = buildSelect(run("returning", fn, this.#scope.arg), "returning");
+    RETURNING_SELECTS.add(built.node);
+    return this.#setSelect(built, this.#withNamed("returning", this.#named, built.named));
+  }
+
   // --- composition ------------------------------------------------------------
 
   /**
-   * Removes a clause: every `where` (and `orWhere`), the select, `distinct`, every
-   * `groupBy`, `having` or `orderBy`, `limit`, `offset`, the lock, or every preload.
+   * Removes a clause: every `where` (and `orWhere`), the select (or `returning`),
+   * `distinct`, every `groupBy`, `having` or `orderBy`, `limit`, `offset`, the lock, every
+   * preload, every `set` assignment, every named window (`"windows"`), every CTE
+   * (`"withCte"`), or every set operation (`"setOperations"`).
    *
    * @example
    * ```ts
    * const unordered = q.exclude("orderBy");
    * ```
    *
-   * @throws QueryError for another clause name, or when the clause holds a named
-   * parameter that the query's type still requires.
+   * @throws QueryError for another clause name, when the clause holds a named parameter
+   * that the query's type still requires, or when a named window removed is still used.
    */
   exclude<Q0 extends QueryLike, C extends ExcludableClause>(
     this: Q0,
     clause: C,
-  ): WithResult<Q0, ExcludedResult<C, QueryResult<Q0>, RootRowOf<Q0>>> {
+  ): C extends "windows"
+    ? Query<BindingsOf<Q0>, QueryResult<Q0>, QueryParams<Q0>, RootOf<Q0>>
+    : WithResult<Q0, ExcludedResult<C, QueryResult<Q0>, RootRowOf<Q0>>> {
     return (this as unknown as AnyInternal).#exclude(clause) as never;
   }
 
   #exclude(clause: unknown): unknown {
-    let next: Query<B, R, P, A>;
+    let next: Query<B, R, P, A, W>;
     switch (clause as ExcludableClause) {
       case "where":
         next = this.#next(WHERES, NONE, true, NONE, NONE, HASH_SEED, this.#named);
@@ -2155,9 +2609,26 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
       case "preload":
         next = this.#next(PRELOADS, NONE, true, NONE, NONE, HASH_SEED, this.#named, this.#scope, NONE);
         break;
+      case "set":
+        next = this.#next(UPDATES, NONE, true, NONE, NONE, HASH_SEED, this.#named);
+        break;
+      case "windows": {
+        // A named window still used by the select or the order would be left undeclared.
+        const select = this.ast.select;
+        if (select !== undefined) checkWindows("exclude", selectExpressions(select.shape), NONE);
+        for (const order of this.ast.orderBys) checkWindow("exclude", order.expr, NONE);
+        next = this.#next(WINDOWS, NONE, true, NONE, NONE, HASH_SEED, this.#named);
+        break;
+      }
+      case "withCte":
+        next = this.#next(CTES, NONE, true, NONE, NONE, HASH_SEED, this.#named);
+        break;
+      case "setOperations":
+        next = this.#next(COMBINATIONS, NONE, true, NONE, NONE, HASH_SEED, this.#named);
+        break;
       default:
         throw new QueryError(
-          `exclude() removes one of: where, select, distinct, groupBy, having, orderBy, limit, offset, lock, preload. It was given ${typeof clause === "string" ? `"${clause}"` : describeValue(clause)}.`,
+          `exclude() removes one of: where, select, distinct, groupBy, having, orderBy, limit, offset, lock, preload, set, windows, withCte, setOperations. It was given ${typeof clause === "string" ? `"${clause}"` : describeValue(clause)}.`,
         );
     }
     return this.#dropping(next as never, `exclude("${clause}")`) as never;
@@ -2275,6 +2746,11 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
     if (ast.preloads.length > 0) {
       throw new QueryError(
         'A query with preloads was used as a subquery. A subquery returns values to its enclosing query, and cannot run preloads: exclude("preload") first.',
+      );
+    }
+    if (ast.updates.length > 0) {
+      throw new QueryError(
+        "A query with set(…) assignments, an update, was used as a subquery. Only a query that reads can be one.",
       );
     }
     const select = ast.select;
@@ -2978,6 +3454,14 @@ function showBools(nodes: readonly BoolNode[]): string {
   return text;
 }
 
+function showWindow(node: WindowNode): string {
+  const parts: string[] = [];
+  if (node.partitionBy.length > 0) parts.push(`partition by ${node.partitionBy.map(show).join(", ")}`);
+  if (node.orderBy.length > 0) parts.push(`order by ${node.orderBy.map(showOrder).join(", ")}`);
+  if (node.frame !== undefined) parts.push(show(node.frame));
+  return parts.join(" ");
+}
+
 function showOrder(node: OrderNode): string {
   return `${show(node.expr)}${node.direction === "desc" ? " desc" : ""}${node.nulls === undefined ? "" : ` nulls ${node.nulls}`}`;
 }
@@ -2997,7 +3481,15 @@ function showPreload(node: PreloadNode): string {
  * ```
  */
 export function render(ast: QueryAst): string {
-  const parts: string[] = [`from ${showSource(ast.from)}`];
+  const parts: string[] = [];
+  if (ast.ctes.length > 0) {
+    const recursive = ast.ctes.some((node) => node.recursive) ? "recursive " : "";
+    const ctes = ast.ctes.map(
+      (node) => `${node.name} as (${node.query.kind === "query" ? render(node.query) : show(node.query)})`,
+    );
+    parts.push(`with ${recursive}${ctes.join(", ")}`);
+  }
+  parts.push(`from ${showSource(ast.from)}`);
   for (const node of ast.joins) {
     parts.push(
       `${node.type} join ${showSource(node.source)}${node.on === undefined ? "" : ` on ${show(node.on)}`}`,
@@ -3011,7 +3503,16 @@ export function render(ast: QueryAst): string {
       ast.distinct.on.length === 0 ? "distinct" : `distinct on (${ast.distinct.on.map(show).join(", ")})`,
     );
   }
-  if (ast.select !== undefined) parts.push(`select ${showSelect(ast.select.shape)}`);
+  if (ast.windows.length > 0) {
+    parts.push(`window ${ast.windows.map((node) => `${node.name} as (${showWindow(node.spec)})`).join(", ")}`);
+  }
+  if (ast.updates.length > 0) {
+    parts.push(`set ${ast.updates.map((node) => `${node.column} = ${show(node.value)}`).join(", ")}`);
+  }
+  if (ast.select !== undefined) {
+    parts.push(`${RETURNING_SELECTS.has(ast.select) ? "returning" : "select"} ${showSelect(ast.select.shape)}`);
+  }
+  for (const node of ast.combinations) parts.push(`${node.op}${node.all ? " all" : ""} (${render(node.query)})`);
   if (ast.orderBys.length > 0) parts.push(`order by ${ast.orderBys.map(showOrder).join(", ")}`);
   if (ast.limit !== undefined) parts.push(`limit ${show(ast.limit)}`);
   if (ast.offset !== undefined) parts.push(`offset ${show(ast.offset)}`);

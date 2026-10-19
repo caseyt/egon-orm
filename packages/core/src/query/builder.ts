@@ -91,6 +91,7 @@ import {
   type ParamsOfAll,
   type SomeParams,
   type SubqueryOperand,
+  type Untyped,
 } from "./expr.js";
 import { and } from "./functions.js";
 import { type BuiltSelect, buildSelect, mergeSelects, type Sel } from "./select.js";
@@ -343,6 +344,16 @@ type SelectLeaves<X> = X extends { readonly "~expr": unknown }
       : X extends object
         ? { [K in keyof X]: SelectLeaves<X[K]> }[keyof X]
         : never;
+
+/**
+ * `unknown` when what a select returned holds no {@link Untyped} expression; otherwise an
+ * error type, so that the callback's result does not fit and the call does not compile.
+ */
+type SelectTypes<X> = [Extract<SelectLeaves<X>, Untyped>] extends [never]
+  ? unknown
+  : {
+      readonly "~error": "a selected value has no type, so the database would return it as text: give it one, val(value, t.integer())";
+    };
 
 /** The named parameters of the expressions a select returned. */
 type SelectParams<X> = ParamsOfAll<SelectLeaves<X>[]>;
@@ -1709,7 +1720,7 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
    */
   select<Q0 extends QueryLike, X extends SelectInput>(
     this: Q0,
-    fn: (bindings: BindingsOf<Q0>) => X,
+    fn: (bindings: BindingsOf<Q0>) => X & SelectTypes<X>,
   ): WithResult<Q0, SelectResult<Q0, X>, SelectParams<X>> {
     return (this as unknown as AnyInternal).#select(fn) as never;
   }
@@ -1737,7 +1748,7 @@ export class Query<B, R, P = NoParams, A extends string = string> implements Sub
    */
   selectMerge<Q0 extends QueryLike, X extends SelectInput & object>(
     this: Q0,
-    fn: (bindings: BindingsOf<Q0>) => X,
+    fn: (bindings: BindingsOf<Q0>) => X & SelectTypes<X>,
   ): WithResult<Q0, Merge<QueryResult<Q0>, Sel<X>>, SelectParams<X>> {
     return (this as unknown as AnyInternal).#selectMerge(fn) as never;
   }

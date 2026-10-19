@@ -66,7 +66,7 @@ compile error, and so is `u.age.gt("18")`. Chained `and` calls make one flat
 | `now()` | The database's current time. |
 | `caseWhen(cond, value).when(...).else(value)` | `CASE WHEN`. |
 | `exists(query)` | See [Advanced queries](/guide/queries-advanced#subqueries). |
-| `val(value, type?)` | An explicit bound parameter, for where the type cannot be inferred. |
+| `val(value, type?)` | An explicit bound parameter, for where the type cannot be inferred. In a `select`, a value other than a string or `null` needs the type. |
 | `lit(true \| false \| null \| number)` | A literal written into the SQL. Restricted to these safe kinds. |
 | `param(name, type)` | A [named parameter](#named-parameters). |
 | `fragment` | Raw SQL. See [Fragments](#fragments). |
@@ -161,6 +161,11 @@ side (a value in a `select`, a fragment argument, the first argument of `coalesc
 it yourself:
 
 <<< @/examples/query-expressions.ts#explicit
+
+In a `select`, a value with no type is read back as text, so only a string or `null` may
+go without one: `val(5)`, `val(true)` and `caseWhen(c, 1)` in a `select` do not compile
+(and throw `QueryError` if the types are bypassed). Give the value a type,
+`val(5, t.integer())`, or give the `CASE` a typed first branch.
 
 A type is always a field type, `t.integer()`, the same one you use in a schema. `cast`
 keeps the operand's `null`: `u.age.cast(t.string())` is `string | null` because `age` is

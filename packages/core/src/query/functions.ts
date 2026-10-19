@@ -63,12 +63,15 @@ import {
   type Compatible,
   type CompatibleParams,
   Expr,
+  type HasNoType,
   isSubqueryOperand,
   join,
   joinNamed,
   type MergeParams,
   NONE,
   type NoParams,
+  type NoType,
+  type NoTypeIf,
   NULLABLE_PARAMS,
   type Operand,
   OrderExpr,
@@ -79,6 +82,8 @@ import {
   subqueryOf,
   toOperand,
   typeArgument,
+  type Untyped,
+  type UntypedIf,
   type ValueOf,
 } from "./expr.js";
 
@@ -107,6 +112,31 @@ type Widen<V> = V extends string
 
 /** The type a `caseWhen` value contributes: an expression's own type, or a plain value's widened type. */
 type CaseValue<V> = V extends { readonly "~expr": { readonly type: infer T } } ? T : Widen<V>;
+
+/**
+ * The type-only mark of a `CASE` after another branch `V` (owner decision of 2026-10-15):
+ * once {@link Untyped}, always; while it has no type ({@link NoType}), a value with none
+ * that is not text makes it `Untyped`, and a typed expression gives it a type; a typed
+ * `CASE` takes plain values with its type, but an `Untyped` expression stays untyped.
+ */
+type CaseMark<S, V> = [S] extends [Untyped]
+  ? Untyped
+  : [S] extends [NoType]
+    ? UntypedIf<V> & NoTypeIf<V>
+    : [V] extends [Untyped]
+      ? Untyped
+      : unknown;
+
+/**
+ * The type-only mark of `coalesce(...A)`: when no argument has a type, the result has
+ * none either ({@link NoType}), and is {@link Untyped} when one of them is not text. With
+ * any typed argument, that type applies to the rest.
+ */
+type CoalesceMark<A extends readonly unknown[]> = false extends { [K in keyof A]: HasNoType<A[K]> }[number]
+  ? unknown
+  : true extends { [K in keyof A]: [UntypedIf<A[K]>] extends [Untyped] ? true : false }[number]
+    ? Untyped
+    : NoType;
 
 /** Anything but `undefined`: what a branch of `caseWhen` and an interpolation of `fragment` take. */
 type Value = NonNullable<unknown> | null;
@@ -607,7 +637,11 @@ export function not<X extends Condition>(condition: X): Expr<boolean, ParamsOf<X
 export function coalesce<
   F extends Expr<unknown, SomeParams>,
   const R extends readonly [Operand<ValueOf<F>>, ...Operand<ValueOf<F>>[]],
->(first: F, ...rest: R): Expr<NonNullable<ValueOf<F>> | NullOf<ValueOf<Last<R>>>, ParamsOfAll<[F, ...R]>> {
+>(
+  first: F,
+  ...rest: R
+): Expr<NonNullable<ValueOf<F>> | NullOf<ValueOf<Last<R>>>, ParamsOfAll<[F, ...R]>> &
+  CoalesceMark<[F, ...R]> {
   const head = expressionArgument(first, "coalesce");
   if (rest.length === 0) throw new QueryError("coalesce() needs at least two arguments.");
   const nodes: ExprNode[] = [head.node];
@@ -690,7 +724,7 @@ export class Case<T, P = NoParams> extends Expr<T | null, P> {
   when<C extends Condition, V extends Value>(
     condition: C & Compatible<P, C>,
     value: V & Compatible<MergeParams<P, ParamsOf<C>>, V>,
-  ): Case<T | CaseValue<V>, MergeParams<P, MergeParams<ParamsOf<C>, ParamsOf<V>>>> {
+  ): Case<T | CaseValue<V>, MergeParams<P, MergeParams<ParamsOf<C>, ParamsOf<V>>>> & CaseMark<this, V> {
     return branch(this, condition, value) as never;
   }
 
@@ -704,7 +738,9 @@ export class Case<T, P = NoParams> extends Expr<T | null, P> {
    *
    * @throws QueryError when `value` is `undefined`.
    */
-  else<V extends Value>(value: V & Compatible<P, V>): Expr<T | CaseValue<V>, MergeParams<P, ParamsOf<V>>> {
+  else<V extends Value>(
+    value: V & Compatible<P, V>,
+  ): Expr<T | CaseValue<V>, MergeParams<P, ParamsOf<V>>> & CaseMark<this, V> {
     const node = this.node as Extract<ExprNode, { kind: "case" }>;
     const otherwise = toOperand(value, this.type, this.redact, "else", false, true);
     return new Expr(
@@ -760,7 +796,7 @@ function branch(
 export function caseWhen<C extends Condition, V extends Value>(
   condition: C,
   value: V & Compatible<ParamsOf<C>, V>,
-): Case<CaseValue<V>, MergeParams<ParamsOf<C>, ParamsOf<V>>> {
+): Case<CaseValue<V>, MergeParams<ParamsOf<C>, ParamsOf<V>>> & UntypedIf<V> & NoTypeIf<V> {
   return branch(undefined, condition, value) as never;
 }
 
@@ -808,7 +844,7 @@ export function exists<Q extends SubqueryOperand<unknown, SomeParams>>(query: Q)
  * @throws QueryError when `value` is `undefined`, or `type` is not a field type.
  */
 export function val<T, F extends FieldFlags>(value: NoInfer<T>, type: FieldBuilder<T, F>): Expr<T>;
-export function val<const T>(value: T): Expr<T>;
+export function val<const T>(value: T): Expr<T> & ([T] extends [string | null] ? NoType : Untyped);
 export function val(value: unknown, type?: unknown): AnyExpr {
   if (value === undefined) throw new QueryError("val() was given undefined. Pass a value, or null.");
   const fieldType = type === undefined ? undefined : typeArgument(type, "val");

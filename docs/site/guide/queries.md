@@ -205,6 +205,8 @@ with both compiles, and throws `QueryError`.
 
 - `repo.toSql(q)` returns the SQL and the parameters.
 - `repo.explain(q)` asks the database for its plan.
+- [How a query becomes SQL](/internals/compiler) explains the SQL you will see there, and
+  how compiled plans are cached.
 
 ## Errors
 

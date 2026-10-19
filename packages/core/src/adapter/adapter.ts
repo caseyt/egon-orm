@@ -399,6 +399,7 @@ class SharedAdapter implements DatabaseAdapter {
       capabilities: definition.capabilities,
       quoteIdentifier: definition.quoteIdentifier,
       planCacheSize,
+      codecs: this,
     });
   }
 

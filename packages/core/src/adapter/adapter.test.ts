@@ -1,7 +1,11 @@
+import { User } from "@egon-orm/test-support";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { bindParams, POSTGRES_CAPABILITIES } from "../compiler/index.js";
 import type { Capabilities, PoolEvent, QueryEvent, RawResult } from "../contracts/adapter.js";
+import type { FieldMeta } from "../contracts/schema.js";
 import type { AnyFieldType } from "../contracts/type.js";
 import { ConstraintError, DatabaseError, QueryError } from "../errors.js";
+import { fragment, from, meta } from "../index.js";
 import { bigintType } from "../types/index.js";
 import { type AdapterDefinition, beginSql, createAdapter, DEFAULT_BATCH_SIZE } from "./adapter.js";
 import type { DriverConnection, DriverCursor, DriverHooks, DriverWrapper } from "./driver.js";
@@ -142,6 +146,7 @@ class FakeDriver implements DriverWrapper {
 
 const CAPABILITIES = {
   isolationLevels: ["read committed", "serializable"],
+  lockModes: [],
 } as unknown as Capabilities;
 
 /** Maps errors whose message starts with "fatal" to a connection error, "unique" to a constraint error. */
@@ -218,26 +223,40 @@ describe("createAdapter", () => {
     expect(() => setup({ planCacheSize: 5 })).not.toThrow();
   });
 
-  test("every compile method goes to the statement compiler, which this build does not have yet", () => {
-    const { adapter } = setup();
-    const meta = {} as never;
-    const ast = {} as never;
-    for (const call of [
-      () => adapter.compile(ast, "all", undefined),
-      () => adapter.compileExplain(ast, "all", undefined, {}),
-      () => adapter.compileFragment({} as never),
-      () =>
-        adapter.compileInsert(
-          meta,
-          [],
-          { source: { kind: "values", rows: 1 }, returning: [], onConflict: undefined },
-          undefined,
-        ),
-      () => adapter.compileUpdate(meta, [], [], [], undefined),
-      () => adapter.compileDelete(meta, [], [], undefined),
-    ]) {
-      expect(call).toThrow(QueryError);
-    }
+  test("every compile method goes to the adapter's statement compiler", () => {
+    const { adapter } = setup({ capabilities: POSTGRES_CAPABILITIES });
+    const ast = from(User, "u")
+      .where(({ u }) => u.id.eq(1))
+      .select(({ u }) => u.email).ast;
+    const plan = adapter.compile(ast, "all", undefined);
+    expect(plan.sql).toBe('select "u"."email" as "c0" from "users" as "u" where "u"."id" = $1');
+    expect(adapter.compile(ast, "all", undefined)).toBe(plan);
+    expect(adapter.compileExplain(ast, "all", undefined, {}).sql).toBe(`explain ${plan.sql}`);
+    expect(adapter.compileFragment(fragment`select 1`.node as never).sql).toBe("select 1");
+    const users = meta(User);
+    const id = users.fieldsByName.get("id") as FieldMeta;
+    const email = users.fieldsByName.get("email") as FieldMeta;
+    expect(
+      adapter.compileInsert(
+        users,
+        [email],
+        { source: { kind: "values", rows: 1 }, returning: [id], onConflict: undefined },
+        undefined,
+      ).sql,
+    ).toBe('insert into "users" ("email") values ($1) returning "id" as "c0"');
+    expect(adapter.compileUpdate(users, [email], [id], [], undefined).sql).toBe(
+      'update "users" set "email" = $1 where "id" = $2',
+    );
+    expect(adapter.compileDelete(users, [id], [], "tenant_1").sql).toBe(
+      'delete from "tenant_1"."users" where "id" = $1',
+    );
+  });
+
+  test("a compiled value is converted with the adapter's type overrides", () => {
+    const { adapter } = setup({ driverCodecs: { text: { toDb: (value) => String(value).toUpperCase() } } });
+    const ast = from(User, "u").where(({ u }) => u.email.eq("a@b.c")).ast;
+    const plan = adapter.compile(ast, "all", undefined);
+    expect(bindParams(plan.slots, ast.params)).toEqual(["A@B.C"]);
   });
 
   test("creates the driver on first use only, and once", async () => {

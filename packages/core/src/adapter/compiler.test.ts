@@ -79,4 +79,13 @@ describe("createStatementCompiler", () => {
     expect(call).toThrow(QueryError);
     expect(call).toThrow(`adapter.${method}() cannot compile for mysql`);
   });
+
+  test("reports the plan cache's counters, all zero for a dialect without a SQL table", () => {
+    const compiler = createStatementCompiler(options);
+    const ast = from(User, "u").ast;
+    compiler.compile(ast, "all", undefined);
+    compiler.compile(ast, "all", undefined);
+    expect(compiler.stats()).toEqual({ hits: 1, misses: 1, collisions: 0, size: 1 });
+    expect(stub.stats()).toEqual({ hits: 0, misses: 0, collisions: 0, size: 0 });
+  });
 });

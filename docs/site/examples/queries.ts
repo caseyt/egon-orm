@@ -2,9 +2,8 @@
 // in the page by name; everything outside a region is the scaffolding that makes the
 // regions compile.
 //
-// The repo arrives with a later step, so `repo` is declared here with the shape its read
-// methods will have: the result type comes from the query, and the named parameters are
-// required exactly when the query has some.
+// `repo` is declared with the real `Repo` type: the result type comes from the query, and
+// the named parameters are required exactly when the query has some.
 import {
   count,
   fragment,
@@ -14,9 +13,8 @@ import {
   or,
   param,
   type QueryLike,
-  type QueryParams,
-  type QueryResult,
   type QueryWith,
+  type Repo,
   Schema,
   t,
   timestamps,
@@ -50,10 +48,7 @@ class Profile extends Schema("profiles", {
   bio: t.string().nullable(),
 }) {}
 
-type Args<Q extends QueryLike> = keyof QueryParams<Q> extends never ? [] : [params: QueryParams<Q>];
-declare const repo: {
-  all<Q extends QueryLike>(query: Q, ...params: Args<Q>): Promise<QueryResult<Q>[]>;
-};
+declare const repo: Repo;
 declare const filters: { role?: "admin" | "member"; minAge?: number };
 declare const someQuery: QueryLike;
 

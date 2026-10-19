@@ -5,31 +5,25 @@ and persists [changesets](/guide/changesets).
 
 ## Creating a repo
 
-```ts
-import { createRepo } from "egon-orm";
-import { postgres } from "@egon-orm/postgres";
-
-export const repo = createRepo({
-  adapter: postgres({ connectionString: process.env.DATABASE_URL }),
-});
-```
+<<< @/examples/repo.ts#create
 
 A repo is an ordinary value: export it and import it where it is needed. A second database
-or a read replica is a second repo.
+or a read replica is a second repo. Nothing connects until the first query.
 
 | Option | Default | Effect |
 |---|---|---|
 | `adapter` | required | The database connection. See [Adapters](/guide/adapters). |
 | `schema` | none | The default database schema (a Postgres schema, a MySQL database). |
-| `log` | `false` | `true`, a function receiving each query event, or `{ params: true }` to include parameter values. |
-| `codegen` | `true` | `false` avoids `new Function`, for environments with a strict content security policy. Slower. |
+| `log` | `false` | `true`, a function receiving each query event, or `{ params: true }` to include parameter values. See [Logging and events](#logging-and-events). |
+| `codegen` | `true` | `false` avoids `new Function`, for environments with a strict content security policy. The rows are the same; reading them is slower. |
 | `warnOnRootUseInTransaction` | `false` | Development only. See [Transactions](/guide/transactions#the-explicit-rule). |
 
-```ts
-await repo.ping();        // checks the connection
-repo.poolStats();         // { size, idle, waiting }
-await repo.close();       // waits for running queries, then closes the pool
-```
+An unknown option, or an option of the wrong type, throws `TypeError`. An option set to
+`undefined` counts as left out.
+
+<<< @/examples/repo.ts#health
+
+`planCacheStats()` reports the adapter's [plan cache](/internals/compiler#cache-statistics).
 
 ## Reading
 
@@ -37,80 +31,98 @@ A **queryable** is a schema class or a query. `repo.all(User)` returns every use
 
 | Method | Returns | Notes |
 |---|---|---|
-| `all(queryable)` | `R[]` | |
+| `all(queryable)` | `R[]` | A fresh array of fresh rows. |
 | `one(queryable)` | `R \| null` | Throws `MultipleResultsError` if more than one row matches. |
 | `oneOrThrow(queryable)` | `R` | Also throws `NoResultsError` if none matches. |
 | `first(queryable)` | `R \| null` | Adds `LIMIT 1`. Never throws for extra rows. |
 | `get(Schema, id)` | `Row \| null` | By primary key. |
 | `getOrThrow(Schema, id)` | `Row` | |
-| `getBy(queryable, clauses)` | `Row \| null` | `clauses` is the [object form](/guide/queries#object-form) of `where`. Strict, like `one`. |
-| `getByOrThrow(queryable, clauses)` | `Row` | |
+| `getBy(queryable, clauses)` | `R \| null` | `clauses` is the [object form](/guide/queries#object-form) of `where`. Strict, like `one`. |
+| `getByOrThrow(queryable, clauses)` | `R` | |
 | `exists(queryable)` | `boolean` | |
 | `count(queryable)` | `number` | |
-| `aggregate(queryable, fn, field?)` | `number \| null` | `fn` is `"count"`, `"sum"`, `"avg"`, `"min"` or `"max"`. |
+| `aggregate(queryable, fn, field?)` | see below | `fn` is `"count"`, `"sum"`, `"avg"`, `"min"` or `"max"`. |
 | `stream(queryable)` | `AsyncIterable<R>` | See [Streaming](#streaming). |
 | `reload(row)` | `Row \| null` | A fresh copy; `null` if it was deleted. Also takes an array. |
 | `reloadOrThrow(row)` | `Row` | |
 | `preload(rows, spec)` | loaded rows | See [Preloading](/guide/associations#after-the-fact). |
 
-```ts
-const user = await repo.get(User, 1);
-const member = await repo.get(Membership, { orgId, userId });     // composite key
-const ada = await repo.getBy(User, { email: "ada@example.com" });
-const newest = await repo.first(from(Post, "p").orderBy(({ p }) => p.createdAt.desc()));
-const total = await repo.count(from(Post, "p").where({ published: true }));
-```
+`R` is what the query selects: rows of the schema class (instances of it, with its getters
+and methods) unless the query has a `select`.
+
+<<< @/examples/repo.ts#reading
 
 - **`one` is strict.** It adds no `LIMIT`. A second row means the query is wrong, and you
-  are told. Use `first` when "any one" is what you want.
-- **`get` with `null` or `undefined` throws.** That is almost always a missing id.
+  are told: the error carries the query, without its values. Use `first` when "any one" is
+  what you want.
+- **`first` replaces the query's own limit** with 1 and keeps its offset. Give the query
+  an `orderBy`: without one, which row comes first is up to the database.
+- **`get` with `null` or `undefined` throws** `QueryError`, before anything is sent. That is
+  almost always a missing id. For a composite key the id is an object of every key field.
+- **`exists`** runs `SELECT 1 … LIMIT 1` without the select, the order and the preloads.
+  A query with a limit of its own, or a set operation, is checked as a subquery, so its
+  limit still counts.
+- **`aggregate`** over a field of the query's root: `count` returns a `number`; `sum` and
+  `avg` a number (`bigint` for a `t.bigint()` column, a string for a decimal) or `null`;
+  `min` and `max` the field's type or `null`. Over no rows `count` is 0 and the others are
+  `null`. A query with a limit, an offset, `distinct`, a `groupBy`, a `having` or a set
+  operation is aggregated as a subquery, so the aggregate sees exactly its rows
+  (`count(from(Post, "p").limit(2))` is at most 2).
+- **`reload`** reads a row again from the table and database schema it was read from. Rows
+  of one schema are read with one query; an array comes back in the same order, with
+  `null` for a row that is gone. Preloaded associations are not read again.
 
 ### Parameters and options
 
 A query with [named parameters](/guide/queries#named-parameters) takes them as the second
 argument; options come last. A query without named parameters takes options second.
 
-```ts
-await repo.all(q, { timeoutMs: 500 });                 // no named parameters
-await repo.all(adults, { minAge: 18 });                // named parameters
-await repo.all(adults, { minAge: 18 }, { timeoutMs: 500 });
-```
+<<< @/examples/repo.ts#params
 
 | Option | Effect |
 |---|---|
-| `schema` | The database schema for this call. A query's own `.schema()` wins over it. |
-| `timeoutMs` | Cancels the query after this long. |
+| `schema` | The database schema for this call. A query's own `.schema()`, and a schema class that declares one, win over it; it wins over the repo's default. |
+| `timeoutMs` | Cancels the query after this long. The wait for a connection counts. |
 | `signal` | An `AbortSignal` that cancels the query. |
-| `context` | Any object. It is passed through to the query event, for request ids and the like. |
+| `context` | Any plain object. It is passed through to the query event, for request ids and the like. |
 
 A query that exceeds `timeoutMs` rejects with `DatabaseError` and the code `"timeout"`;
-one cancelled through `signal` rejects with the code `"aborted"`.
+one cancelled through `signal` rejects with the code `"aborted"`. An unknown option throws
+`TypeError`, and so does passing named parameters to a query that has none.
 
 ### Streaming
 
-```ts
-for await (const user of repo.stream(from(User, "u"), { batchSize: 500 })) {
-  // ...
-}
-```
+<<< @/examples/repo.ts#stream
 
-Rows are fetched in batches with a server-side cursor. Leaving the loop early closes the
-cursor. Streams do not support preloads.
+Rows are fetched in batches (`batchSize`, default 500) with a server-side cursor and turned
+into rows one at a time. Leaving the loop early (`break`, `return`, an exception) closes the
+cursor and returns the connection. Streams do not support preloads: a stream with one
+throws `QueryError` and suggests reading in batches instead.
 
-On Postgres a cursor needs a transaction. Inside `repo.transaction`, stream on `tx`.
-Outside one, the repo opens a transaction for the life of the stream, which holds one
-connection until the loop ends.
+On Postgres a stream needs no transaction. It holds one connection until the loop ends;
+inside `repo.transaction`, stream on `tx`.
+
+### Reloading
+
+<<< @/examples/repo.ts#reload
 
 ### Raw SQL
 
-```ts
-repo.toSql(q);                                              // { sql, params }
-await repo.explain(q, { analyze: true });
-await repo.raw(fragment`select now() as now`);               // { rows, rowCount }
-```
+<<< @/examples/repo.ts#raw
 
-`repo.raw` takes a [`fragment`](/guide/query-expressions#fragments) only. Passing a string
-is a compile error and throws.
+- `toSql` returns the SQL and the parameters exactly as they would be sent, redacted values
+  included: it is a debugging tool, not a log.
+- `explain` returns the plan as text, or with `format: "json"` the database's structured
+  plan. With `analyze: true` the query really runs.
+- `repo.raw` takes a [`fragment`](/guide/query-expressions#fragments) only, whose
+  interpolations are bound parameters. Passing a string is a compile error and throws. The
+  rows come back as the driver returns them, not converted to field types.
+
+::: tip Good to know
+- Reads never cache rows: every call queries the database. What is cached is the plan of
+  the SQL, per query shape.
+- There is no lazy loading. A row has the associations you preloaded and nothing else.
+:::
 
 ## Writing
 
@@ -218,17 +230,27 @@ await repo.deleteAll(from(Post, "p").where({ published: false }));
 
 ## Logging and events
 
-```ts
-const repo = createRepo({ adapter, log: true });
+<<< @/examples/repo.ts#logging
 
-repo.on("query", (e) => {
-  // e.sql, e.durationMs, e.queueMs, e.decodeMs, e.rowCount,
-  // e.operation, e.source, e.context, e.error
-});
-repo.on("poolExhausted", () => { /* ... */ });
-```
-
-- Events: `query`, `connect`, `disconnect`, `poolExhausted`.
-- Parameter values are included only with `log: { params: true }`.
-- Values of [redacted](/guide/schemas#fields) fields are never logged.
+- Events: `query`, `connect`, `disconnect`, `poolExhausted`. `repo.on` returns the
+  function that unsubscribes.
+- A `query` event is one statement the repo ran: the adapter's report (`sql`,
+  `paramCount`, `durationMs`, `queueMs`, `rowCount`, `error`) plus `operation` (the method:
+  `"all"`, `"one"`, `"first"`, `"get"`, `"getBy"`, `"exists"`, `"aggregate"` for `count` too,
+  `"stream"`, `"reload"`, `"explain"`, `"raw"`; a throwing twin reports its base method),
+  `source` (the table the query reads from), `decodeMs` (the time spent turning result rows
+  into rows; for a stream, the total) and `context`. A stream reports one event, when it
+  ends.
+- `log: true` writes one line per statement to standard error:
+  `egon all users 1.25 ms (queue 0.02 ms, decode 0.10 ms) 3 rows: select …`.
+  `log: (event) => …` receives each event instead.
+- Parameter values are included only with `log: { params: true }`, in the log lines and in
+  every `query` event of the repo.
+- Values of [redacted](/guide/schemas#fields) fields are never logged: they appear as
+  `**redacted**`.
 - `context` is whatever the call passed as its `context` option.
+- Statements another repo runs on the same adapter are not reported to this one.
+- When nobody listens, nothing is measured.
+- A listener that throws does not fail the statement, but its error is rethrown as an
+  uncaught exception, which ends the process unless you handle `uncaughtException`: catch
+  errors inside your listener.

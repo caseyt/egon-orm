@@ -199,6 +199,12 @@ class StreamRow extends Schema("stream_rows", {
   label: t.string(),
 }) {}
 
+/** A table with a composite key, filled with many rows for `reload`. */
+class Pair extends Schema("pairs", {
+  a: t.integer().primaryKey(),
+  b: t.string().primaryKey(),
+}) {}
+
 /** A schema without a primary key. */
 class Note extends Schema(
   "notes",
@@ -280,6 +286,7 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
       db = handle.db;
       await db.exec("create table stream_rows (id integer primary key, label text not null)");
       await db.exec("create table notes (body text not null)");
+      await db.exec("create table pairs (a integer not null, b text not null, primary key (a, b))");
       const seeding = profile.makeAdapter(db, { poolMax: 1 });
       try {
         await insertRows(seeding, profile, User, USERS);
@@ -290,6 +297,7 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         await insertRows(seeding, profile, Membership, MEMBERSHIPS);
         await insertRows(seeding, profile, Note, [{ body: "first" }, { body: "second" }]);
         await db.exec(profile.insertSeries(50_000));
+        await db.exec(profile.insertPairs(3_000));
       } finally {
         await seeding.close();
       }
@@ -672,6 +680,17 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         expect((await r.first(ordered))?.id).toBe(1);
       });
 
+      test("first takes the large limits all takes", async () => {
+        const r = repo();
+        const ordered = from(User, "u").orderBy(({ u }) => u.id);
+        const huge = ordered.limit(Number.MAX_SAFE_INTEGER);
+        expect(await r.all(huge)).toHaveLength(4);
+        expect((await r.first(huge))?.id).toBe(1);
+        const big = ordered.limit(param("size", t.bigint({ mode: "number" })));
+        expect((await r.first(big, { size: 5_000_000_000 }))?.id).toBe(1);
+        expect(await r.first(big, { size: 0 })).toBeNull();
+      });
+
       test("first", async () => {
         const r = repo();
         expect(await r.first(none)).toBeNull();
@@ -1022,6 +1041,22 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         expect(fresh.map((tag) => (tag as { id: number } | null)?.id ?? null)).toEqual([null, 901]);
         expect(await r.reload(tags[0] as object)).toBeNull();
         expect(await rejection(r.reloadOrThrow(tags))).toBeInstanceOf(NoResultsError);
+      });
+
+      test("thousands of rows with a composite key, in place, with gone rows null", async () => {
+        const r = repo();
+        const pairs = await r.all(from(Pair, "p").orderBy(({ p }) => p.a));
+        expect(pairs).toHaveLength(3_000);
+        await db.exec("delete from pairs where a in (10, 2000)");
+        const reversed = [...pairs].reverse();
+        const fresh = await r.reload(reversed);
+        expect(fresh).toHaveLength(3_000);
+        expect(fresh.filter((each) => each === null)).toHaveLength(2);
+        fresh.forEach((each, i) => {
+          const given = reversed[i] as Pair;
+          if (given.a === 10 || given.a === 2000) expect(each).toBeNull();
+          else expect(each).toEqual(given);
+        });
       });
 
       test("rows with a composite key", async () => {

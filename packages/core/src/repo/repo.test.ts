@@ -407,7 +407,7 @@ describe("one, oneOrThrow, first", () => {
       .offset(5);
     await repo.first(q);
     expect(statements[0]?.sql).toMatch(
-      /order by "u"\."id" asc limit case when \$1 < 1 then \$2 else 1 end offset \$3$/,
+      /order by "u"\."id" asc limit case when cast\(\$1 as bigint\) < 1 then cast\(\$2 as bigint\) else 1 end offset \$3$/,
     );
     expect(statements[0]?.params).toEqual([10, 10, 5]);
     const paged = from(User, "u").limit(param("size", t.integer()));
@@ -891,7 +891,7 @@ describe("reload", () => {
   });
 
   test("many rows of a composite key are read in statements under the parameter limit", async () => {
-    const { adapter, driver } = setup(() => [], { ...POSTGRES_CAPABILITIES, maxParams: 5 });
+    const { adapter, driver } = setup(() => [], { ...POSTGRES_CAPABILITIES, maxParams: 5, arrays: false });
     const repo = createRepo({ adapter });
     const orgId = "0190d8a0-0000-7000-8000-00000000000a";
     driver.respond = () =>
@@ -925,7 +925,7 @@ describe("reload", () => {
     expect(driver.statements.map((each) => each.params.length)).toEqual([2, 1]);
   });
 
-  test("rows of a composite key", async () => {
+  test("rows of a composite key go as one array per key field, in one statement", async () => {
     const orgId = "0190d8a0-0000-7000-8000-00000000000a";
     const member = { c0: orgId, c1: "2", c2: "member" };
     const owner = { c0: orgId, c1: "1", c2: "owner" };
@@ -935,10 +935,33 @@ describe("reload", () => {
     const fresh = await repo.reload(memberships);
     expect(fresh.map((each) => each?.userId)).toEqual([2, 1]);
     expect(statements[0]?.sql).toMatch(
+      /where \("memberships"\."org_id", "memberships"\."user_id"\) in \(select \* from unnest\(cast\(\$1 as uuid\[\]\), cast\(\$2 as bigint\[\]\)\)\)$/,
+    );
+    expect(statements[0]?.params).toEqual([
+      [orgId, orgId],
+      [2, 1],
+    ]);
+    // Any number of rows: the same statement.
+    await repo.reload(memberships[0] as Membership);
+    expect(statements[1]?.sql).toBe(statements[0]?.sql);
+  });
+
+  test("without array columns, a composite key is matched row by row, at most 1,000 rows a statement", async () => {
+    const orgId = "0190d8a0-0000-7000-8000-00000000000a";
+    const { adapter, driver } = setup(() => [], { ...POSTGRES_CAPABILITIES, arrays: false });
+    const repo = createRepo({ adapter });
+    driver.respond = () =>
+      Array.from({ length: 2_500 }, (_, i) => ({ c0: orgId, c1: String(i + 1), c2: "member" }));
+    const memberships = await repo.all(Membership);
+    driver.statements.length = 0;
+    driver.respond = () => [];
+    await repo.reload(memberships);
+    expect(driver.statements.map((each) => each.params.length)).toEqual([2_000, 2_000, 1_000]);
+    expect(driver.statements[2]?.sql).toMatch(
       /where \("memberships"\."org_id" = \$1 and "memberships"\."user_id" = \$2\) or \(/,
     );
     await repo.reload(memberships[0] as Membership);
-    expect(statements[1]?.sql).toMatch(
+    expect(driver.statements[3]?.sql).toMatch(
       /where "memberships"\."org_id" = \$1 and "memberships"\."user_id" = \$2$/,
     );
   });

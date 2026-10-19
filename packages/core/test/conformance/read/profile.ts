@@ -34,6 +34,12 @@ export interface ReadConformanceProfile {
    */
   readonly insertSeries: (count: number) => string;
   /**
+   * A statement (no parameters) that inserts `count` rows into
+   * `pairs (a integer not null, b text not null, primary key (a, b))`: `a` 1..count, `b`
+   * `"k<a mod 7>"`.
+   */
+  readonly insertPairs: (count: number) => string;
+  /**
    * A statement, written with the `fragment` tag, that takes `seconds` to run and returns
    * one row: what `repo.raw` runs to test cancellation.
    */

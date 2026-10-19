@@ -39,7 +39,6 @@ import type {
   StreamOptions,
 } from "../contracts/adapter.js";
 import type {
-  AggregateNode,
   ExprNode,
   FragmentNode,
   QueryAst,
@@ -53,15 +52,28 @@ import type { AnySchema, FieldMeta, SchemaMeta } from "../contracts/schema.js";
 import { ROW } from "../contracts/schema.js";
 import { MultipleResultsError, NoResultsError, QueryError } from "../errors.js";
 import { isPlainObject } from "../internal/plain-object.js";
-import { binaryNode, caseNode, collectParams, literalNode, paramNode, shapeOf } from "../query/ast.js";
+import {
+  binaryNode,
+  caseNode,
+  castNode,
+  collectParams,
+  columnNode,
+  fragmentNode,
+  literalNode,
+  paramNode,
+  shapeOf,
+  shapeOfColumn,
+  shapeOfFragment,
+  shapeOfParam,
+} from "../query/ast.js";
 import { bindingOf } from "../query/bindings.js";
 import { AS_SOURCE, from, type Query, render, type SourceParts } from "../query/builder.js";
-import { type AnyExpr, Col, isExpr } from "../query/expr.js";
+import { type AnyExpr, Col, Expr, isExpr } from "../query/expr.js";
 import { and, avg, count, max, min, or, sum } from "../query/functions.js";
 import { selectNode } from "../query/select.js";
 import { isRow, isSchema } from "../schema/guards.js";
 import { meta } from "../schema/schema.js";
-import { integerType } from "../types/index.js";
+import { arrayType, bigintType, integerType } from "../types/index.js";
 import { decodeRows, decoderFor } from "./hydrate.js";
 import {
   DEFAULT_STREAM_BATCH_SIZE,
@@ -655,6 +667,7 @@ function wrap(inner: QueryAst, select: SelectNode, limit: ExprNode | undefined):
 }
 
 const INTEGER = integerType();
+const BIGINT = bigintType();
 
 /** A `LIMIT 1`; a bound parameter, like every limit. */
 const limitOne = (): ExprNode => paramNode(1, INTEGER, false);
@@ -681,57 +694,111 @@ function cached(ast: QueryAst, key: string, make: () => QueryAst): QueryAst {
 
 /**
  * The query of `first`: the same query with `LIMIT 1`, or, when it has a limit of its own,
- * `LIMIT CASE WHEN <own> < 1 THEN <own> ELSE 1 END`: never more than one row, never more
+ * `LIMIT CASE WHEN <own> < 1 THEN <own> ELSE 1 END` (`<own>` cast to bigint): never more
+ * than one row, never more
  * than the query's own limit (`limit(0)` still returns nothing). Its offset is kept.
  */
 export function firstAst(ast: QueryAst): QueryAst {
   return cached(ast, "first", () => {
     const own = ast.limit;
     if (own === undefined) return derive(ast, { limit: limitOne() });
+    // As bigint: a CASE would otherwise type the limit as a 32-bit integer and refuse the
+    // large limits a plain LIMIT takes.
+    const limit = castNode(own, BIGINT);
     const one = literalNode(1);
-    return derive(ast, { limit: caseNode([{ when: binaryNode("lt", own, one), result: own }], one) });
+    return derive(ast, { limit: caseNode([{ when: binaryNode("lt", limit, one), result: limit }], one) });
   });
 }
 
 /**
- * Whether a select computes an aggregate over the query's rows (an aggregate function
- * that is not a window function, or a fragment, whose text could be one). Such a select
- * groups the rows by itself, so it cannot be replaced without changing how many rows the
- * query returns. Subqueries are not looked into: their aggregates are their own.
+ * Whether a select computes an aggregate over the query's rows:
+ *
+ * - `"aggregate"`: an aggregate function that is not a window function (or a window
+ *   function whose arguments aggregate). Such a select groups the rows by itself.
+ * - `"unchecked"`: no aggregate the repo can see, but a fragment (or an expression kind
+ *   it does not know), whose SQL could hold one.
+ * - `undefined`: neither.
+ *
+ * Only expression children are walked: never the values of parameters, their types, or
+ * subqueries (whose aggregates are their own).
  */
-function selectsAggregate(select: SelectNode | undefined): boolean {
-  return select !== undefined && shapeAggregates(select.shape);
+type Aggregation = "aggregate" | "unchecked" | undefined;
+
+function stronger(a: Aggregation, b: Aggregation): Aggregation {
+  return a === "aggregate" || b === "aggregate" ? "aggregate" : (a ?? b);
 }
 
-function shapeAggregates(shape: SelectShape): boolean {
+function selectAggregation(select: SelectNode | undefined): Aggregation {
+  return select === undefined ? undefined : shapeAggregation(select.shape);
+}
+
+function shapeAggregation(shape: SelectShape): Aggregation {
   switch (shape.kind) {
     case "expr":
-      return exprAggregates(shape.expr);
+      return exprAggregation(shape.expr);
     case "object":
-      return shape.values.some(shapeAggregates);
+      return shape.values.reduce<Aggregation>(
+        (found, value) => stronger(found, shapeAggregation(value)),
+        undefined,
+      );
     case "tuple":
-      return shape.items.some(shapeAggregates);
+      return shape.items.reduce<Aggregation>(
+        (found, item) => stronger(found, shapeAggregation(item)),
+        undefined,
+      );
     default:
-      return false;
+      return undefined;
   }
 }
 
-/** Whether an expression node (or a value inside one) computes an aggregate over the query's rows. */
-function exprAggregates(value: unknown): boolean {
-  if (typeof value !== "object" || value === null) return false;
-  if (Array.isArray(value)) return value.some(exprAggregates);
-  const node = value as { readonly kind?: unknown };
+function listAggregation(nodes: readonly ExprNode[]): Aggregation {
+  let found: Aggregation;
+  for (const node of nodes) found = stronger(found, exprAggregation(node));
+  return found;
+}
+
+function exprAggregation(node: ExprNode): Aggregation {
   switch (node.kind) {
     case "aggregate":
       // A window function does not group, but its arguments may.
-      return (node as AggregateNode).over === undefined || exprAggregates((node as AggregateNode).args);
+      return node.over === undefined ? "aggregate" : listAggregation(node.args);
     case "fragment":
-      return true;
+      return stronger("unchecked", listAggregation(node.args));
+    case "unary":
+      return exprAggregation(node.operand);
+    case "binary":
+      return stronger(exprAggregation(node.left), exprAggregation(node.right));
+    case "between":
+      return listAggregation([node.expr, node.low, node.high]);
+    case "nary":
+    case "fn":
+      return listAggregation(node.args);
+    case "tuple":
+      return listAggregation(node.items);
+    case "cast":
+      return exprAggregation(node.expr);
+    case "jsonPath":
+      return stronger(exprAggregation(node.expr), listAggregation(node.path));
+    case "case": {
+      let found = node.else === undefined ? undefined : exprAggregation(node.else);
+      for (const branch of node.whens) found = stronger(found, listAggregation([branch.when, branch.result]));
+      return found;
+    }
+    case "selectedAs":
+      return node.expr === undefined ? undefined : exprAggregation(node.expr);
+    case "column":
+    case "param":
+    case "namedParam":
+    case "list":
+    case "literal":
+    case "ident":
+    case "star":
     case "subquery":
     case "exists":
-      return false;
+      return undefined;
     default:
-      return Object.values(node).some(exprAggregates);
+      // A node kind added by an extension: its SQL is not known here.
+      return "unchecked";
   }
 }
 
@@ -748,7 +815,7 @@ function existsNeedsWrapping(ast: QueryAst): boolean {
     ast.limit !== undefined ||
     ast.combinations.length > 0 ||
     (ast.distinct !== undefined && ast.offset !== undefined) ||
-    (ast.groupBys.length === 0 && selectsAggregate(ast.select))
+    (ast.groupBys.length === 0 && selectAggregation(ast.select) !== undefined)
   );
 }
 
@@ -785,22 +852,28 @@ export type AggregateFunction = "count" | "sum" | "avg" | "min" | "max";
 const AGGREGATES: readonly AggregateFunction[] = ["count", "sum", "avg", "min", "max"];
 
 /**
- * Whether an aggregate over the query must be computed over its rows as a subquery: a
- * limit, an offset, `distinct`, a set operation, a `groupBy` or a `having` decide which
- * rows there are; a row lock cannot be combined with an aggregate; and a select that
- * aggregates by itself returns one row, not the rows it reads.
+ * Why an aggregate over the query must be computed over its rows as a subquery, or
+ * `undefined` when it need not: a limit, an offset, `distinct`, a set operation, a
+ * `groupBy` or a `having` decide which rows there are; a row lock cannot be combined with
+ * an aggregate; a select that aggregates by itself returns one row, not the rows it
+ * reads; and a fragment in the select cannot be checked for aggregates.
  */
-function needsWrapping(ast: QueryAst): boolean {
-  return (
-    ast.limit !== undefined ||
-    ast.offset !== undefined ||
-    ast.distinct !== undefined ||
-    ast.combinations.length > 0 ||
-    ast.groupBys.length > 0 ||
-    ast.havings.length > 0 ||
-    ast.lock !== undefined ||
-    selectsAggregate(ast.select)
-  );
+function wrapReason(ast: QueryAst): string | undefined {
+  if (ast.limit !== undefined) return "it has a limit";
+  if (ast.offset !== undefined) return "it has an offset";
+  if (ast.distinct !== undefined) return "it is distinct";
+  if (ast.combinations.length > 0) return "it has a set operation";
+  if (ast.groupBys.length > 0) return "it has a groupBy";
+  if (ast.havings.length > 0) return "it has a having";
+  if (ast.lock !== undefined) return "it locks its rows";
+  switch (selectAggregation(ast.select)) {
+    case "aggregate":
+      return "its select aggregates";
+    case "unchecked":
+      return "its select has a fragment, whose SQL cannot be checked for aggregates";
+    default:
+      return undefined;
+  }
 }
 
 /** The schema metadata of the root binding of a query, for an aggregate over one of its fields. */
@@ -851,15 +924,15 @@ export function aggregateAst(ast: QueryAst, fn: AggregateFunction, field: string
     );
   }
   return cached(ast, field === undefined ? fn : `${fn}:${field}`, () => {
-    const wrapped = needsWrapping(ast);
+    const reason = wrapReason(ast);
     const fieldMeta = field === undefined ? undefined : rootField(ast, field);
-    if (!wrapped) {
+    if (reason === undefined) {
       const column = fieldMeta === undefined ? undefined : new Col<unknown>(ast.from.alias, fieldMeta);
       return derive(ast, { select: selectOf(aggregateExpr(fn, column)), orderBys: NONE, preloads: NONE });
     }
     const inner = derive(ast, { preloads: NONE });
     const column =
-      fieldMeta === undefined ? undefined : new Col<unknown>(WRAPPED, wrappedColumn(ast, fieldMeta));
+      fieldMeta === undefined ? undefined : new Col<unknown>(WRAPPED, wrappedColumn(ast, fieldMeta, reason));
     return wrap(inner, selectOf(aggregateExpr(fn, column)), undefined);
   });
 }
@@ -885,7 +958,7 @@ function rootField(ast: QueryAst, field: string): FieldMeta {
  * The column of `field` in a wrapped query's output: its column name when the query
  * selects whole rows of its root, the key when it selects an object with that key.
  */
-function wrappedColumn(ast: QueryAst, field: FieldMeta): FieldMeta {
+function wrappedColumn(ast: QueryAst, field: FieldMeta, reason: string): FieldMeta {
   const select = ast.select;
   if (select === undefined) return field;
   const shape = select.shape;
@@ -904,7 +977,7 @@ function wrappedColumn(ast: QueryAst, field: FieldMeta): FieldMeta {
     }
   }
   throw new QueryError(
-    `repo.aggregate() over "${field.name}": this query is aggregated as a subquery (it has a limit, an offset, distinct, a set operation, a groupBy, a having, a lock or an aggregating select), so it must select the column "${field.name}" of its root binding "${ast.from.alias}": whole rows of the root, or an object whose key "${field.name}" is that column (${ast.from.alias}.${field.name}).`,
+    `repo.aggregate() over "${field.name}": this query is aggregated as a subquery (${reason}), so it must select the column "${field.name}" of its root binding "${ast.from.alias}": whole rows of the root, or an object whose key "${field.name}" is that column (${ast.from.alias}.${field.name}). Otherwise compute the aggregate in the query's own select and read it with repo.one(…).`,
   );
 }
 
@@ -1295,7 +1368,7 @@ export async function reload(
       for (let from = 0; from < group.indexes.length; from += size) {
         const indexes = group.indexes.slice(from, from + size);
         const given = indexes.map((index) => rows[index] as Readonly<Record<string, unknown>>);
-        const query = reloadQuery(group.schema, group.schemaMeta, group.databaseSchema, given);
+        const query = reloadQuery(core, group.schema, group.schemaMeta, group.databaseSchema, given);
         const found = await load(core, "reload", query.ast, undefined, options);
         const byKey = new Map<unknown, unknown>();
         for (const each of found) byKey.set(keyOf(each as Readonly<Record<string, unknown>>, key), each);
@@ -1310,18 +1383,72 @@ export async function reload(
   return out;
 }
 
+/** The most rows a `reload` statement lists key by key (an `OR` of key matches, or an expanded list). */
+export const RELOAD_CHUNK_ROWS = 1_000;
+
 /**
- * How many rows one `reload` statement reads. A single key bound as one array
- * (`= any($1)`) has no limit; otherwise every key value is a parameter, and a statement
- * may hold at most `capabilities.maxParams` of them (65,535 on Postgres).
+ * Whether `reload` passes each key field as one array parameter: on a dialect with array
+ * columns and array parameters, a single key is `= any($1)` and a composite key is
+ * `(k1, k2) in (select * from unnest($1, $2))`, so one statement of fixed size reads any
+ * number of rows.
+ */
+function keysAsArrays(core: ReadCore): boolean {
+  const capabilities = core.adapter.capabilities;
+  return capabilities.arrayParams && capabilities.arrays;
+}
+
+/**
+ * How many rows one `reload` statement reads: all of them when the keys go as arrays;
+ * otherwise at most {@link RELOAD_CHUNK_ROWS}, and never more parameters than
+ * `capabilities.maxParams` allows.
  */
 function reloadChunkSize(core: ReadCore, keyFields: number): number {
-  const capabilities = core.adapter.capabilities;
-  if (keyFields === 1 && capabilities.arrayParams) return Number.POSITIVE_INFINITY;
-  return Math.max(1, Math.floor(capabilities.maxParams / keyFields));
+  if (keysAsArrays(core)) return Number.POSITIVE_INFINITY;
+  return Math.max(
+    1,
+    Math.min(RELOAD_CHUNK_ROWS, Math.floor(core.adapter.capabilities.maxParams / keyFields)),
+  );
+}
+
+/**
+ * `(k1, k2, …) in (select * from unnest($1, $2, …))`: every key field's values as one
+ * array parameter, typed so that the dialect casts it (`cast($1 as uuid[])`). The SQL
+ * text is the constant strings below; every value is a bound parameter.
+ */
+function keysInArrays(
+  alias: string,
+  key: readonly FieldMeta[],
+  rows: readonly Readonly<Record<string, unknown>>[],
+): AnyExpr {
+  const between = key.slice(1).map(() => ", ");
+  const strings = ["(", ...between, ") in (select * from unnest(", ...between, "))"];
+  const args: ExprNode[] = [];
+  const shapes: number[] = [];
+  const params: unknown[] = [];
+  for (const field of key) {
+    args.push(columnNode(alias, field.name, field.column));
+    shapes.push(shapeOfColumn(alias, field.column));
+  }
+  for (const field of key) {
+    const type = arrayType(field.type);
+    const values = rows.map((row) => row[field.name]);
+    args.push(paramNode(values, type, field.redact));
+    shapes.push(shapeOfParam(type, field.redact));
+    params.push(values);
+  }
+  return new Expr(
+    fragmentNode(strings, args),
+    undefined,
+    false,
+    params,
+    NONE,
+    NONE,
+    shapeOfFragment(strings, shapes),
+  );
 }
 
 function reloadQuery(
+  core: ReadCore,
   schema: AnySchema,
   schemaMeta: SchemaMeta,
   databaseSchema: string | undefined,
@@ -1356,6 +1483,7 @@ function reloadQuery(
       const field = key[0] as FieldMeta;
       return (columns[field.name] as Col<unknown>).in(rows.map((row) => row[field.name]) as never) as never;
     }
+    if (keysAsArrays(core)) return keysInArrays(alias, key, rows) as never;
     const matches = rows.map((row) =>
       and(...key.map((field) => (columns[field.name] as Col<unknown>).eq(row[field.name] as never))),
     );

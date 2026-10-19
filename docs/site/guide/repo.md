@@ -15,7 +15,7 @@ or a read replica is a second repo. Nothing connects until the first query.
 | `adapter` | required | The database connection. See [Adapters](/guide/adapters). |
 | `schema` | none | The default database schema (a Postgres schema, a MySQL database). |
 | `log` | `false` | `true`, a function receiving each query event, or `{ params: true }` to include parameter values. See [Logging and events](#logging-and-events). |
-| `codegen` | `true` | `false` avoids `new Function`, for environments with a strict content security policy. The rows are the same; reading them is slower. With `true`, a runtime that refuses `new Function` is detected on the first query and the repo falls back silently. |
+| `codegen` | `true` | Whether the repo's row decoders are generated with `new Function`. `false` builds them without generating code; the rows are the same, reading them is slower. With `true`, a runtime that refuses `new Function` is detected on the first query and the repo falls back silently. (Other parts of the library still try `new Function` once when they load; they too fall back on their own.) |
 | `warnOnRootUseInTransaction` | `false` | Development only. See [Transactions](/guide/transactions#the-explicit-rule). |
 
 An unknown option, or an option of the wrong type, throws `TypeError`. An option set to
@@ -71,12 +71,16 @@ and methods) unless the query has a `select`.
   `null`. A query with a limit, an offset, `distinct`, a `groupBy`, a `having`, a set
   operation, a row lock, or a select that aggregates by itself is aggregated as a
   subquery, so the aggregate sees exactly its rows (`count(from(Post, "p").limit(2))` is
-  at most 2). Such a query must select the field's column: whole rows of its root, or an
-  object whose key of that name is that column; anything else is a `QueryError`.
+  at most 2). A [fragment](/guide/query-expressions#fragments) in the select counts as
+  possibly aggregating, since its SQL cannot be checked. A query read through a subquery
+  must select the field's column: whole rows of its root, or an object whose key of that
+  name is that column; anything else is a `QueryError`, and the error says why. Compute
+  the aggregate in the query's own select and read it with `one` instead.
 - **`reload`** reads a row again from the table and database schema it was read from. Rows
-  of one schema are read together, in as few statements as the database's parameter
-  limit allows; an array comes back in the same order, with `null` for a row that is
-  gone. Preloaded associations are not read again.
+  of one schema are read together: on Postgres in one statement whatever their number
+  (each key field's values go as one array); elsewhere in statements of at most 1,000
+  rows. An array comes back in the same order, with `null` for a row that is gone.
+  Preloaded associations are not read again.
 - **`get` with an array** throws `QueryError` (unless the key column itself holds arrays):
   to read several rows by key, use `where(({ u }) => u.id.in(ids))`.
 

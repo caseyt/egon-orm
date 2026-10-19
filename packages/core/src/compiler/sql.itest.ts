@@ -82,6 +82,15 @@ test("a selected coalesce of a typed CASE and a value comes back as the CASE's t
   expect(rows).toEqual([{ c0: 1 }]);
 });
 
+test("a coalesce with a typed argument compared with an untyped value is true on Postgres", async () => {
+  const q = from(User, "u")
+    .select(() => ({ same: coalesce(val(1, t.integer()), val(2)).eq(val(1)) }))
+    .limit(1);
+  const plan = compiler.compile(q.ast, "all", undefined);
+  const rows = await handle.db.query(plan.sql, bindParams(plan.slots, q.ast.params));
+  expect(rows).toEqual([{ c0: true }]);
+});
+
 test("comparisons: a typed side compares numbers, two untyped strings compare as text", async () => {
   const run = async (q: { readonly ast: QueryAst }) => {
     const plan = compiler.compile(q.ast, "all", undefined);

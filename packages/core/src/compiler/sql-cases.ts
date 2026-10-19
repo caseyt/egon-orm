@@ -698,6 +698,14 @@ export const WHERE_CASES: readonly SqlCase[] = [
       params: [1, 2],
     },
   ),
+  queryCase(
+    "a coalesce with a typed argument, compared with an untyped value, is cast and compares as a number",
+    users.where(() => coalesce(val(1, t.integer()), val(2)).eq(val(1))).select(({ u }) => u.id),
+    {
+      sql: 'select "u"."id" as "c0" from "users" as "u" where coalesce(cast($1 as integer), $2) = $3',
+      params: [1, 2, 1],
+    },
+  ),
 ];
 
 // ---------------------------------------------------------------------------

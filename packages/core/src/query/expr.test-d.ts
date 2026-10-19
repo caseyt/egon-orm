@@ -36,6 +36,7 @@ import {
   param,
   stringAgg,
   sum,
+  type UsesWindow,
   val,
 } from "./functions.js";
 
@@ -325,7 +326,8 @@ describe("aggregates", () => {
 
   test("filter and over exist on aggregates only", () => {
     expectTypeOf(sum(p.views).filter(p.published)).toEqualTypeOf<Aggregate<number | null, NoParams>>();
-    expectTypeOf(count().over("w")).toEqualTypeOf<Aggregate<number, NoParams>>();
+    // A named window is marked in the type, so that a select can check it is declared (step 09).
+    expectTypeOf(count().over("w")).toEqualTypeOf<Aggregate<number, NoParams> & UsesWindow<"w">>();
     expectTypeOf(
       sum(p.views).over({ partitionBy: [p.authorId], orderBy: [p.createdAt.desc()] }),
     ).toEqualTypeOf<Aggregate<number | null, NoParams>>();

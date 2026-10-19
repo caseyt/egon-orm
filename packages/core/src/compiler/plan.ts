@@ -29,6 +29,7 @@
 import type { OutputPlan, OutputPreload } from "../contracts/adapter.js";
 import type {
   CteNode,
+  CteSourceNode,
   ExprNode,
   PreloadNode,
   QueryAst,
@@ -40,6 +41,7 @@ import type { SchemaMeta } from "../contracts/schema.js";
 import { META } from "../contracts/schema.js";
 import type { AnyFieldType } from "../contracts/type.js";
 import { QueryError } from "../errors.js";
+import { SOURCE_COLUMNS } from "../query/advanced/source-columns.js";
 
 /**
  * A `row` leaf of an {@link OutputPlan}.
@@ -51,6 +53,27 @@ import { QueryError } from "../errors.js";
  * ```
  */
 export type RowLeaf = Extract<OutputPlan, { readonly kind: "row" }>;
+
+/**
+ * An `object` output whose every value is a `value` leaf: what a subquery or CTE that
+ * selects an object of expressions returns.
+ *
+ * @example
+ * ```ts
+ * const columns: ObjectOfValues = { kind: "object", keys: ["n"], values: [{ kind: "value", alias: "n", type: undefined }] };
+ * ```
+ */
+export interface ObjectOfValues {
+  readonly kind: "object";
+  readonly keys: readonly string[];
+  readonly values: readonly Extract<OutputPlan, { readonly kind: "value" }>[];
+}
+
+function objectOfValues(output: OutputPlan | undefined): ObjectOfValues | undefined {
+  if (output?.kind !== "object") return undefined;
+  for (const value of output.values) if (value.kind !== "value") return undefined;
+  return output as ObjectOfValues;
+}
 
 /**
  * How a query names its output columns: `"statement"` (`c0`, `c1`, …; also scalar and
@@ -82,6 +105,11 @@ export interface BindingEntry {
   readonly schema: string | undefined;
   /** For a subquery or CTE whose output is whole rows: that leaf, whose aliases are the binding's columns. */
   readonly inner: RowLeaf | undefined;
+  /**
+   * For a subquery or CTE whose output is an object of values: that output, whose leaves'
+   * aliases are the binding's columns. A query over it with no select returns those objects.
+   */
+  readonly columns: ObjectOfValues | undefined;
   /** Whether the binding is a table (its columns are the table's). */
   readonly table: boolean;
   /** On the optional side of an outer join (or its inner leaf is). */
@@ -116,6 +144,11 @@ export interface Scope {
   readonly parent: Scope | undefined;
   readonly bindings: Map<string, BindingEntry>;
   readonly ctes: Map<string, CteEntry>;
+  /**
+   * The bindings of the query a source subquery belongs to, which the subquery may not
+   * read (that would be a lateral join, which is not supported yet): kept only to say so.
+   */
+  readonly hidden: ReadonlyMap<string, BindingEntry> | undefined;
 }
 
 /**
@@ -127,19 +160,54 @@ export interface Scope {
  * ```
  */
 export function newScope(parent: Scope | undefined): Scope {
-  return { parent, bindings: new Map(), ctes: new Map() };
+  return { parent, bindings: new Map(), ctes: new Map(), hidden: undefined };
 }
 
 /**
- * Whether `alias` names a binding of this query or of a query around it.
+ * The scope a subquery in `FROM` or a join is read in: the query's CTEs and the bindings
+ * of the queries around it, but not the query's own bindings (reading those would need a
+ * lateral join).
  *
  * @example
  * ```ts
- * hasBinding(scope, "u");
+ * planQuery(source.query, sourceScope(scope), schema, "all", "source", undefined);
  * ```
  */
-export function hasBinding(scope: Scope | undefined, alias: string): boolean {
-  for (let s = scope; s !== undefined; s = s.parent) if (s.bindings.has(alias)) return true;
+export function sourceScope(scope: Scope): Scope {
+  return { parent: scope.parent, bindings: new Map(), ctes: scope.ctes, hidden: scope.bindings };
+}
+
+/**
+ * The binding `alias` resolves to from `scope`, and whether it is the scope's own;
+ * `undefined` when no query in scope has it.
+ *
+ * @example
+ * ```ts
+ * resolveBinding(scope, "u")?.entry.meta;
+ * ```
+ */
+export function resolveBinding(
+  scope: Scope | undefined,
+  alias: string,
+): { readonly entry: BindingEntry; readonly own: boolean } | undefined {
+  for (let s = scope; s !== undefined; s = s.parent) {
+    const entry = s.bindings.get(alias);
+    if (entry !== undefined) return { entry, own: s === scope };
+  }
+  return undefined;
+}
+
+/**
+ * Whether `alias` is a binding of a query that a source subquery in scope may not read
+ * (see {@link sourceScope}).
+ *
+ * @example
+ * ```ts
+ * isHidden(scope, "u");
+ * ```
+ */
+export function isHidden(scope: Scope | undefined, alias: string): boolean {
+  for (let s = scope; s !== undefined; s = s.parent) if (s.hidden?.has(alias) === true) return true;
   return false;
 }
 
@@ -245,7 +313,14 @@ export function bindSources(scope: Scope, ast: QueryAst, querySchema: string | u
     if (type === "right" || type === "full") {
       for (const entry of scope.bindings.values()) entry.nullable = true;
     }
-    bindSource(scope, join.source, type === "left" || type === "leftLateral" || type === "full", querySchema);
+    const lateral = type === "innerLateral" || type === "leftLateral";
+    bindSource(
+      scope,
+      join.source,
+      type === "left" || type === "leftLateral" || type === "full",
+      querySchema,
+      lateral,
+    );
   }
 }
 
@@ -254,6 +329,7 @@ function bindSource(
   source: SourceNode,
   nullable: boolean,
   querySchema: string | undefined,
+  lateral = false,
 ): void {
   const alias = source.alias;
   if (typeof alias !== "string" || alias === "") throw new QueryError("A source has no alias.");
@@ -268,6 +344,7 @@ function bindSource(
         meta: source.meta,
         schema: resolveTableSchema(source.schema, source.meta, querySchema),
         inner: undefined,
+        columns: undefined,
         table: true,
         nullable,
       };
@@ -279,22 +356,67 @@ function bindSource(
           `The source "${alias}" reads the CTE "${source.name}", which the query does not define.`,
         );
       }
+      checkCteColumns(source, cte.output);
       entry = innerEntry(alias, source.meta, cte.output, nullable, `the CTE "${source.name}"`);
       break;
     }
     case "subquerySource": {
-      const planned = planQuery(source.query, scope, querySchema, "all", "source", undefined);
+      const planned = planQuery(
+        source.query,
+        lateral ? scope : sourceScope(scope),
+        querySchema,
+        "all",
+        "source",
+        undefined,
+      );
       entry = innerEntry(alias, undefined, planned.output, nullable, "its subquery");
       break;
     }
     case "values":
     case "fragmentSource":
-      entry = { alias, meta: undefined, schema: undefined, inner: undefined, table: false, nullable };
+      entry = {
+        alias,
+        meta: undefined,
+        schema: undefined,
+        inner: undefined,
+        columns: undefined,
+        table: false,
+        nullable,
+      };
       break;
     default:
       throw new QueryError(`Unknown source kind "${String((source as { kind: unknown }).kind)}".`);
   }
   scope.bindings.set(alias, entry);
+}
+
+/**
+ * A CTE referred to with `cte(name, query)` must return what that query does: the same
+ * keys, in the same order, with the same types. The query given to `withCte` may be
+ * another one; without this check a mismatch would read the wrong columns, or values of
+ * the wrong type.
+ */
+function checkCteColumns(source: CteSourceNode, output: OutputPlan | undefined): void {
+  const declared = SOURCE_COLUMNS.get(source);
+  if (declared?.kind !== "object" || output === undefined) return;
+  const body = objectOfValues(output);
+  const same =
+    body !== undefined &&
+    body.keys.length === declared.columns.length &&
+    declared.columns.every((column, i) => {
+      const leaf = body.values[i] as ObjectOfValues["values"][number];
+      return (
+        body.keys[i] === column.key && leaf.alias === column.column && leaf.type?.name === column.type?.name
+      );
+    });
+  if (!same) {
+    const keys = declared.columns
+      .map((column) => `${column.key}: ${column.type?.name ?? "untyped"}`)
+      .join(", ");
+    throw new QueryError(
+      `The source "${source.alias}" reads the CTE "${source.name}" as { ${keys} }, but the query given to withCte("${source.name}", …) returns ${body === undefined ? "something else" : `{ ${body.keys.map((key, i) => `${key}: ${(body.values[i] as ObjectOfValues["values"][number]).type?.name ?? "untyped"}`).join(", ")} }`}. Refer to it with the same query: cte("${source.name}", query).`,
+    );
+  }
 }
 
 function innerEntry(
@@ -316,6 +438,7 @@ function innerEntry(
     meta,
     schema: inner === undefined ? meta?.schema : inner.schema,
     inner,
+    columns: inner === undefined && meta === undefined ? objectOfValues(output) : undefined,
     table: false,
     nullable: nullable || (inner?.nullable ?? false),
   };
@@ -423,6 +546,8 @@ export function planSelect(
   if (select === undefined) {
     if (operation !== "all" || mode === "exists") return { items: p.items, output: undefined };
     const entry = scope.bindings.get(root);
+    if (entry?.columns !== undefined)
+      return { items: p.items, output: columnsOutput(p, root, entry.columns) };
     if (entry?.meta === undefined) {
       throw new QueryError(
         `The query has no select, and its root binding "${root}" has no schema to read rows of. Add a select.`,
@@ -499,6 +624,21 @@ function planExpr(
   }
   addItem(p, { kind: "expr", expr: node, alias });
   return { kind: "value", alias, type };
+}
+
+/**
+ * The output of a query with no select over a subquery or CTE that returns objects of
+ * values: the same objects, one select item per key, reading the source's columns.
+ */
+function columnsOutput(p: Planner, alias: string, columns: ObjectOfValues): OutputPlan {
+  const values: OutputPlan[] = [];
+  for (let i = 0; i < columns.keys.length; i++) {
+    const leaf = columns.values[i] as ObjectOfValues["values"][number];
+    const name = p.mode === "source" ? (columns.keys[i] as string) : positional(p);
+    addItem(p, { kind: "column", binding: alias, column: leaf.alias, alias: name });
+    values.push({ kind: "value", alias: name, type: leaf.type });
+  }
+  return { kind: "object", keys: columns.keys, values };
 }
 
 /**

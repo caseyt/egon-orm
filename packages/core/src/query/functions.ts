@@ -195,6 +195,20 @@ type WindowParams<W extends WindowSpec> = ParamsOfAll<
 >;
 
 /**
+ * Type only: marks an expression computed over the named window `N` (`over("w")`), so
+ * that a clause can check the name against the windows its query declares. The property
+ * never exists at run time.
+ *
+ * @example
+ * ```ts
+ * type Ranked = Aggregate<number> & UsesWindow<"w">; // what rowNumber().over("w") is
+ * ```
+ */
+export interface UsesWindow<N extends string> {
+  readonly "~window": N;
+}
+
+/**
  * An aggregate call: `count(p.id)`, `sum(p.views)`. Beside every expression method it has
  * `filter`, and `over` to become a window function.
  *
@@ -238,7 +252,7 @@ export class Aggregate<T, P = NoParams> extends Expr<T, P> {
    * @throws QueryError when the aggregate already has a window, or the window is malformed.
    */
   over(): Aggregate<T, P>;
-  over(name: string): Aggregate<T, P>;
+  over<const N extends string>(name: N): Aggregate<T, P> & UsesWindow<N>;
   over<W extends WindowSpec>(
     spec: W & CompatibleParams<P, WindowParams<W>>,
   ): Aggregate<T, MergeParams<P, WindowParams<W>>>;

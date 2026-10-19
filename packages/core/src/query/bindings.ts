@@ -75,7 +75,9 @@ export interface AnyBinding {
 }
 
 /**
- * The binding `X` made nullable, as an outer join on the other side makes it.
+ * The binding `X` made nullable, as an outer join on the other side makes it. A source
+ * binding that says what it becomes (a type-only `"~nullable"` member, as the bindings of
+ * `subquery(q)` have) becomes that.
  *
  * @example
  * ```ts
@@ -84,9 +86,11 @@ export interface AnyBinding {
  */
 export type NullableBinding<X> = X extends { readonly $schema: infer S extends AnySchema }
   ? Binding<S, true>
-  : X extends { readonly "~binding": { readonly row: infer Rw } }
-    ? Omit<X, "~binding"> & { readonly "~binding": { readonly row: Rw; readonly nullable: true } }
-    : X;
+  : X extends { readonly "~nullable": infer Nx }
+    ? Nx
+    : X extends { readonly "~binding": { readonly row: infer Rw } }
+      ? Omit<X, "~binding"> & { readonly "~binding": { readonly row: Rw; readonly nullable: true } }
+      : X;
 
 /**
  * The schema class of a binding, `never` for a binding that has none.

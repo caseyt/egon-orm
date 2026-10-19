@@ -55,6 +55,25 @@ import { isPlainObject } from "../internal/plain-object.js";
 import { isSchema } from "../schema/guards.js";
 import { meta } from "../schema/schema.js";
 import { integerType } from "../types/index.js";
+import { assignments, RETURNING_SELECTS } from "./advanced/assignments.js";
+import {
+  checkCombination,
+  combinationNode,
+  combinationShape,
+  type SetOperation,
+} from "./advanced/set-operations.js";
+import {
+  checkWindow,
+  checkWindows,
+  collectWindows,
+  selectExpressions,
+  type WindowCheck,
+  type WindowDefParams,
+  type WindowDefs,
+  windowDef,
+  windowNames,
+} from "./advanced/windows.js";
+import { type CteOptions, cteShape, withCteNode } from "./advanced/with-cte.js";
 import {
   collectParams,
   columnNode,
@@ -94,25 +113,6 @@ import {
   type SubqueryOperand,
   type Untyped,
 } from "./expr.js";
-import { assignments, RETURNING_SELECTS } from "./advanced/assignments.js";
-import {
-  checkCombination,
-  combinationNode,
-  combinationShape,
-  type SetOperation,
-} from "./advanced/set-operations.js";
-import {
-  checkWindow,
-  checkWindows,
-  collectWindows,
-  selectExpressions,
-  type WindowCheck,
-  type WindowDefParams,
-  type WindowDefs,
-  windowDef,
-  windowNames,
-} from "./advanced/windows.js";
-import { type CteOptions, cteShape, withCteNode } from "./advanced/with-cte.js";
 import { and } from "./functions.js";
 import { type BuiltSelect, buildSelect, mergeSelects, type Sel } from "./select.js";
 
@@ -312,6 +312,15 @@ export type WhereObject<S extends AnySchema> = {
   readonly [K in ColumnNames<S>]?: WhereValue<K extends keyof Row<S> ? Row<S>[K] : never>;
 };
 
+/**
+ * The object form of `where` on a query with root `A`: none when the root binding has no
+ * schema (a subquery or CTE source), so that a callback passed to `where` is never taken
+ * for an object (which left its bindings untyped).
+ */
+type RootWhere<B, A extends string> = [RootSchema<B, A>] extends [never]
+  ? never
+  : WhereObject<RootSchema<B, A>>;
+
 /** What `orderBy` callbacks may return. */
 type OrderItem = Expr<unknown, SomeParams> | OrderExpr<SomeParams>;
 
@@ -385,7 +394,9 @@ type OrderLeaves<X> = X extends readonly unknown[] ? X[number] : X;
 type SameResult<A, B> =
   SameType<A, B> extends true
     ? unknown
-    : { readonly "~error": "both sides of a set operation must return the same type: select the same keys, with the same types" };
+    : {
+        readonly "~error": "both sides of a set operation must return the same type: select the same keys, with the same types";
+      };
 
 /** The value a bulk update may assign to a field of type `T`: a value of it, or an expression of it. */
 type SetValue<T> = T | Expr<T, SomeParams>;
@@ -422,7 +433,9 @@ type SetChecks<X, S> = ([Exclude<keyof X, ColumnNames<S>>] extends [never]
 type SetParams<X> = ParamsOfAll<readonly X[keyof X][]>;
 
 /** The named windows a query declares; `never` for a query that declares none. */
-type WindowsOf<Q extends QueryLike> = Q["~query"] extends { readonly windows: infer W extends string } ? W : never;
+type WindowsOf<Q extends QueryLike> = Q["~query"] extends { readonly windows: infer W extends string }
+  ? W
+  : never;
 
 /** `A` with the keys of `B` replaced and added. */
 type Merge<A, B> = { [K in keyof A as K extends keyof B ? never : K]: A[K] } & B extends infer M
@@ -692,7 +705,14 @@ const PROPERTIES = 18;
  * limit and offset of the combined rows, more set operations, its CTEs and its database
  * schema. Anything else would apply to the left side only.
  */
-const AFTER_SET_OPERATION: ReadonlySet<number> = new Set([ORDER_BYS, LIMIT, OFFSET, COMBINATIONS, CTES, SCHEMA]);
+const AFTER_SET_OPERATION: ReadonlySet<number> = new Set([
+  ORDER_BYS,
+  LIMIT,
+  OFFSET,
+  COMBINATIONS,
+  CTES,
+  SCHEMA,
+]);
 
 // The seeds of the clause kinds whose shapes the builder computes from the shapes its
 // expressions already carry, as `shapeOf` in ast.ts defines them (the tests check
@@ -1304,7 +1324,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     const ast = this.ast;
     if (ast.combinations.length > 0 && !AFTER_SET_OPERATION.has(prop)) {
       throw new QueryError(
-        "This query is combined with union(), intersect() or except(), and only orderBy(), limit(), offset(), more set operations, withCte() and schema() apply to the combined rows. Add any other clause to a side before combining, or wrap the combined query: from(subquery(q), \"s\").",
+        'This query is combined with union(), intersect() or except(), and only orderBy(), limit(), offset(), more set operations, withCte() and schema() apply to the combined rows. Add any other clause to a side before combining, or wrap the combined query: from(subquery(q), "s").',
       );
     }
     const counts = this.#counts;
@@ -1758,7 +1778,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
    * @throws QueryError when the callback does not return a condition, or the object names
    * a field the root binding has no column for or holds `undefined`.
    */
-  where(conditions: WhereObject<RootSchema<B, A>>): this;
+  where(conditions: RootWhere<B, A>): this;
   where<X extends Condition>(fn: (bindings: B) => X): AddParams<this, ParamsOf<X>>;
   where(input: unknown): unknown {
     return this.#bool(WHERES, "and", "where", input);
@@ -1775,7 +1795,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
    *
    * @throws QueryError as {@link where}.
    */
-  orWhere(conditions: WhereObject<RootSchema<B, A>>): this;
+  orWhere(conditions: RootWhere<B, A>): this;
   orWhere<X extends Condition>(fn: (bindings: B) => X): AddParams<this, ParamsOf<X>>;
   orWhere(input: unknown): unknown {
     return this.#bool(WHERES, "or", "orWhere", input);
@@ -2473,12 +2493,14 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
       );
     }
     if (this.ast.preloads.length > 0) {
-      throw new QueryError("set() was called on a query with preloads; an update cannot preload. exclude(\"preload\") first.");
+      throw new QueryError(
+        'set() was called on a query with preloads; an update cannot preload. exclude("preload") first.',
+      );
     }
     const select = this.ast.select;
     if (select !== undefined && !RETURNING_SELECTS.has(select)) {
       throw new QueryError(
-        "set() was called on a query with a select. An update says what it returns with returning(), not select(): exclude(\"select\"), then returning(({ p }) => p.id).",
+        'set() was called on a query with a select. An update says what it returns with returning(), not select(): exclude("select"), then returning(({ p }) => p.id).',
       );
     }
     const values = typeof input === "function" ? run("set", input, this.#scope.arg) : input;
@@ -2492,7 +2514,8 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     // The new assignments' named parameters (the earlier ones are the query's already),
     // checked against the rest of the query.
     let named = this.#named;
-    for (const node of collected) if (!this.#named.includes(node)) named = this.#withNamed("set", named, [node]);
+    for (const node of collected)
+      if (!this.#named.includes(node)) named = this.#withNamed("set", named, [node]);
     const next = this.#next(
       UPDATES,
       built.nodes,
@@ -2539,7 +2562,9 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
       );
     }
     if (this.ast.preloads.length > 0) {
-      throw new QueryError("returning() was called on a query with preloads; an update or delete cannot preload.");
+      throw new QueryError(
+        "returning() was called on a query with preloads; an update or delete cannot preload.",
+      );
     }
     const built = buildSelect(run("returning", fn, this.#scope.arg), "returning");
     RETURNING_SELECTS.add(built.node);
@@ -3504,15 +3529,20 @@ export function render(ast: QueryAst): string {
     );
   }
   if (ast.windows.length > 0) {
-    parts.push(`window ${ast.windows.map((node) => `${node.name} as (${showWindow(node.spec)})`).join(", ")}`);
+    parts.push(
+      `window ${ast.windows.map((node) => `${node.name} as (${showWindow(node.spec)})`).join(", ")}`,
+    );
   }
   if (ast.updates.length > 0) {
     parts.push(`set ${ast.updates.map((node) => `${node.column} = ${show(node.value)}`).join(", ")}`);
   }
   if (ast.select !== undefined) {
-    parts.push(`${RETURNING_SELECTS.has(ast.select) ? "returning" : "select"} ${showSelect(ast.select.shape)}`);
+    parts.push(
+      `${RETURNING_SELECTS.has(ast.select) ? "returning" : "select"} ${showSelect(ast.select.shape)}`,
+    );
   }
-  for (const node of ast.combinations) parts.push(`${node.op}${node.all ? " all" : ""} (${render(node.query)})`);
+  for (const node of ast.combinations)
+    parts.push(`${node.op}${node.all ? " all" : ""} (${render(node.query)})`);
   if (ast.orderBys.length > 0) parts.push(`order by ${ast.orderBys.map(showOrder).join(", ")}`);
   if (ast.limit !== undefined) parts.push(`limit ${show(ast.limit)}`);
   if (ast.offset !== undefined) parts.push(`offset ${show(ast.offset)}`);

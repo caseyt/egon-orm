@@ -64,5 +64,11 @@ export function cte(name: string, shape: unknown): Source<unknown, unknown, NoPa
   }
   const rows = columns.kind === "row" ? columns.meta : undefined;
   // The CTE's query, and so its parameters, belong to withCte(); the reference has none.
-  return new SourceWrapper((alias) => ({ kind: "cteSource", name, meta: rows, alias }), columns, NONE, NONE, NONE);
+  return new SourceWrapper(
+    (alias) => ({ kind: "cteSource", name, meta: rows, alias }),
+    columns,
+    NONE,
+    NONE,
+    NONE,
+  );
 }

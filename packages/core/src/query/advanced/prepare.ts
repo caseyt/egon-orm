@@ -111,9 +111,18 @@ export class PreparedQuery<R, P> implements QueryLike {
    *
    * @throws QueryError (from the adapter) when the query cannot be compiled.
    */
-  plan(source: PlanSource, operation: QueryOperation = "all", schema: string | undefined = undefined): CompiledQuery {
+  plan(
+    source: PlanSource,
+    operation: QueryOperation = "all",
+    schema: string | undefined = undefined,
+  ): CompiledQuery {
     const pinned = this.#pinned;
-    if (pinned !== undefined && pinned.source === source && pinned.operation === operation && pinned.schema === schema) {
+    if (
+      pinned !== undefined &&
+      pinned.source === source &&
+      pinned.operation === operation &&
+      pinned.schema === schema
+    ) {
       return pinned.plan;
     }
     if (pinned === undefined) {

@@ -37,11 +37,19 @@ describe("set operations", () => {
     expect(() => q.join(Comment, "c", ({ u, c }) => c.authorId.eq(u.id))).toThrow(/only orderBy/);
     expect(() => q.lock("update")).toThrow(/only orderBy/);
     expect(() => q.exclude("where")).toThrow(/only orderBy/);
-    expect(q.orderBy(({ u }) => u.id).offset(1).schema("tenant_1").exclude("setOperations").ast.combinations).toEqual([]);
+    expect(
+      q
+        .orderBy(({ u }) => u.id)
+        .offset(1)
+        .schema("tenant_1")
+        .exclude("setOperations").ast.combinations,
+    ).toEqual([]);
   });
 
   test("a side with an order, a limit, an offset or a lock is refused", () => {
-    expect(() => ids.orderBy(({ u }) => u.id).union(authors)).toThrow(/union\(\) was called on a query with an orderBy\(\)/);
+    expect(() => ids.orderBy(({ u }) => u.id).union(authors)).toThrow(
+      /union\(\) was called on a query with an orderBy\(\)/,
+    );
     expect(() => ids.limit(1).unionAll(authors)).toThrow(/with a limit\(\)/);
     expect(() => ids.offset(1).except(authors)).toThrow(/with an offset\(\)/);
     expect(() => from(User, "u").lock("update").union(from(User, "v"))).toThrow(/row lock/);
@@ -49,17 +57,29 @@ describe("set operations", () => {
   });
 
   test("a side with preloads or set(…) is refused", () => {
-    expect(() => from(User, "u").preload("posts").union(from(User, "v"))).toThrow(/this query has preloads/);
-    expect(() => from(User, "u").union(from(User, "v").preload("posts") as never)).toThrow(/the other query has preloads/);
+    expect(() =>
+      from(User, "u")
+        .preload("posts")
+        .union(from(User, "v") as never),
+    ).toThrow(/this query has preloads/);
+    expect(() => from(User, "u").union(from(User, "v").preload("posts") as never)).toThrow(
+      /the other query has preloads/,
+    );
     expect(() => from(Post, "p").union(from(Post, "q").set({ views: 1 }))).toThrow(/set\(…\) assignments/);
   });
 
   test("the two sides must select the same shape, keys in the same order", () => {
     const swapped = from(User, "u").select(({ u }) => ({ b: u.email, a: u.id }));
     const ordered = from(User, "u").select(({ u }) => ({ a: u.id, b: u.email }));
-    expect(() => ordered.union(swapped as never)).toThrow(/different shapes: this query returns an object with the keys a, b/);
-    expect(() => ordered.union(from(User, "u").select(({ u }) => ({ a: u.id })) as never)).toThrow(/different shapes/);
-    expect(() => from(User, "u").union(from(Post, "p") as never)).toThrow(/rows of User, the other rows of Post/);
+    expect(() => ordered.union(swapped as never)).toThrow(
+      /different shapes: this query returns an object with the keys a, b/,
+    );
+    expect(() => ordered.union(from(User, "u").select(({ u }) => ({ a: u.id })) as never)).toThrow(
+      /different shapes/,
+    );
+    expect(() => from(User, "u").union(from(Post, "p") as never)).toThrow(
+      /rows of User, the other rows of Post/,
+    );
     expect(() =>
       from(User, "u")
         .select(({ u }) => [u.id, u.email])
@@ -102,7 +122,9 @@ describe("set operations", () => {
     // A source over a query is compared through that query.
     const objects = from(subquery(ids), "s").union(from(subquery(authors), "a"));
     expect(objects.ast.combinations).toHaveLength(1);
-    expect(() => from(cte("tree", Category), "t").union(from(User, "u") as never)).toThrow(/rows of Category/);
+    expect(() => from(cte("tree", Category), "t").union(from(User, "u") as never)).toThrow(
+      /rows of Category/,
+    );
   });
 
   test("the other side must be a query", () => {

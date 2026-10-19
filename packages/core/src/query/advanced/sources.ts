@@ -26,7 +26,13 @@ import { QueryError } from "../../errors.js";
 import { meta } from "../../schema/schema.js";
 import { columnNode, shapeOfColumn } from "../ast.js";
 import { type Binding, bindingOf } from "../bindings.js";
-import { AS_SOURCE, type QueryLike, type QueryResult, type SourceOperand, type SourceParts } from "../builder.js";
+import {
+  AS_SOURCE,
+  type QueryLike,
+  type QueryResult,
+  type SourceOperand,
+  type SourceParts,
+} from "../builder.js";
 import { Expr, NONE, type NoParams } from "../expr.js";
 
 // ---------------------------------------------------------------------------
@@ -189,7 +195,9 @@ export function sourceColumns(
     );
   }
   if (ast.updates.length > 0) {
-    throw new QueryError(`${method}(): the query has set(…) assignments, an update; only a query that reads can be a source.`);
+    throw new QueryError(
+      `${method}(): the query has set(…) assignments, an update; only a query that reads can be a source.`,
+    );
   }
   const select = ast.select;
   if (select === undefined) {
@@ -202,11 +210,15 @@ export function sourceColumns(
   const shape = select.shape;
   if (shape.kind === "binding") {
     const schema = query.schemaOf(shape.binding);
-    if (schema === undefined) throw refused(method, `the binding "${shape.binding}", which has no schema class`);
+    if (schema === undefined)
+      throw refused(method, `the binding "${shape.binding}", which has no schema class`);
     return { kind: "row", meta: shape.meta, schema };
   }
   if (shape.kind !== "object") {
-    throw refused(method, shape.kind === "expr" ? "one value" : shape.kind === "tuple" ? "an array" : "a plain value");
+    throw refused(
+      method,
+      shape.kind === "expr" ? "one value" : shape.kind === "tuple" ? "an array" : "a plain value",
+    );
   }
   const columns: SourceColumn[] = [];
   for (let i = 0; i < shape.keys.length; i++) {
@@ -232,9 +244,23 @@ function refused(method: string, what: string): QueryError {
 }
 
 /** The aggregates whose value is not made of their argument's values. */
-const COUNTING: ReadonlySet<string> = new Set(["count", "rowNumber", "rank", "denseRank", "percentRank", "cumeDist", "ntile"]);
+const COUNTING: ReadonlySet<string> = new Set([
+  "count",
+  "rowNumber",
+  "rank",
+  "denseRank",
+  "percentRank",
+  "cumeDist",
+  "ntile",
+]);
 /** The functions and operators whose value is made of their arguments' values. */
-const VALUE_FUNCTIONS: ReadonlySet<string> = new Set(["lower", "upper", "coalesce", "arrayAppend", "arrayRemove"]);
+const VALUE_FUNCTIONS: ReadonlySet<string> = new Set([
+  "lower",
+  "upper",
+  "coalesce",
+  "arrayAppend",
+  "arrayRemove",
+]);
 const VALUE_OPERATORS: ReadonlySet<string> = new Set(["add", "sub", "mul", "div", "mod", "concat"]);
 
 /**
@@ -258,7 +284,9 @@ function redactedValue(node: ExprNode, ast: QueryAst): boolean {
     case "fn":
       return VALUE_FUNCTIONS.has(node.name) && node.args.some((arg) => redactedValue(arg, ast));
     case "binary":
-      return VALUE_OPERATORS.has(node.op) && (redactedValue(node.left, ast) || redactedValue(node.right, ast));
+      return (
+        VALUE_OPERATORS.has(node.op) && (redactedValue(node.left, ast) || redactedValue(node.right, ast))
+      );
     case "aggregate":
       return !COUNTING.has(node.name) && node.args[0] !== undefined && redactedValue(node.args[0], ast);
     case "case":
@@ -279,10 +307,10 @@ function redactedColumn(ast: QueryAst, alias: string, field: string, column: str
   else for (const join of ast.joins) if (join.source.alias === alias) source = join.source;
   if (source === undefined) return false;
   const known = source.kind === "table" ? source.meta : undefined;
-  if (known !== undefined) return known.fieldsByName.get(field)?.redact ?? false;
+  if (known !== undefined) return known.fieldsByName.get(field)?.redact === true;
   const columns = SOURCE_COLUMNS.get(source);
   if (columns === undefined) return false;
-  if (columns.kind === "row") return columns.meta.fieldsByName.get(field)?.redact ?? false;
+  if (columns.kind === "row") return columns.meta.fieldsByName.get(field)?.redact === true;
   return columns.columns.some((entry) => entry.column === column && entry.redact);
 }
 
@@ -301,7 +329,11 @@ function redactedColumn(ast: QueryAst, alias: string, field: string, column: str
  */
 export class SourceWrapper<Bd, Rw, P> implements Source<Bd, Rw, P> {
   /** Type information only; there is no such property at run time. */
-  declare readonly "~source": { readonly binding: Bd; readonly row: Rw; readonly params: (params: P) => void };
+  declare readonly "~source": {
+    readonly binding: Bd;
+    readonly row: Rw;
+    readonly params: (params: P) => void;
+  };
   readonly #node: (alias: string) => SourceNode;
   readonly #columns: SourceColumns;
   readonly #params: readonly unknown[];
@@ -346,7 +378,8 @@ export class SourceWrapper<Bd, Rw, P> implements Source<Bd, Rw, P> {
     SOURCE_COLUMNS.set(node, columns);
     return {
       node,
-      binding: columns.kind === "row" ? bindingOf(columns.meta, columns.schema, alias) : this.#objectBinding(alias),
+      binding:
+        columns.kind === "row" ? bindingOf(columns.meta, columns.schema, alias) : this.#objectBinding(alias),
       meta: columns.kind === "row" ? columns.meta : undefined,
       params: this.#params,
       lists: this.#lists,

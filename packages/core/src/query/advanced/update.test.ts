@@ -33,6 +33,12 @@ describe("set", () => {
     });
   });
 
+  test("lists in assignment values are counted", () => {
+    const q = from(Post, "p").set(({ p }) => ({ published: p.id.in([1, 2]) }));
+    expect(q.ast.listLengths).toEqual([2]);
+    expect(canonical(q)).toBe(true);
+  });
+
   test("a field set again takes the later value, in its first position", () => {
     const q = from(Post, "p").set({ title: "a", views: 1 }).set({ title: "b" });
     expect(q.ast.updates.map((node) => node.field)).toEqual(["title", "views"]);
@@ -54,8 +60,12 @@ describe("set", () => {
 
   test("checks the fields and values", () => {
     const q = from(Post, "p");
-    expect(() => q.set({ nope: 1 } as never)).toThrow(/Post has no field "nope"\. Its columns are: id, authorId/);
-    expect(() => from(User, "u").set({ password: "x" } as never)).toThrow(/no column for the virtual field "password"/);
+    expect(() => q.set({ nope: 1 } as never)).toThrow(
+      /Post has no field "nope"\. Its columns are: id, authorId/,
+    );
+    expect(() => from(User, "u").set({ password: "x" } as never)).toThrow(
+      /no column for the virtual field "password"/,
+    );
     expect(() => q.set({ title: undefined } as never)).toThrow(/undefined is not a value/);
     expect(() => q.set({ title: null } as never)).toThrow(/Post\.title is not nullable/);
     expect(() => q.set({ title: lit(null) } as never)).toThrow(/is not nullable/);
@@ -66,12 +76,18 @@ describe("set", () => {
   });
 
   test("an update needs a table root and no select, preloads or set operation", () => {
-    expect(() => from(cte("tree", Category), "t").set({ name: "x" } as never)).toThrow(/is not a schema's table/);
+    expect(() => from(cte("tree", Category), "t").set({ name: "x" } as never)).toThrow(
+      /is not a schema's table/,
+    );
     expect(() => from(subquery(from(Post, "p")), "s").set({ title: "x" } as never)).toThrow(
       /is not a schema's table/,
     );
     expect(() => from(User, "u").preload("posts").set({ age: 1 })).toThrow(/with preloads/);
-    expect(() => from(User, "u").select(({ u }) => u.id).set({ age: 1 } as never)).toThrow(/returning\(\)/);
+    expect(() =>
+      from(User, "u")
+        .select(({ u }) => u.id)
+        .set({ age: 1 } as never),
+    ).toThrow(/returning\(\)/);
     expect(() => from(User, "u").union(from(User, "v")).set({ age: 1 })).toThrow(/only orderBy/);
   });
 
@@ -82,14 +98,26 @@ describe("set", () => {
   });
 
   test("returning() is refused on a query that already selects or preloads", () => {
-    expect(() => from(Post, "p").select(({ p }) => p.id).returning(({ p }) => p.id)).toThrow(/already has a select/);
-    expect(() => from(Post, "p").returning(({ p }) => p.id).returning(({ p }) => p.id)).toThrow(
-      /already has a returning\(\)/,
-    );
-    expect(() => from(Post, "p").returning(({ p }) => p.id).select(({ p }) => p.id)).toThrow(
-      /already has a returning\(\)/,
-    );
-    expect(() => from(User, "u").preload("posts").returning(({ u }) => u)).toThrow(/with preloads/);
+    expect(() =>
+      from(Post, "p")
+        .select(({ p }) => p.id)
+        .returning(({ p }) => p.id),
+    ).toThrow(/already has a select/);
+    expect(() =>
+      from(Post, "p")
+        .returning(({ p }) => p.id)
+        .returning(({ p }) => p.id),
+    ).toThrow(/already has a returning\(\)/);
+    expect(() =>
+      from(Post, "p")
+        .returning(({ p }) => p.id)
+        .select(({ p }) => p.id),
+    ).toThrow(/already has a returning\(\)/);
+    expect(() =>
+      from(User, "u")
+        .preload("posts")
+        .returning(({ u }) => u),
+    ).toThrow(/with preloads/);
   });
 
   test("selectMerge on a returning() list keeps it a returning() list", () => {
@@ -102,7 +130,7 @@ describe("set", () => {
     );
   });
 
-  test("exclude(\"set\") makes it a query again", () => {
+  test('exclude("set") makes it a query again', () => {
     const q = from(Post, "p").set({ views: 0 }).exclude("set");
     expect(q.ast.updates).toEqual([]);
     expect(compiled(q).sql).toMatch(/^select /);

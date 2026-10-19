@@ -56,7 +56,9 @@ export function selectedAs(...args: readonly unknown[]): Expr<unknown, SomeParam
   const [expr, given] = args;
   const name = checkName(given);
   if (!isExpr(expr)) {
-    throw new QueryError(`selectedAs(expr, "${name}") takes an expression to name first, such as sum(p.views).`);
+    throw new QueryError(
+      `selectedAs(expr, "${name}") takes an expression to name first, such as sum(p.views).`,
+    );
   }
   return new Expr(
     selectedAsNode(name, expr.node),

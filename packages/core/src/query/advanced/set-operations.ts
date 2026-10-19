@@ -68,7 +68,8 @@ export function combinationShape(op: SetOperation, all: boolean, queryShape: num
  */
 export function checkCombination(method: string, left: QueryAst, right: QueryAst): void {
   if (left.orderBys.length > 0 || left.limit !== undefined || left.offset !== undefined) {
-    const clause = left.orderBys.length > 0 ? "an orderBy()" : left.limit !== undefined ? "a limit()" : "an offset()";
+    const clause =
+      left.orderBys.length > 0 ? "an orderBy()" : left.limit !== undefined ? "a limit()" : "an offset()";
     throw new QueryError(
       `${method}() was called on a query with ${clause}. On a combined query those apply to the combined rows, not to this side: add them after ${method}(), or, to order or limit this side alone, wrap it: from(subquery(q), "s").`,
     );
@@ -86,7 +87,9 @@ export function checkCombination(method: string, left: QueryAst, right: QueryAst
       );
     }
     if (ast.updates.length > 0) {
-      throw new QueryError(`${method}(): ${side} has set(…) assignments; an update cannot be combined with a query.`);
+      throw new QueryError(
+        `${method}(): ${side} has set(…) assignments; an update cannot be combined with a query.`,
+      );
     }
   }
   const a = skeleton(left, method);
@@ -106,15 +109,10 @@ function skeleton(ast: QueryAst, method: string): Skeleton | undefined {
   const select = ast.select;
   if (select !== undefined) return skeletonOf(select.shape, method, "");
   const root = ast.from;
-  switch (root.kind) {
-    case "table":
-    case "cteSource":
-      return root.meta === undefined ? undefined : { kind: "row", meta: root.meta };
-    case "subquerySource":
-      return skeleton(root.query, method);
-    default:
-      return undefined;
-  }
+  if (root.kind === "subquerySource") return skeleton(root.query, method);
+  // A table or a CTE typed by a schema; a values list or a fragment has no `meta`.
+  const rows = (root as { readonly meta?: SchemaMeta | undefined }).meta;
+  return rows === undefined ? undefined : { kind: "row", meta: rows };
 }
 
 /** The skeleton of a select's output tree; a plain value in it is refused. */
@@ -132,7 +130,9 @@ function skeletonOf(shape: SelectShape, method: string, path: string): Skeleton 
       return {
         kind: "object",
         keys: shape.keys,
-        values: shape.values.map((value, i) => skeletonOf(value, method, joinPath(path, shape.keys[i] as string))),
+        values: shape.values.map((value, i) =>
+          skeletonOf(value, method, joinPath(path, shape.keys[i] as string)),
+        ),
       };
     case "tuple":
       return {
@@ -163,29 +163,30 @@ function describe(node: Skeleton): string {
   }
 }
 
+function mismatch(method: string, a: Skeleton, b: Skeleton, path: string): QueryError {
+  return new QueryError(
+    `${method}(): the two sides return different shapes${at(path)}: this query returns ${describe(a)}, the other ${describe(b)}. Columns are combined by position, so both must select the same shape, with keys in the same order.`,
+  );
+}
+
 function compare(method: string, a: Skeleton, b: Skeleton, path: string): void {
-  const mismatch = (): never => {
-    throw new QueryError(
-      `${method}(): the two sides return different shapes${at(path)}: this query returns ${describe(a)}, the other ${describe(b)}. Columns are combined by position, so both must select the same shape, with keys in the same order.`,
-    );
-  };
   switch (a.kind) {
     case "value":
-      if (b.kind !== "value") mismatch();
+      if (b.kind !== "value") throw mismatch(method, a, b, path);
       return;
     case "row":
-      if (b.kind !== "row" || b.meta !== a.meta) mismatch();
+      if (b.kind !== "row" || b.meta !== a.meta) throw mismatch(method, a, b, path);
       return;
     case "object":
-      if (b.kind !== "object" || b.keys.length !== a.keys.length) return mismatch();
+      if (b.kind !== "object" || b.keys.length !== a.keys.length) throw mismatch(method, a, b, path);
       for (let i = 0; i < a.keys.length; i++) {
         const key = a.keys[i] as string;
-        if (b.keys[i] !== key) mismatch();
+        if (b.keys[i] !== key) throw mismatch(method, a, b, path);
         compare(method, a.values[i] as Skeleton, b.values[i] as Skeleton, joinPath(path, key));
       }
       return;
     case "tuple":
-      if (b.kind !== "tuple" || b.items.length !== a.items.length) return mismatch();
+      if (b.kind !== "tuple" || b.items.length !== a.items.length) throw mismatch(method, a, b, path);
       for (let i = 0; i < a.items.length; i++) {
         compare(method, a.items[i] as Skeleton, b.items[i] as Skeleton, joinPath(path, String(i)));
       }

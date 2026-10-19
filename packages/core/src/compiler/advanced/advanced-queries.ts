@@ -140,7 +140,11 @@ export const ADVANCED_QUERIES: readonly AdvancedQuery[] = [
     "a scalar subquery in the select",
     from(User, "u").select(({ u }) => ({
       id: u.id,
-      posts: scalar(from(Post, "p").where(({ p }) => p.authorId.eq(u.id)).select(() => count())),
+      posts: scalar(
+        from(Post, "p")
+          .where(({ p }) => p.authorId.eq(u.id))
+          .select(() => count()),
+      ),
     })),
   ),
   q(
@@ -247,12 +251,22 @@ export const ADVANCED_QUERIES: readonly AdvancedQuery[] = [
       .orderBy(({ p }) => rank().over({ orderBy: [p.views.desc()] })),
   ),
   // --- Bulk updates and deletes ------------------------------------------------------
-  q("an update from an object", from(Post, "p").where(({ p }) => p.authorId.eq(1)).set({ published: true }), "updateAll"),
+  q(
+    "an update from an object",
+    from(Post, "p")
+      .where(({ p }) => p.authorId.eq(1))
+      .set({ published: true }),
+    "updateAll",
+  ),
   q(
     "an update from expressions, returning ids",
     from(Post, "p")
       .where(({ p }) => p.authorId.eq(1))
-      .set(({ p }) => ({ title: p.title.concat("!"), views: p.views.add(1), tagList: p.tagList.append("hot") }))
+      .set(({ p }) => ({
+        title: p.title.concat("!"),
+        views: p.views.add(1),
+        tagList: p.tagList.append("hot"),
+      }))
       .returning(({ p }) => p.id),
     "updateAll",
   ),
@@ -264,7 +278,11 @@ export const ADVANCED_QUERIES: readonly AdvancedQuery[] = [
       .set({ published: true, tagList: null }),
     "updateAll",
   ),
-  q("set twice: the later value wins", from(Post, "p").set({ views: 1, title: "a" }).set({ views: 2 }), "updateAll"),
+  q(
+    "set twice: the later value wins",
+    from(Post, "p").set({ views: 1, title: "a" }).set({ views: 2 }),
+    "updateAll",
+  ),
   q(
     "a delete with a join becomes DELETE … USING, returning rows",
     from(Comment, "c")
@@ -273,7 +291,11 @@ export const ADVANCED_QUERIES: readonly AdvancedQuery[] = [
       .returning(({ c }) => ({ id: c.id, postId: c.postId })),
     "deleteAll",
   ),
-  q("a delete without a returning", from(Comment, "c").where(({ c }) => c.authorId.isNull()), "deleteAll"),
+  q(
+    "a delete without a returning",
+    from(Comment, "c").where(({ c }) => c.authorId.isNull()),
+    "deleteAll",
+  ),
   // --- Small ones ---------------------------------------------------------------------
   q(
     "row comparison for keyset pagination",
@@ -287,7 +309,10 @@ export const ADVANCED_QUERIES: readonly AdvancedQuery[] = [
     "selectedAs in the select, referred to in groupBy and orderBy",
     from(Post, "p")
       .groupBy(() => selectedAs("author"))
-      .select(({ p }) => ({ author: selectedAs(p.authorId, "author"), total: selectedAs(sum(p.views), "total") }))
+      .select(({ p }) => ({
+        author: selectedAs(p.authorId, "author"),
+        total: selectedAs(sum(p.views), "total"),
+      }))
       .orderBy(() => selectedAs("total").desc()),
   ),
   q(

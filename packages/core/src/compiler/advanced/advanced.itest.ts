@@ -3,6 +3,7 @@
 // it returns.
 import { createTestDatabase, Post, type TestDatabaseHandle, User } from "@egon-orm/test-support";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import type { OutputPlan } from "../../contracts/adapter.js";
 import {
   count,
   cte,
@@ -20,7 +21,6 @@ import {
   t,
   tuple,
 } from "../../index.js";
-import type { OutputPlan } from "../../contracts/adapter.js";
 import type { QueryLike } from "../../query/builder.js";
 import { bindParams, type NamedValues } from "../bind.js";
 import { createCompiler } from "../compiler.js";
@@ -80,7 +80,8 @@ async function rows(
   const plan = compiler.compile(query.ast, operation, undefined);
   const result = await handle.db.query(plan.sql, bindParams(plan.slots, query.ast.params, named));
   const big = bigintColumns(plan.output);
-  for (const row of result) for (const column of big) if (row[column] !== null) row[column] = Number(row[column]);
+  for (const row of result)
+    for (const column of big) if (row[column] !== null) row[column] = Number(row[column]);
   return result;
 }
 
@@ -190,9 +191,16 @@ test("set operations combine rows, and the combined rows are ordered and limited
   const authors = from(Post, "p").select(({ p }) => ({ id: p.authorId }));
   const everyone = from(User, "u").select(({ u }) => ({ id: u.id }));
   expect((await rows(everyone.except(authors).orderBy(({ u }) => u.id))).map((r) => r.c0)).toEqual([4]);
-  expect((await rows(everyone.intersect(authors).orderBy(({ u }) => u.id).limit(2))).map((r) => r.c0)).toEqual([
-    1, 2,
-  ]);
+  expect(
+    (
+      await rows(
+        everyone
+          .intersect(authors)
+          .orderBy(({ u }) => u.id)
+          .limit(2),
+      )
+    ).map((r) => r.c0),
+  ).toEqual([1, 2]);
   expect((await rows(authors.unionAll(authors))).length).toBe(12);
 });
 
@@ -201,7 +209,11 @@ test("a scalar subquery counts each user's posts", async () => {
     .orderBy(({ u }) => u.id)
     .select(({ u }) => ({
       id: u.id,
-      posts: scalar(from(Post, "p").where(({ p }) => p.authorId.eq(u.id)).select(() => count())),
+      posts: scalar(
+        from(Post, "p")
+          .where(({ p }) => p.authorId.eq(u.id))
+          .select(() => count()),
+      ),
     }));
   expect(await rows(counted)).toEqual([
     { c0: 1, c1: 4 },

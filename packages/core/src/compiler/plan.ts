@@ -459,7 +459,8 @@ export function planSelect(
   if (select === undefined) {
     if (operation !== "all" || mode === "exists") return { items: p.items, output: undefined };
     const entry = scope.bindings.get(root);
-    if (entry?.columns !== undefined) return { items: p.items, output: columnsOutput(p, root, entry.columns) };
+    if (entry?.columns !== undefined)
+      return { items: p.items, output: columnsOutput(p, root, entry.columns) };
     if (entry?.meta === undefined) {
       throw new QueryError(
         `The query has no select, and its root binding "${root}" has no schema to read rows of. Add a select.`,

@@ -19,6 +19,7 @@ import {
   tuple,
   val,
 } from "../../index.js";
+import { render } from "../builder.js";
 import { canonical, compiled } from "./test-helpers.js";
 
 describe("dynamic", () => {
@@ -45,15 +46,21 @@ describe("dynamic", () => {
   test("folds from dynamic.true() and dynamic.false()", () => {
     const all = [adult, admin].reduce((acc, f) => acc.and(f), dynamic.true());
     const any = [adult, admin].reduce((acc, f) => acc.or(f), dynamic.false());
-    expect(compiled(from(User, "u").where(all)).sql).toMatch(/where true and "u"."age" >= \$1 and "u"."role" = \$2$/);
-    expect(compiled(from(User, "u").where(any)).sql).toMatch(/where false or "u"."age" >= \$1 or "u"."role" = \$2$/);
+    expect(compiled(from(User, "u").where(all)).sql).toMatch(
+      /where true and "u"."age" >= \$1 and "u"."role" = \$2$/,
+    );
+    expect(compiled(from(User, "u").where(any)).sql).toMatch(
+      /where false or "u"."age" >= \$1 or "u"."role" = \$2$/,
+    );
   });
 
   test("checks the bindings it was given as schemas", () => {
     expect(() => from(Post, "u" as never).where(admin as never)).toThrow(
       /needs the binding "u" of User, which this query binds to another schema/,
     );
-    expect(() => from(Post, "p").where(admin as never)).toThrow(/needs the binding "u" of User, which this query does not have/);
+    expect(() => from(Post, "p").where(admin as never)).toThrow(
+      /needs the binding "u" of User, which this query does not have/,
+    );
     // A combination needs the bindings of both sides.
     expect(() => from(Post, "p").where(dynamic.true().and(admin) as never)).toThrow(/binding "u"/);
     expect(() => from(Post, "p").where(admin.and(dynamic.true()) as never)).toThrow(/binding "u"/);
@@ -63,16 +70,24 @@ describe("dynamic", () => {
 
   test("and, or and not need conditions", () => {
     const notACondition = dynamic({ u: User }, () => 5);
-    expect(() => from(User, "u").where(adult.and(notACondition as never))).toThrow(/both sides must be conditions/);
-    expect(() => from(User, "u").where(notACondition.or(adult as never) as never)).toThrow(/both sides must be conditions/);
-    expect(() => from(User, "u").where(notACondition.not() as never)).toThrow(/both sides must be conditions/);
+    expect(() => from(User, "u").where(adult.and(notACondition as never))).toThrow(
+      /both sides must be conditions/,
+    );
+    expect(() => from(User, "u").where(notACondition.or(adult as never) as never)).toThrow(
+      /both sides must be conditions/,
+    );
+    expect(() => from(User, "u").where(notACondition.not() as never)).toThrow(
+      /both sides must be conditions/,
+    );
     expect(() => adult.and((() => lit(true)) as never)).toThrow(/takes another dynamic expression/);
   });
 
   test("checks its arguments", () => {
     expect(() => dynamic(5 as never)).toThrow(/takes a callback/);
     expect(() => dynamic("u" as never, (() => lit(true)) as never)).toThrow(/takes the schemas it needs/);
-    expect(() => dynamic({ u: "users" } as never, (() => lit(true)) as never)).toThrow(/must name a schema class/);
+    expect(() => dynamic({ u: "users" } as never, (() => lit(true)) as never)).toThrow(
+      /must name a schema class/,
+    );
     expect(() => dynamic({ u: User }, 5 as never)).toThrow(/takes a callback second/);
   });
 
@@ -95,7 +110,9 @@ describe("field", () => {
 
   test("refuses a name that is not a column", () => {
     from(User, "u").where(({ u }) => {
-      expect(() => field(u, "password")).toThrow(/"password", which is not a column of the binding\. Its columns are: id, email/);
+      expect(() => field(u, "password")).toThrow(
+        /"password", which is not a column of the binding\. Its columns are: id, email/,
+      );
       expect(() => field(u, "$schema")).toThrow(/"\$schema"/);
       expect(() => field(u, 3 as never)).toThrow(/a number/);
       expect(() => field(null as never, "id")).toThrow(/takes a binding first/);
@@ -105,11 +122,21 @@ describe("field", () => {
 });
 
 describe("prepare", () => {
-  const byEmail = prepare(from(User, "u").where(({ u }) => u.email.eq(param("email", t.string()))).limit(1));
+  const byEmail = prepare(
+    from(User, "u")
+      .where(({ u }) => u.email.eq(param("email", t.string())))
+      .limit(1),
+  );
 
   function counting(): { readonly compile: (ast: unknown) => CompiledQuery; readonly calls: () => number } {
     let calls = 0;
-    const plan = { sql: "x", slots: [], output: undefined, schema: undefined, decoder: undefined } as CompiledQuery;
+    const plan = {
+      sql: "x",
+      slots: [],
+      output: undefined,
+      schema: undefined,
+      decoder: undefined,
+    } as CompiledQuery;
     return {
       compile: () => {
         calls++;
@@ -186,7 +213,7 @@ describe("tuple", () => {
       expect(() => tuple(p.id, val(2)).lt(tuple(3, 4))).toThrow(/position 2/);
       expect(() => tuple(p.id).lt(tuple(null) as never)).toThrow(/null/);
       expect(() => tuple(p.id).lt([1] as never)).toThrow(/takes another tuple/);
-      expect(() => tuple(p.id, lit(null) as never).lt(tuple(1, p.views))).toThrow(/was given null/);
+      expect(() => tuple(p.id, lit(null) as never).lt(tuple(1, p.views) as never)).toThrow(/was given null/);
       return lit(true);
     });
     expect(() => (tuple as () => unknown)()).toThrow(/at least one item/);
@@ -236,7 +263,26 @@ describe("rendering", () => {
         .returning(({ p }) => p.id)
         .toString(),
     ).toBe("from posts as p set views = ? returning p.id");
-    const frame = from(Post, "p").windows({ f: () => ({ frame: fragment`rows ${val(1, t.integer())} preceding` }) });
+    expect(from(User, "u").withCte("plain", from(Post, "p")).union(from(User, "v")).toString()).toBe(
+      "with plain as (from posts as p) from users as u union (from users as v)",
+    );
+    const withFragment = {
+      ...from(User, "u").ast,
+      ctes: [
+        {
+          kind: "cte",
+          name: "f",
+          query: fragment`select 1`.node,
+          operation: "all",
+          recursive: false,
+          materialized: undefined,
+        },
+      ],
+    };
+    expect(render(withFragment as never)).toBe("with f as (fragment`select 1`) from users as u");
+    const frame = from(Post, "p").windows({
+      f: () => ({ frame: fragment`rows ${val(1, t.integer())} preceding` }),
+    });
     expect(frame.toString()).toBe("from posts as p window f as (fragment`rows ? preceding`)");
   });
 });

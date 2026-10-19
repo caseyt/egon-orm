@@ -1,7 +1,25 @@
 import { Post, Profile, User, UserSettings } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
 import { QueryError } from "../../errors.js";
-import { count, exists, from, max, meta, outerRef, param, scalar, subquery, sum, t, val } from "../../index.js";
+import {
+  caseWhen,
+  count,
+  cte,
+  exists,
+  from,
+  lit,
+  max,
+  meta,
+  outerRef,
+  param,
+  scalar,
+  selectedAs,
+  subquery,
+  sum,
+  t,
+  val,
+} from "../../index.js";
+import { AS_SOURCE } from "../builder.js";
 import { canonical, compiled } from "./test-helpers.js";
 
 const authorTotals = from(Post, "p")
@@ -82,7 +100,9 @@ describe("subquery as a source", () => {
     const inner = from(Post, "p")
       .where(({ p }) => p.views.gt(param("min", t.integer())))
       .select(({ p }) => ({ id: p.id }));
-    const q = from(subquery(inner), "s").where(({ s }) => s.id.lt(param("max", t.bigint({ mode: "number" }))));
+    const q = from(subquery(inner), "s").where(({ s }) =>
+      s.id.lt(param("max", t.bigint({ mode: "number" }))),
+    );
     expect(q.namedParams()).toEqual(["min", "max"]);
     expect(compiled(q, "all", { min: 1, max: 2 }).params).toEqual([1, 2]);
   });
@@ -91,9 +111,9 @@ describe("subquery as a source", () => {
     const inner = from(Post, "p")
       .where(({ p }) => p.views.gt(param("n", t.integer())))
       .select(({ p }) => ({ id: p.id }));
-    expect(() => from(subquery(inner), "s").where(({ s }) => s.id.eq(param("n", t.string()) as never))).toThrow(
-      /"n" is used with two types/,
-    );
+    expect(() =>
+      from(subquery(inner), "s").where(({ s }) => s.id.eq(param("n", t.string()) as never)),
+    ).toThrow(/"n" is used with two types/);
     expect(() =>
       from(User, "u")
         .where(({ u }) => u.email.eq(param("n", t.string())))
@@ -102,14 +122,21 @@ describe("subquery as a source", () => {
   });
 
   test("a value of a redacted column stays redacted through a source", () => {
-    const inner = from(User, "u").select(({ u }) => ({ hash: u.passwordHash, lowered: u.passwordHash.lower(), id: u.id }));
+    const inner = from(User, "u").select(({ u }) => ({
+      hash: u.passwordHash,
+      lowered: u.passwordHash.lower(),
+      id: u.id,
+    }));
     from(subquery(inner), "s").where(({ s }) => {
       expect(s.hash.redact).toBe(true);
       expect(s.lowered.redact).toBe(true);
       expect(s.id.redact).toBe(false);
       return s.id.gt(1);
     });
-    const twice = from(subquery(from(subquery(inner), "s").select(({ s }) => ({ hash: s.hash, n: count() }))), "o");
+    const twice = from(
+      subquery(from(subquery(inner), "s").select(({ s }) => ({ hash: s.hash, n: count() }))),
+      "o",
+    );
     twice.where(({ o }) => {
       expect(o.hash.redact).toBe(true);
       expect(o.n.redact).toBe(false);
@@ -140,6 +167,71 @@ describe("subquery as a source", () => {
     });
   });
 
+  test("redaction is read through CASE, selectedAs, JSON paths, negation and other sources", () => {
+    const inner = from(User, "u")
+      .join(
+        subquery(from(User, "x").select(({ x }) => ({ secret: x.passwordHash, id: x.id }))),
+        "s",
+        ({ u, s }) => s.id.eq(u.id),
+      )
+      .join(cte("rows", User), "r", ({ u, r }) => r.id.eq(u.id))
+      .select(({ u, s, r }) => ({
+        branch: caseWhen(u.age.gt(1), u.passwordHash).else(u.email),
+        elseOnly: caseWhen(u.age.gt(1), u.email).else(u.passwordHash),
+        open: caseWhen(u.age.gt(1), u.email),
+        named: selectedAs(u.passwordHash, "named"),
+        path: u.settings.path("theme"),
+        negated: u.age.neg(),
+        notted: u.age.isNull().not(),
+        viaSource: s.secret,
+        viaSourceId: s.id,
+        viaCte: r.passwordHash,
+        outer: outerRef("o", User).passwordHash,
+        reference: selectedAs("named"),
+      }));
+    from(subquery(inner), "z").where(({ z }) => {
+      expect(
+        [z.branch, z.elseOnly, z.open, z.named, z.path, z.negated, z.notted].map((column) => column.redact),
+      ).toEqual([true, true, false, true, false, false, false]);
+      expect([
+        z.viaSource.redact,
+        z.viaSourceId.redact,
+        z.viaCte.redact,
+        z.outer.redact,
+        z.reference.redact,
+      ]).toEqual([true, false, true, false, false]);
+      return z.negated.gt(0);
+    });
+  });
+
+  test("a source that only implements the source protocol cannot be read again as a source", () => {
+    const schemaless = {
+      [AS_SOURCE]: (alias: string) => ({
+        node: { kind: "table", source: "events", meta: undefined, schema: undefined, alias },
+        binding: {},
+        meta: undefined,
+        params: [],
+        lists: [],
+        named: [],
+      }),
+    };
+    expect(() => subquery(from(schemaless as never, "e") as never)).toThrow(
+      /it selects the rows of a source that has no schema/,
+    );
+    // A column of such a source is not redacted, and literal values are not either.
+    const over = from(schemaless as never, "e").select(() => ({
+      id: outerRef("e", User).passwordHash,
+      one: lit(1),
+    }));
+    from(subquery(over as never), "s").where((({ s }: { s: Record<string, { redact: boolean }> }) => {
+      expect([s.id?.redact, s.one?.redact]).toEqual([false, false]);
+      return lit(true);
+    }) as never);
+    expect(() => subquery(from(User, "u").select(() => outerRef("o", User)) as never)).toThrow(
+      /the binding "o", which has no schema class/,
+    );
+  });
+
   test("a query that cannot be read as a source is refused when the source is made", () => {
     expect(() => subquery(from(Post, "p").select(({ p }) => p.id) as never)).toThrow(/selects one value/);
     expect(() => subquery(from(Post, "p").select(({ p }) => [p.id]) as never)).toThrow(/selects an array/);
@@ -147,7 +239,9 @@ describe("subquery as a source", () => {
     expect(() => subquery(from(Post, "p").select(({ p }) => ({ a: { b: p.id } })) as never)).toThrow(
       /key "a" holds a nested object or array/,
     );
-    expect(() => subquery(from(Post, "p").select(({ p }) => ({ a: p })) as never)).toThrow(/key "a" holds a whole binding/);
+    expect(() => subquery(from(Post, "p").select(({ p }) => ({ a: p })) as never)).toThrow(
+      /key "a" holds a whole binding/,
+    );
     expect(() => subquery(from(Post, "p").select(({ p }) => ({ a: p.id, k: "x" })) as never)).toThrow(
       /key "k" holds a plain value/,
     );

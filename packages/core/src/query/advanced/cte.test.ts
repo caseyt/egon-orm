@@ -27,9 +27,15 @@ describe("withCte", () => {
     expect(compiled(base.withCte("counts", counts, { materialized: true }), "all", { min: 1 }).sql).toMatch(
       /^with "counts" as materialized \(/,
     );
-    expect(compiled(base.withCte("counts", counts, {}), "all", { min: 1 }).sql).toMatch(/^with "counts" as \(/);
-    expect(() => base.withCte("counts", counts, { recursive: "yes" } as never)).toThrow(/recursive is true or false/);
-    expect(() => base.withCte("counts", counts, { materialized: 1 } as never)).toThrow(/materialized is true or false/);
+    expect(compiled(base.withCte("counts", counts, {}), "all", { min: 1 }).sql).toMatch(
+      /^with "counts" as \(/,
+    );
+    expect(() => base.withCte("counts", counts, { recursive: "yes" } as never)).toThrow(
+      /recursive is true or false/,
+    );
+    expect(() => base.withCte("counts", counts, { materialized: 1 } as never)).toThrow(
+      /materialized is true or false/,
+    );
     expect(() => base.withCte("counts", counts, { cycle: true } as never)).toThrow(/no option "cycle"/);
     expect(() => base.withCte("counts", counts, 5 as never)).toThrow(/options as an object/);
   });
@@ -38,9 +44,14 @@ describe("withCte", () => {
     const base = from(User, "u");
     expect(() => base.withCte("", counts)).toThrow(/a non-empty string/);
     expect(() => base.withCte("c", counts).withCte("c", counts)).toThrow(/already has a CTE named "c"/);
-    expect(() => base.withCte("c", "select 1" as never)).toThrow(/takes a query as its second argument/);
+    expect(() => base.withCte("c", "select 1" as never)).toThrow(/withCte\("c", query\) takes a query/);
+    expect(() => base.withCte(1 as never, "select 1" as never)).toThrow(
+      /withCte\(name, query\) takes a query/,
+    );
     expect(() => base.withCte("c", from(User, "x").preload("posts"))).toThrow(/has preloads/);
-    expect(() => base.withCte("c", from(Post, "p").set({ views: 0 }))).toThrow(/A CTE that writes rows is not supported/);
+    expect(() => base.withCte("c", from(Post, "p").set({ views: 0 }))).toThrow(
+      /A CTE that writes rows is not supported/,
+    );
   });
 
   test("a CTE that no query defines is refused when compiled", () => {
@@ -50,8 +61,19 @@ describe("withCte", () => {
   test("withCte may follow a set operation: it applies to the whole statement", () => {
     const q = from(User, "u")
       .select(({ u }) => ({ id: u.id }))
-      .union(from(cte("ids", from(Post, "p").select(({ p }) => ({ id: p.authorId }))), "i").select(({ i }) => ({ id: i.id })))
-      .withCte("ids", from(Post, "p").select(({ p }) => ({ id: p.authorId })));
+      .union(
+        from(
+          cte(
+            "ids",
+            from(Post, "p").select(({ p }) => ({ id: p.authorId })),
+          ),
+          "i",
+        ).select(({ i }) => ({ id: i.id })),
+      )
+      .withCte(
+        "ids",
+        from(Post, "p").select(({ p }) => ({ id: p.authorId })),
+      );
     expect(compiled(q).sql).toBe(
       'with "ids" as (select "p"."author_id" as "id" from "posts" as "p") select "u"."id" as "c0" from "users" as "u" union (select "i"."id" as "c0" from "ids" as "i")',
     );
@@ -61,7 +83,12 @@ describe("withCte", () => {
 describe("cte", () => {
   test("typed by a schema, its binding has the schema's columns", () => {
     from(cte("tree", Category), "t").where(({ t: tree }) => {
-      expect(tree.parentId.node).toEqual({ kind: "column", binding: "t", field: "parentId", column: "parent_id" });
+      expect(tree.parentId.node).toEqual({
+        kind: "column",
+        binding: "t",
+        field: "parentId",
+        column: "parent_id",
+      });
       return tree.parentId.isNull();
     });
   });

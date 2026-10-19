@@ -148,11 +148,11 @@ export {
   SchemaDefinitionError,
   StaleEntryError,
 } from "./errors.js";
+export { cte } from "./query/advanced/cte.js";
 // Step 09: advanced queries. The classes are public as types only: they are made by these
 // functions.
 export type { Dynamic, DynamicBindings, DynamicFunction, DynamicMethods } from "./query/advanced/dynamic.js";
 export { dynamic, field } from "./query/advanced/dynamic.js";
-export { cte } from "./query/advanced/cte.js";
 export type { PreparedQuery } from "./query/advanced/prepare.js";
 export { prepare } from "./query/advanced/prepare.js";
 export { selectedAs } from "./query/advanced/selected-as.js";

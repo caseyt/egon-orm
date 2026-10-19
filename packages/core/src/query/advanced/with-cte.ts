@@ -51,7 +51,9 @@ export function withCteNode(
     throw new QueryError('withCte() takes a name first, a non-empty string: withCte("tree", query).');
   }
   if (existing.some((node) => node.name === name)) {
-    throw new QueryError(`withCte("${name}", …): this query already has a CTE named "${name}". Give each its own name.`);
+    throw new QueryError(
+      `withCte("${name}", …): this query already has a CTE named "${name}". Give each its own name.`,
+    );
   }
   if (query.preloads.length > 0) {
     throw new QueryError(
@@ -67,11 +69,15 @@ export function withCteNode(
   let materialized: boolean | undefined;
   if (options !== undefined) {
     if (typeof options !== "object" || options === null || !isPlainObject(options)) {
-      throw new QueryError(`withCte("${name}", query, options) takes its options as an object: { recursive: true }.`);
+      throw new QueryError(
+        `withCte("${name}", query, options) takes its options as an object: { recursive: true }.`,
+      );
     }
     for (const key of Object.keys(options)) {
       if (key !== "recursive" && key !== "materialized") {
-        throw new QueryError(`withCte("${name}", …) has no option "${key}": it takes recursive and materialized.`);
+        throw new QueryError(
+          `withCte("${name}", …) has no option "${key}": it takes recursive and materialized.`,
+        );
       }
     }
     const given = options as { readonly recursive?: unknown; readonly materialized?: unknown };
@@ -79,7 +85,9 @@ export function withCteNode(
       throw new QueryError(`withCte("${name}", …): recursive is true or false.`);
     }
     if (given.materialized !== undefined && typeof given.materialized !== "boolean") {
-      throw new QueryError(`withCte("${name}", …): materialized is true or false, or left out to let the database decide.`);
+      throw new QueryError(
+        `withCte("${name}", …): materialized is true or false, or left out to let the database decide.`,
+      );
     }
     recursive = given.recursive === true;
     materialized = given.materialized;

@@ -11,17 +11,31 @@
  *
  * @module
  */
-import type { ExprNode, NamedParamNode, OrderNode, SelectShape, WindowDefNode } from "../../contracts/query.js";
+import type {
+  ExprNode,
+  NamedParamNode,
+  OrderNode,
+  SelectShape,
+  WindowDefNode,
+} from "../../contracts/query.js";
 import type { AnyFieldType } from "../../contracts/type.js";
 import { QueryError } from "../../errors.js";
 import { HASH_SEED, hashInt, hashString } from "../../internal/hash.js";
 import { isPlainObject } from "../../internal/plain-object.js";
 import { bigintType, floatType, integerType } from "../../types/index.js";
-import { aggregateNode, collectParams, IDENTIFIER, orderNode, shapeOf, shapeOfAggregate, windowNode } from "../ast.js";
+import {
+  aggregateNode,
+  collectParams,
+  IDENTIFIER,
+  orderNode,
+  shapeOf,
+  shapeOfAggregate,
+  windowNode,
+} from "../ast.js";
 import {
   type AnyExpr,
   type Checked,
-  Expr,
+  type Expr,
   isExpr,
   join,
   joinNamed,
@@ -118,7 +132,10 @@ type ElementOf<X> = X extends readonly (infer E)[] ? E : never;
 type Member<W, K extends string> = W extends { readonly [P in K]?: infer V } ? Exclude<V, undefined> : never;
 
 /** The expressions of a window spec: its `partitionBy` and `orderBy` items and its `frame`. */
-type SpecParts<W> = ElementOf<Member<W, "partitionBy">> | ElementOf<Member<W, "orderBy">> | Member<W, "frame">;
+type SpecParts<W> =
+  | ElementOf<Member<W, "partitionBy">>
+  | ElementOf<Member<W, "orderBy">>
+  | Member<W, "frame">;
 
 /**
  * The named parameters of every window of a `.windows({ … })` argument.
@@ -285,7 +302,12 @@ export function cumeDist(): WindowFunction<number> {
 export function ntile<N extends number | Expr<number | null, SomeParams>>(
   buckets: N,
 ): WindowFunction<number, ParamsOf<N>> {
-  return windowFunction("ntile", [countArgument(buckets, "ntile", "the number of buckets")], INTEGER, false) as never;
+  return windowFunction(
+    "ntile",
+    [countArgument(buckets, "ntile", "the number of buckets")],
+    INTEGER,
+    false,
+  ) as never;
 }
 
 /** `lag` and `lead`: the value, the offset, and the default. */
@@ -298,7 +320,7 @@ function shifted(
 ): AnyExpr {
   const value = expressionArgument(expr, name);
   const args: AnyExpr[] = [value];
-  if (given >= 2 || fallback !== undefined) args.push(countArgument(offset ?? 1, name, "the offset"));
+  if (given >= 2) args.push(countArgument(offset, name, "the offset"));
   if (given >= 3) args.push(toOperand(fallback, value.type, value.redact, name, false, true));
   return windowFunction(name, args, value.type, value.redact);
 }
@@ -316,7 +338,9 @@ function shifted(
  * @throws QueryError when `value` is not an expression, `offset` not a whole number of at
  * least 1, or `default` is `undefined`.
  */
-export function lag<X extends Expr<unknown, SomeParams>>(value: X): WindowFunction<ValueOf<X> | null, ParamsOf<X>>;
+export function lag<X extends Expr<unknown, SomeParams>>(
+  value: X,
+): WindowFunction<ValueOf<X> | null, ParamsOf<X>>;
 export function lag<X extends Expr<unknown, SomeParams>, N extends number | Expr<number | null, SomeParams>>(
   value: X,
   offset: N & Checked<ParamsOf<X>, N>,
@@ -348,7 +372,9 @@ export function lag(...args: readonly unknown[]): AnyExpr {
  *
  * @throws QueryError as {@link lag}.
  */
-export function lead<X extends Expr<unknown, SomeParams>>(value: X): WindowFunction<ValueOf<X> | null, ParamsOf<X>>;
+export function lead<X extends Expr<unknown, SomeParams>>(
+  value: X,
+): WindowFunction<ValueOf<X> | null, ParamsOf<X>>;
 export function lead<X extends Expr<unknown, SomeParams>, N extends number | Expr<number | null, SomeParams>>(
   value: X,
   offset: N & Checked<ParamsOf<X>, N>,
@@ -379,7 +405,9 @@ export function lead(...args: readonly unknown[]): AnyExpr {
  *
  * @throws QueryError when `value` is not an expression.
  */
-export function firstValue<X extends Expr<unknown, SomeParams>>(value: X): WindowFunction<ValueOf<X>, ParamsOf<X>> {
+export function firstValue<X extends Expr<unknown, SomeParams>>(
+  value: X,
+): WindowFunction<ValueOf<X>, ParamsOf<X>> {
   const arg = expressionArgument(value, "firstValue");
   return windowFunction("firstValue", [arg], arg.type, arg.redact) as never;
 }
@@ -395,7 +423,9 @@ export function firstValue<X extends Expr<unknown, SomeParams>>(value: X): Windo
  *
  * @throws QueryError when `value` is not an expression.
  */
-export function lastValue<X extends Expr<unknown, SomeParams>>(value: X): WindowFunction<ValueOf<X>, ParamsOf<X>> {
+export function lastValue<X extends Expr<unknown, SomeParams>>(
+  value: X,
+): WindowFunction<ValueOf<X>, ParamsOf<X>> {
   const arg = expressionArgument(value, "lastValue");
   return windowFunction("lastValue", [arg], arg.type, arg.redact) as never;
 }
@@ -411,12 +441,20 @@ export function lastValue<X extends Expr<unknown, SomeParams>>(value: X): Window
  *
  * @throws QueryError when `value` is not an expression or `n` not a whole number of at least 1.
  */
-export function nthValue<X extends Expr<unknown, SomeParams>, N extends number | Expr<number | null, SomeParams>>(
+export function nthValue<
+  X extends Expr<unknown, SomeParams>,
+  N extends number | Expr<number | null, SomeParams>,
+>(
   value: X,
   n: N & Checked<ParamsOf<X>, N>,
 ): WindowFunction<ValueOf<X> | null, MergeParams<ParamsOf<X>, ParamsOf<N>>> {
   const arg = expressionArgument(value, "nthValue");
-  return windowFunction("nthValue", [arg, countArgument(n, "nthValue", "the row number")], arg.type, arg.redact) as never;
+  return windowFunction(
+    "nthValue",
+    [arg, countArgument(n, "nthValue", "the row number")],
+    arg.type,
+    arg.redact,
+  ) as never;
 }
 
 // ---------------------------------------------------------------------------
@@ -462,7 +500,9 @@ export function windowNames(defs: unknown, existing: readonly WindowDefNode[]): 
       );
     }
     if (existing.some((node) => node.name === name)) {
-      throw new QueryError(`windows() declares "${name}", which this query already declares. Each window has one name.`);
+      throw new QueryError(
+        `windows() declares "${name}", which this query already declares. Each window has one name.`,
+      );
     }
     if (typeof (defs as Record<string, unknown>)[name] !== "function") {
       throw new QueryError(
@@ -490,7 +530,9 @@ export function windowDef(name: string, spec: unknown): WindowDefNode {
   if (typeof spec !== "object" || spec === null || !isPlainObject(spec)) {
     throw new QueryError(`${where}: the callback must return a window, { partitionBy, orderBy, frame }.`);
   }
-  const extra = Object.keys(spec).filter((key) => key !== "partitionBy" && key !== "orderBy" && key !== "frame");
+  const extra = Object.keys(spec).filter(
+    (key) => key !== "partitionBy" && key !== "orderBy" && key !== "frame",
+  );
   if (extra.length > 0) {
     throw new QueryError(
       `${where}: a window has no ${extra.map((key) => `"${key}"`).join(", ")}; it takes partitionBy, orderBy and frame.`,
@@ -499,14 +541,16 @@ export function windowDef(name: string, spec: unknown): WindowDefNode {
   const { partitionBy, orderBy, frame } = spec as Record<string, unknown>;
   const partition: ExprNode[] = [];
   for (const item of listOf(partitionBy, where, "partitionBy")) {
-    if (!isExpr(item)) throw new QueryError(`${where}: partitionBy holds something that is not an expression.`);
+    if (!isExpr(item))
+      throw new QueryError(`${where}: partitionBy holds something that is not an expression.`);
     partition.push(item.node);
   }
   const order: OrderNode[] = [];
   for (const item of listOf(orderBy, where, "orderBy")) {
     if (item instanceof OrderExpr) order.push(item.node);
     else if (isExpr(item)) order.push(orderNode(item.node, "asc", undefined));
-    else throw new QueryError(`${where}: orderBy holds something that is not an expression or an order item.`);
+    else
+      throw new QueryError(`${where}: orderBy holds something that is not an expression or an order item.`);
   }
   let frameNode: ExprNode | undefined;
   if (frame !== undefined) {
@@ -526,7 +570,8 @@ export function windowDef(name: string, spec: unknown): WindowDefNode {
 
 function listOf(value: unknown, where: string, member: string): readonly unknown[] {
   if (value === undefined) return NONE;
-  if (!Array.isArray(value)) throw new QueryError(`${where}: ${member} is an array: ${member}: [p.authorId].`);
+  if (!Array.isArray(value))
+    throw new QueryError(`${where}: ${member} is an array: ${member}: [p.authorId].`);
   return value;
 }
 
@@ -577,7 +622,11 @@ export function collectWindows(nodes: readonly WindowDefNode[]): BuiltWindows {
  *
  * @throws QueryError naming the clause and the function or window.
  */
-export function checkWindows(clause: string, nodes: readonly ExprNode[], windows: readonly WindowDefNode[]): void {
+export function checkWindows(
+  clause: string,
+  nodes: readonly ExprNode[],
+  windows: readonly WindowDefNode[],
+): void {
   for (const node of nodes) visit(clause, node, windows);
 }
 

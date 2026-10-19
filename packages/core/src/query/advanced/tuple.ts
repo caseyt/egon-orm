@@ -7,6 +7,7 @@
  */
 import type { BinaryOp, ExprNode, NamedParamNode } from "../../contracts/query.js";
 import { QueryError } from "../../errors.js";
+import { booleanType } from "../../types/index.js";
 import { binaryNode, foldShape, shapeOfBinary, startTuple, tupleNode } from "../ast.js";
 import {
   type AnyExpr,
@@ -22,9 +23,19 @@ import {
   toOperand,
   type ValueOf,
 } from "../expr.js";
-import { booleanType } from "../../types/index.js";
 
 const BOOLEAN = booleanType();
+
+/** A plain value's type widened to its primitive: `tuple(cursor, 10)` holds a `number`, not `10`. */
+type Widen<V> = V extends string
+  ? string
+  : V extends number
+    ? number
+    : V extends bigint
+      ? bigint
+      : V extends boolean
+        ? boolean
+        : V;
 
 /** Each value of a row, or `null`: what the other side of a comparison may hold at each position. */
 type Operands<V extends readonly unknown[]> = { readonly [K in keyof V]: V[K] | null };
@@ -170,7 +181,7 @@ export class Tuple<V extends readonly unknown[], P = NoParams> {
  */
 export function tuple<const A extends readonly [unknown, ...unknown[]]>(
   ...items: A
-): Tuple<{ -readonly [K in keyof A]: ValueOf<A[K]> }, ParamsOfAll<A>> {
+): Tuple<{ -readonly [K in keyof A]: Widen<ValueOf<A[K]>> }, ParamsOfAll<A>> {
   if (items.length === 0) throw new QueryError("tuple() needs at least one item.");
   for (const item of items) {
     if (item === undefined) throw new QueryError("tuple() was given undefined, which is not a value.");
@@ -182,7 +193,8 @@ export function tuple<const A extends readonly [unknown, ...unknown[]]>(
 function untyped(expr: AnyExpr): boolean {
   const node = expr.node;
   return (
-    ((node.kind === "param" || node.kind === "namedParam" || node.kind === "list") && node.type === undefined) ||
+    ((node.kind === "param" || node.kind === "namedParam" || node.kind === "list") &&
+      node.type === undefined) ||
     (node.kind === "literal" && node.value === null)
   );
 }
@@ -194,7 +206,9 @@ function compare(op: BinaryOp, left: { readonly items: readonly unknown[] }, rig
   const a = left.items;
   const b = right.items as readonly unknown[];
   if (a.length !== b.length) {
-    throw new QueryError(`${op}(): the rows have ${a.length} and ${b.length} items; rows compare position by position, so they need as many.`);
+    throw new QueryError(
+      `${op}(): the rows have ${a.length} and ${b.length} items; rows compare position by position, so they need as many.`,
+    );
   }
   const leftItems: AnyExpr[] = [];
   const rightItems: AnyExpr[] = [];

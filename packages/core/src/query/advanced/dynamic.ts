@@ -40,7 +40,9 @@ type Schemas = { readonly [alias: string]: AnySchema };
  * type B = DynamicBindings<{ u: typeof User }>; // { readonly u: Binding<typeof User, boolean> }
  * ```
  */
-export type DynamicBindings<Bs> = { readonly [K in keyof Bs]: Bs[K] extends AnySchema ? Binding<Bs[K], boolean> : never };
+export type DynamicBindings<Bs> = {
+  readonly [K in keyof Bs]: Bs[K] extends AnySchema ? Binding<Bs[K], boolean> : never;
+};
 
 /** A boolean expression: what a dynamic condition returns. */
 type Condition = Expr<boolean | null, SomeParams>;
@@ -108,7 +110,10 @@ function checkBindings(required: Schemas | undefined, bindings: unknown): void {
   }
 }
 
-function makeDynamic(call: (bindings: unknown) => unknown, required: Schemas | undefined): Dynamic<unknown, unknown> {
+function makeDynamic(
+  call: (bindings: unknown) => unknown,
+  required: Schemas | undefined,
+): Dynamic<unknown, unknown> {
   const fn = (bindings: unknown): unknown => {
     checkBindings(required, bindings);
     return call(bindings);
@@ -120,14 +125,18 @@ function makeDynamic(call: (bindings: unknown) => unknown, required: Schemas | u
 
 function conditionOf(value: unknown, method: string): Condition {
   if (!isExpr(value)) {
-    throw new QueryError(`dynamic ${method}(): both sides must be conditions, such as dynamic(({ u }) => u.age.gte(18)).`);
+    throw new QueryError(
+      `dynamic ${method}(): both sides must be conditions, such as dynamic(({ u }) => u.age.gte(18)).`,
+    );
   }
   return value as Condition;
 }
 
 function dynamicOf(value: unknown, method: string): (bindings: unknown) => unknown {
   if (typeof value !== "function" || !DYNAMICS.has(value)) {
-    throw new QueryError(`${method}() on a dynamic expression takes another dynamic expression: a.${method}(dynamic(…)).`);
+    throw new QueryError(
+      `${method}() on a dynamic expression takes another dynamic expression: a.${method}(dynamic(…)).`,
+    );
   }
   return value as (bindings: unknown) => unknown;
 }
@@ -175,10 +184,9 @@ export interface DynamicFunction {
    * This form takes no named parameters; to use them, or to build anything but a
    * condition, pass the schemas as a value.
    */
-  <Bs extends Schemas>(fn: (bindings: DynamicBindings<Bs>) => Expr<boolean | null, NoParams>): Dynamic<
-    Bs,
-    Expr<boolean, NoParams>
-  >;
+  <Bs extends Schemas>(
+    fn: (bindings: DynamicBindings<Bs>) => Expr<boolean | null, NoParams>,
+  ): Dynamic<Bs, Expr<boolean, NoParams>>;
   /**
    * An expression built before its query, needing a binding of each schema under its
    * alias: a condition, an order item, a select shape. The query checks the bindings when
@@ -195,21 +203,29 @@ function dynamicFn(...args: readonly unknown[]): unknown {
   if (args.length === 1) {
     const fn = args[0];
     if (typeof fn !== "function") {
-      throw new QueryError("dynamic() takes a callback that receives the bindings: dynamic(({ u }) => u.age.gte(18)).");
+      throw new QueryError(
+        "dynamic() takes a callback that receives the bindings: dynamic(({ u }) => u.age.gte(18)).",
+      );
     }
     return makeDynamic(fn as (bindings: unknown) => unknown, undefined);
   }
   const [schemas, fn] = args;
   if (typeof schemas !== "object" || schemas === null || !isPlainObject(schemas)) {
-    throw new QueryError("dynamic(schemas, callback) takes the schemas it needs by alias first: dynamic({ u: User }, ({ u }) => …).");
+    throw new QueryError(
+      "dynamic(schemas, callback) takes the schemas it needs by alias first: dynamic({ u: User }, ({ u }) => …).",
+    );
   }
   for (const alias of Object.keys(schemas)) {
     if (!isSchema((schemas as Record<string, unknown>)[alias])) {
-      throw new QueryError(`dynamic({ ${alias} }, …): "${alias}" must name a schema class, such as { ${alias}: User }.`);
+      throw new QueryError(
+        `dynamic({ ${alias} }, …): "${alias}" must name a schema class, such as { ${alias}: User }.`,
+      );
     }
   }
   if (typeof fn !== "function") {
-    throw new QueryError("dynamic(schemas, callback) takes a callback second: dynamic({ u: User }, ({ u }) => u.age.gte(18)).");
+    throw new QueryError(
+      "dynamic(schemas, callback) takes a callback second: dynamic({ u: User }, ({ u }) => u.age.gte(18)).",
+    );
   }
   return makeDynamic(fn as (bindings: unknown) => unknown, { ...(schemas as Schemas) });
 }
@@ -240,7 +256,11 @@ export const dynamic: DynamicFunction = Object.assign(dynamicFn, {
 
 /** The keys of a binding that are columns. */
 type FieldKeys<X> = {
-  [K in keyof X]: K extends `$${string}` | `~${string}` ? never : X[K] extends Expr<unknown, NoParams> ? K : never;
+  [K in keyof X]: K extends `$${string}` | `~${string}`
+    ? never
+    : X[K] extends Expr<unknown, NoParams>
+      ? K
+      : never;
 }[keyof X] &
   string;
 
@@ -263,7 +283,10 @@ export function field<X extends object, const N extends FieldKeys<X>>(
 export function field<X extends object>(
   binding: X,
   name: string,
-): Expr<{ [K in FieldKeys<X>]: X[K] extends Expr<unknown, NoParams> ? ValueOf<X[K]> : never }[FieldKeys<X>], NoParams>;
+): Expr<
+  { [K in FieldKeys<X>]: X[K] extends Expr<unknown, NoParams> ? ValueOf<X[K]> : never }[FieldKeys<X>],
+  NoParams
+>;
 export function field(binding: object, name: string): Expr<unknown, NoParams> {
   if (typeof binding !== "object" || binding === null) {
     throw new QueryError("field() takes a binding first, such as u in ({ u }) => field(u, name).");

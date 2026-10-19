@@ -367,9 +367,14 @@ export interface Repo {
    * from, or `null` when it is gone. Given an array, the copies in the same order.
    * Preloaded associations are not read again.
    *
-   * The database matches the keys, with its own equality. One limit: a key value the row
-   * could not hold exactly no longer equals the stored one, so such a row comes back
-   * `null` (a timestamp key with microseconds, read into a millisecond `Date`).
+   * The database matches the keys, with its own equality. Two limits:
+   * - a key value the row could not hold exactly no longer equals the stored one, so such
+   *   a row comes back `null` (a timestamp key with microseconds, read into a millisecond
+   *   `Date`);
+   * - the keys are sent cast to their fields' declared types, so a key column whose real
+   *   type differs fails ("operator does not exist"): a `t.enum` key on a native Postgres
+   *   enum column, for example. Declare such a field with `defineType` and the column's
+   *   SQL type (`db: { kind: "custom", sql: "mood" }`), and the keys are cast to it.
    *
    * @example
    * ```ts

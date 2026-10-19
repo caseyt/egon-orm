@@ -865,7 +865,7 @@ describe("reload", () => {
     expect(fresh.map((user) => user?.id ?? null)).toEqual([1, null]);
     expect(fresh[0]).not.toBe(users[1]);
     expect(statements[0]?.sql).toBe(
-      'select "users"."id" as "c0", "users"."email" as "c1", "users"."name" as "c2", "users"."age" as "c3", "users"."role" as "c4", "users"."password_hash" as "c5", "users"."settings" as "c6", "users"."lock_version" as "c7", "users"."created_at" as "c8", "users"."updated_at" as "c9", "k"."position" as "c10" from "users" as "users" inner join unnest(cast($1 as bigint[])) with ordinality as "k" ("k0", "position") on "users"."id" = "k"."k0"',
+      'select "users"."id" as "c0", "users"."email" as "c1", "users"."name" as "c2", "users"."age" as "c3", "users"."role" as "c4", "users"."password_hash" as "c5", "users"."settings" as "c6", "users"."lock_version" as "c7", "users"."created_at" as "c8", "users"."updated_at" as "c9", "$keys"."position" as "c10" from "users" as "users" inner join unnest(cast($1 as bigint[])) with ordinality as "$keys" ("k0", "position") on "users"."id" = "$keys"."k0"',
     );
     expect(statements[0]?.params).toEqual([[1, 2]]);
     // The position is not a property of the row.
@@ -877,6 +877,18 @@ describe("reload", () => {
     expect(await repo.reload([])).toEqual([]);
     // One statement for any number of rows.
     expect(new Set(statements.map((each) => each.sql)).size).toBe(1);
+  });
+
+  test("a table named like the list of keys has its own alias", async () => {
+    class K extends Schema("k", { id: t.integer().primaryKey() }) {}
+    let respond: Responder = () => [{ c0: 1 }];
+    const { repo, statements } = fake(() => respond("", []));
+    const [row] = await repo.all(K);
+    respond = () => [{ c0: 1, c1: "1" }];
+    expect(await repo.reloadOrThrow(row as K)).toBeInstanceOf(K);
+    expect(statements[1]?.sql).toBe(
+      'select "k"."id" as "c0", "$keys"."position" as "c1" from "k" as "k" inner join unnest(cast($1 as integer[])) with ordinality as "$keys" ("k0", "position") on "k"."id" = "$keys"."k0"',
+    );
   });
 
   test("the same row given twice comes back twice", async () => {
@@ -933,7 +945,7 @@ describe("reload", () => {
     const fresh = await repo.reload(memberships);
     expect(fresh.map((each) => each?.userId)).toEqual([2, 1]);
     expect(statements[0]?.sql).toMatch(
-      /inner join unnest\(cast\(\$1 as uuid\[\]\), cast\(\$2 as bigint\[\]\)\) with ordinality as "k" \("k0", "k1", "position"\) on "memberships"\."org_id" = "k"\."k0" and "memberships"\."user_id" = "k"\."k1"$/,
+      /inner join unnest\(cast\(\$1 as uuid\[\]\), cast\(\$2 as bigint\[\]\)\) with ordinality as "\$keys" \("k0", "k1", "position"\) on "memberships"\."org_id" = "\$keys"\."k0" and "memberships"\."user_id" = "\$keys"\."k1"$/,
     );
     expect(statements[0]?.params).toEqual([
       [orgId, orgId],
@@ -954,7 +966,7 @@ describe("reload", () => {
     // Three parameters a row: two key fields and the position.
     expect(driver.statements.map((each) => each.params.length)).toEqual([3_000, 3_000, 1_500]);
     expect(driver.statements[2]?.sql).toMatch(
-      /inner join \(values \(cast\(\$1 as uuid\), cast\(\$2 as bigint\), cast\(\$3 as bigint\)\), .*\) as "k" \("k0", "k1", "position"\) on "memberships"\."org_id" = "k"\."k0" and "memberships"\."user_id" = "k"\."k1"$/,
+      /inner join \(values \(cast\(\$1 as uuid\), cast\(\$2 as bigint\), cast\(\$3 as bigint\)\), .*\) as "\$keys" \("k0", "k1", "position"\) on "memberships"\."org_id" = "\$keys"\."k0" and "memberships"\."user_id" = "\$keys"\."k1"$/,
     );
     const small = setup(() => [], { ...POSTGRES_CAPABILITIES, arrays: false, maxParams: 7 });
     const limited = createRepo({ adapter: small.adapter });
@@ -991,7 +1003,7 @@ describe("reload", () => {
     driver.respond = () => [{ c0: ["a", "b"], c1: 1, c2: "1" }];
     expect((await repo.reload(paths))[0]?.n).toBe(1);
     expect(driver.statements[0]?.sql).toMatch(
-      /inner join \(values \(cast\(\$1 as text\[\]\), cast\(\$2 as bigint\)\)\) as "k"/,
+      /inner join \(values \(cast\(\$1 as text\[\]\), cast\(\$2 as bigint\)\)\) as "\$keys"/,
     );
     expect(driver.statements[0]?.params).toEqual([["a", "b"], 1]);
   });

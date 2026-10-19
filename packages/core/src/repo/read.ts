@@ -1385,8 +1385,12 @@ function reloadChunkSize(core: ReadCore, key: readonly FieldMeta[]): number {
   return Math.max(1, Math.min(RELOAD_CHUNK_ROWS, Math.floor(core.adapter.capabilities.maxParams / perRow)));
 }
 
-/** The alias of the list of given keys in a `reload` statement, and its position column. */
-const KEYS = "k";
+/**
+ * The alias of the list of given keys in a `reload` statement, and its position column.
+ * Aliases that start with `$` are reserved for the library (the builder refuses them), so
+ * this one never meets a table's alias; its columns are always qualified by it.
+ */
+const KEYS = "$keys";
 const POSITION = "position";
 
 /** The type the position is read with: 64-bit, read as a number. */
@@ -1396,10 +1400,10 @@ const POSITION_TYPE = bigintType({ mode: "number" });
  * The statement of `reload`:
  *
  * ```sql
- * select <the row's columns>, "k"."position"
+ * select <the row's columns>, "$keys"."position"
  * from "<schema>"."<table>" as "t"
- * join unnest($1, $2) with ordinality as "k" ("k0", "k1", "position")   -- or (values …)
- *   on "t"."<key 0>" = "k"."k0" and "t"."<key 1>" = "k"."k1"
+ * join unnest($1, $2) with ordinality as "$keys" ("k0", "k1", "position")   -- or (values …)
+ *   on "t"."<key 0>" = "$keys"."k0" and "t"."<key 1>" = "$keys"."k1"
  * ```
  *
  * The table source carries the rows' database schema (the strongest position). Every key
@@ -1476,7 +1480,7 @@ function reloadAst(
 }
 
 /**
- * `unnest($1, $2, …) with ordinality as "k" ("k0", "k1", …, "position")`: each key field's
+ * `unnest($1, $2, …) with ordinality as "$keys" ("k0", "k1", …, "position")`: each key field's
  * values as one typed array parameter; the SQL text is the constant strings below.
  */
 function unnestSource(
@@ -1495,7 +1499,7 @@ function unnestSource(
   return { kind: "fragmentSource", fragment: fragmentNode(strings, args), columns, alias: KEYS };
 }
 
-/** `(values ($1, $2, $3), …) as "k" ("k0", "k1", "position")`: one row per given row, every cell bound. */
+/** `(values ($1, $2, $3), …) as "$keys" ("k0", "k1", "position")`: one row per given row, every cell bound. */
 function valuesSource(
   key: readonly FieldMeta[],
   rows: readonly Readonly<Record<string, unknown>>[],

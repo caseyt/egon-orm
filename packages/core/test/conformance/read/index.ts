@@ -1168,6 +1168,21 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
           expect((await r.reload(moments)).map((each) => each?.n ?? null)).toEqual([null, 2]);
         });
 
+        test("tables named like the list of keys", async () => {
+          class K extends Schema("k", { id: t.integer().primaryKey(), k0: t.integer() }) {}
+          class Keys extends Schema("keys", { position: t.integer().primaryKey(), n: t.integer() }) {}
+          await create(K, [
+            { id: 1, k0: 10 },
+            { id: 2, k0: 20 },
+          ]);
+          await create(Keys, [{ position: 7, n: 1 }]);
+          const r = repo();
+          const ks = await r.all(from(K, "x").orderBy(({ x }) => x.id));
+          expect((await r.reloadOrThrow([...ks].reverse())).map((each) => each.k0)).toEqual([20, 10]);
+          const [keys] = await r.all(Keys);
+          expect((await r.reloadOrThrow(keys as Keys)).position).toBe(7);
+        });
+
         test("a binary key", async (context) => {
           if (profile.columnType(meta(Blob).primaryKey[0]?.type as never) === undefined)
             return context.skip("no binary column");

@@ -86,6 +86,11 @@ and methods) unless the query has a `select`.
 - **A key the row cannot hold exactly is not found again**: a JavaScript `Date` holds
   milliseconds, so a row whose timestamp key has microseconds reloads as `null` (and
   `get` with that `Date` finds nothing). Avoid such keys, or reload by another column.
+- **`reload` sends the keys typed by their fields' declared types.** A key column whose
+  database type differs, such as a `t.enum` field over a native Postgres enum column,
+  fails with "operator does not exist" (a `where` or `get` on it works). Declare such a
+  field with [`defineType`](/guide/types) and the column's SQL type
+  (`db: { kind: "custom", sql: "mood" }`); `reload` then casts the keys to it.
 - **`get` with an array** throws `QueryError` (unless the key column itself holds arrays
   or JSON):
   to read several rows by key, use `where(({ u }) => u.id.in(ids))`.

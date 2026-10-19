@@ -220,6 +220,8 @@ export {
   sum,
   val,
 } from "./query/functions.js";
+// Step 13: the options and results of the writes.
+export type { BulkResult, InsertAllOptions, InsertAllRow } from "./repo/bulk.js";
 export type {
   ExplainReadOptions,
   LogOption,
@@ -232,6 +234,16 @@ export type {
 export type { AggregateFunction, RawRows } from "./repo/read.js";
 export type { ReadArgs, Repo, ResultOf, RootSchemaOf, SqlAndParams } from "./repo/repo.js";
 export { createRepo } from "./repo/repo.js";
+export type {
+  ConflictTargetOption,
+  ConflictUpdateOption,
+  DeleteOptions,
+  InsertOptions,
+  InsertOrUpdateOptions,
+  OnConflictOption,
+  StaleErrorOption,
+  UpdateOptions,
+} from "./repo/write.js";
 export type {
   AssocOrderBy,
   AssocWhere,

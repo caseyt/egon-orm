@@ -38,7 +38,8 @@ import type { ExprNode, NamedParamNode, QueryAst } from "../contracts/query.js";
 import type { AnySchema, FieldMeta, FieldNames, InsertShape, SchemaMeta } from "../contracts/schema.js";
 import { DatabaseError, QueryError } from "../errors.js";
 import { isPlainObject } from "../internal/plain-object.js";
-import { collectParams, subqueryNode } from "../query/ast.js";
+import { PreparedQuery } from "../query/advanced/prepare.js";
+import { collectParams } from "../query/ast.js";
 import type { Expr, SomeParams } from "../query/expr.js";
 import { isExpr } from "../query/expr.js";
 import { isSchema } from "../schema/guards.js";
@@ -72,7 +73,9 @@ const now = (): number => performance.now();
 
 /**
  * One row of `insertAll`: the fields a new record needs (as `InsertShape` has them), each
- * given as a value, an expression of that type, or a query that selects one value.
+ * given as a value or an expression of that type. A subquery is an expression too:
+ * `scalar(query)`, typed `T | null` like every scalar subquery (the database refuses a
+ * `NULL` in a column that takes none).
  *
  * @example
  * ```ts
@@ -80,10 +83,10 @@ const now = (): number => performance.now();
  * ```
  */
 export type InsertAllRow<S extends AnySchema> = {
-  [K in keyof InsertShape<S>]: InsertShape<S>[K] | Expr<InsertShape<S>[K], SomeParams> | QueryLikeValue;
+  [K in keyof InsertShape<S>]: InsertShape<S>[K] | Expr<InsertShape<S>[K] | null, SomeParams>;
 };
 
-/** A query used as one value of `insertAll`: it must select a single value. */
+/** A query given where a value goes. */
 interface QueryLikeValue {
   readonly ast: QueryAst;
 }
@@ -306,8 +309,9 @@ function cellOf(
     return { cell: { kind: "expr", expr: node }, params: bindExpr(node, values, names) };
   }
   if (isQueryLike(value)) {
-    const node = subqueryNode(value.ast);
-    return { cell: { kind: "expr", expr: node }, params: bindExpr(node, values, names) };
+    throw new QueryError(
+      "repo.insertAll(): a row holds a query as a value. A subquery that selects one value is written scalar(query), which also types it.",
+    );
   }
   values.push(value);
   return { cell: VALUE_CELL, params: 1 };
@@ -594,12 +598,17 @@ async function insertFromQuery(
       `repo.insertAll(${schemaMeta.name}, query): the query must select an object whose keys are the fields to fill, such as .select(({ u }) => ({ email: u.email, name: u.name })).`,
     );
   }
-  const columns = shape.keys.map((key) => {
+  const columns = shape.keys.map((key, i) => {
     const field = persistedField(
       schemaMeta,
       key,
       `repo.insertAll(${schemaMeta.name}, query): the select's key`,
     );
+    if (shape.values[i]?.kind !== "expr") {
+      throw new QueryError(
+        `repo.insertAll(${schemaMeta.name}, query): the select's "${key}" is not one SQL value (a plain value is kept out of the statement, and a binding is a whole row). Select an expression; for a value, val(value, t.integer()).`,
+      );
+    }
     if (field.writable === "never") {
       throw new QueryError(
         `repo.insertAll(): the query selects ${schemaMeta.name}.${field.name}, which the database owns (writable: "never").`,
@@ -679,7 +688,11 @@ export async function modifyAll(
   );
   const options = split.options;
   const schema = options?.schema ?? core.schema;
-  const plan = core.adapter.compile(ast, operation, schema);
+  // A prepared query keeps its plan; anything else is found in the adapter's plan cache.
+  const plan =
+    queryable instanceof PreparedQuery
+      ? queryable.plan(core.adapter, operation, schema)
+      : core.adapter.compile(ast, operation, schema);
   const values = bindParams(plan.slots, ast.params, split.named);
   const source = ast.from.kind === "table" ? ast.from.source : undefined;
   return runWrite(

@@ -6,14 +6,7 @@ email is free and both find that it is; only a unique index decides which one wi
 A constraint declaration on a changeset tells the repo: if the database rejects this write
 for that reason, report it as an error on this field instead of throwing.
 
-```ts
-const cs = cast(User, params, ["email", "orgId"])
-  .uniqueConstraint("email")
-  .foreignKeyConstraint("orgId");
-
-const result = await repo.insert(cs);
-if (!result.success) result.error.errorMessages(); // { email: ["has already been taken"] }
-```
+<<< @/examples/repo-write.ts#constraints
 
 ## Declarations
 
@@ -29,10 +22,19 @@ if (!result.success) result.error.errorMessages(); // { email: ["has already bee
 Options: `name`, `match` (`"exact"`, `"suffix"` or `"prefix"`), `message`, and `errorKey`
 (the field the error is reported on).
 
+The error a declaration produces carries the declared type and name, for code that wants
+to tell constraint errors apart from validation errors:
+
+```ts
+{ message: "has already been taken", constraint: "unique", meta: { constraint: "unique", constraintName: "users_email_key" } }
+```
+
 ## How a violation is matched
 
 The database reports the **name** of the constraint that failed. The declaration must
-match that name.
+match that name, and its type must fit the violation: `foreignKeyConstraint`,
+`assocConstraint` and `noAssocConstraint` match a foreign-key violation; the others match
+their own kind. Declarations are tried in the order they were made; the first match wins.
 
 With no `name`, one default is used:
 
@@ -41,16 +43,17 @@ With no `name`, one default is used:
 | `uniqueConstraint("email")` on `users` | `users_email_key` |
 | `uniqueConstraint(["orgId", "slug"])` on `projects` | `projects_org_id_slug_key` |
 | `foreignKeyConstraint("orgId")` on `users` | `users_org_id_fkey` |
+| `noAssocConstraint("posts")` on `users` | `posts_author_id_fkey` (the child table's foreign key) |
+| `exclusionConstraint("during")` on `bookings` | `bookings_during_excl` |
 
 These are the names Postgres gives a constraint when you do not name it, and the ones
 Prisma generates. Drizzle names unique constraints `users_email_unique`, and a unique
 *index* is often named `users_email_index`. For any other name, pass it:
 
-```ts
-.uniqueConstraint("email", { name: "uq_users_email" })
-```
+<<< @/examples/repo-write.ts#constraint-name
 
-A `checkConstraint` always needs a `name`.
+A `checkConstraint` always needs a `name`. `match: "suffix"` or `"prefix"` compares only the
+end or the start of the reported name, for names generated per partition or tenant.
 
 ## When a constraint was not declared
 
@@ -61,6 +64,10 @@ unique constraint "users_email_key" violated on insert into "users".
 The changeset has not defined this constraint. Add: .uniqueConstraint("email")
 (or .uniqueConstraint("email", { name: "users_email_key" }))
 ```
+
+When the reported name is not a default name the repo can read fields from, the message
+shows the `{ name }` form with a placeholder for the field. The message never includes the
+value that was rejected; the error keeps the database's own report as `detail` and `cause`.
 
 ## One error per attempt
 
@@ -74,9 +81,18 @@ sending SQL; see [Required fields](/guide/changesets#required-fields).
 
 ## Early feedback
 
-`validateUniqueAsync(fields, repo)` queries for an existing row and adds `has already been
-taken` before the write is attempted. It cannot replace the constraint, because another
-request can insert between the check and the write. Declare both.
+`validateUniqueAsync(fields, repo)` queries for another row with the same values (not the
+changeset's own row) and adds `has already been taken` (`validation: "uniqueAsync"`)
+before the write is attempted. It runs only when one of the fields changed, all of them
+have a value and none has an error already. It cannot replace the constraint, because
+another request can insert between the check and the write. Declare both.
+
+<<< @/examples/repo-write.ts#early-feedback
+
+## Bulk writes
+
+`insertAll`, `updateAll` and `deleteAll` take no changeset, so a violation there is always
+thrown as a `ConstraintError`.
 
 ## SQLite
 

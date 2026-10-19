@@ -5,7 +5,7 @@ import { Post, User } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
 import type { ExprNode, QueryAst } from "../contracts/query.js";
 import { caseWhen, coalesce, from, t, val } from "../index.js";
-import { caseNode, fnNode, literalNode, paramNode } from "../query/ast.js";
+import { caseNode, fnNode, literalNode, naryNode, paramNode } from "../query/ast.js";
 import type { Expr } from "../query/expr.js";
 import { bindParams } from "./bind.js";
 import { createCompiler } from "./compiler.js";
@@ -215,6 +215,76 @@ describe("comparisons where neither side has a type (review round 2)", () => {
     expect(compile(selecting(fnNode("coalesce", [value(1, integer), untyped(2)]))).sql).toBe(
       'select coalesce(cast($1 as integer), $2) as "c0" from "users" as "u"',
     );
+  });
+
+  test("on a dialect that expands lists, a bound left side of in() is cast or checked the same way", () => {
+    const expanding = {
+      ...postgresDialect,
+      name: "mysql" as const,
+      placeholder: "positional" as const,
+      capabilities: { ...postgresDialect.capabilities, arrayParams: false },
+    };
+    const run = (ast: QueryAst) => createCompiler(expanding).compile(ast, "all", undefined);
+    const integer = typeOf(t.integer());
+    const list = (values: unknown[], type?: typeof integer): ExprNode => ({
+      kind: "list",
+      value: values,
+      type,
+      redact: false,
+    });
+    expect(run(where(binary("in" as never, value(5, integer), list([1, 2], integer)))).sql).toContain(
+      "where cast(? as integer) in (?, ?)",
+    );
+    const text = run(where(binary("notIn" as never, untyped("a"), list(["b", "c"]))));
+    expect(text.sql).toContain("where cast(? as text) not in (?, ?)");
+    expect(() => bindParams(text.slots, ["a", ["b", 3]])).toThrow("(notIn())");
+    // An empty expanded list is false, and the left side's value is skipped.
+    const empty = where(
+      naryNode("and", [
+        binary("in" as never, untyped(5), list([])),
+        binary("gt", col("u", "age"), untyped(1)),
+      ]),
+    );
+    const plan = run(empty);
+    expect(plan.sql).toContain("where false and");
+    expect(bindParams(plan.slots, empty.params)).toEqual([1]);
+  });
+
+  test("a CASE compared with a column is written as it is: the column types it", () => {
+    const untypedCase = caseNode([{ when: literalNode(true), result: untyped(1) }], untyped(2));
+    expect(compile(where(binary("eq", untypedCase, col("u", "age")))).sql).toContain(
+      'where case when true then $1 else $2 end = "u"."age"',
+    );
+  });
+
+  test("a function other than coalesce types its result: not a bound value", () => {
+    const lower = fnNode("lower", [untyped("A")]);
+    expect(compile(where(binary("eq", lower, untyped("a")))).sql).toContain("where lower($1) = $2");
+  });
+
+  test("a typed named parameter needs a name", () => {
+    const nameless: ExprNode = { kind: "namedParam", name: "", type: typeOf(t.integer()), redact: false };
+    expect(() => compile(where(binary("eq", col("u", "age"), nameless)))).toThrow(
+      "A named parameter has no name.",
+    );
+  });
+
+  test("not in an empty expanded list of untyped values is true", () => {
+    const expanding = {
+      ...postgresDialect,
+      name: "mysql" as const,
+      placeholder: "positional" as const,
+      capabilities: { ...postgresDialect.capabilities, arrayParams: false },
+    };
+    const ast = where(
+      binary("notIn" as never, untyped(5), { kind: "list", value: [], type: undefined, redact: false }),
+    );
+    expect(createCompiler(expanding).compile(ast, "all", undefined).sql).toContain("where true");
+  });
+
+  test("a coalesce of untyped values compared with an untyped value is refused", () => {
+    const left = fnNode("coalesce", [untyped(1), untyped(2)]);
+    expect(() => compile(where(binary("gt", left, untyped(3))))).toThrow("(gt())");
   });
 
   test("a shared plan refuses a number bound where text was compiled", () => {

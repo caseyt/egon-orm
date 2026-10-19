@@ -378,6 +378,28 @@ describe("capabilities", () => {
 });
 
 describe("dialect clause variants", () => {
+  test("a dialect that ignores locks writes nothing for any clause lock() produces, whatever its lock modes", () => {
+    const sqlite = limited({ lockModes: [] }, { ignoresLocks: true });
+    for (const [mode, options] of [
+      ["update", {}],
+      ["share", { noWait: true }],
+      ["keyShare", { skipLocked: true }],
+    ] as const) {
+      expect(
+        sql(
+          sqlite,
+          from(User, "u")
+            .lock(mode, options)
+            .select(({ u }) => u.id),
+        ),
+      ).toBe('select "u"."id" as "c0" from "users" as "u"');
+    }
+    const ast = rebuild(from(User, "u").ast, { lock: { kind: "lock", clause: "FOR UPDATE OF everything" } });
+    expect(() => sql(sqlite, ast)).toThrow(
+      'The lock clause "FOR UPDATE OF everything" is not one sqlite accepts as a string; use a fragment.',
+    );
+  });
+
   test("a lock fragment that is not written binds nothing either", () => {
     const sqlite = limited({ arrayParams: false }, { ignoresLocks: true, placeholder: "positional" });
     const ast = rebuild(

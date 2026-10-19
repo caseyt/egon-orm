@@ -94,6 +94,24 @@ export interface SqlDialect {
   readonly explainOptions: Readonly<{ analyze: boolean; format: boolean }>;
 }
 
+/**
+ * Every clause `lock()` writes into `LockNode.clause`: the four modes, each alone or with
+ * `SKIP LOCKED` or `NOWAIT`. A dialect that ignores locks accepts each of these and writes
+ * nothing.
+ *
+ * @example
+ * ```ts
+ * LOCK_CLAUSES.includes("FOR UPDATE NOWAIT"); // true
+ * ```
+ */
+export const LOCK_CLAUSES: readonly string[] = Object.freeze(
+  ["FOR UPDATE", "FOR SHARE", "FOR NO KEY UPDATE", "FOR KEY SHARE"].flatMap((mode) => [
+    mode,
+    `${mode} SKIP LOCKED`,
+    `${mode} NOWAIT`,
+  ]),
+);
+
 /** Lock keywords for the clauses the query builder writes into `LockNode.clause`. */
 const POSTGRES_LOCKS: Readonly<Record<string, string>> = Object.freeze({
   "FOR UPDATE": "for update",

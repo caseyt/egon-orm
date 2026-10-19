@@ -9,6 +9,7 @@ export { bindParams, type NamedValues, toSql } from "./bind.js";
 export type { CacheOperation, PlanCacheStats } from "./cache.js";
 export { Compiler, type CompilerOptions, createCompiler } from "./compiler.js";
 export {
+  LOCK_CLAUSES,
   lookup,
   type PlaceholderStyle,
   POSTGRES_CAPABILITIES,

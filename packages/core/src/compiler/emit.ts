@@ -53,6 +53,7 @@ import { QueryError } from "../errors.js";
 import { collectParams, IDENTIFIER } from "../query/ast.js";
 import { resolveCodec } from "../types/codec.js";
 import {
+  LOCK_CLAUSES,
   lookup,
   quoteIdentifier,
   type SqlDialect,
@@ -818,26 +819,20 @@ function noSqlType(node: ExprNode): boolean {
 
 /**
  * Whether nothing in `node` gives its value a type: an untyped parameter or list, `NULL`,
- * or a `CASE` or `coalesce` made only of those, at any depth.
+ * or a `CASE` or `coalesce` made only of those, at any depth. Called only on nodes for
+ * which {@link noSqlType} holds, so a node is one of those kinds.
  */
 function hasNoType(node: ExprNode): boolean {
-  switch (node.kind) {
-    case "param":
-    case "namedParam":
-    case "list":
-      return node.type === undefined;
-    case "literal":
-      return node.value === null;
-    case "case":
-      return (
-        node.whens.every((branch) => hasNoType(branch.result)) &&
-        (node.else === undefined || hasNoType(node.else))
-      );
-    case "fn":
-      return node.name === "coalesce" && node.args.length > 0 && node.args.every(hasNoType);
-    default:
-      return false;
+  if (node.kind === "param" || node.kind === "namedParam" || node.kind === "list")
+    return node.type === undefined;
+  if (node.kind === "case") {
+    return (
+      node.whens.every((branch) => hasNoType(branch.result)) &&
+      (node.else === undefined || hasNoType(node.else))
+    );
   }
+  // A coalesce (the one function noSqlType admits), or NULL.
+  return node.kind !== "fn" || node.args.every(hasNoType);
 }
 
 function jsonPath(
@@ -1173,6 +1168,9 @@ function outputAliasOf(node: ExprNode, items: readonly SelectItem[]): string | u
 
 function lockClause(ctx: Ctx, frame: Frame, clause: string | FragmentNode): string {
   if (typeof clause === "string") {
+    // A dialect that ignores locks (SQLite: one writer) writes nothing for any clause
+    // lock() can produce, whatever its capabilities list, and still refuses other strings.
+    if (ctx.dialect.ignoresLocks && LOCK_CLAUSES.includes(clause)) return "";
     const sql = ctx.dialect.capabilities.lockModes.includes(clause)
       ? lookup(ctx.dialect.locks, clause)
       : undefined;
@@ -1181,7 +1179,7 @@ function lockClause(ctx: Ctx, frame: Frame, clause: string | FragmentNode): stri
         `The lock clause "${clause}" is not one ${ctx.dialect.name} accepts as a string; use a fragment.`,
       );
     }
-    return ctx.dialect.ignoresLocks ? "" : ` ${sql}`;
+    return ` ${sql}`;
   }
   if (clause?.kind !== "fragment") throw new QueryError("A lock is a lock clause or a fragment.");
   // Not written at all where locks are ignored: writing it would add slots without placeholders.

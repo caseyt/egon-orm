@@ -6,8 +6,29 @@ import { createTestDatabase, type TestDatabase, type TestDatabaseHandle, User } 
 import type { DatabaseAdapter, FieldMeta } from "egon-orm";
 import { from, meta, param, t } from "egon-orm";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { bindParams } from "../../core/src/compiler/index.js";
 import { postgres } from "../src/index.js";
+
+/**
+ * The parameter array of one execution, built from the plan's slots by hand (the repo of
+ * step 12 does this with the compiler's bindParams). Every type here sends its value as
+ * it is, so no conversion is applied.
+ */
+function bind(
+  slots: ReturnType<DatabaseAdapter["compile"]>["slots"],
+  params: readonly unknown[],
+  named: Record<string, unknown> = {},
+): unknown[] {
+  return slots.map((slot) => {
+    switch (slot.kind) {
+      case "named":
+        return named[slot.name];
+      case "element":
+        return (params[slot.index] as readonly unknown[])[slot.element];
+      default:
+        return params[slot.index];
+    }
+  });
+}
 
 let handle: TestDatabaseHandle;
 let db: TestDatabase;
@@ -44,7 +65,7 @@ test("a query built with from() compiles through the adapter and runs", async ()
   );
   const inserted = await adapter.execute(
     insert.sql,
-    bindParams(insert.slots, ["ann@example.com", 34, "bo@example.com", 15]),
+    bind(insert.slots, ["ann@example.com", 34, "bo@example.com", 15]),
     { slots: insert.slots },
   );
   expect(inserted.rowCount).toBe(2);
@@ -57,7 +78,7 @@ test("a query built with from() compiles through the adapter and runs", async ()
   const plan = adapter.compile(q.ast, "all", undefined);
   // The plan is cached in the adapter: compiling the same query again finds it.
   expect(adapter.compile(q.ast, "all", undefined)).toBe(plan);
-  const result = await adapter.execute(plan.sql, bindParams(plan.slots, q.ast.params, { minAge: 18 }), {
+  const result = await adapter.execute(plan.sql, bind(plan.slots, q.ast.params, { minAge: 18 }), {
     slots: plan.slots,
   });
   expect(result.rows).toEqual([{ c0: "ann@example.com", c1: 34 }]);

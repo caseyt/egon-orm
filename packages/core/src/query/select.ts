@@ -12,6 +12,7 @@
 import type { NamedParamNode, SelectNode, SelectShape } from "../contracts/query.js";
 import { QueryError } from "../errors.js";
 import { isPlainObject } from "../internal/plain-object.js";
+import { Tuple } from "./advanced/tuple.js";
 import { collectParams } from "./ast.js";
 import { bindingInfo } from "./bindings.js";
 import { isExpr, isSubqueryOperand, joinNamed, NONE, OrderExpr } from "./expr.js";
@@ -133,6 +134,11 @@ function shapeOfValue(value: unknown, out: Collector, clause: string, path: stri
     if (value instanceof OrderExpr) {
       throw new QueryError(
         `${clause}() was given an order item (asc() or desc())${where(path)}. Order items belong in orderBy(); select the expression itself.`,
+      );
+    }
+    if (value instanceof Tuple) {
+      throw new QueryError(
+        `${clause}() was given a row value (tuple)${where(path)}. A row value is compared, not selected: select its items.`,
       );
     }
     if (isSubqueryOperand(value)) {

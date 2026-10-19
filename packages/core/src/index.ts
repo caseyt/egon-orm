@@ -151,6 +151,33 @@ export {
   SchemaDefinitionError,
   StaleEntryError,
 } from "./errors.js";
+export { cte } from "./query/advanced/cte.js";
+// Step 09: advanced queries. The classes are public as types only: they are made by these
+// functions.
+export type { Dynamic, DynamicBindings, DynamicFunction, DynamicMethods } from "./query/advanced/dynamic.js";
+export { dynamic, field } from "./query/advanced/dynamic.js";
+export type { PreparedQuery } from "./query/advanced/prepare.js";
+export { prepare } from "./query/advanced/prepare.js";
+export { selectedAs } from "./query/advanced/selected-as.js";
+export type { Source, SourceBindingOf, SourceRowOf, SubqueryBinding } from "./query/advanced/sources.js";
+export { outerRef, scalar, subquery } from "./query/advanced/subquery.js";
+export type { Tuple } from "./query/advanced/tuple.js";
+export { tuple } from "./query/advanced/tuple.js";
+export type { NeedsWindow, WindowDefs, WindowFunction } from "./query/advanced/windows.js";
+export {
+  cumeDist,
+  denseRank,
+  firstValue,
+  lag,
+  lastValue,
+  lead,
+  nthValue,
+  ntile,
+  percentRank,
+  rank,
+  rowNumber,
+} from "./query/advanced/windows.js";
+export type { CteOptions } from "./query/advanced/with-cte.js";
 // Step 08: the query builder. `Query` is public as a type only: a query starts with `from`.
 export type { Binding } from "./query/bindings.js";
 export type {
@@ -163,13 +190,14 @@ export type {
   QueryParams,
   QueryResult,
   QueryWith,
+  SetInput,
   WhereObject,
 } from "./query/builder.js";
 export { from, hasNamedBinding } from "./query/builder.js";
 // Step 07: query expressions. The classes are public as types only: expressions come from
 // columns, operators and these functions.
 export type { Col, Expr, NoParams, Operand, OrderExpr, SomeParams } from "./query/expr.js";
-export type { Aggregate, Case, FragmentFunction, WindowSpec } from "./query/functions.js";
+export type { Aggregate, Case, FragmentFunction, UsesWindow, WindowSpec } from "./query/functions.js";
 export {
   and,
   arrayAgg,

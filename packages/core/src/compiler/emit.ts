@@ -33,6 +33,7 @@ import type {
   BinaryNode,
   BinaryOp,
   BoolNode,
+  ColumnNode,
   CteNode,
   ExprNode,
   FragmentNode,
@@ -50,6 +51,7 @@ import type {
 import type { AnyFieldType } from "../contracts/type.js";
 import { IDENTITY } from "../contracts/type.js";
 import { QueryError } from "../errors.js";
+import { OUTER_REFS } from "../query/advanced/outer-refs.js";
 import { collectParams, IDENTIFIER } from "../query/ast.js";
 import { resolveCodec } from "../types/codec.js";
 import {
@@ -65,12 +67,14 @@ import {
   type AliasMode,
   bindSources,
   cteEntry,
-  hasBinding,
+  isHidden,
   mergeProvenance,
   newScope,
   planSelect,
+  resolveBinding,
   type Scope,
   type SelectItem,
+  sourceScope,
 } from "./plan.js";
 import { type EmitApi, PRECEDENCE, registeredEmitter } from "./registry.js";
 import { sameShape } from "./same-shape.js";
@@ -214,6 +218,8 @@ interface Frame {
   readonly scope: Scope;
   /** The query's database schema: its own, else the nearest enclosing query's, else the argument. */
   readonly schema: string | undefined;
+  /** The output names of the query's select list, once planned: what `selectedAs("name")` may refer to. */
+  outputs: ReadonlySet<string> | undefined;
 }
 
 /**
@@ -379,11 +385,7 @@ function literal(value: unknown): string {
 function expr(ctx: Ctx, frame: Frame, node: ExprNode): string {
   switch (node.kind) {
     case "column":
-      if (!hasBinding(frame.scope, node.binding)) {
-        throw new QueryError(
-          `The column ${String(node.binding)}.${String(node.field)} refers to the binding "${String(node.binding)}", which the query does not have.`,
-        );
-      }
+      checkColumn(frame.scope, node);
       return `${quote(ctx, node.binding)}.${quote(ctx, node.column)}`;
     case "param":
       return inlineValue(ctx, node.type, node.redact);
@@ -450,12 +452,54 @@ function expr(ctx: Ctx, frame: Frame, node: ExprNode): string {
         ? `row(${list(ctx, frame, node.items, PRECEDENCE.fragment)})`
         : `(${list(ctx, frame, node.items, PRECEDENCE.fragment)})`;
     case "selectedAs":
-      return node.expr === undefined ? quote(ctx, node.name) : expr(ctx, frame, node.expr);
+      if (node.expr !== undefined) return expr(ctx, frame, node.expr);
+      if (frame.outputs !== undefined && !frame.outputs.has(node.name)) {
+        throw new QueryError(
+          `selectedAs("${String(node.name)}") refers to a selected value of that name, and the query selects none. Name one in the select: selectedAs(expr, "${String(node.name)}").`,
+        );
+      }
+      return quote(ctx, node.name);
     case "star":
       return "*";
     default:
       return custom(ctx, frame, node);
   }
+}
+
+/**
+ * Checks that a column's binding is in scope. A column made by `outerRef(alias, Schema)`
+ * must also resolve to a query around the one using it (not to a binding of that query,
+ * which would shadow the outer one) whose binding is of that schema.
+ */
+function checkColumn(scope: Scope, node: ColumnNode): void {
+  const alias = String(node.binding);
+  const found = resolveBinding(scope, node.binding);
+  if (found === undefined) {
+    throw new QueryError(
+      isHidden(scope, node.binding)
+        ? `The column ${alias}.${String(node.field)} is read by a subquery in FROM or a join from a binding of the same query, "${alias}". That needs a lateral join, which is not supported yet: move the condition to the join's on, or use the subquery in where with exists() or in().`
+        : `The column ${alias}.${String(node.field)} refers to the binding "${alias}", which the query does not have.`,
+    );
+  }
+  const required = OUTER_REFS.get(node);
+  if (required === undefined) return;
+  if (found.own) {
+    throw new QueryError(
+      `outerRef("${alias}", ${required.name}) refers to the binding "${alias}" of an outer query, but the query using it has its own binding "${alias}", which would be read instead. Give one of them another alias.`,
+    );
+  }
+  if (found.entry.meta !== required) {
+    throw new QueryError(
+      `outerRef("${alias}", ${required.name}) expects the outer binding "${alias}" to be ${required.name}, but it is ${found.entry.meta === undefined ? "a source with no schema" : found.entry.meta.name}.`,
+    );
+  }
+}
+
+/** The output names of a select list. */
+function outputNames(items: readonly SelectItem[]): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const item of items) names.add(item.alias);
+  return names;
 }
 
 function custom(ctx: Ctx, frame: Frame, node: never): string {
@@ -960,7 +1004,7 @@ function query(
 ): Written {
   const base = ctx.index;
   const start = starts(ast, base);
-  const frame: Frame = { scope: newScope(parent), schema: ast.schema ?? inherited };
+  const frame: Frame = { scope: newScope(parent), schema: ast.schema ?? inherited, outputs: undefined };
   if (operation !== "all" && operation !== "updateAll" && operation !== "deleteAll") {
     throw new QueryError(`Unknown query operation "${String(operation)}".`);
   }
@@ -971,6 +1015,7 @@ function query(
     ast.ctes.length === 0 ? "" : at(ctx, start[CTES] as number, () => ctes(ctx, frame, ast.ctes));
   bindSources(frame.scope, ast, frame.schema);
   const planned = planSelect(ast, frame.scope, operation, mode);
+  frame.outputs = outputNames(planned.items);
   onMain?.(planned.output);
   const root = frame.scope.bindings.get(ast.from.alias);
   const rootSchema = root?.table === true ? root.schema : undefined;
@@ -1146,7 +1191,9 @@ function combinedOrder(
 }
 
 function outputAliasOf(node: ExprNode, items: readonly SelectItem[]): string | undefined {
-  if (node.kind === "selectedAs" && node.expr === undefined) return node.name;
+  if (node.kind === "selectedAs" && node.expr === undefined) {
+    return items.some((item) => item.alias === node.name) ? node.name : undefined;
+  }
   // Matched by structure only: the plan is shared by every query of this shape, whatever
   // its values, so the alias it picks must not depend on them.
   let found: string | undefined;
@@ -1210,7 +1257,7 @@ function foldBools(nodes: readonly BoolNode[]): ExprNode {
   return acc;
 }
 
-function source(ctx: Ctx, frame: Frame, node: SourceNode): string {
+function source(ctx: Ctx, frame: Frame, node: SourceNode, lateral = false): string {
   const alias = quote(ctx, node.alias);
   switch (node.kind) {
     case "table": {
@@ -1222,7 +1269,7 @@ function source(ctx: Ctx, frame: Frame, node: SourceNode): string {
     case "cteSource":
       return `${quote(ctx, node.name)} as ${alias}`;
     case "subquerySource":
-      return `(${query(ctx, node.query, frame.scope, frame.schema, "all", "source", undefined).sql}) as ${alias}`;
+      return `(${query(ctx, node.query, lateral ? frame.scope : sourceScope(frame.scope), frame.schema, "all", "source", undefined).sql}) as ${alias}`;
     case "values": {
       if (node.rows.length === 0) throw new QueryError(`The values source "${node.alias}" has no rows.`);
       let text = "(values ";
@@ -1263,7 +1310,8 @@ function joins(ctx: Ctx, frame: Frame, nodes: readonly JoinNode[]): string {
     ) {
       throw unsupported(ctx.dialect, "LATERAL JOIN");
     }
-    text += ` ${keyword} ${source(ctx, frame, node.source)}`;
+    const lateral = node.type === "innerLateral" || node.type === "leftLateral";
+    text += ` ${keyword} ${source(ctx, frame, node.source, lateral)}`;
     if (node.type === "cross") {
       if (node.on !== undefined) throw new QueryError("A cross join has no condition.");
     } else {
@@ -1397,7 +1445,7 @@ export function finish(
  * @throws QueryError when the fragment refers to a binding (a statement has none).
  */
 export function emitFragmentStatement(ctx: EmitContext, node: FragmentNode): string {
-  return fragment(ctx, { scope: newScope(undefined), schema: undefined }, node);
+  return fragment(ctx, { scope: newScope(undefined), schema: undefined, outputs: undefined }, node);
 }
 
 /**
@@ -1412,7 +1460,7 @@ export function emitFragmentStatement(ctx: EmitContext, node: FragmentNode): str
  * ```
  */
 export function emitLooseExpr(ctx: EmitContext, node: ExprNode, schema: string | undefined): string {
-  return expr(ctx, { scope: newScope(undefined), schema }, node);
+  return expr(ctx, { scope: newScope(undefined), schema, outputs: undefined }, node);
 }
 
 /**

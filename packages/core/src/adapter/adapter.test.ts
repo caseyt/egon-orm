@@ -259,6 +259,15 @@ describe("createAdapter", () => {
     expect(bindParams(plan.slots, ast.params)).toEqual(["A@B.C"]);
   });
 
+  test("reports its plan cache's counters", () => {
+    const { adapter } = setup({ capabilities: { ...POSTGRES_CAPABILITIES } });
+    expect(adapter.planCacheStats()).toEqual({ hits: 0, misses: 0, collisions: 0, size: 0 });
+    const ast = from(User, "u").ast;
+    adapter.compile(ast, "all", undefined);
+    adapter.compile(ast, "all", undefined);
+    expect(adapter.planCacheStats()).toEqual({ hits: 1, misses: 1, collisions: 0, size: 1 });
+  });
+
   test("creates the driver on first use only, and once", async () => {
     const { adapter, driver, factory } = setup();
     expect(factory).not.toHaveBeenCalled();

@@ -28,6 +28,7 @@
 import {
   type CodecSource,
   createCompiler,
+  type PlanCacheStats,
   postgresDialect,
   quoteIdentifier,
   type SqlDialect,
@@ -35,11 +36,17 @@ import {
 import type { Adapter, Capabilities, Dialect } from "../contracts/adapter.js";
 import { QueryError } from "../errors.js";
 
-/** The part of the {@link Adapter} contract that compiles statements. */
+/** The part of the {@link Adapter} contract that compiles statements, and the plan cache's counters. */
 export type StatementCompiler = Pick<
   Adapter,
   "compile" | "compileExplain" | "compileFragment" | "compileInsert" | "compileUpdate" | "compileDelete"
->;
+> & {
+  /** The plan cache's counters (all zero for a dialect without a SQL table). */
+  stats(): PlanCacheStats;
+};
+
+/** The counters of a compiler that never caches anything. */
+const NO_STATS: PlanCacheStats = Object.freeze({ hits: 0, misses: 0, collisions: 0, size: 0 });
 
 /** What a compiler is created from: one per adapter instance. */
 export interface StatementCompilerOptions {
@@ -93,6 +100,7 @@ export function createStatementCompiler(options: StatementCompilerOptions): Stat
       compileInsert: () => unavailable("compileInsert", dialect),
       compileUpdate: () => unavailable("compileUpdate", dialect),
       compileDelete: () => unavailable("compileDelete", dialect),
+      stats: () => NO_STATS,
     };
   }
   for (const clause of options.capabilities.lockModes) {

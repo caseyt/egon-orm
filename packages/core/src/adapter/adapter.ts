@@ -7,6 +7,8 @@
  *
  * @module
  */
+
+import type { PlanCacheStats } from "../compiler/index.js";
 import type {
   Adapter,
   AdapterEvents,
@@ -74,6 +76,12 @@ export interface DatabaseAdapter extends Adapter {
   ping(): Promise<void>;
   /** How many connections are open, idle, and how many callers wait for one. */
   poolStats(): PoolStats;
+  /**
+   * The counters of this adapter's plan cache: lookups answered from it (`hits`), plans
+   * compiled (`misses`), lookups whose key matched another shape (`collisions`, also
+   * misses; it should stay 0) and plans held (`size`).
+   */
+  planCacheStats(): PlanCacheStats;
   /**
    * Subscribes to an event; returns the function that unsubscribes. A `query` listener
    * receives parameter values only when it asks for them with `{ params: true }`.
@@ -458,6 +466,10 @@ class SharedAdapter implements DatabaseAdapter {
     options?: E extends "query" ? QueryListenerOptions : never,
   ): () => void {
     return this.telemetry.on(event, listener, options);
+  }
+
+  planCacheStats(): PlanCacheStats {
+    return this.compiler.stats();
   }
 
   poolStats(): PoolStats {

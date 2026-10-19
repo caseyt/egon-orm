@@ -119,7 +119,8 @@ that reads it.
 
 ## Cache statistics
 
-The plan cache counts:
+`repo.planCacheStats()` (or `adapter.planCacheStats()`) returns the counters of the
+adapter's plan cache, since the adapter was created:
 
 | Counter | Meaning |
 |---|---|
@@ -129,7 +130,11 @@ The plan cache counts:
 | `size` | plans held (shapes and row-level writes) |
 
 `collisions` should stay at 0. A steady stream of misses means queries change shape from
-call to call; the list above says what to look for.
+call to call; the list above says what to look for. To check a code path, read the
+counters before and after it: one `misses` per distinct shape on the first run, and only
+`hits` after that, is what a stable query gives. `size` stops growing at `planCacheSize`
+(plus the row-level write plans); a cache that stays full while misses keep rising is too
+small for the number of shapes the application uses.
 
 ## For contributors
 

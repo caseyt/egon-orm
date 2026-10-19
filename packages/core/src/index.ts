@@ -56,6 +56,9 @@ export { applyAction, Changeset, cast, change, traverseErrors } from "./changese
 // writing a validator are public with them.
 export type { FieldValidator, FieldValidatorFn, ValidateOptions } from "./changeset/validators/index.js";
 export { BASE } from "./changeset/validators/index.js";
+// Step 12: the repo, its reads and their options. `Repo` is the type of every repo, the
+// transaction-scoped one included; the plan-cache counters are public with `planCacheStats`.
+export type { PlanCacheStats } from "./compiler/cache.js";
 export type {
   Adapter,
   AdapterEvents,
@@ -217,6 +220,18 @@ export {
   sum,
   val,
 } from "./query/functions.js";
+export type {
+  ExplainReadOptions,
+  LogOption,
+  ReadOptions,
+  RepoOperation,
+  RepoOptions,
+  RepoQueryEvent,
+  StreamReadOptions,
+} from "./repo/options.js";
+export type { AggregateFunction, RawRows } from "./repo/read.js";
+export type { ReadArgs, Repo, ResultOf, RootSchemaOf, SqlAndParams } from "./repo/repo.js";
+export { createRepo } from "./repo/repo.js";
 export type {
   AssocOrderBy,
   AssocWhere,

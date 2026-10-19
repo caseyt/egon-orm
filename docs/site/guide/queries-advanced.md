@@ -112,10 +112,12 @@ A query with `.set(...)` describes an `UPDATE`, run with
 <<< @/examples/queries-advanced.ts#bulk
 
 - `.set` takes an object, or a callback returning one. Values are type-checked against
-  the fields; plain values are bound with the field's type. A value made only of bound
-  values with no type (`val(5)`, a `caseWhen` or `coalesce` of those) must be text, or be
-  given a type: `val(5, t.integer())`. `.set` may be called again:
-  it adds fields, and a field set twice takes the later value.
+  the fields; plain values are bound with the field's type. A value made only of values
+  with no type (`val(x)` without a type, or a `caseWhen` or `coalesce` of those or of
+  `NULL`s) does not compile and throws, text included: the database would read a `CASE`
+  of them as text, whatever the column. Pass the plain value, or give one value a type:
+  `caseWhen(c, val(id, t.uuid())).else(other)`. `.set` may be called again: it adds
+  fields, and a field set twice takes the later value.
 - `.returning(...)` takes the same shapes as `select` and makes the repo return rows. An
   update has no `select`: calling it is a `QueryError` that points at `returning`.
 - Joins become `UPDATE ... FROM` and `DELETE ... USING` on Postgres:

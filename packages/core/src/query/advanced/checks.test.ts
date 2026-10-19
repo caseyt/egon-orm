@@ -2,7 +2,7 @@
 // shadowing, sources that would need a lateral join, nested sources with selectedAs
 // names, untyped values in set, window functions where they cannot be, unknown selectedAs
 // references, cte(name, query) against the withCte body, and tuples in a select.
-import { Comment, Post, User } from "@egon-orm/test-support";
+import { Comment, Membership, Post, User } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
 import { createCompiler } from "../../compiler/compiler.js";
 import { postgresDialect } from "../../compiler/dialect.js";
@@ -144,32 +144,57 @@ describe("sources over sources", () => {
 });
 
 describe("untyped values in set", () => {
-  test("a CASE or coalesce of values without a type that are not text is refused", () => {
+  test("a value made only of bound values without a type is refused, for any field", () => {
+    const posts = from(Post, "p");
     expect(() =>
-      from(Post, "p").set(({ p }) => ({ views: caseWhen(p.published, val(1)).else(val(2)) }) as never),
-    ).toThrow(/set\(\{ views \}\) was given a value with no type that is not text/);
-    expect(() => from(Post, "p").set(() => ({ views: coalesce(val(1), val(2) as never) }) as never)).toThrow(
+      posts.set(({ p }) => ({ views: caseWhen(p.published, val(1)).else(val(2)) }) as never),
+    ).toThrow(/set\(\{ views \}\) was given a value with no type/);
+    expect(() => posts.set(() => ({ views: coalesce(val(1), val(2) as never) }) as never)).toThrow(/no type/);
+    expect(() => posts.set(() => ({ views: val(5) }) as never)).toThrow(/no type/);
+    // Text too, whatever the column: a text CASE is not typed by the column.
+    expect(() => posts.set(({ p }) => ({ title: caseWhen(p.published, "a").else("b") }) as never)).toThrow(
       /no type/,
     );
-    expect(() => from(Post, "p").set(() => ({ views: val(5) }) as never)).toThrow(/no type/);
+    expect(() => posts.set(() => ({ title: val("x") }) as never)).toThrow(/no type/);
+    expect(() =>
+      from(Membership, "m").set(
+        ({ m }) => ({ orgId: caseWhen(m.userId.eq(1), val("a")).else(m.orgId) }) as never,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      from(Membership, "m").set(
+        () => ({ orgId: caseWhen(lit(true), "00000000-0000-0000-0000-000000000000") }) as never,
+      ),
+    ).toThrow(/set\(\{ orgId \}\) was given a value with no type/);
+    // NULLs only, or val(null).
+    expect(() =>
+      posts.set(({ p }) => ({ views: caseWhen(p.published, lit(null)).else(lit(null)) }) as never),
+    ).toThrow(/or of NULLs only/);
+    expect(() =>
+      posts.set(({ p }) => ({ body: caseWhen(p.published, lit(null)).else(lit(null)) }) as never),
+    ).toThrow(/no type/);
+    expect(() => posts.set(() => ({ body: val(null) }) as never)).toThrow(/no type/);
   });
 
-  test("text, null, a typed value, a plain value and anything an operator types are fine", () => {
+  test("a plain value, NULL, a typed value, a typed branch and anything an operator types are fine", () => {
     const q = from(Post, "p").set(({ p }) => ({
-      title: caseWhen(p.published, "a").else("b"),
-      body: val(null),
+      title: caseWhen(p.published, val("a", t.string())).else("b"),
+      body: lit(null),
       views: caseWhen(p.published, val(1, t.integer())).else(2),
       tagList: p.tagList.append("x"),
       publishedAt: null,
     }));
     expect(q.ast.updates).toHaveLength(5);
-    // A CASE whose only value is a number with no type is refused, even beside NULL.
-    expect(() =>
-      from(Post, "p").set(() => ({ views: caseWhen(lit(true), 1).else(lit(null)) }) as never),
-    ).toThrow(/no type/);
-    // An operator types the value: allowed.
+    expect(from(Post, "p").set({ title: "x", views: null }).ast.updates).toHaveLength(2);
     expect(
       from(Post, "p").set(({ p }) => ({ views: p.views.add(val(2) as never) })).ast.updates,
+    ).toHaveLength(1);
+    expect(
+      from(Membership, "m").set(() => ({
+        orgId: caseWhen(lit(true), val("00000000-0000-0000-0000-000000000000", t.uuid())).else(
+          "00000000-0000-0000-0000-000000000001",
+        ),
+      })).ast.updates,
     ).toHaveLength(1);
   });
 });
@@ -324,29 +349,6 @@ describe("review round 1: the remaining cases", () => {
 });
 
 describe("review round 2", () => {
-  test("a CASE or coalesce of NULLs only is refused in set unless the field is text", () => {
-    expect(() =>
-      from(Post, "p").set(({ p }) => ({ views: caseWhen(p.published, lit(null)).else(lit(null)) }) as never),
-    ).toThrow(/set\(\{ views \}\) was given a value with no type that is not text/);
-    expect(() =>
-      from(Post, "p").set(({ p }) => ({ views: caseWhen(p.published, val(null)).else(lit(null)) }) as never),
-    ).toThrow(/of NULLs only/);
-    // (A coalesce of NULLs is refused by coalesce() itself.)
-    // A text field takes it, and so does any field a bare NULL.
-    expect(
-      from(Post, "p").set(({ p }) => ({ body: caseWhen(p.published, lit(null)).else(lit(null)) as never }))
-        .ast.updates,
-    ).toHaveLength(1);
-    expect(
-      from(Post, "p").set({ views: lit(null) as never, body: val(null) as never }).ast.updates,
-    ).toHaveLength(2);
-    // Text among the values: the CASE is text, which a text field takes.
-    expect(
-      from(Post, "p").set(({ p }) => ({ title: caseWhen(p.published, "a").else(lit(null)) as never })).ast
-        .updates,
-    ).toHaveLength(1);
-  });
-
   test("selectedAs references are refused where output names cannot be read", () => {
     const named = from(Post, "p");
     expect(() => named.where(() => selectedAs("a").eq(1 as never))).toThrow(

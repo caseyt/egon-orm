@@ -76,26 +76,21 @@ function boundLeaves(node: ExprNode, out: BoundLeaf[]): BoundLeaf[] | undefined 
 
 /**
  * Whether a value assigned by `set` is made only of bound values and `NULL`, none of which
- * has a type, so that the database would read it as text (owner decision, option A):
- *
- * - one of them is a value that is not text (`val(5)`, or a `CASE` or `coalesce` holding
- *   one): refused whatever the field, as the types refuse it;
- * - a `CASE` or `coalesce` with no text value in it (only `NULL`s, or `val(null)`) is
- *   refused unless the field is text: the target column does not type a `CASE` or a
- *   `coalesce`, so the database reads it as text and refuses it for another column. A bare
- *   `NULL` or `val(null)` is typed by the column, and allowed.
+ * has a type (owner decision, option A; review rounds 1 to 3): `val(x)` without a type, or a
+ * `CASE` or `coalesce` of such values or of `NULL`s only. The database types a bare
+ * parameter from the column, but not a `CASE` or a `coalesce`, which it reads as text and
+ * refuses for any column that is not text (an integer, a uuid, a date, a decimal). The types
+ * cannot tell a bare `val("x")` from such a `CASE`, nor a text column from a uuid one, so
+ * one rule holds in both: such a value is refused for every field. A plain value (bound
+ * with the field's type), a typed `val(x, t.uuid())`, or a `CASE` with one typed branch is
+ * the way. A bare `NULL` (`lit(null)`) stays allowed: the column types it.
  */
-function untypedNonText(node: ExprNode, textField: boolean): boolean {
+function untypedValue(node: ExprNode): boolean {
   const leaves = boundLeaves(node, []);
   if (leaves === undefined) return false;
-  let text = false;
-  for (const leaf of leaves) {
-    if (leaf.type !== undefined) return false;
-    if (leaf.kind === "param" && typeof leaf.value === "string") text = true;
-    else if (leaf.kind === "param" && leaf.value !== null) return true;
-  }
-  const composite = node.kind === "case" || node.kind === "fn";
-  return composite && !text && !textField;
+  for (const leaf of leaves) if (leaf.type !== undefined) return false;
+  // A bare NULL is typed by the column; anything else made only of untyped values is not.
+  return leaves.length > 0 || node.kind !== "literal";
 }
 
 /** The assignments a `set` call adds. */
@@ -155,9 +150,9 @@ export function assignments(
     }
     const operand = toOperand(value, field.type, field.redact, "set", false, true);
     checkNoWindows("set", operand.node);
-    if (untypedNonText(operand.node, field.type.db.kind === "text")) {
+    if (untypedValue(operand.node)) {
       throw new QueryError(
-        `set({ ${key} }) was given a value with no type that is not text (val() without a type, or a CASE or coalesce of such values, or of NULLs only). Nothing in the SQL types it: give it one, val(value, t.integer()), or pass the plain value.`,
+        `set({ ${key} }) was given a value with no type (val() without a type, or a CASE or coalesce of such values or of NULLs only). Nothing in the SQL types it, and the database would read it as text: pass the plain value, or give it a type, val(value, t.uuid()).`,
       );
     }
     const node: UpdateNode = { kind: "update", field: key, column: field.column, value: operand.node };

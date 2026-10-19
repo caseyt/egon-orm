@@ -3,6 +3,7 @@ import { describe, expectTypeOf, test } from "vitest";
 import { Category } from "../../compiler/advanced/advanced-queries.js";
 import {
   type Aggregate,
+  caseWhen,
   count,
   cte,
   type Dynamic,
@@ -386,5 +387,27 @@ describe("review round 1", () => {
     declared.returning(() => ({ n: count().over("w") }));
     // @ts-expect-error a window function in a set value
     from(Post, "p").set(() => ({ views: count().over("w") }));
+  });
+});
+
+describe("review round 3", () => {
+  test("set refuses any value made only of untyped bound values, text included", () => {
+    const posts = from(Post, "p");
+    // @ts-expect-error val() without a type
+    posts.set(() => ({ title: val("x") }));
+    // @ts-expect-error a CASE of untyped text
+    posts.set(({ p }) => ({ title: caseWhen(p.published, "a").else("b") }));
+    // @ts-expect-error val(null) without a type
+    posts.set(() => ({ body: val(null) }));
+    posts.set(({ p }) => ({ title: caseWhen(p.published, val("a", t.string())).else("b"), body: lit(null) }));
+  });
+
+  test("the guide's way out for scalar on a JSON column compiles", () => {
+    const settings = scalar(
+      from(User, "u")
+        .where(({ u }) => u.id.eq(1))
+        .select(({ u }) => u.settings.as<unknown>()),
+    );
+    expectTypeOf(settings).toEqualTypeOf<Expr<unknown, NoParams>>();
   });
 });

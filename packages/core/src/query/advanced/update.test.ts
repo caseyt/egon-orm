@@ -14,7 +14,7 @@ describe("set", () => {
   });
 
   test("an expression given for a redacted field is redacted", () => {
-    const q = from(User, "u").set(() => ({ passwordHash: val("x").as<string>() }));
+    const q = from(User, "u").set(() => ({ passwordHash: val("x", t.string()) }));
     const value = q.ast.updates[0]?.value;
     expect(value?.kind === "param" ? value.redact : undefined).toBe(true);
   });

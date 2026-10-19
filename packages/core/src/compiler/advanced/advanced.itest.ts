@@ -1,7 +1,7 @@
 // The step 09 features on a real Postgres: every statement of the snapshot matrix runs
 // (inside a rolled-back transaction), and one realistic query per feature checks the rows
 // it returns.
-import { createTestDatabase, Post, type TestDatabaseHandle, User } from "@egon-orm/test-support";
+import { createTestDatabase, Membership, Post, type TestDatabaseHandle, User } from "@egon-orm/test-support";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import type { OutputPlan } from "../../contracts/adapter.js";
 import {
@@ -201,11 +201,31 @@ test("bulk publish with returning, then the rows are published", async () => {
   });
 });
 
-test("a CASE of NULLs only, which set allows for a text field, runs on Postgres", async () => {
+test("set: an untyped CASE is refused for a uuid column; a typed one runs on Postgres", async () => {
+  // Without a type the database reads the CASE as text: "column is of type uuid but
+  // expression is of type text". It is refused when the query is built instead.
+  const untyped = () =>
+    from(Membership, "m").set(() => ({
+      orgId: caseWhen(lit(true), "00000000-0000-0000-0000-000000000000") as never,
+    }));
+  expect(untyped).toThrow(/set\(\{ orgId \}\) was given a value with no type/);
   await rolledBack(async () => {
+    const [org] = await handle.db.query<{ id: string }>(
+      "INSERT INTO orgs (name) VALUES ('Beta') RETURNING id",
+    );
+    const moved = org?.id as string;
+    await handle.db.query("INSERT INTO orgs (id, name) SELECT gen_random_uuid(), 'Gamma'");
+    const [first] = await handle.db.query<{ id: string }>("SELECT id FROM orgs WHERE name = 'Gamma'");
+    await handle.db.query("INSERT INTO memberships (org_id, user_id) VALUES ($1, 1)", [first?.id]);
+    const typed = from(Membership, "m")
+      .where(({ m }) => m.userId.eq(1))
+      .set(({ m }) => ({ orgId: caseWhen(m.userId.eq(1), val(moved, t.uuid())).else(m.orgId) }))
+      .returning(({ m }) => m.orgId);
+    expect(await rows(typed, undefined, "updateAll")).toEqual([{ c0: moved }]);
+    // A CASE of NULLs only needs a type too; with one it runs.
     const clear = from(Post, "p")
       .where(({ p }) => p.id.eq(1))
-      .set(({ p }) => ({ body: caseWhen(p.published, lit(null)).else(lit(null)) as never }))
+      .set(({ p }) => ({ body: caseWhen(p.published, val(null, t.string().nullable())).else(lit(null)) }))
       .returning(({ p }) => p.body);
     expect(await rows(clear, undefined, "updateAll")).toEqual([{ c0: null }]);
   });

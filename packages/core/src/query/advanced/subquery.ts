@@ -61,15 +61,17 @@ export function subquery<Q extends QueryLike>(
 }
 
 /** Whether a query result `R` is more than one value: an object of keys, or an array of a known length. */
-type ManyValues<R> = [NonNullable<R>] extends [Date | Uint8Array]
+type ManyValues<R> = unknown extends R
   ? false
-  : [NonNullable<R>] extends [readonly unknown[]]
-    ? number extends NonNullable<R>["length"]
-      ? false
-      : true
-    : [NonNullable<R>] extends [object]
-      ? true
-      : false;
+  : [NonNullable<R>] extends [Date | Uint8Array]
+    ? false
+    : [NonNullable<R>] extends [readonly unknown[]]
+      ? number extends NonNullable<R>["length"]
+        ? false
+        : true
+      : [NonNullable<R>] extends [object]
+        ? true
+        : false;
 
 /**
  * Refuses, at compile time, a query that does not select one value: whole rows, an object

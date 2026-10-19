@@ -1,0 +1,1382 @@
+/**
+ * The row-level writes of the repo: `insert`, `update`, `delete` and `insertOrUpdate` of
+ * one changeset, the options they take, and the `validateUniqueAsync` check.
+ *
+ * ## insert
+ *
+ * 1. An invalid changeset is returned as a failure; nothing is sent.
+ * 2. The `prepareChanges` functions run, in order, on the changeset with its `action` and
+ *    `repo` set.
+ * 3. The values: each persisted field's change, else its default (a function default is
+ *    called), else its generated value (the timestamps of `timestamps()` share one
+ *    instant). A field left without a value is not written, so a database default
+ *    applies; a field the database owns (`writable: "never"`) is never written.
+ * 4. A non-nullable field that has no value, or `null`, and that the database does not
+ *    generate, is reported as `can't be blank` (`validation: "required"`); nothing is sent.
+ * 5. `INSERT … RETURNING` the primary key, the database-generated fields, the fields the
+ *    database owns and the `returning` option's fields. The row is built from the values
+ *    written and the values returned, its virtual fields from the changes.
+ *
+ * ## update
+ *
+ * An invalid changeset is a failure; the prepare functions run; with no change (and no
+ * `force`) nothing is sent and the row is returned as it is. Otherwise `UPDATE … SET`
+ * the changed columns that may be updated, plus the fields generated on every write
+ * (`updatedAt`), `WHERE` the primary key and the optimistic-lock filters. No row matched
+ * is a stale entry.
+ *
+ * ## delete
+ *
+ * `DELETE … WHERE` the primary key and the filters; no row matched is a stale entry. The
+ * row returned is the row given, in the `deleted` state.
+ *
+ * A database constraint violation is matched against the changeset's declarations
+ * (`constraints.ts`).
+ *
+ * @module
+ */
+import {
+  Changeset,
+  change,
+  provideValidateUniqueAsync,
+  withAction,
+  withErrors,
+  withRepo,
+} from "../changeset/changeset.js";
+import { bindParams } from "../compiler/bind.js";
+import type { CompiledQuery, ExecuteOptions, Executor, OnConflict, RawResult } from "../contracts/adapter.js";
+import type { Action, ChangesetError } from "../contracts/changeset.js";
+import type { ExprNode } from "../contracts/query.js";
+import { type Failure, failure, type Result, type Success, success } from "../contracts/result.js";
+import {
+  type AnySchema,
+  type FieldMeta,
+  type FieldNames,
+  ROW,
+  type RowMeta,
+  type SchemaMeta,
+} from "../contracts/schema.js";
+import {
+  ConstraintError,
+  InvalidChangesetError,
+  isEgonError,
+  QueryError,
+  StaleEntryError,
+} from "../errors.js";
+import { isPlainObject } from "../internal/plain-object.js";
+import { collectParams } from "../query/ast.js";
+import { from } from "../query/builder.js";
+import type { Col, Expr, SomeParams } from "../query/expr.js";
+import { and, not } from "../query/functions.js";
+import { isRow } from "../schema/guards.js";
+import { meta } from "../schema/schema.js";
+import { handleViolation } from "./constraints.js";
+import { decoderFor } from "./hydrate.js";
+import { checkReadOptions, READ_OPTION_KEYS, type ReadOptions, type RepoOperation } from "./options.js";
+import { Call, isFragment, load, ReadCore } from "./read.js";
+
+/** A changeset of any schema, as the repo handles it. */
+export type AnyChangeset = Changeset<AnySchema, boolean>;
+
+const NONE: readonly never[] = Object.freeze([]);
+const hasOwn = Object.hasOwn;
+const now = (): number => performance.now();
+
+// ---------------------------------------------------------------------------
+// Options
+// ---------------------------------------------------------------------------
+
+/**
+ * Which conflict an upsert handles: the unique index over these fields, a named
+ * constraint, or a `fragment` (an index expression, with a predicate if needed).
+ *
+ * @example
+ * ```ts
+ * const byEmail: ConflictTargetOption<typeof User> = ["email"];
+ * const byName: ConflictTargetOption<typeof User> = { constraint: "users_email_key" };
+ * ```
+ */
+export type ConflictTargetOption<S extends AnySchema = AnySchema> =
+  | readonly FieldNames<S>[]
+  | { readonly constraint: string }
+  | Expr<unknown, SomeParams>;
+
+/**
+ * Which columns an upsert updates on the row it collided with: every inserted column
+ * (`"all"`), these fields, or every inserted column but these.
+ *
+ * @example
+ * ```ts
+ * const update: ConflictUpdateOption<typeof User> = { except: ["createdAt"] };
+ * ```
+ */
+export type ConflictUpdateOption<S extends AnySchema = AnySchema> =
+  | "all"
+  | readonly FieldNames<S>[]
+  | { readonly except: readonly FieldNames<S>[] };
+
+/**
+ * What an insert does when it collides with an existing row: nothing (`"nothing"`), or
+ * update that row. Without the option, a conflict is an error. `target` may be left out
+ * only on a database that cannot take one (MySQL); Postgres requires it.
+ *
+ * @example
+ * ```ts
+ * const upsert: OnConflictOption<typeof User> = { target: ["email"], update: ["name"] };
+ * ```
+ */
+export type OnConflictOption<S extends AnySchema = AnySchema> =
+  | "nothing"
+  | { readonly target?: ConflictTargetOption<S>; readonly update: ConflictUpdateOption<S> };
+
+/**
+ * The options of `repo.insert`.
+ *
+ * - `returning`: the fields to read back besides the primary key and the fields the
+ *   database generates; `true` for every field (for columns a trigger or a database
+ *   default sets).
+ * - `onConflict`: see {@link OnConflictOption}. With `"nothing"`, a conflict inserts
+ *   nothing and the result's `data` is `null`.
+ *
+ * @example
+ * ```ts
+ * const options: InsertOptions<typeof User> = { returning: true, timeoutMs: 1_000 };
+ * ```
+ */
+export interface InsertOptions<S extends AnySchema = AnySchema> extends ReadOptions {
+  readonly returning?: true | readonly FieldNames<S>[] | undefined;
+  readonly onConflict?: OnConflictOption<S> | undefined;
+}
+
+/**
+ * How a stale update or delete is reported on the changeset instead of thrown: an error
+ * on `field` (any error key), with `message` (default `is stale`).
+ *
+ * @example
+ * ```ts
+ * const staleError: StaleErrorOption = { field: "lockVersion", message: "was changed by someone else" };
+ * ```
+ */
+export interface StaleErrorOption {
+  readonly field: string;
+  readonly message?: string | undefined;
+}
+
+/**
+ * The options of `repo.update`.
+ *
+ * - `force`: run the update even when nothing changed (the fields generated on every
+ *   write, such as `updatedAt`, are still set).
+ * - `staleError`: report a stale row on the changeset (see {@link StaleErrorOption}).
+ * - `allowStale`: treat a stale row as updated.
+ * - `returning`: as for insert.
+ *
+ * @example
+ * ```ts
+ * const options: UpdateOptions<typeof User> = { staleError: { field: "lockVersion" } };
+ * ```
+ */
+export interface UpdateOptions<S extends AnySchema = AnySchema> extends ReadOptions {
+  readonly returning?: true | readonly FieldNames<S>[] | undefined;
+  readonly force?: boolean | undefined;
+  readonly staleError?: StaleErrorOption | undefined;
+  readonly allowStale?: boolean | undefined;
+}
+
+/**
+ * The options of `repo.delete`: `staleError` and `allowStale`, as for update.
+ *
+ * @example
+ * ```ts
+ * const options: DeleteOptions = { allowStale: true };
+ * ```
+ */
+export interface DeleteOptions extends ReadOptions {
+  readonly staleError?: StaleErrorOption | undefined;
+  readonly allowStale?: boolean | undefined;
+}
+
+/**
+ * The options of `repo.insertOrUpdate`: those of insert and of update; each path reads
+ * its own.
+ *
+ * @example
+ * ```ts
+ * const options: InsertOrUpdateOptions<typeof User> = { returning: true, force: true };
+ * ```
+ */
+export interface InsertOrUpdateOptions<S extends AnySchema = AnySchema>
+  extends InsertOptions<S>,
+    UpdateOptions<S> {
+  readonly returning?: true | readonly FieldNames<S>[] | undefined;
+}
+
+export const INSERT_OPTION_KEYS: readonly string[] = Object.freeze([
+  ...READ_OPTION_KEYS,
+  "returning",
+  "onConflict",
+]);
+export const UPDATE_OPTION_KEYS: readonly string[] = Object.freeze([
+  ...READ_OPTION_KEYS,
+  "returning",
+  "force",
+  "staleError",
+  "allowStale",
+]);
+export const DELETE_OPTION_KEYS: readonly string[] = Object.freeze([
+  ...READ_OPTION_KEYS,
+  "staleError",
+  "allowStale",
+]);
+export const INSERT_OR_UPDATE_OPTION_KEYS: readonly string[] = Object.freeze([
+  ...READ_OPTION_KEYS,
+  "returning",
+  "onConflict",
+  "force",
+  "staleError",
+  "allowStale",
+]);
+
+/** Everything a write reads from its options, checked. */
+interface WriteSettings {
+  readonly options: ReadOptions | undefined;
+  readonly returning: readonly FieldMeta[] | true | undefined;
+  readonly onConflict: OnConflict | undefined;
+  /** The values of a fragment conflict target's parameters. */
+  readonly conflictParams: readonly unknown[];
+  readonly force: boolean;
+  readonly staleError: StaleErrorOption | undefined;
+  readonly allowStale: boolean;
+}
+
+const NO_SETTINGS: WriteSettings = Object.freeze({
+  options: undefined,
+  returning: undefined,
+  onConflict: undefined,
+  conflictParams: NONE,
+  force: false,
+  staleError: undefined,
+  allowStale: false,
+});
+
+function describe(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "an array";
+  return typeof value === "object" ? "an object" : `${typeof value} ${String(value)}`;
+}
+
+/**
+ * The persisted field `name` of `schemaMeta`.
+ *
+ * @throws QueryError when there is none (or it is virtual).
+ */
+export function persistedField(schemaMeta: SchemaMeta, name: unknown, where: string): FieldMeta {
+  const field = typeof name === "string" ? schemaMeta.fieldsByName.get(name) : undefined;
+  if (field === undefined || field.virtual) {
+    throw new QueryError(
+      `${where}: ${typeof name === "string" ? `"${name}"` : describe(name)} is not ${field?.virtual === true ? "a stored field (it is virtual)" : "a field"} of ${schemaMeta.name}. Its fields are: ${schemaMeta.persisted.map((each) => each.name).join(", ")}.`,
+    );
+  }
+  return field;
+}
+
+function fieldList(schemaMeta: SchemaMeta, names: unknown, where: string): readonly FieldMeta[] {
+  if (!Array.isArray(names) || names.length === 0) {
+    throw new QueryError(`${where} must be a non-empty list of field names.`);
+  }
+  return names.map((name) => persistedField(schemaMeta, name, where));
+}
+
+/**
+ * Checks `returning`: `true` or a list of persisted field names.
+ *
+ * @throws QueryError otherwise.
+ */
+export function returningOption(
+  schemaMeta: SchemaMeta,
+  returning: unknown,
+  method: string,
+): readonly FieldMeta[] | true | undefined {
+  if (returning === undefined) return undefined;
+  if (returning === true) return true;
+  if (!Array.isArray(returning)) {
+    throw new QueryError(
+      `repo.${method}(): returning is true or a list of field names, but it is ${describe(returning)}.`,
+    );
+  }
+  return fieldList(schemaMeta, returning, `repo.${method}(): returning`);
+}
+
+/**
+ * Checks `onConflict` and turns it into the adapter's form, with the values of a fragment
+ * target's parameters.
+ *
+ * @throws QueryError when it is malformed or names something that is not a field.
+ */
+export function conflictOption(
+  schemaMeta: SchemaMeta,
+  option: unknown,
+  method: string,
+): { readonly onConflict: OnConflict | undefined; readonly params: readonly unknown[] } {
+  const where = `repo.${method}(): onConflict`;
+  if (option === undefined) return { onConflict: undefined, params: NONE };
+  if (option === "nothing") return { onConflict: "nothing", params: NONE };
+  if (typeof option !== "object" || option === null || !isPlainObject(option)) {
+    throw new QueryError(
+      `${where} is "nothing" or { target, update }, but it is ${describe(option)}. (There is no spelling for "raise": leave the option out.)`,
+    );
+  }
+  const given = option as { readonly target?: unknown; readonly update?: unknown };
+  for (const key of Object.keys(given)) {
+    if (key !== "target" && key !== "update") {
+      throw new QueryError(`${where} has the keys target and update; "${key}" is not one of them.`);
+    }
+  }
+  let target: OnConflict & object extends { target: infer T } ? T : never;
+  let params: readonly unknown[] = NONE;
+  const rawTarget = given.target;
+  if (rawTarget === undefined) {
+    target = undefined;
+  } else if (Array.isArray(rawTarget)) {
+    target = fieldList(schemaMeta, rawTarget, `${where}'s target`);
+  } else if (isFragment(rawTarget)) {
+    target = rawTarget.node;
+    const values: unknown[] = [];
+    collectParams(rawTarget.node as ExprNode, values, []);
+    params = values;
+  } else if (
+    typeof rawTarget === "object" &&
+    rawTarget !== null &&
+    isPlainObject(rawTarget) &&
+    Object.keys(rawTarget).length === 1 &&
+    typeof (rawTarget as { constraint?: unknown }).constraint === "string" &&
+    (rawTarget as { constraint: string }).constraint !== ""
+  ) {
+    target = { constraint: (rawTarget as { constraint: string }).constraint };
+  } else {
+    throw new QueryError(
+      `${where}'s target is a list of field names, { constraint: "name" } or a fragment, but it is ${describe(rawTarget)}.`,
+    );
+  }
+  const rawUpdate = given.update;
+  let update: Exclude<OnConflict, "nothing">["update"];
+  if (rawUpdate === "all") {
+    update = "all";
+  } else if (Array.isArray(rawUpdate)) {
+    update = fieldList(schemaMeta, rawUpdate, `${where}'s update`);
+  } else if (
+    typeof rawUpdate === "object" &&
+    rawUpdate !== null &&
+    isPlainObject(rawUpdate) &&
+    Object.keys(rawUpdate).length === 1 &&
+    Array.isArray((rawUpdate as { except?: unknown }).except)
+  ) {
+    update = {
+      except: fieldList(schemaMeta, (rawUpdate as { except: unknown }).except, `${where}'s except`),
+    };
+  } else {
+    throw new QueryError(
+      `${where}'s update is "all", a list of field names or { except: [...] }, but it is ${describe(rawUpdate)}. To ignore a conflict, use onConflict: "nothing".`,
+    );
+  }
+  return { onConflict: { target, update }, params };
+}
+
+function checkBooleanOption(method: string, name: string, value: unknown): boolean {
+  if (value === undefined) return false;
+  if (typeof value !== "boolean") {
+    throw new TypeError(`repo.${method}(): ${name} must be true or false, but it is ${describe(value)}.`);
+  }
+  return value;
+}
+
+function staleErrorOption(method: string, value: unknown): StaleErrorOption | undefined {
+  if (value === undefined) return undefined;
+  const given = value as { readonly field?: unknown; readonly message?: unknown };
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !isPlainObject(value) ||
+    typeof given.field !== "string" ||
+    given.field === "" ||
+    given.field === "__proto__" ||
+    (given.message !== undefined && typeof given.message !== "string") ||
+    Object.keys(value).some((key) => key !== "field" && key !== "message")
+  ) {
+    throw new TypeError(
+      `repo.${method}(): staleError is { field, message? }, with field the error key to report on, such as { field: "lockVersion" }.`,
+    );
+  }
+  return given as StaleErrorOption;
+}
+
+/**
+ * Checks a write's options.
+ *
+ * @throws TypeError for an unknown option or a wrong type; QueryError for a field that is not one.
+ */
+export function writeSettings(
+  schemaMeta: SchemaMeta,
+  method: string,
+  options: unknown,
+  keys: readonly string[],
+): WriteSettings {
+  const checked = checkReadOptions<ReadOptions>(method, options, keys);
+  if (checked === undefined) return NO_SETTINGS;
+  const given = checked as Readonly<Record<string, unknown>>;
+  const conflict = conflictOption(schemaMeta, given.onConflict, method);
+  return {
+    options: checked,
+    returning: returningOption(schemaMeta, given.returning, method),
+    onConflict: conflict.onConflict,
+    conflictParams: conflict.params,
+    force: checkBooleanOption(method, "force", given.force),
+    staleError: staleErrorOption(method, given.staleError),
+    allowStale: checkBooleanOption(method, "allowStale", given.allowStale),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Running a statement
+// ---------------------------------------------------------------------------
+
+/** The execution options of a write, in one shape (the shape the reads use). */
+interface CallOptions {
+  readonly signal: AbortSignal | undefined;
+  readonly timeoutMs: number | undefined;
+  readonly slots: CompiledQuery["slots"];
+  readonly context: Call | undefined;
+  readonly batchSize: undefined;
+}
+
+/**
+ * A call's deadline (`performance.now()` based) when it runs several statements under one
+ * `timeoutMs`; `undefined` without one.
+ */
+export function deadlineOf(options: ReadOptions | undefined): number | undefined {
+  const timeoutMs = options?.timeoutMs;
+  return typeof timeoutMs === "number" ? now() + timeoutMs : undefined;
+}
+
+/** What is left of a call's budget: its `timeoutMs` for a one-statement call, else what remains before the deadline. */
+export function remaining(
+  options: ReadOptions | undefined,
+  deadline: number | undefined,
+): number | undefined {
+  return deadline === undefined ? options?.timeoutMs : Math.max(0, deadline - now());
+}
+
+/**
+ * Runs one statement of a write on `executor`, reporting it to the repo's `query`
+ * listeners as `operation` on `source`. `finish` turns the result into what the write
+ * needs (the decoding is timed as `decodeMs`); it is a module-level function, handed
+ * `extra`, so that no closure is made per call.
+ */
+export async function runWrite<T, E>(
+  core: ReadCore,
+  executor: Executor,
+  operation: RepoOperation,
+  source: string | undefined,
+  plan: CompiledQuery,
+  values: readonly unknown[],
+  options: ReadOptions | undefined,
+  deadline: number | undefined,
+  finish: (result: RawResult, plan: CompiledQuery, core: ReadCore, extra: E) => T,
+  extra: E,
+): Promise<T> {
+  const hub = core.hub;
+  const call = hub.listening ? new Call(hub, operation, source, options?.context) : undefined;
+  const shaped: CallOptions = {
+    signal: options?.signal,
+    timeoutMs: remaining(options, deadline),
+    slots: plan.slots,
+    context: call,
+    batchSize: undefined,
+  };
+  let result: RawResult;
+  try {
+    result = await executor.execute(plan.sql, values, shaped as ExecuteOptions);
+  } catch (error) {
+    if (call !== undefined) hub.emit(call, 0, undefined);
+    throw error;
+  }
+  if (call === undefined) return finish(result, plan, core, extra);
+  const start = now();
+  let value: T;
+  try {
+    value = finish(result, plan, core, extra);
+  } catch (error) {
+    hub.emit(call, now() - start, error);
+    throw error;
+  }
+  hub.emit(call, now() - start, undefined);
+  return value;
+}
+
+/** What a row-level write's statement returned. */
+interface Written {
+  readonly rowCount: number;
+  /** The returned row, decoded to an object keyed by field name; `undefined` when none came back. */
+  readonly returned: Readonly<Record<string, unknown>> | undefined;
+  readonly insertId: bigint | number | undefined;
+}
+
+/** Decodes the returned row of a row-level write. */
+function decodeWritten(result: RawResult, plan: CompiledQuery, core: ReadCore): Written {
+  const row = result.rows[0];
+  const returned =
+    row === undefined || plan.output === undefined
+      ? undefined
+      : (decoderFor(plan, core.adapter, core.codegen)(row, NONE) as Readonly<Record<string, unknown>>);
+  return { rowCount: result.rowCount, returned, insertId: result.insertId };
+}
+
+// ---------------------------------------------------------------------------
+// Per-schema write tables
+// ---------------------------------------------------------------------------
+
+/** What every write of one schema needs, computed once per schema. */
+interface WriteTable {
+  /** The fields an insert always reads back: the primary key, database-generated and database-owned fields. */
+  readonly insertBack: readonly FieldMeta[];
+  /** The fields an update always reads back: database-generated and database-owned fields that are not the key. */
+  readonly updateBack: readonly FieldMeta[];
+  /**
+   * For each persisted field that is generated, the index (in `persisted`) of the first
+   * field sharing its timestamp generator, so that `createdAt` and `updatedAt` get one
+   * instant; its own index otherwise.
+   */
+  readonly shares: readonly number[];
+  /** Whether a field is generated on update (`autogenerate` on insert and update). */
+  readonly onUpdate: readonly boolean[];
+}
+
+const tables = new WeakMap<SchemaMeta, WriteTable>();
+
+const TIMESTAMP_KINDS: ReadonlySet<string> = new Set(["timestamp", "timestamptz"]);
+
+/**
+ * The write table of a schema.
+ *
+ * @throws QueryError for an embedded schema, which has no table.
+ */
+export function writeTable(schemaMeta: SchemaMeta): WriteTable {
+  let table = tables.get(schemaMeta);
+  if (table !== undefined) return table;
+  if (schemaMeta.source === null) {
+    throw new QueryError(
+      `${schemaMeta.name} is an embedded schema: it is stored inside its parent's row and has no table to write to.`,
+    );
+  }
+  const persisted = schemaMeta.persisted;
+  const owned = (field: FieldMeta): boolean => field.dbGenerated || field.writable === "never";
+  const shares: number[] = [];
+  const onUpdate: boolean[] = [];
+  for (let i = 0; i < persisted.length; i++) {
+    const field = persisted[i] as FieldMeta;
+    const generate = field.autogenerate;
+    let share = i;
+    if (generate !== undefined && TIMESTAMP_KINDS.has(field.type.db.kind)) {
+      for (let j = 0; j < i; j++) {
+        const other = persisted[j] as FieldMeta;
+        if (other.autogenerate?.fn === generate.fn && TIMESTAMP_KINDS.has(other.type.db.kind)) {
+          share = j;
+          break;
+        }
+      }
+    }
+    shares.push(share);
+    onUpdate.push(generate?.on === "insertAndUpdate");
+  }
+  table = {
+    insertBack: persisted.filter((field) => field.primaryKey || owned(field)),
+    updateBack: persisted.filter((field) => !field.primaryKey && owned(field)),
+    shares,
+    onUpdate,
+  };
+  tables.set(schemaMeta, table);
+  return table;
+}
+
+/**
+ * The value of a generated field, sharing the instant of an earlier timestamp field of
+ * the same generator (`generated` holds what this write generated so far, by index).
+ */
+function generatedValue(table: WriteTable, field: FieldMeta, index: number, generated: unknown[]): unknown {
+  const share = table.shares[index] as number;
+  if (share !== index && generated[share] !== undefined) return generated[share];
+  const value = (field.autogenerate as NonNullable<FieldMeta["autogenerate"]>).fn();
+  generated[index] = value;
+  return value;
+}
+
+/** `base` plus the fields of `option`, in the schema's field order. */
+function returningFields(
+  schemaMeta: SchemaMeta,
+  base: readonly FieldMeta[],
+  option: readonly FieldMeta[] | true | undefined,
+): readonly FieldMeta[] {
+  if (option === undefined) return base;
+  if (option === true) return schemaMeta.persisted;
+  return schemaMeta.persisted.filter((field) => base.includes(field) || option.includes(field));
+}
+
+// ---------------------------------------------------------------------------
+// Checks shared by the writes
+// ---------------------------------------------------------------------------
+
+/**
+ * The schema metadata of a changeset the repo can write.
+ *
+ * @throws TypeError when `changeset` is not a changeset; QueryError for one without a schema class.
+ */
+function changesetMeta(changeset: unknown, method: string): SchemaMeta {
+  if (!(changeset instanceof Changeset)) {
+    throw new TypeError(
+      `repo.${method}() takes a changeset: repo.${method}(cast(User, params, ["email"])). It was given ${describe(changeset)}.`,
+    );
+  }
+  const model = (changeset as AnyChangeset).model;
+  if (model === null) {
+    throw new QueryError(
+      `repo.${method}(): this changeset has no schema class (it was cast from { data, types }), so it has no table to write to. Use applyAction() to validate such data.`,
+    );
+  }
+  const schemaMeta = meta(model);
+  writeTable(schemaMeta);
+  return schemaMeta;
+}
+
+/**
+ * Refuses a changeset that carries changes of associations or nested changesets: those
+ * are written by nested writes, which this version does not have.
+ *
+ * @throws QueryError when there are such changes.
+ */
+function checkNested(changeset: AnyChangeset, schemaMeta: SchemaMeta, method: string): void {
+  const changes = changeset.changes as Readonly<Record<string, unknown>>;
+  for (const key in changes) {
+    if (!hasOwn(changes, key)) continue;
+    const value = changes[key];
+    const nested =
+      !schemaMeta.fieldsByName.has(key) ||
+      value instanceof Changeset ||
+      (Array.isArray(value) && value.some((item) => item instanceof Changeset));
+    if (nested) {
+      throw new QueryError(
+        `repo.${method}(): the changeset holds a change of "${key}", which is ${schemaMeta.fieldsByName.has(key) ? "a nested changeset" : "not a field (an association)"}: nested changes are not supported yet. Write the associated rows with their own changesets.`,
+      );
+    }
+  }
+}
+
+/** The loaded row of an update or delete, with a primary key that has values. */
+function loadedRow(changeset: AnyChangeset, schemaMeta: SchemaMeta, method: string): Record<string, unknown> {
+  const data = changeset.data;
+  if (data === null) {
+    throw new QueryError(
+      `repo.${method}() needs a changeset of a loaded row; this one is of a new ${schemaMeta.name} (made from the class). Insert it with repo.insert(), or use repo.insertOrUpdate().`,
+    );
+  }
+  if (!isRow(data) || data[ROW].state !== "loaded") {
+    throw new QueryError(
+      `repo.${method}() needs a row read from the database; ${isRow(data) ? `this ${schemaMeta.name} row is ${data[ROW].state}` : "the changeset's data is not a row"}.`,
+    );
+  }
+  if (schemaMeta.primaryKey.length === 0) {
+    throw new QueryError(
+      `repo.${method}(): ${schemaMeta.name} has no primary key, so a row of it cannot be found again to ${method === "delete" ? "delete" : "update"}. Use repo.${method === "delete" ? "deleteAll" : "updateAll"}() with a query.`,
+    );
+  }
+  const row = data as unknown as Record<string, unknown>;
+  for (const field of schemaMeta.primaryKey) {
+    const value = row[field.name];
+    if (value === null || value === undefined) {
+      throw new QueryError(
+        `repo.${method}(): the ${schemaMeta.name} row has no value for its key field "${field.name}".`,
+      );
+    }
+  }
+  return row;
+}
+
+/**
+ * Runs the changeset's `prepareChanges` functions in order, on the changeset with `action`
+ * and `repo` set; the result has `action` set and `repo` cleared.
+ *
+ * @throws TypeError when a function does not return a changeset.
+ */
+function runPrepare(changeset: AnyChangeset, action: Action, repo: unknown): AnyChangeset {
+  let current = withAction(changeset, action);
+  const functions = current.prepare;
+  if (functions.length === 0) return current;
+  current = withRepo(current, repo);
+  for (const fn of functions) {
+    const next: unknown = fn(current);
+    if (!(next instanceof Changeset)) {
+      throw new TypeError(
+        `A prepareChanges function must return the changeset to write (the one it was given, or one made from it); it returned ${describe(next)}.`,
+      );
+    }
+    current = next as AnyChangeset;
+  }
+  return withRepo(current, null);
+}
+
+const BLANK: ChangesetError = Object.freeze({
+  message: "can't be blank",
+  validation: "required",
+  meta: Object.freeze({}),
+});
+
+function blank(changeset: AnyChangeset, fields: readonly FieldMeta[]): AnyChangeset {
+  let out = changeset;
+  for (const field of fields) out = withErrors(out, field.name, [BLANK]);
+  return out;
+}
+
+/** The database schema of a row-level write: the call's, else the row's (or for an insert the schema's), else the repo's default. */
+function writeSchema(
+  core: ReadCore,
+  options: ReadOptions | undefined,
+  own: string | undefined,
+): string | undefined {
+  return options?.schema ?? own ?? core.schema;
+}
+
+/** `list` with `item` appended, made when it is the first. */
+export function added<T>(list: T[] | undefined, item: T): T[] {
+  const out = list ?? [];
+  out.push(item);
+  return out;
+}
+
+/** Builds a row: the values of the persisted fields, then the virtual fields and loaded associations of `row`, then the virtual changes. */
+function buildRow(
+  schemaMeta: SchemaMeta,
+  values: readonly unknown[],
+  rowMeta: RowMeta,
+  previous: Readonly<Record<string, unknown>> | null,
+  changes: Readonly<Record<string, unknown>>,
+): object {
+  let loaded: string[] | undefined;
+  if (previous !== null) {
+    for (const key of Object.keys(previous)) {
+      if (!schemaMeta.fieldsByName.has(key)) loaded = added(loaded, key);
+    }
+  }
+  const out = (
+    loaded === undefined
+      ? schemaMeta.create(values, rowMeta)
+      : schemaMeta.createWith(loaded)(
+          values,
+          loaded.map((key) => (previous as Readonly<Record<string, unknown>>)[key]),
+          rowMeta,
+        )
+  ) as Record<string, unknown>;
+  for (const field of schemaMeta.fields) {
+    if (!field.virtual) continue;
+    if (hasOwn(changes, field.name)) out[field.name] = changes[field.name];
+    else if (previous !== null) out[field.name] = previous[field.name];
+  }
+  return out;
+}
+
+/**
+ * What a stale update or delete gives: `undefined` when it is allowed (`allowStale`: the
+ * write counts as done), a failure with `staleError`, or else a thrown error.
+ *
+ * @throws StaleEntryError when neither option is given.
+ */
+function staleOutcome(
+  changeset: AnyChangeset,
+  schemaMeta: SchemaMeta,
+  action: "update" | "delete",
+  settings: WriteSettings,
+): Failure<AnyChangeset> | undefined {
+  if (settings.allowStale) return undefined;
+  const stale = settings.staleError;
+  if (stale !== undefined) {
+    return failure(
+      withErrors(changeset, stale.field, [
+        { message: stale.message ?? "is stale", validation: "stale", meta: { stale: true } },
+      ]),
+    );
+  }
+  throw new StaleEntryError({ action, schema: schemaMeta.name });
+}
+
+function isConstraintError(error: unknown): error is ConstraintError {
+  return error instanceof ConstraintError || isEgonError(error, "constraint");
+}
+
+// ---------------------------------------------------------------------------
+// insert
+// ---------------------------------------------------------------------------
+
+const ONE_ROW = Object.freeze({ kind: "values" as const, rows: 1 });
+
+/**
+ * `repo.insert`: writes a new-record changeset.
+ *
+ * @throws TypeError, QueryError for misuse; ConstraintError for an undeclared violation;
+ * DatabaseError when the database fails.
+ */
+export async function insert(
+  core: ReadCore,
+  repo: unknown,
+  given: unknown,
+  options: unknown,
+  method = "insert",
+  keys: readonly string[] = INSERT_OPTION_KEYS,
+): Promise<Result<object | null, AnyChangeset>> {
+  const schemaMeta = changesetMeta(given, method);
+  const changeset = given as AnyChangeset;
+  if (changeset.data !== null) {
+    throw new QueryError(
+      `repo.${method}() takes a changeset of a new record (made from the class, cast(${schemaMeta.name}, …)); this one is of a loaded row. Update it with repo.update(), or use repo.insertOrUpdate().`,
+    );
+  }
+  checkNested(changeset, schemaMeta, method);
+  const settings = writeSettings(schemaMeta, method, options, keys);
+  if (!changeset.valid) return failure(withAction(changeset, "insert"));
+  const prepared = runPrepare(changeset, "insert", repo);
+  if (!prepared.valid) return failure(prepared);
+  checkNested(prepared, schemaMeta, method);
+
+  const table = writeTable(schemaMeta);
+  const persisted = schemaMeta.persisted;
+  const changes = prepared.changes as Readonly<Record<string, unknown>>;
+  const written: unknown[] = new Array(persisted.length);
+  const columns: FieldMeta[] = [];
+  const values: unknown[] = [];
+  let generated: unknown[] | undefined;
+  let missing: FieldMeta[] | undefined;
+  for (let i = 0; i < persisted.length; i++) {
+    const field = persisted[i] as FieldMeta;
+    if (field.writable === "never") continue;
+    let value = hasOwn(changes, field.name) ? changes[field.name] : undefined;
+    if (value === undefined) {
+      const fallback = field.default;
+      if (fallback !== undefined) {
+        value = fallback.kind === "value" ? fallback.value : fallback.fn();
+      } else if (field.autogenerate !== undefined) {
+        if (generated === undefined) generated = [];
+        value = generatedValue(table, field, i, generated);
+      }
+    }
+    if (value === undefined || (value === null && !field.nullable)) {
+      // Left out: the database default applies. A database-generated field is never missing.
+      if (!field.nullable && !field.dbGenerated) missing = added(missing, field);
+      continue;
+    }
+    written[i] = value;
+    columns.push(field);
+    values.push(value);
+  }
+  if (missing !== undefined) return failure(blank(prepared, missing));
+
+  const adapter = core.adapter;
+  const capabilities = adapter.capabilities;
+  // An upsert reads the whole row back: the row it updated may hold other values than these.
+  const back = capabilities.returning
+    ? returningFields(schemaMeta, table.insertBack, isUpsert(settings.onConflict) ? true : settings.returning)
+    : NONE;
+  const schema = writeSchema(core, settings.options, schemaMeta.schema);
+  const plan = adapter.compileInsert(
+    schemaMeta,
+    columns,
+    { source: ONE_ROW, returning: back, onConflict: settings.onConflict },
+    schema,
+  );
+  for (const value of settings.conflictParams) values.push(value);
+  const bound = bindParams(plan.slots, values);
+
+  let result: Written;
+  let reread: Readonly<Record<string, unknown>> | undefined;
+  try {
+    if (capabilities.returning || !needsReread(schemaMeta, table, settings)) {
+      result = await runWrite(
+        core,
+        core.executor,
+        "insert",
+        schemaMeta.source as string,
+        plan,
+        bound,
+        settings.options,
+        undefined,
+        decodeWritten,
+        undefined,
+      );
+    } else {
+      [result, reread] = await insertThenRead(
+        core,
+        changeset.model as AnySchema,
+        schemaMeta,
+        plan,
+        bound,
+        settings,
+        written,
+      );
+    }
+  } catch (error) {
+    if (isConstraintError(error)) return failure(handleViolation(prepared, error, "insert"));
+    throw error;
+  }
+  if (result.rowCount === 0) {
+    if (settings.onConflict === "nothing") return success(null);
+    throw new QueryError(`The insert into ${schemaMeta.name} reported no row written.`);
+  }
+  const returned = result.returned ?? reread ?? insertIdRow(schemaMeta, result.insertId);
+  const rowValues: unknown[] = new Array(persisted.length);
+  for (let i = 0; i < persisted.length; i++) {
+    const field = persisted[i] as FieldMeta;
+    if (returned !== undefined && hasOwn(returned, field.name)) rowValues[i] = returned[field.name];
+    else if (written[i] !== undefined) rowValues[i] = written[i];
+    else rowValues[i] = field.nullable ? null : undefined;
+  }
+  return success(buildRow(schemaMeta, rowValues, schemaMeta.rowMeta("loaded", plan.schema), null, changes));
+}
+
+/**
+ * Whether an insert on a dialect without `RETURNING` must read the row back: when a field
+ * the database fills, other than a single generated key, exists, or the call asked for
+ * fields back.
+ */
+function needsReread(schemaMeta: SchemaMeta, table: WriteTable, settings: WriteSettings): boolean {
+  if (settings.returning !== undefined || isUpsert(settings.onConflict)) return true;
+  const key = schemaMeta.primaryKey;
+  return table.insertBack.some((field) => !(key.length === 1 && field === key[0]));
+}
+
+function isUpsert(onConflict: OnConflict | undefined): boolean {
+  return onConflict !== undefined && onConflict !== "nothing";
+}
+
+/** The key the database reported for the insert (`insertId`), as a returned row; `undefined` when there is none. */
+function insertIdRow(
+  schemaMeta: SchemaMeta,
+  insertId: bigint | number | undefined,
+): Readonly<Record<string, unknown>> | undefined {
+  const key = schemaMeta.primaryKey;
+  if (insertId === undefined || key.length !== 1) return undefined;
+  const field = key[0] as FieldMeta;
+  if (!field.dbGenerated) return undefined;
+  const cast = field.type.cast(insertId);
+  return { [field.name]: cast.success ? cast.data : insertId };
+}
+
+/**
+ * On a dialect without `RETURNING`: runs the insert and reads the row back by its key on
+ * the same connection (a generated key is reported for that connection only).
+ */
+async function insertThenRead(
+  core: ReadCore,
+  model: AnySchema,
+  schemaMeta: SchemaMeta,
+  plan: CompiledQuery,
+  bound: readonly unknown[],
+  settings: WriteSettings,
+  written: readonly unknown[],
+): Promise<[Written, Readonly<Record<string, unknown>> | undefined]> {
+  const deadline = deadlineOf(settings.options);
+  const connection = core.executor === core.adapter ? await core.adapter.acquire() : undefined;
+  const executor: Executor = connection ?? core.executor;
+  try {
+    const result = await runWrite(
+      core,
+      executor,
+      "insert",
+      schemaMeta.source as string,
+      plan,
+      bound,
+      settings.options,
+      deadline,
+      decodeWritten,
+      undefined,
+    );
+    if (result.rowCount === 0) return [result, undefined];
+    const generated = insertIdRow(schemaMeta, result.insertId);
+    const key: Record<string, unknown> = {};
+    for (const field of schemaMeta.primaryKey) {
+      key[field.name] =
+        generated !== undefined && hasOwn(generated, field.name)
+          ? generated[field.name]
+          : written[schemaMeta.persisted.indexOf(field)];
+    }
+    let query = from(model, "t").where(key as never);
+    if (plan.schema !== undefined) query = query.schema(plan.schema);
+    const reader = new ReadCore(core.adapter, executor, core.schema, core.codegen, core.hub);
+    const options: ReadOptions = {
+      schema: undefined,
+      timeoutMs: remaining(settings.options, deadline),
+      signal: settings.options?.signal,
+      context: settings.options?.context,
+    };
+    const rows = await load(reader, "insert", query.ast, undefined, options);
+    return [result, rows[0] as Readonly<Record<string, unknown>> | undefined];
+  } finally {
+    if (connection !== undefined) await connection.release();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// update
+// ---------------------------------------------------------------------------
+
+/**
+ * `repo.update`: writes the changes of a changeset of a loaded row.
+ *
+ * @throws TypeError, QueryError for misuse; StaleEntryError when no row matched (unless
+ * `allowStale` or `staleError`); ConstraintError for an undeclared violation.
+ */
+export async function update(
+  core: ReadCore,
+  repo: unknown,
+  given: unknown,
+  options: unknown,
+  method = "update",
+  keys: readonly string[] = UPDATE_OPTION_KEYS,
+): Promise<Result<object, AnyChangeset>> {
+  const schemaMeta = changesetMeta(given, method);
+  const changeset = given as AnyChangeset;
+  const row = loadedRow(changeset, schemaMeta, method);
+  checkNested(changeset, schemaMeta, method);
+  const settings = writeSettings(schemaMeta, method, options, keys);
+  if (!changeset.valid) return failure(withAction(changeset, "update"));
+  const prepared = runPrepare(changeset, "update", repo);
+  if (!prepared.valid) return failure(prepared);
+  checkNested(prepared, schemaMeta, method);
+  const changes = prepared.changes as Readonly<Record<string, unknown>>;
+  if (!settings.force && Object.keys(changes).length === 0) return success(row);
+
+  const table = writeTable(schemaMeta);
+  const persisted = schemaMeta.persisted;
+  const set: FieldMeta[] = [];
+  const values: unknown[] = [];
+  const written: unknown[] = new Array(persisted.length);
+  const isSet: boolean[] = new Array(persisted.length).fill(false);
+  let missing: FieldMeta[] | undefined;
+  for (let i = 0; i < persisted.length; i++) {
+    const field = persisted[i] as FieldMeta;
+    if (field.writable !== "always" || !hasOwn(changes, field.name)) continue;
+    const value = changes[field.name];
+    if (value === null && !field.nullable) {
+      missing = added(missing, field);
+      continue;
+    }
+    written[i] = value;
+    isSet[i] = true;
+    set.push(field);
+    values.push(value);
+  }
+  if (missing !== undefined) return failure(blank(prepared, missing));
+  if (set.length > 0 || settings.force) {
+    const generated: unknown[] = [];
+    for (let i = 0; i < persisted.length; i++) {
+      const field = persisted[i] as FieldMeta;
+      if (!table.onUpdate[i] || field.writable !== "always" || hasOwn(changes, field.name)) continue;
+      written[i] = generatedValue(table, field, i, generated);
+      isSet[i] = true;
+      set.push(field);
+      values.push(written[i]);
+    }
+  }
+  const rowSchema = (row as unknown as { readonly [ROW]: RowMeta })[ROW].schema;
+  const after: Updated = { schemaMeta, row, changes, written, isSet };
+  // Nothing to write: only virtual fields, or fields that may not be updated, changed.
+  if (set.length === 0) return success(updatedRow(after, undefined, rowSchema));
+
+  const where: FieldMeta[] = [];
+  for (const field of schemaMeta.primaryKey) {
+    where.push(field);
+    values.push(row[field.name]);
+  }
+  const filters = prepared.filters;
+  for (const name of Object.keys(filters)) {
+    where.push(persistedField(schemaMeta, name, `repo.${method}(): the optimistic lock`));
+    values.push(filters[name]);
+  }
+  const adapter = core.adapter;
+  const back = adapter.capabilities.returning
+    ? returningFields(schemaMeta, table.updateBack, settings.returning)
+    : NONE;
+  const plan = adapter.compileUpdate(
+    schemaMeta,
+    set,
+    where,
+    back,
+    writeSchema(core, settings.options, rowSchema),
+  );
+  let result: Written;
+  try {
+    result = await runWrite(
+      core,
+      core.executor,
+      "update",
+      schemaMeta.source as string,
+      plan,
+      bindParams(plan.slots, values),
+      settings.options,
+      undefined,
+      decodeWritten,
+      undefined,
+    );
+  } catch (error) {
+    if (isConstraintError(error)) return failure(handleViolation(prepared, error, "update"));
+    throw error;
+  }
+  if (result.rowCount === 0) {
+    const stale = staleOutcome(prepared, schemaMeta, "update", settings);
+    if (stale !== undefined) return stale;
+  }
+  return success(updatedRow(after, result.returned, plan.schema));
+}
+
+/** What the row of an update is built from. */
+interface Updated {
+  readonly schemaMeta: SchemaMeta;
+  readonly row: Readonly<Record<string, unknown>>;
+  readonly changes: Readonly<Record<string, unknown>>;
+  /** The values set, by index in `persisted`. */
+  readonly written: readonly unknown[];
+  readonly isSet: readonly boolean[];
+}
+
+/** The row after an update: the values returned, else the values set, else the row's own. */
+function updatedRow(
+  after: Updated,
+  returned: Readonly<Record<string, unknown>> | undefined,
+  schema: string | undefined,
+): object {
+  const { schemaMeta, row } = after;
+  const persisted = schemaMeta.persisted;
+  const rowValues: unknown[] = new Array(persisted.length);
+  for (let i = 0; i < persisted.length; i++) {
+    const field = persisted[i] as FieldMeta;
+    if (returned !== undefined && hasOwn(returned, field.name)) rowValues[i] = returned[field.name];
+    else if (after.isSet[i]) rowValues[i] = after.written[i];
+    else rowValues[i] = row[field.name];
+  }
+  return buildRow(schemaMeta, rowValues, schemaMeta.rowMeta("loaded", schema), row, after.changes);
+}
+
+/** A copy of a row in the `deleted` state. */
+function deletedRow(
+  schemaMeta: SchemaMeta,
+  row: Readonly<Record<string, unknown>>,
+  schema: string | undefined,
+): object {
+  const rowValues: unknown[] = [];
+  for (const field of schemaMeta.persisted) rowValues.push(row[field.name]);
+  return buildRow(schemaMeta, rowValues, schemaMeta.rowMeta("deleted", schema), row, NO_CHANGES);
+}
+
+// ---------------------------------------------------------------------------
+// delete
+// ---------------------------------------------------------------------------
+
+const NO_CHANGES: Readonly<Record<string, unknown>> = Object.freeze({});
+
+/**
+ * `repo.delete`: deletes a loaded row, given as itself or as a changeset of it.
+ *
+ * @throws TypeError, QueryError for misuse; StaleEntryError when no row matched (unless
+ * `allowStale` or `staleError`); ConstraintError for an undeclared violation.
+ */
+export async function remove(
+  core: ReadCore,
+  repo: unknown,
+  given: unknown,
+  options: unknown,
+): Promise<Result<object, AnyChangeset>> {
+  let target = given;
+  if (!(given instanceof Changeset)) {
+    if (!isRow(given)) {
+      throw new TypeError(
+        `repo.delete() takes a row read from the database, or a changeset of one; it was given ${describe(given)}.`,
+      );
+    }
+    target = change(given as object);
+  }
+  const schemaMeta = changesetMeta(target, "delete");
+  const changeset = target as AnyChangeset;
+  const row = loadedRow(changeset, schemaMeta, "delete");
+  const settings = writeSettings(schemaMeta, "delete", options, DELETE_OPTION_KEYS);
+  if (!changeset.valid) return failure(withAction(changeset, "delete"));
+  const prepared = runPrepare(changeset, "delete", repo);
+  if (!prepared.valid) return failure(prepared);
+
+  const where: FieldMeta[] = [];
+  const values: unknown[] = [];
+  for (const field of schemaMeta.primaryKey) {
+    where.push(field);
+    values.push(row[field.name]);
+  }
+  const filters = prepared.filters;
+  for (const name of Object.keys(filters)) {
+    where.push(persistedField(schemaMeta, name, "repo.delete(): the optimistic lock"));
+    values.push(filters[name]);
+  }
+  const rowSchema = (row as unknown as { readonly [ROW]: RowMeta })[ROW].schema;
+  const plan = core.adapter.compileDelete(
+    schemaMeta,
+    where,
+    NONE,
+    writeSchema(core, settings.options, rowSchema),
+  );
+  let result: Written;
+  try {
+    result = await runWrite(
+      core,
+      core.executor,
+      "delete",
+      schemaMeta.source as string,
+      plan,
+      bindParams(plan.slots, values),
+      settings.options,
+      undefined,
+      decodeWritten,
+      undefined,
+    );
+  } catch (error) {
+    if (isConstraintError(error)) return failure(handleViolation(prepared, error, "delete"));
+    throw error;
+  }
+  if (result.rowCount === 0) {
+    const stale = staleOutcome(prepared, schemaMeta, "delete", settings);
+    if (stale !== undefined) return stale;
+  }
+  return success(deletedRow(schemaMeta, row, plan.schema));
+}
+
+// ---------------------------------------------------------------------------
+// insertOrUpdate and the throwing twins
+// ---------------------------------------------------------------------------
+
+/**
+ * `repo.insertOrUpdate`: inserts a changeset of a new record, updates one of a loaded row.
+ * The database is not asked whether the row exists.
+ *
+ * @throws as {@link insert} and {@link update} do.
+ */
+export async function insertOrUpdate(
+  core: ReadCore,
+  repo: unknown,
+  given: unknown,
+  options: unknown,
+): Promise<Result<object | null, AnyChangeset>> {
+  if (!(given instanceof Changeset)) {
+    throw new TypeError(
+      `repo.insertOrUpdate() takes a changeset: of a new record to insert, of a loaded row to update. It was given ${describe(given)}.`,
+    );
+  }
+  return (given as AnyChangeset).data === null
+    ? insert(core, repo, given, options, "insertOrUpdate", INSERT_OR_UPDATE_OPTION_KEYS)
+    : update(core, repo, given, options, "insertOrUpdate", INSERT_OR_UPDATE_OPTION_KEYS);
+}
+
+/**
+ * The data of a successful result; for a failure, throws `InvalidChangesetError` with the
+ * changeset.
+ *
+ * @throws InvalidChangesetError for a failure.
+ */
+export function orThrow<T>(result: Result<T, AnyChangeset>, action: string): T {
+  if (result.success) return (result as Success<T>).data;
+  const changeset = (result as Failure<AnyChangeset>).error;
+  throw new InvalidChangesetError({ action: changeset.action ?? action, changeset });
+}
+
+// ---------------------------------------------------------------------------
+// validateUniqueAsync
+// ---------------------------------------------------------------------------
+
+interface ExistsRepo {
+  exists(query: unknown): Promise<boolean>;
+}
+
+function isRepo(value: unknown): value is ExistsRepo {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { readonly exists?: unknown }).exists === "function" &&
+    typeof (value as { readonly insert?: unknown }).insert === "function"
+  );
+}
+
+/** A binding of the query `validateUniqueAsync` runs: its columns by field name. */
+type Columns = Readonly<Record<string, Col<unknown>>>;
+
+type Condition = Expr<boolean, SomeParams>;
+
+function allOf(conditions: readonly Condition[]): Condition {
+  return conditions.length === 1
+    ? (conditions[0] as Condition)
+    : (and(...(conditions as [Condition, ...Condition[]])) as Condition);
+}
+
+/**
+ * The implementation of `cs.validateUniqueAsync(fields, repo, options)`: when one of the
+ * fields changed, all have a value and none has an error, asks the database whether
+ * another row (not the changeset's own) has these values, and adds `has already been
+ * taken` (`validation: "uniqueAsync"`) when one does.
+ *
+ * @throws TypeError (as a rejection) when `repo` is not a repo.
+ */
+export async function validateUnique(
+  changeset: AnyChangeset,
+  fields: readonly string[],
+  repo: unknown,
+  options: { readonly message?: unknown; readonly errorKey?: string } | undefined,
+): Promise<AnyChangeset> {
+  if (!isRepo(repo)) {
+    throw new TypeError(
+      "validateUniqueAsync(fields, repo): repo must be the repo to query, as createRepo() returns it (or a transaction's repo).",
+    );
+  }
+  const model = changeset.model;
+  if (model === null) {
+    throw new QueryError(
+      "validateUniqueAsync(): this changeset has no schema class, so there is no table to look in.",
+    );
+  }
+  if (fields.length === 0) {
+    throw new QueryError("validateUniqueAsync() takes a field name or a non-empty list of them.");
+  }
+  const changes = changeset.changes as Readonly<Record<string, unknown>>;
+  if (!fields.some((field) => hasOwn(changes, field))) return changeset;
+  if (fields.some((field) => hasOwn(changeset.errors, field))) return changeset;
+  const values = fields.map((field) => changeset.getField(field));
+  if (values.some((value) => value === null || value === undefined)) return changeset;
+  const schemaMeta = meta(model);
+  const data = changeset.data as Readonly<Record<string, unknown>> | null;
+  const where = (bindings: { readonly t: Columns }): Condition => {
+    const t = bindings.t;
+    const same: Condition[] = fields.map((field, i) => (t[field] as Col<unknown>).eq(values[i] as never));
+    if (data !== null && schemaMeta.primaryKey.length > 0) {
+      const own = schemaMeta.primaryKey.map((field) =>
+        (t[field.name] as Col<unknown>).eq(data[field.name] as never),
+      );
+      same.push(not(allOf(own)) as Condition);
+    }
+    return allOf(same);
+  };
+  const query = from(model, "t").where(where as never);
+  if (!(await repo.exists(query))) return changeset;
+  const key = options?.errorKey ?? (fields[0] as string);
+  const errorMeta = { fields: [...fields] };
+  const message = options?.message;
+  const text =
+    typeof message === "function"
+      ? String((message as (meta: Readonly<Record<string, unknown>>) => unknown)(errorMeta))
+      : typeof message === "string"
+        ? message
+        : "has already been taken";
+  return withErrors(changeset, key, [{ message: text, validation: "uniqueAsync", meta: errorMeta }]);
+}
+
+/** Registers {@link validateUnique} as the implementation of `validateUniqueAsync`. Idempotent. */
+export function provideUniqueCheck(): void {
+  provideValidateUniqueAsync(validateUnique as never);
+}

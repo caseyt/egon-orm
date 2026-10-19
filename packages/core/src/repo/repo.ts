@@ -5,14 +5,18 @@
  * @module
  */
 import type { PoolStats } from "../adapter/adapter.js";
+import type { Changeset } from "../changeset/changeset.js";
+import type { ChangesetSource, RowSchema } from "../changeset/types.js";
 import type { PlanCacheStats } from "../compiler/index.js";
 import type { PoolEvent } from "../contracts/adapter.js";
-import type { AnySchema, PrimaryKeyOf, Row } from "../contracts/schema.js";
+import type { Result } from "../contracts/result.js";
+import type { AnySchema, FieldNames, PrimaryKeyOf, Row } from "../contracts/schema.js";
 import { QueryError } from "../errors.js";
 import type { ColumnNames, SchemaOfBinding } from "../query/bindings.js";
 import type { Queryable, QueryLike, QueryParams, QueryResult, WhereObject } from "../query/builder.js";
 import type { Expr, NoParams, ParamsOf, SomeParams } from "../query/expr.js";
 import { isSchema } from "../schema/guards.js";
+import { type BulkResult, type InsertAllOptions, type InsertAllRow, insertAll, modifyAll } from "./bulk.js";
 import {
   checkReadOptions,
   EXPLAIN_OPTION_KEYS,
@@ -51,6 +55,19 @@ import {
   stream,
   toSql,
 } from "./read.js";
+import {
+  type DeleteOptions,
+  type InsertOptions,
+  type InsertOrUpdateOptions,
+  insert,
+  insertOrUpdate,
+  type OnConflictOption,
+  orThrow,
+  provideUniqueCheck,
+  remove,
+  type UpdateOptions,
+  update,
+} from "./write.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -129,6 +146,32 @@ type SumOf<T> =
 
 /** The type of `avg` over a column of type `T`, as the `avg` expression gives it. */
 type AvgOf<T> = (NonNullable<T> extends string ? string : number) | null;
+
+/**
+ * Nothing for a changeset that may be of a new record; for one that is certainly of a
+ * loaded row, a member no changeset has, so that the call is a compile error naming why.
+ */
+type NewRecordOnly<N extends boolean> = [N] extends [false]
+  ? {
+      readonly "insert takes a changeset of a new record (cast(User, …)); this one is of a loaded row: use update() or insertOrUpdate()": never;
+    }
+  : unknown;
+
+/** Like {@link NewRecordOnly}, for the writes that need a loaded row. */
+type LoadedRowOnly<N extends boolean> = [N] extends [true]
+  ? {
+      readonly "update and delete take a changeset of a loaded row; this one is of a new record: use insert() or insertOrUpdate()": never;
+    }
+  : unknown;
+
+/** Refuses a changeset where a row is expected (a changeset goes to the other overload). */
+type NotAChangeset<R> =
+  R extends Changeset<ChangesetSource, boolean>
+    ? { readonly "delete takes a row read from the database, or a changeset of a loaded row": never }
+    : unknown;
+
+/** An `onConflict` that inserts or updates a row, so that the write always returns one. */
+type UpdatingConflict<S extends AnySchema> = Exclude<OnConflictOption<S>, "nothing"> | undefined;
 
 /** Options of `repo.toSql`: only the database schema matters there. */
 type SqlOptions = Pick<ReadOptions, "schema">;
@@ -441,6 +484,251 @@ export interface Repo {
    */
   raw<X extends Expr<unknown, SomeParams>>(statement: X, ...args: RawArgs<X>): Promise<RawRows>;
 
+  // --- writes ----------------------------------------------------------------------
+
+  /**
+   * Inserts a new record described by a changeset (from `cast(User, …)` or
+   * `change(User, …)`) and returns the row, with what the database generated.
+   *
+   * An invalid changeset is returned as a failure without touching the database, and so
+   * is one that leaves a required field without a value (`can't be blank`). A violation
+   * of a constraint the changeset declares is a failure too; any other is thrown.
+   *
+   * @example
+   * ```ts
+   * const result = await repo.insert(cast(User, input, ["email", "name"]).uniqueConstraint("email"));
+   * if (!result.success) return result.error.errorMessages();
+   * const user = result.data; // User
+   * ```
+   *
+   * @throws QueryError when the changeset is of a loaded row, has no schema class, or holds
+   * nested changes; ConstraintError for a violation the changeset does not declare;
+   * DatabaseError when the database fails.
+   */
+  insert<S extends AnySchema, N extends boolean>(
+    changeset: Changeset<S, N> & NewRecordOnly<N>,
+    options: InsertOptions<S> & { readonly onConflict: "nothing" },
+  ): Promise<Result<Row<S> | null, Changeset<S, N>>>;
+  insert<S extends AnySchema, N extends boolean>(
+    changeset: Changeset<S, N> & NewRecordOnly<N>,
+    options?: InsertOptions<S> & { readonly onConflict?: UpdatingConflict<S> },
+  ): Promise<Result<Row<S>, Changeset<S, N>>>;
+  insert<S extends AnySchema, N extends boolean>(
+    changeset: Changeset<S, N> & NewRecordOnly<N>,
+    options?: InsertOptions<S>,
+  ): Promise<Result<Row<S> | null, Changeset<S, N>>>;
+
+  /**
+   * Like {@link Repo.insert}, but returns the row and throws for an invalid changeset.
+   *
+   * @example
+   * ```ts
+   * const user = await repo.insertOrThrow(cast(User, input, ["email"]));
+   * ```
+   *
+   * @throws InvalidChangesetError (it carries the changeset) where `insert` returns a failure.
+   */
+  insertOrThrow<S extends AnySchema, N extends boolean>(
+    changeset: Changeset<S, N> & NewRecordOnly<N>,
+    options: InsertOptions<S> & { readonly onConflict: "nothing" },
+  ): Promise<Row<S> | null>;
+  insertOrThrow<S extends AnySchema, N extends boolean>(
+    changeset: Changeset<S, N> & NewRecordOnly<N>,
+    options?: InsertOptions<S> & { readonly onConflict?: UpdatingConflict<S> },
+  ): Promise<Row<S>>;
+  insertOrThrow<S extends AnySchema, N extends boolean>(
+    changeset: Changeset<S, N> & NewRecordOnly<N>,
+    options?: InsertOptions<S>,
+  ): Promise<Row<S> | null>;
+
+  /**
+   * Writes the changes of a changeset of a loaded row and returns the updated row. With
+   * no change it runs no query and returns the row (unless `force: true`). When no row
+   * matched (it was deleted, or an optimistic lock failed) it throws `StaleEntryError`,
+   * unless `allowStale` or `staleError` says otherwise.
+   *
+   * @example
+   * ```ts
+   * const result = await repo.update(cast(user, { name: "Ada" }, ["name"]));
+   * ```
+   *
+   * @throws QueryError when the changeset is of a new record, or its row has no key;
+   * StaleEntryError when no row matched; ConstraintError for an undeclared violation.
+   */
+  update<S extends AnySchema, N extends boolean>(
+    changeset: Changeset<S, N> & LoadedRowOnly<N>,
+    options?: UpdateOptions<S>,
+  ): Promise<Result<Row<S>, Changeset<S, N>>>;
+
+  /**
+   * Like {@link Repo.update}, but returns the row and throws for an invalid changeset.
+   *
+   * @example
+   * ```ts
+   * const renamed = await repo.updateOrThrow(cast(user, { name: "Ada" }, ["name"]));
+   * ```
+   *
+   * @throws InvalidChangesetError where `update` returns a failure.
+   */
+  updateOrThrow<S extends AnySchema, N extends boolean>(
+    changeset: Changeset<S, N> & LoadedRowOnly<N>,
+    options?: UpdateOptions<S>,
+  ): Promise<Row<S>>;
+
+  /**
+   * Deletes a row by its primary key and returns it, in the `deleted` state. Pass a
+   * changeset of the row to declare constraints (`noAssocConstraint`) or an optimistic
+   * lock.
+   *
+   * @example
+   * ```ts
+   * await repo.delete(post);
+   * const result = await repo.delete(change(user).noAssocConstraint("posts"));
+   * ```
+   *
+   * @throws QueryError when the row has no primary key; StaleEntryError when no row
+   * matched; ConstraintError for an undeclared violation.
+   */
+  delete<S extends AnySchema, N extends boolean>(
+    changeset: Changeset<S, N> & LoadedRowOnly<N>,
+    options?: DeleteOptions,
+  ): Promise<Result<Row<S>, Changeset<S, N>>>;
+  delete<R extends object>(
+    row: R & NotAChangeset<R>,
+    options?: DeleteOptions,
+  ): Promise<Result<R, Changeset<RowSchema<R>, false>>>;
+
+  /**
+   * Like {@link Repo.delete}, but returns the row and throws for a failure.
+   *
+   * @example
+   * ```ts
+   * await repo.deleteOrThrow(post);
+   * ```
+   *
+   * @throws InvalidChangesetError where `delete` returns a failure.
+   */
+  deleteOrThrow<S extends AnySchema, N extends boolean>(
+    changeset: Changeset<S, N> & LoadedRowOnly<N>,
+    options?: DeleteOptions,
+  ): Promise<Row<S>>;
+  deleteOrThrow<R extends object>(row: R & NotAChangeset<R>, options?: DeleteOptions): Promise<R>;
+
+  /**
+   * Inserts a changeset of a new record, updates a changeset of a loaded row. It is not
+   * an upsert: the database is not asked whether the row exists.
+   *
+   * @example
+   * ```ts
+   * const saved = await repo.insertOrUpdate(User.changeset(userOrClass, input));
+   * ```
+   *
+   * @throws as {@link Repo.insert} and {@link Repo.update} do.
+   */
+  insertOrUpdate<S extends AnySchema, N extends boolean>(
+    changeset: Changeset<S, N>,
+    options: InsertOrUpdateOptions<S> & { readonly onConflict: "nothing" },
+  ): Promise<Result<Row<S> | null, Changeset<S, N>>>;
+  insertOrUpdate<S extends AnySchema, N extends boolean>(
+    changeset: Changeset<S, N>,
+    options?: InsertOrUpdateOptions<S> & { readonly onConflict?: UpdatingConflict<S> },
+  ): Promise<Result<Row<S>, Changeset<S, N>>>;
+  insertOrUpdate<S extends AnySchema, N extends boolean>(
+    changeset: Changeset<S, N>,
+    options?: InsertOrUpdateOptions<S>,
+  ): Promise<Result<Row<S> | null, Changeset<S, N>>>;
+
+  /**
+   * Like {@link Repo.insertOrUpdate}, but returns the row and throws for an invalid changeset.
+   *
+   * @example
+   * ```ts
+   * const saved = await repo.insertOrUpdateOrThrow(User.changeset(userOrClass, input));
+   * ```
+   *
+   * @throws InvalidChangesetError where `insertOrUpdate` returns a failure.
+   */
+  insertOrUpdateOrThrow<S extends AnySchema, N extends boolean>(
+    changeset: Changeset<S, N>,
+    options: InsertOrUpdateOptions<S> & { readonly onConflict: "nothing" },
+  ): Promise<Row<S> | null>;
+  insertOrUpdateOrThrow<S extends AnySchema, N extends boolean>(
+    changeset: Changeset<S, N>,
+    options?: InsertOrUpdateOptions<S> & { readonly onConflict?: UpdatingConflict<S> },
+  ): Promise<Row<S>>;
+  insertOrUpdateOrThrow<S extends AnySchema, N extends boolean>(
+    changeset: Changeset<S, N>,
+    options?: InsertOrUpdateOptions<S>,
+  ): Promise<Row<S> | null>;
+
+  /**
+   * Inserts many rows in as few statements as the database's parameter limit allows
+   * (inside one transaction when it takes more than one), or the rows a query selects.
+   * No changeset and no validation; field defaults and generated values are applied to
+   * every row. `rows` is `null` unless `returning` asks for rows back.
+   *
+   * @example
+   * ```ts
+   * await repo.insertAll(Tag, [{ name: "news" }, { name: "sport" }]);
+   * const { rows } = await repo.insertAll(User, people, { returning: ["id", "email"] });
+   * ```
+   *
+   * @throws QueryError when a row names something that is not a field; ConstraintError
+   * and DatabaseError from the database (nothing is inserted then).
+   */
+  insertAll<S extends AnySchema>(
+    schema: S,
+    rows: readonly InsertAllRow<S>[] | QueryLike,
+    options?: InsertAllOptions<S> & { readonly returning?: undefined },
+  ): Promise<{ readonly count: number; readonly rows: null }>;
+  insertAll<S extends AnySchema, const F extends FieldNames<S>>(
+    schema: S,
+    rows: readonly InsertAllRow<S>[] | QueryLike,
+    options: InsertAllOptions<S> & { readonly returning: readonly F[] },
+  ): Promise<{ readonly count: number; readonly rows: Pick<Row<S>, F & keyof Row<S>>[] }>;
+  insertAll<S extends AnySchema>(
+    schema: S,
+    rows: readonly InsertAllRow<S>[] | QueryLike,
+    options: InsertAllOptions<S> & { readonly returning: true },
+  ): Promise<{ readonly count: number; readonly rows: Row<S>[] }>;
+  insertAll<S extends AnySchema>(
+    schema: S,
+    rows: readonly InsertAllRow<S>[] | QueryLike,
+    options?: InsertAllOptions<S>,
+  ): Promise<BulkResult<Partial<Row<S>>>>;
+
+  /**
+   * Runs a query built with `.set(...)` as an `UPDATE` of every row it matches. A query
+   * with no `where` updates every row: there is no guard.
+   *
+   * @example
+   * ```ts
+   * const { count } = await repo.updateAll(from(Post, "p").where({ authorId: 1 }).set({ published: true }));
+   * ```
+   *
+   * @throws QueryError when the query has no `.set(...)`, or a clause an update cannot have.
+   */
+  updateAll<Q extends QueryLike>(
+    query: Q,
+    ...args: ReadArgs<Q, ReadOptions>
+  ): Promise<BulkResult<ResultOf<Q>>>;
+
+  /**
+   * Deletes every row the query matches; `repo.deleteAll(User)` deletes every user (there
+   * is no guard). Joins become `USING`.
+   *
+   * @example
+   * ```ts
+   * const { count } = await repo.deleteAll(from(Post, "p").where({ published: false }));
+   * ```
+   *
+   * @throws QueryError when the query has a clause a delete cannot have.
+   */
+  deleteAll<Q extends Queryable>(
+    queryable: Q,
+    ...args: ReadArgs<Q, ReadOptions>
+  ): Promise<BulkResult<ResultOf<Q>>>;
+
   /**
    * Subscribes to the repo's events; returns the function that unsubscribes. `query`
    * reports each statement the repo ran ({@link RepoQueryEvent}); `connect`,
@@ -523,6 +811,7 @@ export interface Repo {
  */
 export function createRepo(options: RepoOptions): Repo {
   const settings = repoSettings(options, writeToStderr);
+  provideUniqueCheck();
   const hub = new QueryHub(settings.adapter, settings.logParams);
   if (settings.logger !== undefined) hub.on(settings.logger);
   const core = new ReadCore(settings.adapter, settings.adapter, settings.schema, settings.codegen, hub);
@@ -734,6 +1023,53 @@ class DatabaseRepo implements Repo {
     for (const node of statement.named) if (!names.includes(node.name)) names.push(node.name);
     const { named, options } = splitArgs<ReadOptions>("raw", names, args, READ_OPTION_KEYS);
     return raw(this.#core, statement, named, options);
+  }
+
+  // --- writes ----------------------------------------------------------------------
+
+  insert(changeset: unknown, options?: unknown): Promise<Result<never, never>> {
+    return insert(this.#core, this, changeset, options) as Promise<Result<never, never>>;
+  }
+
+  async insertOrThrow(changeset: unknown, options?: unknown): Promise<never> {
+    return orThrow(await insert(this.#core, this, changeset, options, "insertOrThrow"), "insert") as never;
+  }
+
+  update(changeset: unknown, options?: unknown): Promise<Result<never, never>> {
+    return update(this.#core, this, changeset, options) as Promise<Result<never, never>>;
+  }
+
+  async updateOrThrow(changeset: unknown, options?: unknown): Promise<never> {
+    return orThrow(await update(this.#core, this, changeset, options, "updateOrThrow"), "update") as never;
+  }
+
+  delete(target: unknown, options?: unknown): Promise<Result<never, never>> {
+    return remove(this.#core, this, target, options) as Promise<Result<never, never>>;
+  }
+
+  async deleteOrThrow(target: unknown, options?: unknown): Promise<never> {
+    return orThrow(await remove(this.#core, this, target, options), "delete") as never;
+  }
+
+  insertOrUpdate(changeset: unknown, options?: unknown): Promise<Result<never, never>> {
+    return insertOrUpdate(this.#core, this, changeset, options) as Promise<Result<never, never>>;
+  }
+
+  async insertOrUpdateOrThrow(changeset: unknown, options?: unknown): Promise<never> {
+    const result = await insertOrUpdate(this.#core, this, changeset, options);
+    return orThrow(result, "insertOrUpdate") as never;
+  }
+
+  insertAll(schema: unknown, rows: unknown, options?: unknown): Promise<never> {
+    return insertAll(this.#core, schema, rows, options) as Promise<never>;
+  }
+
+  updateAll(query: unknown, ...args: readonly unknown[]): Promise<never> {
+    return modifyAll(this.#core, "updateAll", query, args) as Promise<never>;
+  }
+
+  deleteAll(queryable: unknown, ...args: readonly unknown[]): Promise<never> {
+    return modifyAll(this.#core, "deleteAll", queryable, args) as Promise<never>;
   }
 
   on(event: "query", listener: (event: RepoQueryEvent) => void): () => void;

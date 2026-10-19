@@ -15,7 +15,7 @@ or a read replica is a second repo. Nothing connects until the first query.
 | `adapter` | required | The database connection. See [Adapters](/guide/adapters). |
 | `schema` | none | The default database schema (a Postgres schema, a MySQL database). |
 | `log` | `false` | `true`, a function receiving each query event, or `{ params: true }` to include parameter values. See [Logging and events](#logging-and-events). |
-| `codegen` | `true` | `false` avoids `new Function`, for environments with a strict content security policy. The rows are the same; reading them is slower. |
+| `codegen` | `true` | `false` avoids `new Function`, for environments with a strict content security policy. The rows are the same; reading them is slower. With `true`, a runtime that refuses `new Function` is detected on the first query and the repo falls back silently. |
 | `warnOnRootUseInTransaction` | `false` | Development only. See [Transactions](/guide/transactions#the-explicit-rule). |
 
 An unknown option, or an option of the wrong type, throws `TypeError`. An option set to
@@ -55,22 +55,30 @@ and methods) unless the query has a `select`.
 - **`one` is strict.** It adds no `LIMIT`. A second row means the query is wrong, and you
   are told: the error carries the query, without its values. Use `first` when "any one" is
   what you want.
-- **`first` replaces the query's own limit** with 1 and keeps its offset. Give the query
-  an `orderBy`: without one, which row comes first is up to the database.
+- **`first` returns at most one row, and never more than the query's own limit**:
+  `first(q.limit(0))` is `null`. The offset is kept. Give the query an `orderBy`: without
+  one, which row comes first is up to the database.
 - **`get` with `null` or `undefined` throws** `QueryError`, before anything is sent. That is
   almost always a missing id. For a composite key the id is an object of every key field.
-- **`exists`** runs `SELECT 1 … LIMIT 1` without the select, the order and the preloads.
-  A query with a limit of its own, or a set operation, is checked as a subquery, so its
-  limit still counts.
+- **`exists`** runs `SELECT 1 … LIMIT 1` without the select, the order, `distinct` and
+  the preloads. Where dropping them could change the answer, the query is checked as a
+  subquery instead: a limit of its own, a set operation, `distinct` together with an
+  offset, and a select that aggregates without a `groupBy` (it has a row even over no
+  rows).
 - **`aggregate`** over a field of the query's root: `count` returns a `number`; `sum` and
   `avg` a number (`bigint` for a `t.bigint()` column, a string for a decimal) or `null`;
   `min` and `max` the field's type or `null`. Over no rows `count` is 0 and the others are
-  `null`. A query with a limit, an offset, `distinct`, a `groupBy`, a `having` or a set
-  operation is aggregated as a subquery, so the aggregate sees exactly its rows
-  (`count(from(Post, "p").limit(2))` is at most 2).
+  `null`. A query with a limit, an offset, `distinct`, a `groupBy`, a `having`, a set
+  operation, a row lock, or a select that aggregates by itself is aggregated as a
+  subquery, so the aggregate sees exactly its rows (`count(from(Post, "p").limit(2))` is
+  at most 2). Such a query must select the field's column: whole rows of its root, or an
+  object whose key of that name is that column; anything else is a `QueryError`.
 - **`reload`** reads a row again from the table and database schema it was read from. Rows
-  of one schema are read with one query; an array comes back in the same order, with
-  `null` for a row that is gone. Preloaded associations are not read again.
+  of one schema are read together, in as few statements as the database's parameter
+  limit allows; an array comes back in the same order, with `null` for a row that is
+  gone. Preloaded associations are not read again.
+- **`get` with an array** throws `QueryError` (unless the key column itself holds arrays):
+  to read several rows by key, use `where(({ u }) => u.id.in(ids))`.
 
 ### Parameters and options
 

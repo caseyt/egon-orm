@@ -22,6 +22,7 @@ import {
   type RepoOptions,
   type RepoQueryEvent,
   repoSettings,
+  type SplitArgs,
   SQL_OPTION_KEYS,
   STREAM_OPTION_KEYS,
   type StreamReadOptions,
@@ -41,6 +42,7 @@ import {
   isFragment,
   load,
   QueryHub,
+  type QueryInput,
   type RawRows,
   ReadCore,
   raw,
@@ -528,14 +530,17 @@ class DatabaseRepo implements Repo {
     this.#core = core;
   }
 
+  // Not async: the call goes straight to `load`, the one async function of the pipeline.
   all<Q extends Queryable>(queryable: Q, ...args: ReadArgs<Q, ReadOptions>): Promise<ResultOf<Q>[]> {
-    return this.#all("all", queryable, args) as Promise<ResultOf<Q>[]>;
-  }
-
-  async #all(method: string, queryable: unknown, args: readonly unknown[]): Promise<unknown[]> {
-    const input = inputOf(method, queryable);
-    const { named, options } = splitArgs<ReadOptions>(method, input.names, args, READ_OPTION_KEYS);
-    return load(this.#core, "all", input.ast, named, options);
+    let input: QueryInput;
+    let split: SplitArgs<ReadOptions>;
+    try {
+      input = inputOf("all", queryable);
+      split = splitArgs<ReadOptions>("all", input.names, args, READ_OPTION_KEYS);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    return load(this.#core, "all", input.ast, split.named, split.options) as Promise<ResultOf<Q>[]>;
   }
 
   async one<Q extends Queryable>(

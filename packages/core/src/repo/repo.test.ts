@@ -7,11 +7,17 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { createAdapter, type DatabaseAdapter } from "../adapter/adapter.js";
 import type { DriverConnection, DriverCursor, DriverHooks, DriverWrapper } from "../adapter/driver.js";
 import { POSTGRES_CAPABILITIES } from "../compiler/index.js";
-import type { ExecuteOptions, PoolEvent, RawResult, StreamOptions } from "../contracts/adapter.js";
+import type {
+  Capabilities,
+  ExecuteOptions,
+  PoolEvent,
+  RawResult,
+  StreamOptions,
+} from "../contracts/adapter.js";
 import type { QueryAst } from "../contracts/query.js";
 import { ROW } from "../contracts/schema.js";
 import { CastError, DatabaseError, MultipleResultsError, NoResultsError, QueryError } from "../errors.js";
-import { count, fragment, from, meta, param, Schema, t, val } from "../index.js";
+import { count, exists, fragment, from, meta, param, Schema, sum, t, val } from "../index.js";
 import type { RepoQueryEvent } from "./options.js";
 import { createRepo, type Repo } from "./repo.js";
 
@@ -77,12 +83,15 @@ class FakeDriver implements DriverWrapper {
   }
 }
 
-function setup(respond?: Responder): { adapter: DatabaseAdapter; driver: FakeDriver } {
+function setup(
+  respond?: Responder,
+  capabilities: Capabilities = POSTGRES_CAPABILITIES,
+): { adapter: DatabaseAdapter; driver: FakeDriver } {
   const driver = new FakeDriver();
   if (respond !== undefined) driver.respond = respond;
   const adapter = createAdapter({
     dialect: "postgres",
-    capabilities: POSTGRES_CAPABILITIES,
+    capabilities,
     quoteIdentifier: (name) => `"${name.replaceAll('"', '""')}"`,
     driver: (hooks) => {
       driver.hooks = hooks;
@@ -377,20 +386,33 @@ describe("one, oneOrThrow, first", () => {
     expect(await rejection(repo.oneOrThrow(User))).toBeInstanceOf(MultipleResultsError);
   });
 
-  test("first adds a limit of 1, replacing the query's own, and never throws for extra rows", async () => {
+  test("first adds a limit of 1 and never throws for extra rows", async () => {
     let rows: Record<string, unknown>[] = [ADA, GRACE];
     const { repo, statements } = fake(() => rows);
-    const q = from(User, "u")
-      .orderBy(({ u }) => u.id)
-      .limit(10)
-      .offset(5);
+    const q = from(User, "u").orderBy(({ u }) => u.id);
     expect((await repo.first(q))?.id).toBe(1);
-    expect(statements[0]?.sql).toMatch(/order by "u"\."id" asc limit \$1 offset \$2$/);
-    expect(statements[0]?.params).toEqual([1, 5]);
+    expect(statements[0]?.sql).toMatch(/order by "u"\."id" asc limit \$1$/);
+    expect(statements[0]?.params).toEqual([1]);
     rows = [];
     expect(await repo.first(q)).toBeNull();
     // The derived query is made once per query.
     expect(statements[1]?.sql).toBe(statements[0]?.sql);
+  });
+
+  test("first keeps a smaller limit of the query's own, and its offset", async () => {
+    const { repo, statements } = fake(() => []);
+    const q = from(User, "u")
+      .orderBy(({ u }) => u.id)
+      .limit(10)
+      .offset(5);
+    await repo.first(q);
+    expect(statements[0]?.sql).toMatch(
+      /order by "u"\."id" asc limit case when \$1 < 1 then \$2 else 1 end offset \$3$/,
+    );
+    expect(statements[0]?.params).toEqual([10, 10, 5]);
+    const paged = from(User, "u").limit(param("size", t.integer()));
+    await repo.first(paged, { size: 0 });
+    expect(statements[1]?.params).toEqual([0, 0]);
   });
 });
 
@@ -409,6 +431,19 @@ describe("get and getBy", () => {
     const membership = await repo.get(Membership, { userId: 2, orgId });
     expect(membership).toBeInstanceOf(Membership);
     expect(statements[0]?.params).toEqual([orgId, 2]);
+  });
+
+  test("get refuses an array as the value of a key field that is not an array", async () => {
+    const { repo, statements } = fake(() => [ADA]);
+    await expect(repo.get(User, [1, 2] as never)).rejects.toThrow(
+      /"id" holds one value, but it was given an array/,
+    );
+    await expect(repo.get(Membership, { orgId: ["a", "b"], userId: 1 } as never)).rejects.toThrow(/"orgId"/);
+    expect(statements).toEqual([]);
+    class Tagged extends Schema("tagged", { path: t.array(t.string()).primaryKey(), note: t.string() }) {}
+    const { repo: arrays, statements: sent } = fake(() => []);
+    await arrays.get(Tagged, ["a", "b"]);
+    expect(sent[0]?.params).toEqual([["a", "b"]]);
   });
 
   test("get refuses ids that cannot be right", async () => {
@@ -474,6 +509,42 @@ describe("exists", () => {
     expect(statements[0]?.params).toEqual(["admin", 1]);
     rows = [];
     expect(await repo.exists(User)).toBe(false);
+  });
+
+  test("distinct with an offset, and a select that aggregates by itself, are wrapped", async () => {
+    const { repo, statements } = fake(() => []);
+    const wrapped = /^select 1 as "c0" from \(select .*\) as "s" limit \$\d+$/;
+    await repo.exists(from(User, "u").distinct().offset(3));
+    await repo.exists(
+      from(User, "u")
+        .distinct(({ u }) => [u.role])
+        .offset(1),
+    );
+    await repo.exists(from(User, "u").select(() => ({ n: count() })));
+    await repo.exists(from(User, "u").select(() => fragment`count(*)`));
+    await repo.exists(from(User, "u").select(({ u }) => [u.id, count()]));
+    await repo.exists(from(User, "u").select(() => ({ n: sum(count()).over() })));
+    for (const statement of statements) expect(statement.sql).toMatch(wrapped);
+    statements.length = 0;
+    // Not wrapped: distinct without an offset, an offset alone, a window function, grouping.
+    await repo.exists(from(User, "u").distinct());
+    await repo.exists(from(User, "u").offset(3));
+    await repo.exists(from(User, "u").select(({ u }) => ({ n: count().over({ partitionBy: [u.role] }) })));
+    await repo.exists(
+      from(User, "u")
+        .groupBy(({ u }) => u.role)
+        .select(({ u }) => ({ role: u.role, n: count() })),
+    );
+    await repo.exists(from(User, "u").select(({ u }) => [u.id, u]));
+    await repo.exists(
+      from(User, "u").select(({ u }) => ({
+        some: u.id.in([1, 2]),
+        many: exists(from(Post, "p").select(() => count())),
+        authored: u.id.in(from(Post, "p").select(({ p }) => p.authorId)),
+      })),
+    );
+    for (const statement of statements)
+      expect(statement.sql).toMatch(/^select 1 as "c0" from "users" as "u"/);
   });
 
   test("a query with a limit or a set operation is wrapped, not given another limit", async () => {
@@ -598,14 +669,46 @@ describe("count and aggregate", () => {
         "sum",
         "views",
       ),
-    ).rejects.toThrow(/must select "views"/);
+    ).rejects.toThrow(/must select the column "views"/);
+    await expect(
+      repo.aggregate(
+        limited.select(({ p }) => ({ title: p.title })),
+        "sum",
+        "views",
+      ),
+    ).rejects.toThrow(/must select the column "views"/);
+    // A key named after the field counts only when its value is that column.
+    await expect(
+      repo.aggregate(
+        limited.select(({ p }) => ({ views: p.id })),
+        "sum",
+        "views",
+      ),
+    ).rejects.toThrow(/must select the column "views"/);
+    await expect(
+      repo.aggregate(
+        limited.select(() => ({ views: count() })),
+        "max",
+        "views",
+      ),
+    ).rejects.toThrow(/must select the column "views"/);
+    const joined = from(Post, "p")
+      .join(Post, "q", ({ p, q }) => q.id.eq(p.id))
+      .limit(5);
+    await expect(
+      repo.aggregate(
+        joined.select(({ q }) => ({ views: q.views })),
+        "sum",
+        "views",
+      ),
+    ).rejects.toThrow(/must select the column "views"/);
     await expect(
       untyped(repo).aggregate(
         limited.select(({ p }) => ({ views: { nested: p.views } })) as never,
         "sum",
         "views",
       ),
-    ).rejects.toThrow(/must select "views"/);
+    ).rejects.toThrow(/must select the column "views"/);
   });
 
   test("aggregate refuses what it cannot compute", async () => {
@@ -623,6 +726,16 @@ describe("count and aggregate", () => {
     const overValues: QueryAst = { ...inner, from: { kind: "values", columns: ["a"], rows: [], alias: "x" } };
     await expect(untyped(repo).aggregate({ ast: overValues } as never, "sum", "views")).rejects.toThrow(
       /a values source/,
+    );
+  });
+
+  test("a locked query, and one whose select aggregates by itself, are aggregated as a subquery", async () => {
+    const { repo, statements } = fake(() => [{ c0: "1" }]);
+    await repo.count(from(Post, "p").lock("update"));
+    await repo.count(from(Post, "p").select(() => ({ n: count() })));
+    expect(statements[0]?.sql).toMatch(/^select count\(\*\) as "c0" from \(select .* for update\) as "s"$/);
+    expect(statements[1]?.sql).toMatch(
+      /^select count\(\*\) as "c0" from \(select count\(\*\) as "n" from "posts" as "p"\) as "s"$/,
     );
   });
 
@@ -777,6 +890,41 @@ describe("reload", () => {
     expect(other.statements[0]?.sql).toContain('from "tenant_9"."users" as "users"');
   });
 
+  test("many rows of a composite key are read in statements under the parameter limit", async () => {
+    const { adapter, driver } = setup(() => [], { ...POSTGRES_CAPABILITIES, maxParams: 5 });
+    const repo = createRepo({ adapter });
+    const orgId = "0190d8a0-0000-7000-8000-00000000000a";
+    driver.respond = () =>
+      Array.from({ length: 5 }, (_, i) => ({ c0: orgId, c1: String(i + 1), c2: "member" }));
+    const memberships = await repo.all(Membership);
+    driver.statements.length = 0;
+    driver.respond = (_sql, params) => {
+      const out: Record<string, unknown>[] = [];
+      for (let i = 0; i < params.length; i += 2)
+        out.push({ c0: params[i], c1: String(params[i + 1]), c2: "member" });
+      return out;
+    };
+    const fresh = await repo.reload(memberships);
+    // 2 key fields: at most 2 rows (4 parameters) per statement.
+    expect(driver.statements.map((each) => each.params.length)).toEqual([4, 4, 2]);
+    expect(fresh.map((each) => each?.userId)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  test("a single key without array parameters is chunked too", async () => {
+    const { adapter, driver } = setup(() => [], {
+      ...POSTGRES_CAPABILITIES,
+      maxParams: 2,
+      arrayParams: false,
+    });
+    const repo = createRepo({ adapter });
+    driver.respond = () => [ADA, GRACE, { ...ADA, c0: "3" }];
+    const users = await repo.all(User);
+    driver.statements.length = 0;
+    driver.respond = () => [];
+    await repo.reload(users);
+    expect(driver.statements.map((each) => each.params.length)).toEqual([2, 1]);
+  });
+
   test("rows of a composite key", async () => {
     const orgId = "0190d8a0-0000-7000-8000-00000000000a";
     const member = { c0: orgId, c1: "2", c2: "member" };
@@ -877,11 +1025,13 @@ describe("toSql, explain and raw", () => {
     expect(statements[1]?.sql).toMatch(/^explain \(analyze, format json\) select/);
     rows = [{ plan: '[{"Plan":{}}]' }];
     expect(await repo.explain(User, { format: "json" })).toEqual([{ Plan: {} }]);
+    rows = [];
+    expect(await repo.explain(User, { format: "json" })).toBeUndefined();
     rows = [{ plan: { odd: true } }];
     expect(await repo.explain(User, { format: "text", analyze: false })).toBe('{"odd":true}');
     const q = from(User, "u").where(({ u }) => u.age.gte(param("minAge", t.integer())));
     await repo.explain(q, { minAge: 1 });
-    expect(statements[4]?.params).toEqual([1]);
+    expect(statements.at(-1)?.params).toEqual([1]);
     await expect(repo.explain(User, { batchSize: 1 } as never)).rejects.toThrow(/unknown option/);
   });
 
@@ -956,6 +1106,23 @@ describe("events", () => {
     await repo.reload(ada as User);
     await repo.explain(User);
     expect(operations).toEqual(["all", "first", "get", "getBy", "exists", "aggregate", "reload", "explain"]);
+  });
+
+  test("a statement-level read that fails is reported, and so is a result it cannot read", async () => {
+    const failure = new Error("nope");
+    let respond: Responder = () => failure;
+    const { repo } = fake((sql, params) => respond(sql, params));
+    expect(await rejection(repo.raw(fragment`select 1`))).toBe(failure);
+    const events: RepoQueryEvent[] = [];
+    repo.on("query", (event) => events.push(event));
+    expect(await rejection(repo.exists(User))).toBe(failure);
+    respond = () => [{ plan: "not json" }];
+    const unreadable = await rejection(repo.explain(User, { format: "json" }));
+    expect(unreadable).toBeInstanceOf(SyntaxError);
+    expect(events.map((event) => [event.operation, event.error])).toEqual([
+      ["exists", failure],
+      ["explain", unreadable],
+    ]);
   });
 
   test("a failed statement is reported with its error", async () => {

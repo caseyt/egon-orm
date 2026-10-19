@@ -52,8 +52,23 @@ export function canGenerate(compile: (body: string) => () => unknown): boolean {
   }
 }
 
-/** Whether this runtime lets code be generated. Asked once. */
-export const CAN_GENERATE: boolean = canGenerate((body) => new Function(body) as () => unknown);
+/** The answer of {@link generationAllowed}, once asked. */
+let generation: boolean | undefined;
+
+/**
+ * Whether this runtime lets code be generated. Asked the first time a repo with
+ * `codegen` on builds a decoder, never before: a repo with `codegen: false` never calls
+ * `new Function`, so a Content Security Policy never sees (or reports) an attempt.
+ *
+ * @example
+ * ```ts
+ * const decode = generationAllowed() ? generateDecoder(plan, adapter) : interpretDecoder(plan, adapter);
+ * ```
+ */
+export function generationAllowed(): boolean {
+  if (generation === undefined) generation = canGenerate((body) => new Function(body) as () => unknown);
+  return generation;
+}
 
 /** The conversion of a type for this adapter; `undefined` when there is none to apply. */
 function converter(type: AnyFieldType | undefined, codecs: CodecSource): FromDb | undefined {
@@ -116,7 +131,7 @@ export function decoderFor(plan: CompiledQuery, codecs: CodecSource, codegen: bo
  * ```
  */
 export function buildDecoder(output: OutputPlan, codecs: CodecSource, codegen: boolean): RowDecoder {
-  return codegen && CAN_GENERATE ? generateDecoder(output, codecs) : interpretDecoder(output, codecs);
+  return codegen && generationAllowed() ? generateDecoder(output, codecs) : interpretDecoder(output, codecs);
 }
 
 // ---------------------------------------------------------------------------

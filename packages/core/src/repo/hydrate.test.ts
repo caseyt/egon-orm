@@ -13,12 +13,12 @@ import { defineType } from "../types/define.js";
 import { bigintType, integerType, stringType } from "../types/index.js";
 import {
   buildDecoder,
-  CAN_GENERATE,
   type CodecSource,
   canGenerate,
   decodeRows,
   decoderFor,
   generateDecoder,
+  generationAllowed,
   interpretDecoder,
 } from "./hydrate.js";
 
@@ -375,7 +375,7 @@ describe("building and caching", () => {
 
   test("buildDecoder generates code only when asked to and allowed", () => {
     const plan: OutputPlan = { kind: "value", alias: "c0", type: undefined };
-    expect(CAN_GENERATE).toBe(true);
+    expect(generationAllowed()).toBe(true);
     expect(buildDecoder(plan, codecs, true).name).toBe("decode");
     expect(buildDecoder(plan, codecs, false).name).not.toBe("decode");
   });
@@ -395,6 +395,30 @@ describe("building and caching", () => {
       globalThis.Function = original;
     }
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  test("code generation is probed only when a decoder is generated, and once", async () => {
+    vi.resetModules();
+    const original = globalThis.Function;
+    const constructed = vi.fn();
+    globalThis.Function = new Proxy(original, {
+      construct(target, args) {
+        constructed(args[args.length - 1]);
+        return Reflect.construct(target, args);
+      },
+    });
+    try {
+      const fresh = await import("./hydrate.js");
+      fresh.buildDecoder(rowLeaf(USER, 0), codecs, false);
+      expect(constructed).not.toHaveBeenCalled();
+      fresh.buildDecoder(rowLeaf(USER, 0), codecs, true);
+      // The probe, then the decoder.
+      expect(constructed.mock.calls.map(([body]) => body === "return true")).toEqual([true, false]);
+      fresh.buildDecoder(rowLeaf(USER, 0), codecs, true);
+      expect(constructed).toHaveBeenCalledTimes(3);
+    } finally {
+      globalThis.Function = original;
+    }
   });
 
   test("decodeRows decodes into a fresh array", () => {
@@ -468,6 +492,30 @@ function rowOf(
   };
 }
 
+/**
+ * Names that are dangerous in generated code or in an object literal: quotes, backticks,
+ * an interpolation, a backslash, line breaks and the two JavaScript line separators,
+ * `__proto__`, `constructor`, code-like text, the empty string.
+ */
+const HOSTILE: readonly string[] = [
+  "__proto__",
+  "constructor",
+  "prototype",
+  'a"b',
+  "a'b",
+  "`x`",
+  `$${"{"}globalThis.hacked = 1}`,
+  "\\",
+  "line\nbreak",
+  "\u2028",
+  "\u2029",
+  '"]; globalThis.hacked = 1; //',
+  "}; return 1; {",
+  "",
+  "toString",
+  "hasOwnProperty",
+];
+
 /** A random output plan over fresh aliases. */
 function planArbitrary(): fc.Arbitrary<(next: () => string) => Generated> {
   const leaf = fc.oneof(
@@ -505,7 +553,9 @@ function planArbitrary(): fc.Arbitrary<(next: () => string) => Generated> {
   const tree = fc.letrec((tie) => ({
     node: fc.oneof({ depthSize: "small", withCrossShrink: true }, leaf, tie("object"), tie("tuple")),
     object: fc
-      .array(fc.tuple(fc.string({ maxLength: 6 }), tie("node")), { maxLength: 4 })
+      .array(fc.tuple(fc.oneof(fc.constantFrom(...HOSTILE), fc.string({ maxLength: 6 })), tie("node")), {
+        maxLength: 4,
+      })
       .map((entries) => (next: () => string): Generated => {
         const seen = new Set<string>();
         const keys: string[] = [];
@@ -555,19 +605,26 @@ describe("generated and interpreted decoders are equivalent", () => {
           maxLength: 64,
         }),
         fc.array(fc.anything(), { minLength: 4, maxLength: 4 }),
-        (make, cells, constants) => {
+        fc.nat({ max: HOSTILE.length - 1 }),
+        (make, cells, constants, shift) => {
+          // The first aliases are the hostile names, in a random rotation; then c<n>.
           let n = 0;
-          const { plan, aliases } = make(() => `c${n++}`);
-          const row: Record<string, unknown> = {};
-          aliases.forEach((alias, i) => {
-            row[alias] = cells[i % cells.length];
-          });
+          const next = (): string => {
+            const i = n++;
+            return i < HOSTILE.length ? (HOSTILE[(i + shift) % HOSTILE.length] as string) : `c${i}`;
+          };
+          const { plan, aliases } = make(next);
+          // Own properties only, `__proto__` included.
+          const row = Object.fromEntries(aliases.map((alias, i) => [alias, cells[i % cells.length]]));
           const generated = outcome(generateDecoder(plan, codecs), row, constants);
           const interpreted = outcome(interpretDecoder(plan, codecs), row, constants);
           expect(generated.failed).toBe(interpreted.failed);
-          expect(generated.value).toStrictEqual(interpreted.value);
+          // Not toStrictEqual: it compares `constructor` properties by identity, and a key named
+          // "constructor" holds two equal but distinct objects. describeValue checks prototypes.
+          expect(generated.value).toEqual(interpreted.value);
           const markers = new Map<unknown, number>();
           expect(describeValue(generated.value, markers)).toEqual(describeValue(interpreted.value, markers));
+          expect((globalThis as { hacked?: unknown }).hacked).toBeUndefined();
         },
       ),
       { numRuns: 1_000 },

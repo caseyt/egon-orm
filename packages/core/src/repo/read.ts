@@ -10,9 +10,12 @@
  * to {@link afterDecode} when the query preloads associations. The array returned is a
  * fresh one, of fresh rows.
  *
- * One `await` per `all` (`executor.execute`), plus one for {@link afterDecode} when the
- * query has preloads. No options object is allocated when the call passes none and
- * nobody listens to `query` events.
+ * `repo.all` is one call into {@link load}, an async function with one `await`
+ * (`executor.execute`, whose own awaits are the adapter's), plus one on
+ * {@link afterDecode} when the query has preloads. The methods that post-process the
+ * rows (`one`, `oneOrThrow`, `first`, `get`, `getBy`, `count`, `aggregate`, `reload`)
+ * await `load` once more. No options object is allocated when the call passes none and
+ * nobody listens to `query` events, and no closure is made per call.
  *
  * ## Rewritten queries
  *
@@ -36,10 +39,12 @@ import type {
   StreamOptions,
 } from "../contracts/adapter.js";
 import type {
+  AggregateNode,
   ExprNode,
   FragmentNode,
   QueryAst,
   SelectNode,
+  SelectShape,
   SourceNode,
   SubquerySourceNode,
   TableSourceNode,
@@ -48,7 +53,7 @@ import type { AnySchema, FieldMeta, SchemaMeta } from "../contracts/schema.js";
 import { ROW } from "../contracts/schema.js";
 import { MultipleResultsError, NoResultsError, QueryError } from "../errors.js";
 import { isPlainObject } from "../internal/plain-object.js";
-import { collectParams, literalNode, paramNode, shapeOf } from "../query/ast.js";
+import { binaryNode, caseNode, collectParams, literalNode, paramNode, shapeOf } from "../query/ast.js";
 import { bindingOf } from "../query/bindings.js";
 import { AS_SOURCE, from, type Query, render, type SourceParts } from "../query/builder.js";
 import { type AnyExpr, Col, isExpr } from "../query/expr.js";
@@ -402,8 +407,15 @@ function bindDerived(
 // ---------------------------------------------------------------------------
 
 /**
- * Executes a compiled statement and turns its result into `T` with `finish`, reporting
- * the call to the repo's `query` listeners (the time `finish` took is `decodeMs`).
+ * Turns a result into what a statement-level read returns. Each is a module-level
+ * function, so no closure is made per call.
+ */
+type Finish<T> = (result: RawResult) => T;
+
+/**
+ * Executes a compiled statement whose rows are not decoded (`exists`, `explain`, `raw`)
+ * and turns its result into `T` with `finish`, reporting the call to the repo's `query`
+ * listeners (the time `finish` took is `decodeMs`).
  */
 async function run<T>(
   core: ReadCore,
@@ -413,18 +425,10 @@ async function run<T>(
   info: PlanInfo,
   values: readonly unknown[],
   options: ReadOptions | undefined,
-  finish: (result: RawResult) => T,
+  finish: Finish<T>,
 ): Promise<T> {
   const hub = core.hub;
-  if (!hub.listening) {
-    const result = await core.executor.execute(
-      plan.sql,
-      values,
-      executeOptions(plan, info, options, undefined, undefined),
-    );
-    return finish(result);
-  }
-  const call = new Call(hub, operation, source, options?.context);
+  const call = hub.listening ? new Call(hub, operation, source, options?.context) : undefined;
   let result: RawResult;
   try {
     result = await core.executor.execute(
@@ -433,9 +437,10 @@ async function run<T>(
       executeOptions(plan, info, options, call, undefined),
     );
   } catch (error) {
-    hub.emit(call, 0, undefined);
+    if (call !== undefined) hub.emit(call, 0, undefined);
     throw error;
   }
+  if (call === undefined) return finish(result);
   const start = now();
   let value: T;
   try {
@@ -474,7 +479,15 @@ export async function afterDecode(
   );
 }
 
-/** Runs a query and returns its decoded rows: the pipeline of `all`. */
+/**
+ * Runs a query and returns its decoded rows: the pipeline of `all`, in one async function
+ * with one `await` (on `executor.execute`), plus one on {@link afterDecode} for a query
+ * with preloads.
+ *
+ * `original` is given for a query derived from the caller's (`first`, `count`, …): the
+ * caller's named values are then checked against the original query's names
+ * ({@link bindDerived}).
+ */
 export async function load(
   core: ReadCore,
   operation: RepoOperation,
@@ -482,37 +495,43 @@ export async function load(
   named: Readonly<Record<string, unknown>> | undefined,
   options: ReadOptions | undefined,
   source: string | undefined = sourceOf(ast),
+  original: readonly string[] | undefined = undefined,
 ): Promise<unknown[]> {
   const adapter = core.adapter;
   const plan = adapter.compile(ast, "all", schemaFor(core, options));
   const info = infoOf(plan);
-  const values = bindParams(plan.slots, ast.params, named);
+  const values =
+    original === undefined
+      ? bindParams(plan.slots, ast.params, named)
+      : bindDerived(plan, info, ast, named, original);
   const decoder = decoderFor(plan, adapter, core.codegen);
   const constants = constantsOf(ast);
-  const rows = await run(core, operation, source, plan, info, values, options, (result) =>
-    decodeRows(result.rows, decoder, constants),
-  );
-  return info.preloads ? afterDecode(rows, plan, { core, ast, named, options }) : rows;
-}
-
-/** Runs a query derived from `original` and returns its decoded rows. */
-async function loadDerived(
-  core: ReadCore,
-  operation: RepoOperation,
-  ast: QueryAst,
-  input: QueryInput,
-  named: Readonly<Record<string, unknown>> | undefined,
-  options: ReadOptions | undefined,
-): Promise<unknown[]> {
-  const adapter = core.adapter;
-  const plan = adapter.compile(ast, "all", schemaFor(core, options));
-  const info = infoOf(plan);
-  const values = bindDerived(plan, info, ast, named, input.names);
-  const decoder = decoderFor(plan, adapter, core.codegen);
-  const constants = constantsOf(ast);
-  const rows = await run(core, operation, sourceOf(input.ast), plan, info, values, options, (result) =>
-    decodeRows(result.rows, decoder, constants),
-  );
+  const hub = core.hub;
+  const call = hub.listening ? new Call(hub, operation, source, options?.context) : undefined;
+  let result: RawResult;
+  try {
+    result = await core.executor.execute(
+      plan.sql,
+      values,
+      executeOptions(plan, info, options, call, undefined),
+    );
+  } catch (error) {
+    if (call !== undefined) hub.emit(call, 0, undefined);
+    throw error;
+  }
+  let rows: unknown[];
+  if (call === undefined) {
+    rows = decodeRows(result.rows, decoder, constants);
+  } else {
+    const start = now();
+    try {
+      rows = decodeRows(result.rows, decoder, constants);
+    } catch (error) {
+      hub.emit(call, now() - start, error);
+      throw error;
+    }
+    hub.emit(call, now() - start, undefined);
+  }
   return info.preloads ? afterDecode(rows, plan, { core, ast, named, options }) : rows;
 }
 
@@ -660,20 +679,87 @@ function cached(ast: QueryAst, key: string, make: () => QueryAst): QueryAst {
   return result;
 }
 
-/** The query of `first`: the same query with `LIMIT 1` (replacing its own limit). */
+/**
+ * The query of `first`: the same query with `LIMIT 1`, or, when it has a limit of its own,
+ * `LIMIT CASE WHEN <own> < 1 THEN <own> ELSE 1 END`: never more than one row, never more
+ * than the query's own limit (`limit(0)` still returns nothing). Its offset is kept.
+ */
 export function firstAst(ast: QueryAst): QueryAst {
-  return cached(ast, "first", () => derive(ast, { limit: limitOne() }));
+  return cached(ast, "first", () => {
+    const own = ast.limit;
+    if (own === undefined) return derive(ast, { limit: limitOne() });
+    const one = literalNode(1);
+    return derive(ast, { limit: caseNode([{ when: binaryNode("lt", own, one), result: own }], one) });
+  });
+}
+
+/**
+ * Whether a select computes an aggregate over the query's rows (an aggregate function
+ * that is not a window function, or a fragment, whose text could be one). Such a select
+ * groups the rows by itself, so it cannot be replaced without changing how many rows the
+ * query returns. Subqueries are not looked into: their aggregates are their own.
+ */
+function selectsAggregate(select: SelectNode | undefined): boolean {
+  return select !== undefined && shapeAggregates(select.shape);
+}
+
+function shapeAggregates(shape: SelectShape): boolean {
+  switch (shape.kind) {
+    case "expr":
+      return exprAggregates(shape.expr);
+    case "object":
+      return shape.values.some(shapeAggregates);
+    case "tuple":
+      return shape.items.some(shapeAggregates);
+    default:
+      return false;
+  }
+}
+
+/** Whether an expression node (or a value inside one) computes an aggregate over the query's rows. */
+function exprAggregates(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  if (Array.isArray(value)) return value.some(exprAggregates);
+  const node = value as { readonly kind?: unknown };
+  switch (node.kind) {
+    case "aggregate":
+      // A window function does not group, but its arguments may.
+      return (node as AggregateNode).over === undefined || exprAggregates((node as AggregateNode).args);
+    case "fragment":
+      return true;
+    case "subquery":
+    case "exists":
+      return false;
+    default:
+      return Object.values(node).some(exprAggregates);
+  }
+}
+
+/**
+ * Whether `exists` must look at the query's rows as they are, through a subquery: when
+ * dropping its select, order and distinct, or replacing its limit, could change whether
+ * it has a row. That is a limit of its own, a set operation (the branches' selects
+ * decide an `INTERSECT` or `EXCEPT`), `distinct` with an offset (distinct rows decide
+ * what the offset skips), and a select that aggregates without a `groupBy` (it returns a
+ * row even over no rows).
+ */
+function existsNeedsWrapping(ast: QueryAst): boolean {
+  return (
+    ast.limit !== undefined ||
+    ast.combinations.length > 0 ||
+    (ast.distinct !== undefined && ast.offset !== undefined) ||
+    (ast.groupBys.length === 0 && selectsAggregate(ast.select))
+  );
 }
 
 /**
  * The query of `exists`: `SELECT 1 … LIMIT 1` without the select, order, distinct and
- * preloads. A query with a limit or a set operation is wrapped instead
- * (`SELECT 1 FROM (q) AS "s" LIMIT 1`): replacing its limit, or the select of the
- * branches of an `INTERSECT` or `EXCEPT`, would change which rows it has.
+ * preloads, or, when that could change the answer ({@link existsNeedsWrapping}),
+ * `SELECT 1 FROM (q) AS "s" LIMIT 1`.
  */
 export function existsAst(ast: QueryAst): QueryAst {
   return cached(ast, "exists", () =>
-    ast.limit !== undefined || ast.combinations.length > 0
+    existsNeedsWrapping(ast)
       ? wrap(derive(ast, { preloads: NONE }), SELECT_ONE, limitOne())
       : derive(ast, {
           select: SELECT_ONE,
@@ -685,12 +771,25 @@ export function existsAst(ast: QueryAst): QueryAst {
   );
 }
 
-/** The aggregate functions of `repo.aggregate`. */
+/**
+ * The aggregate functions of `repo.aggregate`.
+ *
+ * @example
+ * ```ts
+ * const fn: AggregateFunction = "sum";
+ * const views = await repo.aggregate(Post, fn, "views");
+ * ```
+ */
 export type AggregateFunction = "count" | "sum" | "avg" | "min" | "max";
 
 const AGGREGATES: readonly AggregateFunction[] = ["count", "sum", "avg", "min", "max"];
 
-/** Whether an aggregate over the query must be computed over its rows as a subquery. */
+/**
+ * Whether an aggregate over the query must be computed over its rows as a subquery: a
+ * limit, an offset, `distinct`, a set operation, a `groupBy` or a `having` decide which
+ * rows there are; a row lock cannot be combined with an aggregate; and a select that
+ * aggregates by itself returns one row, not the rows it reads.
+ */
 function needsWrapping(ast: QueryAst): boolean {
   return (
     ast.limit !== undefined ||
@@ -698,7 +797,9 @@ function needsWrapping(ast: QueryAst): boolean {
     ast.distinct !== undefined ||
     ast.combinations.length > 0 ||
     ast.groupBys.length > 0 ||
-    ast.havings.length > 0
+    ast.havings.length > 0 ||
+    ast.lock !== undefined ||
+    selectsAggregate(ast.select)
   );
 }
 
@@ -791,10 +892,19 @@ function wrappedColumn(ast: QueryAst, field: FieldMeta): FieldMeta {
   if (shape.kind === "binding" && shape.binding === ast.from.alias) return field;
   if (shape.kind === "object") {
     const index = shape.keys.indexOf(field.name);
-    if (index >= 0 && shape.values[index]?.kind === "expr") return { ...field, column: field.name };
+    const value = index < 0 ? undefined : shape.values[index];
+    // The key counts only when its value is that very column of the root binding.
+    if (
+      value?.kind === "expr" &&
+      value.expr.kind === "column" &&
+      value.expr.binding === ast.from.alias &&
+      value.expr.column === field.column
+    ) {
+      return { ...field, column: field.name };
+    }
   }
   throw new QueryError(
-    `repo.aggregate() over "${field.name}": this query is aggregated as a subquery (it has a limit, an offset, distinct, a set operation, a groupBy or a having), so it must select "${field.name}": select whole rows of its root binding, or an object with the key "${field.name}".`,
+    `repo.aggregate() over "${field.name}": this query is aggregated as a subquery (it has a limit, an offset, distinct, a set operation, a groupBy, a having, a lock or an aggregating select), so it must select the column "${field.name}" of its root binding "${ast.from.alias}": whole rows of the root, or an object whose key "${field.name}" is that column (${ast.from.alias}.${field.name}).`,
   );
 }
 
@@ -809,7 +919,15 @@ export async function first(
   named: Readonly<Record<string, unknown>> | undefined,
   options: ReadOptions | undefined,
 ): Promise<unknown> {
-  const rows = await loadDerived(core, "first", firstAst(input.ast), input, named, options);
+  const rows = await load(
+    core,
+    "first",
+    firstAst(input.ast),
+    named,
+    options,
+    sourceOf(input.ast),
+    input.names,
+  );
   return rows.length === 0 ? null : rows[0];
 }
 
@@ -824,16 +942,7 @@ export async function exists(
   const plan = core.adapter.compile(ast, "all", schemaFor(core, options));
   const info = infoOf(plan);
   const values = bindDerived(plan, info, ast, named, input.names);
-  return run(
-    core,
-    "exists",
-    sourceOf(input.ast),
-    plan,
-    info,
-    values,
-    options,
-    (result) => result.rows.length > 0,
-  );
+  return run(core, "exists", sourceOf(input.ast), plan, info, values, options, hasRows);
 }
 
 /** `repo.aggregate` and `repo.count`. */
@@ -845,14 +954,8 @@ export async function aggregate(
   named: Readonly<Record<string, unknown>> | undefined,
   options: ReadOptions | undefined,
 ): Promise<unknown> {
-  const rows = await loadDerived(
-    core,
-    "aggregate",
-    aggregateAst(input.ast, fn, field),
-    input,
-    named,
-    options,
-  );
+  const ast = aggregateAst(input.ast, fn, field);
+  const rows = await load(core, "aggregate", ast, named, options, sourceOf(input.ast), input.names);
   return rows.length === 0 ? null : rows[0];
 }
 
@@ -873,6 +976,7 @@ export function byKey(schema: AnySchema, id: unknown): Query<unknown, unknown, n
   const query = rootQuery(schema);
   if (key.length === 1) {
     const field = key[0] as FieldMeta;
+    checkKeyValue(schemaMeta, field, id);
     if (typeof id === "object" && isPlainObject(id)) {
       throw new QueryError(
         `repo.get(${schemaMeta.name}, id): the primary key of ${schemaMeta.name} is the single field "${field.name}", so the id is its value, not an object.`,
@@ -896,6 +1000,7 @@ export function byKey(schema: AnySchema, id: unknown): Query<unknown, unknown, n
         `repo.get(${schemaMeta.name}, id): the id has no value for the key field "${name}" (it is ${String(value)}). The id is ${expected}.`,
       );
     }
+    checkKeyValue(schemaMeta, schemaMeta.fieldsByName.get(name) as FieldMeta, value);
     clauses[name] = value;
   }
   for (const name of Object.keys(given)) {
@@ -906,6 +1011,19 @@ export function byKey(schema: AnySchema, id: unknown): Query<unknown, unknown, n
     }
   }
   return query.where(clauses as never) as Query<unknown, unknown, never, string>;
+}
+
+/**
+ * Refuses an array as the value of a key field whose type is not an array: the object
+ * form of `where` would read it as a list (`IN`), and `get` would return whichever of
+ * those rows matched instead of failing.
+ */
+function checkKeyValue(schemaMeta: SchemaMeta, field: FieldMeta, value: unknown): void {
+  if (Array.isArray(value) && field.type.db.kind !== "array") {
+    throw new QueryError(
+      `repo.get(${schemaMeta.name}, id): the key field "${field.name}" holds one value, but it was given an array. To read several rows by key, use repo.all(from(${schemaMeta.name}, "x").where(({ x }) => x.${field.name}.in(ids))).`,
+    );
+  }
 }
 
 /** The query of `getBy(queryable, clauses)`. */
@@ -1001,17 +1119,49 @@ export async function explain(
   const plan = core.adapter.compileExplain(ast, "all", schemaFor(core, options), explainOptions);
   const info = infoOf(plan);
   const values = bindParams(plan.slots, ast.params, named);
-  return run(core, "explain", sourceOf(ast), plan, info, values, options, (result) => {
-    const cells = result.rows.map((row) => Object.values(row)[0]);
-    if (format === "json") {
-      const cell = cells[0];
-      return typeof cell === "string" ? JSON.parse(cell) : cell;
-    }
-    return cells.map((cell) => (typeof cell === "string" ? cell : JSON.stringify(cell))).join("\n");
-  });
+  return run(
+    core,
+    "explain",
+    sourceOf(ast),
+    plan,
+    info,
+    values,
+    options,
+    format === "json" ? explainJson : explainText,
+  );
 }
 
-/** What `repo.raw` returns: the rows exactly as the driver gave them. */
+/** Whether a statement returned any row. */
+const hasRows: Finish<boolean> = (result) => result.rows.length > 0;
+
+/** The first cell of each row, as text, one line per row. */
+const explainText: Finish<string> = (result) =>
+  result.rows
+    .map((row) => {
+      const cell = Object.values(row)[0];
+      return typeof cell === "string" ? cell : JSON.stringify(cell);
+    })
+    .join("\n");
+
+/** The first cell of the first row, parsed when the driver gave it as text. */
+const explainJson: Finish<unknown> = (result) => {
+  const row = result.rows[0];
+  const cell = row === undefined ? undefined : Object.values(row)[0];
+  return typeof cell === "string" ? JSON.parse(cell) : cell;
+};
+
+/** The rows of a raw statement, as the driver gave them. */
+const rawRows: Finish<RawRows> = (result) => ({ rows: result.rows, rowCount: result.rowCount });
+
+/**
+ * What `repo.raw` returns: the rows exactly as the driver gave them, and the row count it
+ * reported (rows returned, or rows affected by a write).
+ *
+ * @example
+ * ```ts
+ * const { rows, rowCount }: RawRows = await repo.raw(fragment`select now() as now`);
+ * ```
+ */
 export interface RawRows {
   readonly rows: readonly Record<string, unknown>[];
   readonly rowCount: number;
@@ -1032,10 +1182,7 @@ export async function raw(
   const plan = core.adapter.compileFragment(statement.node);
   const info = infoOf(plan);
   const values = bindParams(plan.slots, statement.params, named);
-  return run(core, "raw", undefined, plan, info, values, options, (result) => ({
-    rows: result.rows,
-    rowCount: result.rowCount,
-  }));
+  return run(core, "raw", undefined, plan, info, values, options, rawRows);
 }
 
 // ---------------------------------------------------------------------------
@@ -1093,7 +1240,8 @@ function schemaOfRow(row: object): AnySchema | undefined {
 /**
  * `repo.reload`: a fresh copy of each row, read where it was read (its `RowMeta.schema`
  * is the source's database schema), `null` for a row that is gone. Rows of one schema and
- * database schema are read with one query; the result keeps the order of the input.
+ * database schema are read together, in as few statements as the parameter limit allows
+ * (`capabilities.maxParams`); the result keeps the order of the input.
  *
  * @throws TypeError when an element is not a loaded row.
  * @throws QueryError when its schema has no primary key or a key field is `null`.
@@ -1142,20 +1290,35 @@ export async function reload(
   const out = new Array<unknown>(rows.length).fill(null);
   for (const bySchema of groups.values()) {
     for (const group of bySchema.values()) {
-      const given = group.indexes.map((index) => rows[index] as Readonly<Record<string, unknown>>);
-      const query = reloadQuery(group.schema, group.schemaMeta, group.databaseSchema, given);
-      const found = await load(core, "reload", query.ast, undefined, options);
       const key = group.schemaMeta.primaryKey;
-      const byKey = new Map<unknown, unknown>();
-      for (const each of found) byKey.set(keyOf(each as Readonly<Record<string, unknown>>, key), each);
-      for (let i = 0; i < given.length; i++) {
-        const fresh = byKey.get(keyOf(given[i] as Readonly<Record<string, unknown>>, key));
-        if (fresh === undefined && strict) throw new NoResultsError({ query: render(query.ast) });
-        out[group.indexes[i] as number] = fresh ?? null;
+      const size = reloadChunkSize(core, key.length);
+      for (let from = 0; from < group.indexes.length; from += size) {
+        const indexes = group.indexes.slice(from, from + size);
+        const given = indexes.map((index) => rows[index] as Readonly<Record<string, unknown>>);
+        const query = reloadQuery(group.schema, group.schemaMeta, group.databaseSchema, given);
+        const found = await load(core, "reload", query.ast, undefined, options);
+        const byKey = new Map<unknown, unknown>();
+        for (const each of found) byKey.set(keyOf(each as Readonly<Record<string, unknown>>, key), each);
+        for (let i = 0; i < given.length; i++) {
+          const fresh = byKey.get(keyOf(given[i] as Readonly<Record<string, unknown>>, key));
+          if (fresh === undefined && strict) throw new NoResultsError({ query: render(query.ast) });
+          out[indexes[i] as number] = fresh ?? null;
+        }
       }
     }
   }
   return out;
+}
+
+/**
+ * How many rows one `reload` statement reads. A single key bound as one array
+ * (`= any($1)`) has no limit; otherwise every key value is a parameter, and a statement
+ * may hold at most `capabilities.maxParams` of them (65,535 on Postgres).
+ */
+function reloadChunkSize(core: ReadCore, keyFields: number): number {
+  const capabilities = core.adapter.capabilities;
+  if (keyFields === 1 && capabilities.arrayParams) return Number.POSITIVE_INFINITY;
+  return Math.max(1, Math.floor(capabilities.maxParams / keyFields));
 }
 
 function reloadQuery(

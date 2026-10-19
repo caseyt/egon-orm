@@ -660,6 +660,18 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         expect(await rejection(r.oneOrThrow(several))).toBeInstanceOf(MultipleResultsError);
       });
 
+      test("first never returns more than the query's own limit allows", async () => {
+        const r = repo();
+        const ordered = from(User, "u").orderBy(({ u }) => u.id);
+        expect(await r.first(ordered.limit(0))).toBeNull();
+        const paged = ordered.limit(param("size", t.integer()));
+        expect(await r.first(paged, { size: 0 })).toBeNull();
+        expect((await r.first(paged, { size: 3 }))?.id).toBe(1);
+        expect((await r.first(ordered.limit(5)))?.id).toBe(1);
+        expect((await r.first(ordered.limit(5).offset(2)))?.id).toBe(3);
+        expect((await r.first(ordered))?.id).toBe(1);
+      });
+
       test("first", async () => {
         const r = repo();
         expect(await r.first(none)).toBeNull();
@@ -710,6 +722,7 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         await expect(r.get(Membership, { orgId: ORG_A } as never)).rejects.toThrow(QueryError);
         await expect(r.get(User, { id: 1 } as never)).rejects.toThrow(QueryError);
         await expect(r.get(Note, "x" as never)).rejects.toThrow(/no primary key/);
+        await expect(r.get(User, [1, 2] as never)).rejects.toThrow(/given an array/);
         expect(events).toEqual([]);
       });
 
@@ -753,6 +766,27 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         expect(await r.exists(from(User, "u").limit(0))).toBe(false);
         expect(await r.exists(from(User, "u").offset(3))).toBe(true);
         expect(await r.exists(from(User, "u").offset(4))).toBe(false);
+      });
+
+      test("exists keeps distinct when an offset depends on it", async () => {
+        const r = repo();
+        // Four users, two distinct roles.
+        const roles = from(User, "u")
+          .distinct()
+          .select(({ u }) => u.role);
+        expect(await r.exists(roles.offset(1))).toBe(true);
+        expect(await r.exists(roles.offset(2))).toBe(false);
+        const firstPerRole = from(User, "u")
+          .distinct(({ u }) => [u.role])
+          .orderBy(({ u }) => [u.role, u.id]);
+        expect(await r.exists(firstPerRole.offset(1))).toBe(true);
+        expect(await r.exists(firstPerRole.offset(2))).toBe(false);
+      });
+
+      test("exists over a select that aggregates is true even over no rows", async () => {
+        const nobody = from(User, "u").where({ email: "nobody@example.com" });
+        expect(await repo().exists(nobody.select(() => ({ n: count() })))).toBe(true);
+        expect(await repo().exists(nobody)).toBe(false);
       });
 
       test("count", async () => {
@@ -818,6 +852,46 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         ).toBe(45);
       });
 
+      test("a locked query is counted through a subquery", async () => {
+        const r = repo();
+        expect(await r.count(from(User, "u").lock("update"))).toBe(4);
+        expect(await r.aggregate(from(Post, "p").lock("share"), "sum", "views")).toBe(165);
+      });
+
+      test("a wrapped aggregate reads the field's column, not a key that merely has its name", async () => {
+        const r = repo();
+        const limited = from(Post, "p")
+          .orderBy(({ p }) => p.id)
+          .limit(3);
+        expect(
+          await r.aggregate(
+            limited.select(({ p }) => ({ views: p.views })),
+            "sum",
+            "views",
+          ),
+        ).toBe(165);
+        await expect(
+          r.aggregate(
+            limited.select(({ p }) => ({ views: p.id })),
+            "sum",
+            "views",
+          ),
+        ).rejects.toThrow(QueryError);
+        await expect(
+          r.aggregate(
+            from(Post, "p")
+              .groupBy(({ p }) => p.authorId)
+              .select(() => ({ views: count() })),
+            "max",
+            "views",
+          ),
+        ).rejects.toThrow(QueryError);
+      });
+
+      test("a count over a select that aggregates counts its one row", async () => {
+        expect(await repo().count(from(User, "u").select(() => ({ n: count() })))).toBe(1);
+      });
+
       test("aggregates over an empty set: count is 0, the others null", async () => {
         const r = repo();
         const empty = from(Post, "p").where({ title: "none" });
@@ -828,6 +902,19 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         expect(await r.aggregate(empty, "min", "views")).toBeNull();
         expect(await r.aggregate(empty, "max", "publishedAt")).toBeNull();
         expect(await r.aggregate(empty.limit(5), "sum", "views")).toBeNull();
+      });
+    });
+
+    describe("preloads (step 14)", () => {
+      // The getting-started guide shows this query. It compiles and is typed, but preloads
+      // run in step 14; until then it throws QueryError. Remove `fails` when it passes.
+      test.fails("a query that preloads returns rows with their associations", async () => {
+        const users = await repo().all(
+          from(User, "u")
+            .preload("posts")
+            .orderBy(({ u }) => u.id),
+        );
+        expect(users[0]?.posts.map((post) => post.id)).toEqual([10, 11]);
       });
     });
 

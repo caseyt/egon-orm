@@ -35,7 +35,7 @@ import { sameShape } from "./same-shape.js";
  *
  * @example
  * ```ts
- * const { hits, misses } = compiler.stats();
+ * const { hits, misses, collisions, size }: PlanCacheStats = repo.planCacheStats();
  * ```
  */
 export interface PlanCacheStats {

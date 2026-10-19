@@ -1,19 +1,7 @@
 // The checked sources of the code blocks in internals/compiler.md. Each `#region` is
 // included in the page by name; everything outside a region is the scaffolding that makes
 // the regions compile.
-//
-// The repo arrives with a later step, so `repo` is declared here with the shape its read
-// methods and `toSql` will have.
-import {
-  from,
-  param,
-  type QueryLike,
-  type QueryParams,
-  type QueryResult,
-  Schema,
-  t,
-  timestamps,
-} from "egon-orm";
+import { from, param, type Repo, Schema, t, timestamps } from "egon-orm";
 
 class User extends Schema("users", {
   id: t.integer().primaryKey().dbGenerated(),
@@ -23,11 +11,7 @@ class User extends Schema("users", {
   ...timestamps(),
 }) {}
 
-type Args<Q extends QueryLike> = keyof QueryParams<Q> extends never ? [] : [params: QueryParams<Q>];
-declare const repo: {
-  all<Q extends QueryLike>(query: Q, ...params: Args<Q>): Promise<QueryResult<Q>[]>;
-  toSql<Q extends QueryLike>(query: Q, ...params: Args<Q>): { sql: string; params: unknown[] };
-};
+declare const repo: Repo;
 
 // #region module-level
 // Built once, when the module loads: compiled once per database schema, ever.

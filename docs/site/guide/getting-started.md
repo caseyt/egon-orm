@@ -78,11 +78,9 @@ gives a plain `number`. For a 32-bit `serial` column use `t.integer()`.
 // repo.ts
 import { createRepo } from "egon-orm";
 import { postgres } from "@egon-orm/postgres";
-
-export const repo = createRepo({
-  adapter: postgres({ connectionString: process.env.DATABASE_URL }),
-});
 ```
+
+<<< @/examples/repo.ts#create
 
 The repo is an ordinary value. Export it and import it where you need it.
 
@@ -102,20 +100,11 @@ if (!result.success) {
 
 ```ts
 import { from, count } from "egon-orm";
-
-const ada = await repo.getBy(User, { email: "ada@example.com" }); // User | null
-
-const busy = await repo.all(
-  from(User, "u")
-    .joinAssoc("u", "posts", "p")
-    .where(({ p }) => p.published)
-    .groupBy(({ u }) => u.id)
-    .select(({ u, p }) => ({ email: u.email, posts: count(p.id) })),
-); // { email: string; posts: number }[]
-
-const withPosts = await repo.all(from(User, "u").preload("posts"));
-withPosts[0].posts[0].title; // string
 ```
+
+<<< @/examples/repo.ts#query
+
+Preloading (`.preload("posts")`) is described in [Associations](/guide/associations).
 
 ## Update and delete
 

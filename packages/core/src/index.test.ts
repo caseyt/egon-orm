@@ -39,6 +39,7 @@ test("the public entry point exports exactly these values", () => {
     "count",
     "countDistinct",
     "createAdapter",
+    "createRepo",
     "defineType",
     "exists",
     "failure",

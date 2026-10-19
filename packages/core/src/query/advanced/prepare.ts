@@ -3,10 +3,11 @@
  * many times with different named parameters.
  *
  * A plan depends on the adapter that compiles it (its dialect and its driver conversions),
- * so it is made the first time the prepared query runs on an adapter, and kept: every
- * later run on that adapter takes it from the prepared query, without even a lookup in the
- * adapter's plan cache. A plan holds no values, so one plan serves every set of named
- * parameters.
+ * so {@link PreparedQuery.plan} makes it the first time it is asked for an adapter, and
+ * keeps it: later calls for that adapter take it from the prepared query, without a lookup
+ * in the adapter's plan cache. A plan holds no values, so one plan serves every set of
+ * named parameters. (The repo does not call `plan` yet: it compiles a prepared query like
+ * any other, and finds it in the adapter's plan cache by identity.)
  *
  * @module
  */
@@ -164,10 +165,11 @@ export class PreparedQuery<R, P> implements QueryLike {
 }
 
 /**
- * Prepares a query to run many times: the plan is compiled once, the first time it runs,
- * and kept on the returned object, so later runs skip even the plan-cache lookup. Run it
- * as any query, with its named parameters: `repo.one(byEmail, { email })`. Named
- * parameters are what changes between runs; a value written into the query is fixed.
+ * Marks a query that runs many times. Run it as any query, with its named parameters:
+ * `repo.one(byEmail, { email })`. Today it compiles once per adapter and is then found in
+ * the adapter's plan cache by identity, as any query kept in a variable is; skipping that
+ * lookup as well is planned. Named parameters are what changes between runs; a value
+ * written into the query is fixed.
  *
  * @example
  * ```ts

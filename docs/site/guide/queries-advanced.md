@@ -125,15 +125,15 @@ A query with `.set(...)` describes an `UPDATE`, run with
 
 ## Prepared queries
 
-`prepare(q)` keeps the compiled plan on the returned object. It is the fastest way to run
-a query many times.
+`prepare(q)` marks a query that runs many times. Run it like any query, with its named
+parameters.
 
 <<< @/examples/queries-advanced.ts#prepare
 
-The plan depends on the adapter that runs the query, so it is compiled the first time the
-prepared query runs and kept: later runs skip even the plan-cache lookup. What changes
-between runs are the named parameters; a value written into the query is fixed. Queries
-defined at module level are compiled once anyway.
+Today it compiles once per adapter and is then found in the adapter's plan cache by
+identity, as any query kept in a variable is; skipping that lookup as well is planned.
+What changes between runs are the named parameters; a value written into the query is
+fixed.
 
 ## Other tools
 

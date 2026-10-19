@@ -112,11 +112,10 @@ A query with `.set(...)` describes an `UPDATE`, run with
 <<< @/examples/queries-advanced.ts#bulk
 
 - `.set` takes an object, or a callback returning one. Values are type-checked against
-  the fields; plain values are bound with the field's type. A value made only of values
-  with no type (`val(x)` without a type, or a `caseWhen` or `coalesce` of those or of
-  `NULL`s) does not compile and throws, text included: the database would read a `CASE`
-  of them as text, whatever the column. Pass the plain value, or give one value a type:
-  `caseWhen(c, val(id, t.uuid())).else(other)`. `.set` may be called again: it adds
+  the fields; plain values are bound with the field's type. The field also types a
+  `caseWhen` or `coalesce` made only of values and `NULL`s: it is written
+  `cast(case … end as <the column's type>)`, so `caseWhen(p.published, "live").else("draft")`
+  and `caseWhen(c, 1).else(2)` work on any column. `.set` may be called again: it adds
   fields, and a field set twice takes the later value.
 - `.returning(...)` takes the same shapes as `select` and makes the repo return rows. An
   update has no `select`: calling it is a `QueryError` that points at `returning`.

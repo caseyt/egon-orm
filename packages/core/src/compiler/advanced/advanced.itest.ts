@@ -26,6 +26,7 @@ import {
   val,
 } from "../../index.js";
 import type { QueryLike } from "../../query/builder.js";
+import type { Expr } from "../../query/expr.js";
 import { bindParams, type NamedValues } from "../bind.js";
 import { createCompiler } from "../compiler.js";
 import { postgresDialect } from "../dialect.js";
@@ -201,33 +202,64 @@ test("bulk publish with returning, then the rows are published", async () => {
   });
 });
 
-test("set: an untyped CASE is refused for a uuid column; a typed one runs on Postgres", async () => {
-  // Without a type the database reads the CASE as text: "column is of type uuid but
-  // expression is of type text". It is refused when the query is built instead.
-  const untyped = () =>
-    from(Membership, "m").set(() => ({
-      orgId: caseWhen(lit(true), "00000000-0000-0000-0000-000000000000") as never,
-    }));
-  expect(untyped).toThrow(/set\(\{ orgId \}\) was given a value with no type/);
-  await rolledBack(async () => {
-    const [org] = await handle.db.query<{ id: string }>(
-      "INSERT INTO orgs (name) VALUES ('Beta') RETURNING id",
-    );
-    const moved = org?.id as string;
-    await handle.db.query("INSERT INTO orgs (id, name) SELECT gen_random_uuid(), 'Gamma'");
-    const [first] = await handle.db.query<{ id: string }>("SELECT id FROM orgs WHERE name = 'Gamma'");
-    await handle.db.query("INSERT INTO memberships (org_id, user_id) VALUES ($1, 1)", [first?.id]);
-    const typed = from(Membership, "m")
-      .where(({ m }) => m.userId.eq(1))
-      .set(({ m }) => ({ orgId: caseWhen(m.userId.eq(1), val(moved, t.uuid())).else(m.orgId) }))
-      .returning(({ m }) => m.orgId);
-    expect(await rows(typed, undefined, "updateAll")).toEqual([{ c0: moved }]);
-    // A CASE of NULLs only needs a type too; with one it runs.
-    const clear = from(Post, "p")
-      .where(({ p }) => p.id.eq(1))
-      .set(({ p }) => ({ body: caseWhen(p.published, val(null, t.string().nullable())).else(lit(null)) }))
-      .returning(({ p }) => p.body);
-    expect(await rows(clear, undefined, "updateAll")).toEqual([{ c0: null }]);
+describe("set: a CASE of bound values is cast to the field's type and runs on Postgres", () => {
+  const A = "00000000-0000-0000-0000-00000000000a";
+  const B = "00000000-0000-0000-0000-00000000000b";
+
+  /** Runs the update for user 1's membership (org A) and returns the org ids it set. */
+  async function setOrg(value: (m: { role: unknown }) => unknown, matchUserId = 1): Promise<unknown[]> {
+    return rolledBack(async () => {
+      await handle.db.query("INSERT INTO orgs (id, name) VALUES ($1, 'A'), ($2, 'B')", [A, B]);
+      await handle.db.query("INSERT INTO memberships (org_id, user_id, role) VALUES ($1, 1, 'admin')", [A]);
+      const q = from(Membership, "m")
+        .where(({ m }) => m.userId.eq(matchUserId))
+        .set(({ m }) => ({ orgId: value(m) as never }))
+        .returning(({ m }) => m.orgId);
+      return (await rows(q, undefined, "updateAll")).map((row) => row.c0);
+    });
+  }
+
+  /** Runs the update of post 1's views and returns the views it set. */
+  async function setViews(value: (p: { published: unknown }) => unknown, matchId = 1): Promise<unknown[]> {
+    return rolledBack(async () => {
+      const q = from(Post, "p")
+        .where(({ p }) => p.id.eq(matchId))
+        .set(({ p }) => ({ views: value(p) as never }))
+        .returning(({ p }) => p.views);
+      return (await rows(q, undefined, "updateAll")).map((row) => row.c0);
+    });
+  }
+
+  const role = (m: { role: unknown }) => (m.role as Expr<string>).eq("admin");
+  const published = (p: { published: unknown }) => (p.published as Expr<boolean | null>).isNotNull();
+
+  test("a uuid column: a CASE of plain values", async () => {
+    expect(await setOrg((m) => caseWhen(role(m), B).else(A))).toEqual([B]);
+  });
+
+  test("a uuid column: a CASE with a typed val and a plain else", async () => {
+    expect(await setOrg((m) => caseWhen(role(m), val(B, t.uuid())).else(A))).toEqual([B]);
+  });
+
+  test("a uuid column: a NULL-only CASE has the column's type (no row matches: org_id is not nullable)", async () => {
+    expect(await setOrg((m) => caseWhen(role(m), lit(null)).else(lit(null)), -1)).toEqual([]);
+  });
+
+  test("an integer column: a CASE of plain values, a typed val with a plain else, NULLs only", async () => {
+    expect(await setViews((p) => caseWhen(published(p), 7).else(8))).toEqual([7]);
+    expect(await setViews((p) => caseWhen(published(p), val(9, t.integer())).else(10))).toEqual([9]);
+    expect(await setViews((p) => caseWhen(published(p), lit(null)).else(lit(null)))).toEqual([null]);
+  });
+
+  test("a text column: a CASE of text", async () => {
+    const titles = await rolledBack(async () => {
+      const q = from(Post, "p")
+        .where(({ p }) => p.id.eq(1))
+        .set(({ p }) => ({ title: caseWhen(p.published, "live").else("draft") }))
+        .returning(({ p }) => p.title);
+      return (await rows(q, undefined, "updateAll")).map((row) => row.c0);
+    });
+    expect(titles).toEqual(["live"]);
   });
 });
 

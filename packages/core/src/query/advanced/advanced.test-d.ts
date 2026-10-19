@@ -196,7 +196,7 @@ describe("set and returning", () => {
     posts.set({ title: "x", nope: 1 });
     // @ts-expect-error an expression of another type
     posts.set(({ p }) => ({ title: p.views }));
-    // @ts-expect-error an untyped value that is not text
+    // A value without a type is fine: the field gives it one (review round 4).
     posts.set(() => ({ views: val(5) }));
   });
 
@@ -391,14 +391,15 @@ describe("review round 1", () => {
 });
 
 describe("review round 3", () => {
-  test("set refuses any value made only of untyped bound values, text included", () => {
+  test("set takes values without a type: the field types them (review round 4)", () => {
     const posts = from(Post, "p");
-    // @ts-expect-error val() without a type
     posts.set(() => ({ title: val("x") }));
-    // @ts-expect-error a CASE of untyped text
     posts.set(({ p }) => ({ title: caseWhen(p.published, "a").else("b") }));
-    // @ts-expect-error val(null) without a type
     posts.set(() => ({ body: val(null) }));
+    posts.set(({ p }) => ({ views: caseWhen(p.published, 1).else(2) }));
+    // The value must still be of the field's type.
+    // @ts-expect-error a number is not a title
+    posts.set(({ p }) => ({ title: caseWhen(p.published, 1).else(2) }));
     posts.set(({ p }) => ({ title: caseWhen(p.published, val("a", t.string())).else("b"), body: lit(null) }));
   });
 

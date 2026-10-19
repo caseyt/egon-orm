@@ -7,6 +7,7 @@ import { describe, expect, test } from "vitest";
 import { createCompiler } from "../../compiler/compiler.js";
 import { postgresDialect } from "../../compiler/dialect.js";
 import { sameShape } from "../../compiler/same-shape.js";
+import type { QueryAst } from "../../contracts/query.js";
 import {
   caseWhen,
   coalesce,
@@ -143,59 +144,50 @@ describe("sources over sources", () => {
   });
 });
 
-describe("untyped values in set", () => {
-  test("a value made only of bound values without a type is refused, for any field", () => {
+describe("values without a type in set (review round 4)", () => {
+  const sqlOf = (q: { readonly ast: QueryAst }) =>
+    compiled(q as never, "updateAll").sql.replace(/^update "\w+" as "\w+" set /, "");
+
+  test("a CASE or coalesce of bound values and NULLs is cast to the field's type", () => {
     const posts = from(Post, "p");
-    expect(() =>
-      posts.set(({ p }) => ({ views: caseWhen(p.published, val(1)).else(val(2)) }) as never),
-    ).toThrow(/set\(\{ views \}\) was given a value with no type/);
-    expect(() => posts.set(() => ({ views: coalesce(val(1), val(2) as never) }) as never)).toThrow(/no type/);
-    expect(() => posts.set(() => ({ views: val(5) }) as never)).toThrow(/no type/);
-    // Text too, whatever the column: a text CASE is not typed by the column.
-    expect(() => posts.set(({ p }) => ({ title: caseWhen(p.published, "a").else("b") }) as never)).toThrow(
-      /no type/,
+    expect(sqlOf(posts.set(({ p }) => ({ views: caseWhen(p.published, 1).else(2) })))).toBe(
+      '"views" = cast(case when "p"."published" then $1 else $2 end as integer)',
     );
-    expect(() => posts.set(() => ({ title: val("x") }) as never)).toThrow(/no type/);
-    expect(() =>
-      from(Membership, "m").set(
-        ({ m }) => ({ orgId: caseWhen(m.userId.eq(1), val("a")).else(m.orgId) }) as never,
+    expect(sqlOf(posts.set(({ p }) => ({ title: caseWhen(p.published, "live").else("draft") })))).toBe(
+      '"title" = cast(case when "p"."published" then $1 else $2 end as text)',
+    );
+    expect(
+      sqlOf(posts.set(({ p }) => ({ views: caseWhen(p.published, lit(null)).else(lit(null)) as never }))),
+    ).toBe('"views" = cast(case when "p"."published" then null else null end as integer)');
+    expect(sqlOf(posts.set(() => ({ views: coalesce(val(1, t.integer()), 2) })))).toBe(
+      '"views" = cast(coalesce($1, $2) as integer)',
+    );
+    expect(
+      sqlOf(
+        from(Membership, "m").set(({ m }) => ({
+          orgId: caseWhen(m.role.eq("admin"), val("00000000-0000-0000-0000-000000000000", t.uuid())).else(
+            "00000000-0000-0000-0000-000000000001",
+          ),
+        })),
       ),
-    ).not.toThrow();
-    expect(() =>
-      from(Membership, "m").set(
-        () => ({ orgId: caseWhen(lit(true), "00000000-0000-0000-0000-000000000000") }) as never,
-      ),
-    ).toThrow(/set\(\{ orgId \}\) was given a value with no type/);
-    // NULLs only, or val(null).
-    expect(() =>
-      posts.set(({ p }) => ({ views: caseWhen(p.published, lit(null)).else(lit(null)) }) as never),
-    ).toThrow(/or of NULLs only/);
-    expect(() =>
-      posts.set(({ p }) => ({ body: caseWhen(p.published, lit(null)).else(lit(null)) }) as never),
-    ).toThrow(/no type/);
-    expect(() => posts.set(() => ({ body: val(null) }) as never)).toThrow(/no type/);
+    ).toBe('"org_id" = cast(case when "m"."role" = $1 then $2 else $3 end as uuid)');
   });
 
-  test("a plain value, NULL, a typed value, a typed branch and anything an operator types are fine", () => {
-    const q = from(Post, "p").set(({ p }) => ({
-      title: caseWhen(p.published, val("a", t.string())).else("b"),
-      body: lit(null),
-      views: caseWhen(p.published, val(1, t.integer())).else(2),
-      tagList: p.tagList.append("x"),
-      publishedAt: null,
-    }));
-    expect(q.ast.updates).toHaveLength(5);
-    expect(from(Post, "p").set({ title: "x", views: null }).ast.updates).toHaveLength(2);
-    expect(
-      from(Post, "p").set(({ p }) => ({ views: p.views.add(val(2) as never) })).ast.updates,
-    ).toHaveLength(1);
-    expect(
-      from(Membership, "m").set(() => ({
-        orgId: caseWhen(lit(true), val("00000000-0000-0000-0000-000000000000", t.uuid())).else(
-          "00000000-0000-0000-0000-000000000001",
-        ),
-      })).ast.updates,
-    ).toHaveLength(1);
+  test("a bare value, and anything a column, operator or function types, is left as it is", () => {
+    const posts = from(Post, "p");
+    expect(sqlOf(posts.set(() => ({ views: val(5) as never, title: "x", body: lit(null) })))).toBe(
+      '"views" = $1, "title" = $2, "body" = null',
+    );
+    expect(sqlOf(posts.set(({ p }) => ({ views: caseWhen(p.published, p.views).else(2) })))).toBe(
+      '"views" = case when "p"."published" then "p"."views" else $1 end',
+    );
+    // A number literal types the CASE in SQL.
+    expect(sqlOf(posts.set(({ p }) => ({ views: caseWhen(p.published, lit(1)).else(2) })))).toBe(
+      '"views" = case when "p"."published" then 1 else $1 end',
+    );
+    expect(sqlOf(posts.set(({ p }) => ({ views: p.views.add(1), title: val("a").lower() })))).toBe(
+      '"views" = "p"."views" + $1, "title" = lower($2)',
+    );
   });
 });
 
@@ -306,9 +298,13 @@ describe("review round 1: the remaining cases", () => {
     expect(
       from(Post, "p").set(({ p }) => ({ views: caseWhen(p.published, p.views).else(2) })).ast.updates,
     ).toHaveLength(1);
-    expect(() => from(Post, "p").set(({ p }) => ({ views: caseWhen(p.published, val(1)) }) as never)).toThrow(
-      /no type/,
-    );
+    // A CASE without ELSE, of a value without a type, is cast to the field's type.
+    expect(
+      compiled(
+        from(Post, "p").set(({ p }) => ({ views: caseWhen(p.published, val(1)) }) as never),
+        "updateAll",
+      ).sql,
+    ).toBe('update "posts" as "p" set "views" = cast(case when "p"."published" then $1 end as integer)');
   });
 
   test("an aggregate with a filter is checked inside where-like clauses too", () => {

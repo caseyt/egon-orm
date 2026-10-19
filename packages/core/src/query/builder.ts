@@ -108,7 +108,6 @@ import {
   joinNamed,
   NONE,
   type NoParams,
-  type NoType,
   OrderExpr,
   type ParamsOf,
   type ParamsOfAll,
@@ -430,19 +429,14 @@ export type SetInput<S extends AnySchema> = {
 /**
  * The checks of a `set` argument `X` on schema `S`: every key is a column (an object
  * literal assigned to a type parameter is not checked for extra keys otherwise), and no
- * value is a {@link NoType} expression (`val(x)` without a type, or a `CASE` or
- * `coalesce` of such values): the database does not type a `CASE` from the column.
+ * value holds a window function. A value without a type is fine: the field gives it one
+ * (a `CASE` or `coalesce` of bound values is cast to the field's type).
  */
 type SetChecks<X, S> = ([Exclude<keyof X, ColumnNames<S>>] extends [never]
   ? unknown
   : {
       readonly "~error": `set() was given "${Exclude<keyof X, ColumnNames<S>> & string}", which is not a column of the root binding`;
     }) &
-  ([Extract<X[keyof X], NoType>] extends [never]
-    ? unknown
-    : {
-        readonly "~error": "a value set has no type, so the database would read it as text: pass the plain value, or give it a type, val(value, t.uuid())";
-      }) &
   NoWindowCheck<X[keyof X]>;
 
 /** The named parameters of the expressions among the values of a `set` argument. */

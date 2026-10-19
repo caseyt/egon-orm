@@ -11,6 +11,7 @@
  *
  * @module
  */
+
 import type {
   CteNode,
   ExprNode,
@@ -22,6 +23,7 @@ import type {
   SelectShape,
   WindowNode,
 } from "../contracts/query.js";
+import { OUTER_REFS } from "../query/advanced/outer-refs.js";
 import { registeredEmitter } from "./registry.js";
 
 /**
@@ -39,7 +41,7 @@ export function sameShape(a: QueryNode, b: QueryNode): boolean {
   switch (a.kind) {
     case "column": {
       const o = b as typeof a;
-      return a.binding === o.binding && a.column === o.column;
+      return a.binding === o.binding && a.column === o.column && OUTER_REFS.get(a) === OUTER_REFS.get(o);
     }
     case "param":
     case "list": {

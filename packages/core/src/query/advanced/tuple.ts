@@ -6,9 +6,18 @@
  * @module
  */
 import type { BinaryOp, ExprNode, NamedParamNode } from "../../contracts/query.js";
+import type { AnyFieldType } from "../../contracts/type.js";
 import { QueryError } from "../../errors.js";
 import { booleanType } from "../../types/index.js";
-import { binaryNode, foldShape, shapeOfBinary, startTuple, tupleNode } from "../ast.js";
+import {
+  binaryNode,
+  castNode,
+  foldShape,
+  shapeOfBinary,
+  shapeOfCast,
+  startTuple,
+  tupleNode,
+} from "../ast.js";
 import {
   type AnyExpr,
   type CompatibleParams,
@@ -36,6 +45,16 @@ type Widen<V> = V extends string
       : V extends boolean
         ? boolean
         : V;
+
+/**
+ * Refuses, at compile time, a row with an item that is always `null` (`lit(null)`,
+ * `val(null)`): a comparison with `NULL` is never true. A nullable column is fine.
+ */
+type NoNullItems<V extends readonly unknown[]> = true extends {
+  [K in keyof V]: [V[K]] extends [never] ? false : [V[K]] extends [null] ? true : false;
+}[number]
+  ? { readonly "~error": "a row item is always null, and a comparison with null is never true" }
+  : unknown;
 
 /** Each value of a row, or `null`: what the other side of a comparison may hold at each position. */
 type Operands<V extends readonly unknown[]> = { readonly [K in keyof V]: V[K] | null };
@@ -78,7 +97,7 @@ export class Tuple<V extends readonly unknown[], P = NoParams> {
    * @throws QueryError as {@link Tuple.lt}.
    */
   eq<V2 extends Operands<V>, P2>(
-    other: Tuple<V2, P2> & CompatibleParams<P, P2>,
+    other: Tuple<V2, P2> & CompatibleParams<P, P2> & NoNullItems<V> & NoNullItems<V2>,
   ): Expr<boolean, MergeParams<P, P2>> {
     return compare("eq", this, other) as never;
   }
@@ -94,7 +113,7 @@ export class Tuple<V extends readonly unknown[], P = NoParams> {
    * @throws QueryError as {@link Tuple.lt}.
    */
   neq<V2 extends Operands<V>, P2>(
-    other: Tuple<V2, P2> & CompatibleParams<P, P2>,
+    other: Tuple<V2, P2> & CompatibleParams<P, P2> & NoNullItems<V> & NoNullItems<V2>,
   ): Expr<boolean, MergeParams<P, P2>> {
     return compare("neq", this, other) as never;
   }
@@ -111,7 +130,7 @@ export class Tuple<V extends readonly unknown[], P = NoParams> {
    * `undefined`, or neither row gives a position a type (two plain values).
    */
   lt<V2 extends Operands<V>, P2>(
-    other: Tuple<V2, P2> & CompatibleParams<P, P2>,
+    other: Tuple<V2, P2> & CompatibleParams<P, P2> & NoNullItems<V> & NoNullItems<V2>,
   ): Expr<boolean, MergeParams<P, P2>> {
     return compare("lt", this, other) as never;
   }
@@ -127,7 +146,7 @@ export class Tuple<V extends readonly unknown[], P = NoParams> {
    * @throws QueryError as {@link Tuple.lt}.
    */
   lte<V2 extends Operands<V>, P2>(
-    other: Tuple<V2, P2> & CompatibleParams<P, P2>,
+    other: Tuple<V2, P2> & CompatibleParams<P, P2> & NoNullItems<V> & NoNullItems<V2>,
   ): Expr<boolean, MergeParams<P, P2>> {
     return compare("lte", this, other) as never;
   }
@@ -143,7 +162,7 @@ export class Tuple<V extends readonly unknown[], P = NoParams> {
    * @throws QueryError as {@link Tuple.lt}.
    */
   gt<V2 extends Operands<V>, P2>(
-    other: Tuple<V2, P2> & CompatibleParams<P, P2>,
+    other: Tuple<V2, P2> & CompatibleParams<P, P2> & NoNullItems<V> & NoNullItems<V2>,
   ): Expr<boolean, MergeParams<P, P2>> {
     return compare("gt", this, other) as never;
   }
@@ -159,7 +178,7 @@ export class Tuple<V extends readonly unknown[], P = NoParams> {
    * @throws QueryError as {@link Tuple.lt}.
    */
   gte<V2 extends Operands<V>, P2>(
-    other: Tuple<V2, P2> & CompatibleParams<P, P2>,
+    other: Tuple<V2, P2> & CompatibleParams<P, P2> & NoNullItems<V> & NoNullItems<V2>,
   ): Expr<boolean, MergeParams<P, P2>> {
     return compare("gte", this, other) as never;
   }
@@ -177,14 +196,19 @@ export class Tuple<V extends readonly unknown[], P = NoParams> {
  *   .limit(20);
  * ```
  *
- * @throws QueryError when given no item, or an item that is `undefined`.
+ * @throws QueryError when given no item, or an item that is `undefined` or `null`.
  */
-export function tuple<const A extends readonly [unknown, ...unknown[]]>(
+export function tuple<const A extends readonly [NonNullable<unknown>, ...NonNullable<unknown>[]]>(
   ...items: A
 ): Tuple<{ -readonly [K in keyof A]: Widen<ValueOf<A[K]>> }, ParamsOfAll<A>> {
   if (items.length === 0) throw new QueryError("tuple() needs at least one item.");
   for (const item of items) {
     if (item === undefined) throw new QueryError("tuple() was given undefined, which is not a value.");
+    if (item === null) {
+      throw new QueryError(
+        "tuple() was given null. A comparison with null is never true: compare the other items, and test this one with isNull().",
+      );
+    }
   }
   return new Tuple(items.slice()) as never;
 }
@@ -196,6 +220,24 @@ function untyped(expr: AnyExpr): boolean {
     ((node.kind === "param" || node.kind === "namedParam" || node.kind === "list") &&
       node.type === undefined) ||
     (node.kind === "literal" && node.value === null)
+  );
+}
+
+/** Whether an expression is a bound value: a parameter. */
+function bound(expr: AnyExpr): boolean {
+  return expr.node.kind === "param" || expr.node.kind === "namedParam";
+}
+
+/** `CAST(expr AS type)`, keeping the expression's values. */
+function cast(expr: AnyExpr, type: AnyFieldType): AnyExpr {
+  return new Expr(
+    castNode(expr.node, type),
+    type,
+    expr.redact,
+    expr.params,
+    expr.lists,
+    expr.named,
+    shapeOfCast(expr.shape, type),
   );
 }
 
@@ -224,8 +266,16 @@ function compare(op: BinaryOp, left: { readonly items: readonly unknown[] }, rig
     }
     const lx = isExpr(x) ? x : undefined;
     const ry = isExpr(y) ? y : undefined;
-    leftItems.push(toOperand(x, ry?.type, ry?.redact ?? false, op, true));
-    rightItems.push(toOperand(y, lx?.type, lx?.redact ?? false, op, true));
+    let l = toOperand(x, ry?.type, ry?.redact ?? false, op, true);
+    let r = toOperand(y, lx?.type, lx?.redact ?? false, op, true);
+    // Two bound values: nothing in the SQL types them, and the database would compare
+    // them as text. Cast the typed one, which types the other (owner decision, option A).
+    if (bound(l) && bound(r)) {
+      if (l.type !== undefined) l = cast(l, l.type);
+      else r = cast(r, r.type as AnyFieldType);
+    }
+    leftItems.push(l);
+    rightItems.push(r);
   }
   const leftRow = row(leftItems);
   const rightRow = row(rightItems);

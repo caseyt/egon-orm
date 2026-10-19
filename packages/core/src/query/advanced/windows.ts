@@ -175,6 +175,22 @@ export type WindowCheck<L, W extends string> = [Extract<L, NeedsWindow>] extends
       readonly "~error": "a window function needs a window: add .over(…), such as rowNumber().over({ orderBy: [p.createdAt] })";
     };
 
+/**
+ * `unknown` when the expressions `L` hold no window function and no named window;
+ * otherwise an error type: for `returning` and `set`, where no window function may
+ * appear. (An aggregate over an inline window carries no mark; it is refused at run time.)
+ *
+ * @example
+ * ```ts
+ * type Refused = NoWindowCheck<WindowFunction<number>>; // an error type
+ * ```
+ */
+export type NoWindowCheck<L> = [Extract<L, NeedsWindow | { readonly "~window": string }>] extends [never]
+  ? unknown
+  : {
+      readonly "~error": "window functions cannot be used here: they are computed after the rows are filtered";
+    };
+
 // ---------------------------------------------------------------------------
 // Window functions
 // ---------------------------------------------------------------------------
@@ -669,13 +685,43 @@ export function selectExpressions(shape: SelectShape, out: ExprNode[] = []): Exp
   return out;
 }
 
-function visitAll(clause: string, nodes: readonly ExprNode[], windows: readonly WindowDefNode[]): void {
+/** The named windows a clause may use; `undefined` for a clause where no window function may appear. */
+type Windows = readonly WindowDefNode[] | undefined;
+
+/**
+ * Refuses any window function, or aggregate over a window, in `node` (not entering
+ * subqueries): for the clauses computed before windows are, `where`, `having`,
+ * `groupBy`, a join's `on`, `set` and `returning`.
+ *
+ * @example
+ * ```ts
+ * checkNoWindows("where", condition.node);
+ * ```
+ *
+ * @throws QueryError naming the clause and the function.
+ */
+export function checkNoWindows(clause: string, node: ExprNode): void {
+  visit(clause, node, undefined);
+}
+
+function visitAll(clause: string, nodes: readonly ExprNode[], windows: Windows): void {
   for (const node of nodes) visit(clause, node, windows);
 }
 
-function visit(clause: string, node: ExprNode, windows: readonly WindowDefNode[]): void {
+function visit(clause: string, node: ExprNode, windows: Windows): void {
   switch (node.kind) {
     case "aggregate": {
+      if (windows === undefined) {
+        // A clause that is computed before windows are (where, having, groupBy, set, returning).
+        if (node.over !== undefined || WINDOW_ONLY.has(node.name)) {
+          throw new QueryError(
+            `${clause}(): ${node.name}() over a window cannot be used in ${clause}(): window functions are computed after the rows are filtered and grouped. Select it, then filter on it from a query over this one: from(subquery(q), "s").where(…).`,
+          );
+        }
+        visitAll(clause, node.args, windows);
+        if (node.filter !== undefined) visit(clause, node.filter, windows);
+        return;
+      }
       if (WINDOW_ONLY.has(node.name)) {
         if (node.over === undefined) {
           throw new QueryError(

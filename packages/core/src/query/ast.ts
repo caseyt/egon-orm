@@ -72,6 +72,7 @@ import type {
 import type { AnyFieldType } from "../contracts/type.js";
 import { QueryError } from "../errors.js";
 import { HASH_SEED, hashInt, hashString } from "../internal/hash.js";
+import { OUTER_REFS } from "./advanced/outer-refs.js";
 
 export type {
   AggregateNode,
@@ -845,6 +846,19 @@ export function shapeOfColumn(binding: string, column: string): number {
 }
 
 /**
+ * The shape of a column made by `outerRef(alias, Schema)`: the column's, and the schema
+ * name it expects, so that it never shares a plan with a column that skips that check.
+ *
+ * @example
+ * ```ts
+ * shapeOfOuterRef(shapeOfColumn("u", "id"), "User");
+ * ```
+ */
+export function shapeOfOuterRef(columnShape: number, schemaName: string): number {
+  return hashString(hashString(columnShape, "outerRef"), schemaName);
+}
+
+/**
  * The shape of a bound value: its type and its `redact` flag, never its value.
  *
  * @example
@@ -1191,8 +1205,11 @@ function metaShape(
  */
 export function shapeOf(node: QueryNode): number {
   switch (node.kind) {
-    case "column":
-      return shapeOfColumn(node.binding, node.column);
+    case "column": {
+      const shape = shapeOfColumn(node.binding, node.column);
+      const outer = OUTER_REFS.get(node);
+      return outer === undefined ? shape : shapeOfOuterRef(shape, outer.name);
+    }
     case "param":
       return shapeOfParam(node.type, node.redact);
     case "namedParam":

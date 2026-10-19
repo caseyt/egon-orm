@@ -19,8 +19,12 @@ as a single value.
 - `scalar(q)` must select one expression, and is `null` when the subquery returns no row.
 - The inner query's values and named parameters become the outer query's: the outer query
   needs the inner one's named parameters when it runs.
+- A subquery in `FROM` or a join reads the queries around its query, not its query's
+  own bindings: that would be a lateral join, which is not supported yet (`QueryError`).
 - When the inner query is built elsewhere and has no access to `u`, refer to it by alias
-  with `outerRef`. The outer query must bind that schema under that alias:
+  with `outerRef`. A query around the one that uses it must bind that schema under that
+  alias, and the query using it must not have a binding of that alias itself (it would be
+  read instead); otherwise compiling the query throws `QueryError`:
 
 <<< @/examples/queries-advanced.ts#outer-ref
 
@@ -32,7 +36,8 @@ as a single value.
   `materialized: true` computes it once, `false` lets the database inline it; left out,
   the database decides.
 - `cte(name, shape)` refers to it as a source. `shape` is a schema class, or the CTE's own
-  query, and gives the binding its type. A recursive CTE's query refers to the CTE before
+  query, and gives the binding its type. The query given to `withCte` must return the
+  same: rows of that schema, or the same keys with the same types (`QueryError` otherwise). A recursive CTE's query refers to the CTE before
   it exists, so it names the schema of its rows.
 - A CTE's values come first in the SQL, so its parameters are `$1`, `$2`, ….
 
@@ -66,6 +71,10 @@ as a single value.
   `orderBy` that uses them.
 - `.over({ partitionBy, orderBy, frame })` defines one inline. `frame` is a `fragment`.
 - `.over()` with no argument is the whole result.
+- Window functions are computed after the rows are filtered and grouped, so they belong in
+  `select` and `orderBy` only: in `where`, `having`, `groupBy`, a join's `on`,
+  `set` or `returning` they are a `QueryError`. To filter on one, select it in a
+  subquery and filter the query over it (the top-N recipe below).
 
 ## Conditions built at runtime
 
@@ -98,7 +107,9 @@ A query with `.set(...)` describes an `UPDATE`, run with
 <<< @/examples/queries-advanced.ts#bulk
 
 - `.set` takes an object, or a callback returning one. Values are type-checked against
-  the fields; plain values are bound with the field's type. `.set` may be called again:
+  the fields; plain values are bound with the field's type. A value made only of bound
+  values with no type (`val(5)`, a `caseWhen` or `coalesce` of those) must be text, or be
+  given a type: `val(5, t.integer())`. `.set` may be called again:
   it adds fields, and a field set twice takes the later value.
 - `.returning(...)` takes the same shapes as `select` and makes the repo return rows. An
   update has no `select`: calling it is a `QueryError` that points at `returning`.
@@ -121,12 +132,14 @@ defined at module level are compiled once anyway.
 ## Other tools
 
 - **Ordering by a select alias.** `selectedAs(expr, "total")` names a selected expression,
-  and `selectedAs("total")` refers to it in `orderBy` or `groupBy`:
+  and `selectedAs("total")` refers to it in `orderBy` or `groupBy`; a name the select does
+  not have is a `QueryError`:
 
 <<< @/examples/queries-advanced.ts#selected-as
 
 - **Tuple comparison**, for keyset pagination. A plain value takes the type of the column
-  at the same position of the other row:
+  at the same position of the other row; where both rows hold a bound value, the typed one
+  is cast. A row has no `null` item and is compared, not selected:
 
 <<< @/examples/queries-advanced.ts#keyset
 

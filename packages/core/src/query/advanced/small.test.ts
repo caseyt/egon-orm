@@ -73,10 +73,10 @@ describe("dynamic", () => {
     expect(() => from(User, "u").where(adult.and(notACondition as never))).toThrow(
       /both sides must be conditions/,
     );
-    expect(() => from(User, "u").where(notACondition.or(adult as never) as never)).toThrow(
-      /both sides must be conditions/,
-    );
-    expect(() => from(User, "u").where(notACondition.not() as never)).toThrow(
+    expect(() =>
+      from(User, "u").where((notACondition as unknown as typeof adult).or(adult) as never),
+    ).toThrow(/both sides must be conditions/);
+    expect(() => from(User, "u").where((notACondition as unknown as typeof adult).not() as never)).toThrow(
       /both sides must be conditions/,
     );
     expect(() => adult.and((() => lit(true)) as never)).toThrow(/takes another dynamic expression/);
@@ -211,7 +211,7 @@ describe("tuple", () => {
       expect(() => tuple(p.id, p.views).lt(tuple(1) as never)).toThrow(/have 2 and 1 items/);
       expect(() => tuple(1, 2).lt(tuple(3, 4))).toThrow(/position 1 of the rows has no type on either side/);
       expect(() => tuple(p.id, val(2)).lt(tuple(3, 4))).toThrow(/position 2/);
-      expect(() => tuple(p.id).lt(tuple(null) as never)).toThrow(/null/);
+      expect(() => tuple(p.id).lt(tuple(null as never) as never)).toThrow(/tuple\(\) was given null/);
       expect(() => tuple(p.id).lt([1] as never)).toThrow(/takes another tuple/);
       expect(() => tuple(p.id, lit(null) as never).lt(tuple(1, p.views) as never)).toThrow(/was given null/);
       return lit(true);

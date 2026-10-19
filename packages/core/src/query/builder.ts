@@ -63,9 +63,11 @@ import {
   type SetOperation,
 } from "./advanced/set-operations.js";
 import {
+  checkNoWindows,
   checkWindow,
   checkWindows,
   collectWindows,
+  type NoWindowCheck,
   selectExpressions,
   type WindowCheck,
   type WindowDefParams,
@@ -361,28 +363,39 @@ type ParamsOfList<X> = X extends readonly unknown[] ? ParamsOfAll<X> : ParamsOf<
 /** Every expression inside what a select returned, as a union. */
 type SelectLeaves<X> = X extends { readonly "~expr": unknown }
   ? X
-  : X extends
-        | { readonly "~binding": unknown }
-        | { readonly "~order": unknown }
-        | { readonly "~query": unknown }
-        | Date
-        | Uint8Array
-    ? never
-    : X extends readonly unknown[]
-      ? SelectLeaves<X[number]>
-      : X extends object
-        ? { [K in keyof X]: SelectLeaves<X[K]> }[keyof X]
-        : never;
+  : X extends { readonly "~tuple": unknown }
+    ? TupleLeaf
+    : X extends
+          | { readonly "~binding": unknown }
+          | { readonly "~order": unknown }
+          | { readonly "~query": unknown }
+          | Date
+          | Uint8Array
+      ? never
+      : X extends readonly unknown[]
+        ? SelectLeaves<X[number]>
+        : X extends object
+          ? { [K in keyof X]: SelectLeaves<X[K]> }[keyof X]
+          : never;
 
 /**
  * `unknown` when what a select returned holds no {@link Untyped} expression; otherwise an
  * error type, so that the callback's result does not fit and the call does not compile.
  */
 type SelectTypes<X> = [Extract<SelectLeaves<X>, Untyped>] extends [never]
-  ? unknown
+  ? [Extract<SelectLeaves<X>, TupleLeaf>] extends [never]
+    ? unknown
+    : {
+        readonly "~error": "a row value (tuple) cannot be selected: compare it with another row, or select its items";
+      }
   : {
       readonly "~error": "a selected value has no type, so the database would return it as text: give it one, val(value, t.integer())";
     };
+
+/** Type only: a row value (`tuple(…)`) found in what a select returned, which is refused. */
+interface TupleLeaf {
+  readonly "~tupleLeaf": true;
+}
 
 /** The named parameters of the expressions a select returned. */
 type SelectParams<X> = ParamsOfAll<SelectLeaves<X>[]>;
@@ -427,7 +440,8 @@ type SetChecks<X, S> = ([Exclude<keyof X, ColumnNames<S>>] extends [never]
     ? unknown
     : {
         readonly "~error": "a value set has no type and is not text: give it one, val(value, t.integer())";
-      });
+      }) &
+  NoWindowCheck<X[keyof X]>;
 
 /** The named parameters of the expressions among the values of a `set` argument. */
 type SetParams<X> = ParamsOfAll<readonly X[keyof X][]>;
@@ -1387,6 +1401,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     expr: AnyExpr,
     clause: string,
   ): Query<B, R, P, A, W> {
+    checkNoWindows(clause, expr.node);
     const node = boolNode(op, expr.node);
     const list = prop === WHERES ? this.ast.wheres : this.ast.havings;
     const nodes = list.slice();
@@ -1481,6 +1496,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     let onShape: number | undefined;
     if (type !== "cross") {
       const expr = condition(run(clause, on, scope.arg), clause);
+      checkNoWindows(clause, expr.node);
       onNode = expr.node;
       onShape = expr.shape;
       params = join(params, expr.params);
@@ -1537,7 +1553,10 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     const joins = this.ast.joins.slice();
     const last = built.joins.length - 1;
     let extra: AnyExpr | undefined;
-    if (on !== undefined) extra = condition(run(clause, on, scope.arg), clause);
+    if (on !== undefined) {
+      extra = condition(run(clause, on, scope.arg), clause);
+      checkNoWindows(clause, extra.node);
+    }
     for (let i = 0; i <= last; i++) {
       const step = built.joins[i] as BuiltJoin;
       let condExpr = step.on;
@@ -1993,6 +2012,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     let named = this.#named;
     let shape = this.#shapes[GROUP_BYS] as number;
     for (const item of items) {
+      checkNoWindows("groupBy", item.node);
       nodes.push(item.node);
       params = join(params, item.params);
       lists = join(lists, item.lists);
@@ -2550,7 +2570,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
    */
   returning<Q0 extends QueryLike, X extends SelectInput>(
     this: Q0,
-    fn: (bindings: BindingsOf<Q0>) => X & SelectTypes<X>,
+    fn: (bindings: BindingsOf<Q0>) => X & SelectTypes<X> & NoWindowCheck<SelectLeaves<X>>,
   ): WithResult<Q0, SelectResult<Q0, X>, SelectParams<X>> {
     return (this as unknown as AnyInternal).#returning(fn) as never;
   }
@@ -2567,6 +2587,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
       );
     }
     const built = buildSelect(run("returning", fn, this.#scope.arg), "returning");
+    for (const node of selectExpressions(built.node.shape)) checkNoWindows("returning", node);
     RETURNING_SELECTS.add(built.node);
     return this.#setSelect(built, this.#withNamed("returning", this.#named, built.named));
   }
@@ -2597,6 +2618,15 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
   }
 
   #exclude(clause: unknown): unknown {
+    if (
+      this.ast.combinations.length > 0 &&
+      typeof clause === "string" &&
+      !["orderBy", "limit", "offset", "withCte", "setOperations"].includes(clause)
+    ) {
+      throw new QueryError(
+        `exclude("${clause}") on a query combined with union(), intersect() or except() would change its left side only. Exclude it from that side before combining, or exclude("setOperations") first.`,
+      );
+    }
     let next: Query<B, R, P, A, W>;
     switch (clause as ExcludableClause) {
       case "where":

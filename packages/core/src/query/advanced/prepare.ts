@@ -28,7 +28,8 @@ interface PreparedFrom {
 
 /** The plan kept for the first adapter, operation and database schema a prepared query runs with. */
 interface Pinned {
-  readonly source: PlanSource;
+  /** Held weakly: a prepared query defined at module level must not keep a closed adapter alive. */
+  readonly source: WeakRef<PlanSource>;
   readonly operation: QueryOperation;
   readonly schema: string | undefined;
   readonly plan: CompiledQuery;
@@ -119,7 +120,7 @@ export class PreparedQuery<R, P> implements QueryLike {
     const pinned = this.#pinned;
     if (
       pinned !== undefined &&
-      pinned.source === source &&
+      pinned.source.deref() === source &&
       pinned.operation === operation &&
       pinned.schema === schema
     ) {
@@ -127,7 +128,7 @@ export class PreparedQuery<R, P> implements QueryLike {
     }
     if (pinned === undefined) {
       const plan = source.compile(this.ast, operation, schema);
-      this.#pinned = { source, operation, schema, plan };
+      this.#pinned = { source: new WeakRef(source), operation, schema, plan };
       return plan;
     }
     let bySource = this.#others;

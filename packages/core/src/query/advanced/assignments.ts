@@ -11,12 +11,13 @@
  *
  * @module
  */
-import type { SelectNode, UpdateNode } from "../../contracts/query.js";
+import type { ExprNode, SelectNode, UpdateNode } from "../../contracts/query.js";
 import type { SchemaMeta } from "../../contracts/schema.js";
 import { QueryError } from "../../errors.js";
 import { HASH_SEED, hashInt, hashString } from "../../internal/hash.js";
 import { isPlainObject } from "../../internal/plain-object.js";
 import { isExpr, isNullOperand, toOperand } from "../expr.js";
+import { checkNoWindows } from "./windows.js";
 
 const UPDATE_SEED = hashString(HASH_SEED, "update");
 
@@ -43,6 +44,52 @@ export const RETURNING_SELECTS: WeakSet<SelectNode> = new WeakSet();
  */
 export function updateShape(field: string, column: string, valueShape: number): number {
   return hashInt(hashString(hashString(UPDATE_SEED, field), column), valueShape);
+}
+
+/** A bound value. */
+type BoundLeaf = Extract<ExprNode, { readonly kind: "param" | "namedParam" }>;
+
+/**
+ * The bound values a value is made of when nothing but bound values makes it (a
+ * parameter, `NULL`, or a `CASE` or `coalesce` of those, at any depth); `undefined` when
+ * something in it gives it a type in SQL (a column, an operator, a function).
+ */
+function boundLeaves(node: ExprNode, out: BoundLeaf[]): BoundLeaf[] | undefined {
+  switch (node.kind) {
+    case "param":
+    case "namedParam":
+      out.push(node);
+      return out;
+    case "literal":
+      return node.value === null ? out : undefined;
+    case "case":
+      for (const branch of node.whens) if (boundLeaves(branch.result, out) === undefined) return undefined;
+      return node.else === undefined ? out : boundLeaves(node.else, out);
+    case "fn":
+      if (node.name !== "coalesce") return undefined;
+      for (const arg of node.args) if (boundLeaves(arg, out) === undefined) return undefined;
+      return out;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Whether a value assigned by `set` is made only of bound values, none of which has a type,
+ * and one of which is not text (owner decision, option A). The target column does not type
+ * a `CASE` or a `coalesce` of such values (the database reads them as text), and the
+ * types refuse a bare `val(5)` too, so both are refused here as well: types and run time
+ * agree.
+ */
+function untypedNonText(node: ExprNode): boolean {
+  const leaves = boundLeaves(node, []);
+  if (leaves === undefined) return false;
+  let nonText = false;
+  for (const leaf of leaves) {
+    if (leaf.type !== undefined) return false;
+    if (leaf.kind === "param" && leaf.value !== null && typeof leaf.value !== "string") nonText = true;
+  }
+  return nonText;
 }
 
 /** The assignments a `set` call adds. */
@@ -101,6 +148,12 @@ export function assignments(
       throw new QueryError(`set({ ${key}: null }): ${meta.name}.${key} is not nullable.`);
     }
     const operand = toOperand(value, field.type, field.redact, "set", false, true);
+    checkNoWindows("set", operand.node);
+    if (untypedNonText(operand.node)) {
+      throw new QueryError(
+        `set({ ${key} }) was given a value with no type that is not text (val() without a type, or a CASE or coalesce of such values). Nothing in the SQL types it: give it one, val(value, t.integer()), or pass the plain value.`,
+      );
+    }
     const node: UpdateNode = { kind: "update", field: key, column: field.column, value: operand.node };
     const shape = updateShape(key, field.column, operand.shape);
     const at = nodes.findIndex((existingNode) => existingNode.field === key);

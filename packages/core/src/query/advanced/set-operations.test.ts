@@ -36,7 +36,10 @@ describe("set operations", () => {
     expect(() => q.where(({ u }) => u.id.gt(1))).toThrow(/only orderBy\(\), limit\(\), offset\(\)/);
     expect(() => q.join(Comment, "c", ({ u, c }) => c.authorId.eq(u.id))).toThrow(/only orderBy/);
     expect(() => q.lock("update")).toThrow(/only orderBy/);
-    expect(() => q.exclude("where")).toThrow(/only orderBy/);
+    expect(() => q.exclude("where")).toThrow(
+      /exclude\("where"\) on a query combined with union\(\), intersect\(\) or except\(\) would change its left side only/,
+    );
+    expect(() => q.exclude({} as never)).toThrow(/only orderBy|exclude\(\) removes one of/);
     expect(
       q
         .orderBy(({ u }) => u.id)

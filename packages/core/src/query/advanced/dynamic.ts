@@ -63,6 +63,7 @@ export interface DynamicMethods<Bs, X> {
    * @throws QueryError (when the query runs the callback) when either side is not a condition.
    */
   and<Bs2, X2 extends Condition>(
+    this: DynamicCondition<Bs>,
     other: Dynamic<Bs2, X2> & CompatibleParams<ParamsOf<X>, ParamsOf<X2>>,
   ): Dynamic<Bs & Bs2, Expr<boolean, MergeParams<ParamsOf<X>, ParamsOf<X2>>>>;
   /**
@@ -71,6 +72,7 @@ export interface DynamicMethods<Bs, X> {
    * @throws QueryError (when the query runs the callback) when either side is not a condition.
    */
   or<Bs2, X2 extends Condition>(
+    this: DynamicCondition<Bs>,
     other: Dynamic<Bs2, X2> & CompatibleParams<ParamsOf<X>, ParamsOf<X2>>,
   ): Dynamic<Bs & Bs2, Expr<boolean, MergeParams<ParamsOf<X>, ParamsOf<X2>>>>;
   /**
@@ -78,7 +80,7 @@ export interface DynamicMethods<Bs, X> {
    *
    * @throws QueryError (when the query runs the callback) when this is not a condition.
    */
-  not(): Dynamic<Bs, Expr<boolean, ParamsOf<X>>>;
+  not(this: DynamicCondition<Bs>): Dynamic<Bs, Expr<boolean, ParamsOf<X>>>;
 }
 
 /**
@@ -91,6 +93,9 @@ export interface DynamicMethods<Bs, X> {
  * ```
  */
 export type Dynamic<Bs, X> = ((bindings: DynamicBindings<Bs>) => X) & DynamicMethods<Bs, X>;
+
+/** A dynamic condition: what `and`, `or` and `not` may be called on. */
+type DynamicCondition<Bs> = (bindings: DynamicBindings<Bs>) => Condition;
 
 /** What the dynamic functions remember about a dynamic expression: the schemas it needs, when known. */
 const DYNAMICS = new WeakMap<object, Schemas | undefined>();
@@ -291,13 +296,18 @@ export function field(binding: object, name: string): Expr<unknown, NoParams> {
   if (typeof binding !== "object" || binding === null) {
     throw new QueryError("field() takes a binding first, such as u in ({ u }) => field(u, name).");
   }
-  const columns = Object.keys(binding).filter(
-    (key) => !key.startsWith("$") && isExpr((binding as Record<string, unknown>)[key]),
-  );
-  if (typeof name !== "string" || !columns.includes(name)) {
+  const column =
+    typeof name === "string" && !name.startsWith("$") && Object.hasOwn(binding, name)
+      ? (binding as Record<string, unknown>)[name]
+      : undefined;
+  if (!isExpr(column)) {
+    // The list of columns is built only for the message.
+    const columns = Object.keys(binding).filter(
+      (key) => !key.startsWith("$") && isExpr((binding as Record<string, unknown>)[key]),
+    );
     throw new QueryError(
       `field() was given ${typeof name === "string" ? `"${name}"` : `a ${typeof name}`}, which is not a column of the binding. Its columns are: ${columns.join(", ")}.`,
     );
   }
-  return (binding as Record<string, Expr<unknown, NoParams>>)[name] as Expr<unknown, NoParams>;
+  return column as Expr<unknown, NoParams>;
 }

@@ -16,10 +16,12 @@ import {
   prepare,
   rowNumber,
   scalar,
+  selectedAs,
   subquery,
   sum,
   t,
   tuple,
+  val,
 } from "../../index.js";
 import type { QueryLike } from "../../query/builder.js";
 import { bindParams, type NamedValues } from "../bind.js";
@@ -153,6 +155,26 @@ test("keyset pagination walks every post once, newest first", async () => {
     cursor = { cursorAt: last.c1, cursorId: last.c0 };
   }
   expect(seen).toEqual([4, 3, 2, 5, 1, 6]);
+});
+
+test("rows of typed bound values compare as numbers, not as text", async () => {
+  // As text, '10' < '9': the condition would be false and filter every row out.
+  const q = from(Post, "p")
+    .where(() => tuple(val(10, t.integer()), val(1, t.integer())).gt(tuple(val(9, t.integer()), 0)))
+    .select(({ p }) => p.id);
+  expect((await rows(q)).length).toBe(6);
+  const one = from(Post, "p")
+    .where(() => tuple(val(10, t.integer())).gt(tuple(val(9) as never)))
+    .select(({ p }) => p.id);
+  expect((await rows(one)).length).toBe(6);
+});
+
+test("a source over a source reads the middle query's column names, not the inner selectedAs names", async () => {
+  const inner = from(Post, "p").select(({ p }) => ({ a: selectedAs(p.id, "zz") }));
+  const q = from(subquery(from(subquery(inner), "s")), "m")
+    .orderBy(({ m }) => m.a)
+    .select(({ m }) => ({ v: m.a }));
+  expect((await rows(q)).map((row) => row.c0)).toEqual([1, 2, 3, 4, 5, 6]);
 });
 
 test("users with no posts, with not exists", async () => {

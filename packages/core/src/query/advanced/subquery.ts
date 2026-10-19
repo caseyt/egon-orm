@@ -9,14 +9,17 @@
  *
  * @module
  */
-import type { AnySchema } from "../../contracts/schema.js";
+import type { AnySchema, SchemaMeta } from "../../contracts/schema.js";
 import { QueryError } from "../../errors.js";
 import { isSchema } from "../../schema/guards.js";
 import { meta } from "../../schema/schema.js";
-import { type Binding, bindingOf } from "../bindings.js";
+import { columnNode, shapeOfColumn, shapeOfOuterRef } from "../ast.js";
+import { type Binding, registerBinding } from "../bindings.js";
 import { Query, type QueryLike, type QueryParams, type QueryResult } from "../builder.js";
-import { type AnyExpr, type Expr, subqueryOf } from "../expr.js";
+import { type AnyExpr, Expr, NONE, subqueryOf } from "../expr.js";
+import { OUTER_REFS } from "./outer-refs.js";
 import {
+  type RowSchemaOf,
   type Source,
   type SourceBindingOf,
   type SourceCheck,
@@ -57,6 +60,33 @@ export function subquery<Q extends QueryLike>(
   );
 }
 
+/** Whether a query result `R` is more than one value: an object of keys, or an array of a known length. */
+type ManyValues<R> = [NonNullable<R>] extends [Date | Uint8Array]
+  ? false
+  : [NonNullable<R>] extends [readonly unknown[]]
+    ? number extends NonNullable<R>["length"]
+      ? false
+      : true
+    : [NonNullable<R>] extends [object]
+      ? true
+      : false;
+
+/**
+ * Refuses, at compile time, a query that does not select one value: whole rows, an object
+ * or an array of values. (A selected JSON value whose type is an object is refused too: a
+ * known limit, since its type cannot be told from an object of keys.)
+ *
+ * @example
+ * ```ts
+ * declare function scalar<Q extends QueryLike>(query: Q & ScalarCheck<Q>): unknown;
+ * ```
+ */
+export type ScalarCheck<Q extends QueryLike> = [RowSchemaOf<Q>] extends [never]
+  ? ManyValues<QueryResult<Q>> extends true
+    ? { readonly "~error": "scalar() takes a query that selects one expression, not an object or an array" }
+    : unknown
+  : { readonly "~error": "scalar() takes a query that selects one expression, not whole rows" };
+
 /**
  * A query as one value, `(SELECT …)`: its single selected expression, `null` when it
  * returns no row. It must return at most one row.
@@ -72,7 +102,9 @@ export function subquery<Q extends QueryLike>(
  * @throws QueryError when the argument is not a query, or the query does not select one
  * expression.
  */
-export function scalar<Q extends QueryLike>(query: Q): Expr<QueryResult<Q> | null, QueryParams<Q>> {
+export function scalar<Q extends QueryLike>(
+  query: Q & ScalarCheck<Q>,
+): Expr<QueryResult<Q> | null, QueryParams<Q>> {
   if (!(query instanceof Query)) {
     throw new QueryError(
       'scalar() takes a query that selects one value: scalar(from(Post, "p").select(() => count())).',
@@ -89,6 +121,9 @@ export function scalar<Q extends QueryLike>(query: Q): Expr<QueryResult<Q> | nul
   }
   return subqueryOf(query, "scalar") as AnyExpr as never;
 }
+
+/** The bindings `outerRef` made, per schema and alias: built once, like a query's bindings. */
+const OUTER_BINDINGS = new WeakMap<SchemaMeta, Map<string, object>>();
 
 /**
  * The binding `alias` of the query a subquery is nested in, with the columns of `schema`:
@@ -120,5 +155,32 @@ export function outerRef<S extends AnySchema>(alias: string, schema: S): Binding
       `outerRef("${alias}", ${schemaMeta.name}): an embedded schema has no table, so no query binds it.`,
     );
   }
-  return bindingOf(schemaMeta, schema, alias) as Binding<S>;
+  let byAlias = OUTER_BINDINGS.get(schemaMeta);
+  if (byAlias === undefined) {
+    byAlias = new Map();
+    OUTER_BINDINGS.set(schemaMeta, byAlias);
+  }
+  let binding = byAlias.get(alias);
+  if (binding === undefined) {
+    const built: Record<string, unknown> = {};
+    for (const field of schemaMeta.persisted) {
+      const node = columnNode(alias, field.name, field.column);
+      OUTER_REFS.set(node, schemaMeta);
+      built[field.name] = new Expr(
+        node,
+        field.type,
+        field.redact,
+        NONE,
+        NONE,
+        NONE,
+        shapeOfOuterRef(shapeOfColumn(alias, field.column), schemaMeta.name),
+      );
+    }
+    built.$schema = schema;
+    built.$alias = alias;
+    binding = Object.freeze(built);
+    registerBinding(binding, { alias, meta: schemaMeta });
+    byAlias.set(alias, binding);
+  }
+  return binding as Binding<S>;
 }

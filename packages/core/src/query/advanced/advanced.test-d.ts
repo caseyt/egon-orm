@@ -12,6 +12,7 @@ import {
   field,
   from,
   lag,
+  lit,
   type NoParams,
   outerRef,
   param,
@@ -291,5 +292,99 @@ describe("prepare, tuple, selectedAs", () => {
     from(Post, "p").select(() => ({ v: selectedAs(val(5), "v") }));
     // @ts-expect-error a named copy of a window function still needs a window
     from(Post, "p").select(() => ({ v: selectedAs(rowNumber(), "v") }));
+  });
+});
+
+describe("review round 1", () => {
+  test("scalar refuses whole rows, objects and arrays", () => {
+    expectTypeOf(scalar(from(Post, "p").select(({ p }) => p.title))).toEqualTypeOf<
+      Expr<string | null, NoParams>
+    >();
+    // @ts-expect-error whole rows
+    scalar(from(Post, "p"));
+    // @ts-expect-error an object
+    scalar(from(Post, "p").select(({ p }) => ({ a: p.id })));
+    // @ts-expect-error an array of values
+    scalar(from(Post, "p").select(({ p }) => [p.id, p.title]));
+    // An array column is one value.
+    scalar(from(Post, "p").select(({ p }) => p.tagList));
+  });
+
+  test("tuples: no null items, and not selected", () => {
+    from(Post, "p").where(({ p }) => {
+      // @ts-expect-error a null item
+      tuple(p.id).gt(tuple(null));
+      // @ts-expect-error an item that is always null
+      tuple(p.id).gt(tuple(lit(null)));
+      return tuple(p.views).gt(tuple(1));
+    });
+    // @ts-expect-error null is not a row item
+    tuple(1, null);
+    // @ts-expect-error a row value is not selected
+    from(Post, "p").select(({ p }) => ({ row: tuple(p.id) }));
+  });
+
+  test("one named parameter with two types across clauses is never", () => {
+    const asInt = from(Post, "p").where(({ p }) => p.views.gt(param("n", t.integer())));
+    const union = asInt
+      .select(({ p }) => ({ id: p.id }))
+      .union(
+        from(Post, "q")
+          .where(({ q }) => q.title.eq(param("n", t.string())))
+          .select(({ q }) => ({ id: q.id })),
+      );
+    expectTypeOf<QueryParams<typeof union>["n"]>().toBeNever();
+    const withCte = asInt.withCte(
+      "x",
+      from(User, "u").where(({ u }) => u.email.eq(param("n", t.string()))),
+    );
+    expectTypeOf<QueryParams<typeof withCte>["n"]>().toBeNever();
+    const windows = asInt.windows({
+      w: ({ p }) => ({ partitionBy: [p.title.concat(param("n", t.string()))] }),
+    });
+    expectTypeOf<QueryParams<typeof windows>["n"]>().toBeNever();
+    const set = asInt.set(({ p }) => ({ title: p.title.concat(param("n", t.string())) }));
+    expectTypeOf<QueryParams<typeof set>["n"]>().toBeNever();
+    const returning = asInt.returning(({ p }) => ({ t: p.title.concat(param("n", t.string())) }));
+    expectTypeOf<QueryParams<typeof returning>["n"]>().toBeNever();
+    const joined = asInt.join(
+      subquery(
+        from(User, "u")
+          .where(({ u }) => u.email.eq(param("n", t.string())))
+          .select(({ u }) => ({ id: u.id })),
+      ),
+      "s",
+      ({ p, s }) => s.id.eq(p.authorId),
+    );
+    expectTypeOf<QueryParams<typeof joined>["n"]>().toBeNever();
+  });
+
+  test('exclude("windows") forgets the declared windows', () => {
+    const declared = from(Post, "p").windows({ w: () => ({}) });
+    declared.select(() => ({ n: rowNumber().over("w") }));
+    // @ts-expect-error "w" is no longer declared
+    declared.exclude("windows").select(() => ({ n: rowNumber().over("w") }));
+  });
+
+  test("and, or and not exist only on dynamic conditions", () => {
+    const shape = dynamic({ u: User }, ({ u }) => ({ e: u.email }));
+    const adult = dynamic<{ u: typeof User }>(({ u }) => u.age.gte(18));
+    adult.and(adult).or(adult).not();
+    // @ts-expect-error not a condition
+    shape.and(adult);
+    // @ts-expect-error not a condition
+    shape.or(adult);
+    // @ts-expect-error not a condition
+    shape.not();
+  });
+
+  test("no window function in returning or set", () => {
+    // @ts-expect-error a window function without a window in RETURNING
+    from(Post, "p").returning(() => ({ n: rowNumber() }));
+    const declared = from(Post, "p").windows({ w: () => ({}) });
+    // @ts-expect-error a named window in RETURNING
+    declared.returning(() => ({ n: count().over("w") }));
+    // @ts-expect-error a window function in a set value
+    from(Post, "p").set(() => ({ views: count().over("w") }));
   });
 });

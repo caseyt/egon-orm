@@ -20,8 +20,7 @@
  * @module
  */
 import type { ExprNode, NamedParamNode, QueryAst, SourceNode } from "../../contracts/query.js";
-import type { AnySchema, Row, SchemaMeta } from "../../contracts/schema.js";
-import type { AnyFieldType } from "../../contracts/type.js";
+import type { AnySchema, Row } from "../../contracts/schema.js";
 import { QueryError } from "../../errors.js";
 import { meta } from "../../schema/schema.js";
 import { columnNode, shapeOfColumn } from "../ast.js";
@@ -34,6 +33,7 @@ import {
   type SourceParts,
 } from "../builder.js";
 import { Expr, NONE, type NoParams } from "../expr.js";
+import { SOURCE_COLUMNS, type SourceColumn, type SourceColumns } from "./source-columns.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,8 +77,15 @@ type WholeSchemaOf<B, R> = {
     : never;
 }[keyof B];
 
-/** The schema a query's rows are whole rows of, or `never`. */
-type RowSchemaOf<Q extends QueryLike> = WholeSchemaOf<Q["~query"]["bindings"], QueryResult<Q>>;
+/**
+ * The schema a query's rows are whole rows of, or `never`.
+ *
+ * @example
+ * ```ts
+ * type S = RowSchemaOf<typeof posts>; // typeof Post
+ * ```
+ */
+export type RowSchemaOf<Q extends QueryLike> = WholeSchemaOf<Q["~query"]["bindings"], QueryResult<Q>>;
 
 /** The values a non-schema source exposes: the query's result, when it is an object that is not an array or a date. */
 type ObjectResult<R> = [R] extends [readonly unknown[] | Date | Uint8Array]
@@ -149,28 +156,7 @@ export type Source<Bd, Rw, P> = SourceOperand<Bd, Rw, P>;
 // Columns
 // ---------------------------------------------------------------------------
 
-/** One column of a source that returns objects: its key, its output name, how values compared with it are bound. */
-export interface SourceColumn {
-  readonly key: string;
-  readonly column: string;
-  readonly type: AnyFieldType | undefined;
-  readonly redact: boolean;
-}
-
-/**
- * What a query exposes as a source.
- *
- * @example
- * ```ts
- * const columns: SourceColumns = { kind: "row", meta: meta(User), schema: User };
- * ```
- */
-export type SourceColumns =
-  | { readonly kind: "row"; readonly meta: SchemaMeta; readonly schema: AnySchema }
-  | { readonly kind: "object"; readonly columns: readonly SourceColumn[] };
-
-/** The columns of every source node a wrapper made, so that a query over it can be read as a source again. */
-const SOURCE_COLUMNS = new WeakMap<SourceNode, SourceColumns>();
+export type { SourceColumn, SourceColumns } from "./source-columns.js";
 
 /**
  * What a query that a `Query` object wraps exposes as a source, read from its AST and
@@ -204,7 +190,20 @@ export function sourceColumns(
     const schema = query.schemaOf(ast.from.alias);
     if (schema !== undefined) return { kind: "row", meta: meta(schema), schema };
     const inner = SOURCE_COLUMNS.get(ast.from);
-    if (inner !== undefined) return inner;
+    if (inner?.kind === "row") return inner;
+    // The query returns the inner source's objects, its columns named by key (a `selectedAs`
+    // name of the inner query is not this query's output name).
+    if (inner !== undefined) {
+      return {
+        kind: "object",
+        columns: inner.columns.map((column) => ({
+          key: column.key,
+          column: column.key,
+          type: column.type,
+          redact: column.redact,
+        })),
+      };
+    }
     throw refused(method, "the rows of a source that has no schema");
   }
   const shape = select.shape;

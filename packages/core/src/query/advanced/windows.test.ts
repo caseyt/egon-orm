@@ -96,7 +96,7 @@ describe("window functions", () => {
     expect(() => posts.select(({ p }) => ({ n: p.views.add(lag(p.views) as never) }))).toThrow(/lag\(\)/);
     expect(() => posts.select(({ p }) => ({ b: p.views.between(rank() as never, 3) }))).toThrow(/rank\(\)/);
     expect(() =>
-      posts.where(({ p }) => p.id.gt(0)).select(({ p }) => ({ b: tuple(p.id).lt(tuple(rank() as never)) })),
+      posts.where(({ p }) => p.id.gt(0)).select(({ p }) => ({ b: tuple(p.id).lt(tuple(rank()) as never) })),
     ).toThrow(/rank\(\)/);
     expect(() => posts.select(({ p }) => ({ c: p.id.gt(0).and(rowNumber().gt(1) as never) }))).toThrow(
       /rowNumber\(\)/,

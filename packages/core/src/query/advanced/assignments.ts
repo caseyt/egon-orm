@@ -75,21 +75,27 @@ function boundLeaves(node: ExprNode, out: BoundLeaf[]): BoundLeaf[] | undefined 
 }
 
 /**
- * Whether a value assigned by `set` is made only of bound values, none of which has a type,
- * and one of which is not text (owner decision, option A). The target column does not type
- * a `CASE` or a `coalesce` of such values (the database reads them as text), and the
- * types refuse a bare `val(5)` too, so both are refused here as well: types and run time
- * agree.
+ * Whether a value assigned by `set` is made only of bound values and `NULL`, none of which
+ * has a type, so that the database would read it as text (owner decision, option A):
+ *
+ * - one of them is a value that is not text (`val(5)`, or a `CASE` or `coalesce` holding
+ *   one): refused whatever the field, as the types refuse it;
+ * - a `CASE` or `coalesce` with no text value in it (only `NULL`s, or `val(null)`) is
+ *   refused unless the field is text: the target column does not type a `CASE` or a
+ *   `coalesce`, so the database reads it as text and refuses it for another column. A bare
+ *   `NULL` or `val(null)` is typed by the column, and allowed.
  */
-function untypedNonText(node: ExprNode): boolean {
+function untypedNonText(node: ExprNode, textField: boolean): boolean {
   const leaves = boundLeaves(node, []);
   if (leaves === undefined) return false;
-  let nonText = false;
+  let text = false;
   for (const leaf of leaves) {
     if (leaf.type !== undefined) return false;
-    if (leaf.kind === "param" && leaf.value !== null && typeof leaf.value !== "string") nonText = true;
+    if (leaf.kind === "param" && typeof leaf.value === "string") text = true;
+    else if (leaf.kind === "param" && leaf.value !== null) return true;
   }
-  return nonText;
+  const composite = node.kind === "case" || node.kind === "fn";
+  return composite && !text && !textField;
 }
 
 /** The assignments a `set` call adds. */
@@ -149,9 +155,9 @@ export function assignments(
     }
     const operand = toOperand(value, field.type, field.redact, "set", false, true);
     checkNoWindows("set", operand.node);
-    if (untypedNonText(operand.node)) {
+    if (untypedNonText(operand.node, field.type.db.kind === "text")) {
       throw new QueryError(
-        `set({ ${key} }) was given a value with no type that is not text (val() without a type, or a CASE or coalesce of such values). Nothing in the SQL types it: give it one, val(value, t.integer()), or pass the plain value.`,
+        `set({ ${key} }) was given a value with no type that is not text (val() without a type, or a CASE or coalesce of such values, or of NULLs only). Nothing in the SQL types it: give it one, val(value, t.integer()), or pass the plain value.`,
       );
     }
     const node: UpdateNode = { kind: "update", field: key, column: field.column, value: operand.node };

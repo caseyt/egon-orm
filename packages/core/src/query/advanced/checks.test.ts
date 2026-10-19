@@ -179,7 +179,7 @@ describe("window functions where they cannot be", () => {
   test("in where, orWhere, having, groupBy, a join's on, set and returning", () => {
     const posts = from(Post, "p");
     expect(() => posts.where(() => windowed().gt(1))).toThrow(
-      /where\(\): rowNumber\(\) over a window cannot be used in where\(\)/,
+      /where\(\): rowNumber\(\) over a window, which cannot be used in where\(\): window functions are computed after the rows are filtered and grouped\. Select it, then filter/,
     );
     expect(() => posts.orWhere(() => windowed().gt(1))).toThrow(/orWhere\(\): rowNumber\(\)/);
     expect(() => posts.groupBy(({ p }) => p.id).having(() => count().over().gt(1))).toThrow(
@@ -320,5 +320,76 @@ describe("review round 1: the remaining cases", () => {
     expect(() => compiled(from(cte("x", typedBody), "t").withCte("x", untypedRef))).toThrow(
       /as \{ s: string \}, but the query given to withCte\("x", …\) returns \{ s: untyped \}/,
     );
+  });
+});
+
+describe("review round 2", () => {
+  test("a CASE or coalesce of NULLs only is refused in set unless the field is text", () => {
+    expect(() =>
+      from(Post, "p").set(({ p }) => ({ views: caseWhen(p.published, lit(null)).else(lit(null)) }) as never),
+    ).toThrow(/set\(\{ views \}\) was given a value with no type that is not text/);
+    expect(() =>
+      from(Post, "p").set(({ p }) => ({ views: caseWhen(p.published, val(null)).else(lit(null)) }) as never),
+    ).toThrow(/of NULLs only/);
+    // (A coalesce of NULLs is refused by coalesce() itself.)
+    // A text field takes it, and so does any field a bare NULL.
+    expect(
+      from(Post, "p").set(({ p }) => ({ body: caseWhen(p.published, lit(null)).else(lit(null)) as never }))
+        .ast.updates,
+    ).toHaveLength(1);
+    expect(
+      from(Post, "p").set({ views: lit(null) as never, body: val(null) as never }).ast.updates,
+    ).toHaveLength(2);
+    // Text among the values: the CASE is text, which a text field takes.
+    expect(
+      from(Post, "p").set(({ p }) => ({ title: caseWhen(p.published, "a").else(lit(null)) as never })).ast
+        .updates,
+    ).toHaveLength(1);
+  });
+
+  test("selectedAs references are refused where output names cannot be read", () => {
+    const named = from(Post, "p");
+    expect(() => named.where(() => selectedAs("a").eq(1 as never))).toThrow(
+      /where\(\): selectedAs\("a"\) refers to a selected value by its name, which where\(\) cannot read/,
+    );
+    expect(() => named.orWhere(() => selectedAs("a").eq(1 as never))).toThrow(
+      /orWhere\(\): selectedAs\("a"\)/,
+    );
+    expect(() => named.groupBy(({ p }) => p.authorId).having(() => selectedAs("a").eq(1 as never))).toThrow(
+      /having\(\): selectedAs/,
+    );
+    expect(() => named.join(User, "u", ({ u }) => u.id.eq(selectedAs("a") as never))).toThrow(
+      /join\(\): selectedAs/,
+    );
+    expect(() => named.set(() => ({ views: selectedAs("a") as never }))).toThrow(/set\(\): selectedAs/);
+    expect(() => named.returning(() => ({ n: selectedAs("a") }))).toThrow(/returning\(\): selectedAs/);
+    // groupBy and orderBy may refer to a name.
+    expect(named.groupBy(() => selectedAs("a")).ast.groupBys).toHaveLength(1);
+  });
+
+  test("window functions outside filtering clauses get the plain message", () => {
+    expect(() => from(Post, "p").returning(() => ({ n: rowNumber() }) as never)).toThrow(
+      /returning\(\): rowNumber\(\) is a window function, which cannot be used in returning\(\): window functions are allowed only in select\(\) and orderBy\(\)\./,
+    );
+    expect(() => from(Post, "p").groupBy(() => rowNumber().over())).toThrow(
+      /groupBy\(\): rowNumber\(\) over a window, which cannot be used in groupBy\(\): window functions are allowed only in select\(\) and orderBy\(\)\./,
+    );
+    expect(() => from(Post, "p").set(({ p }) => ({ views: p.views.add(count().over() as never) }))).toThrow(
+      /set\(\): count\(\) over a window, which cannot be used in set\(\): window functions are allowed only/,
+    );
+  });
+
+  test("sameShape tells an outerRef column from a plain one of the same name", () => {
+    let plain: unknown;
+    from(User, "u").where(({ u }) => {
+      plain = u.id.node;
+      return u.id.gt(0);
+    });
+    const outer = outerRef("u", User).id.node;
+    expect(outer).toEqual(plain);
+    expect(sameShape(outer, plain as typeof outer)).toBe(false);
+    expect(sameShape(outer, outerRef("u", User).id.node)).toBe(true);
+    // Another outerRef column node of the same schema, made apart from the cached one.
+    expect(sameShape(outer, { ...outer })).toBe(false);
   });
 });

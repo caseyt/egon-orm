@@ -17,6 +17,10 @@ as a single value.
 - On the optional side of a `leftJoin`, every column of the subquery is nullable.
 - An inner callback can use the outer binding directly, as `u` is used above.
 - `scalar(q)` must select one expression, and is `null` when the subquery returns no row.
+  A query of whole rows, an object or an array of values does not compile. Neither does
+  one that selects a JSON column whose type is an object, since its type cannot be told
+  from an object of keys: select it as `.as<unknown>()` and check its shape where you
+  read it.
 - The inner query's values and named parameters become the outer query's: the outer query
   needs the inner one's named parameters when it runs.
 - A subquery in `FROM` or a join reads the queries around its query, not its query's
@@ -37,8 +41,9 @@ as a single value.
   the database decides.
 - `cte(name, shape)` refers to it as a source. `shape` is a schema class, or the CTE's own
   query, and gives the binding its type. The query given to `withCte` must return the
-  same: rows of that schema, or the same keys with the same types (`QueryError` otherwise). A recursive CTE's query refers to the CTE before
-  it exists, so it names the schema of its rows.
+  same: rows of that schema, or the same keys with the same types (`QueryError`
+  otherwise). A recursive CTE's query refers to the CTE before it exists, so it names
+  the schema of its rows.
 - A CTE's values come first in the SQL, so its parameters are `$1`, `$2`, ….
 
 ## Set operations

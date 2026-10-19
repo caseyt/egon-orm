@@ -5,12 +5,14 @@ import { createTestDatabase, Post, type TestDatabaseHandle, User } from "@egon-o
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import type { OutputPlan } from "../../contracts/adapter.js";
 import {
+  caseWhen,
   count,
   cte,
   dynamic,
   exists,
   field,
   from,
+  lit,
   not,
   param,
   prepare,
@@ -196,6 +198,16 @@ test("bulk publish with returning, then the rows are published", async () => {
       .where(({ p }) => p.published.not())
       .select(({ p }) => p.id);
     expect(await rows(left)).toEqual([{ c0: 6 }]);
+  });
+});
+
+test("a CASE of NULLs only, which set allows for a text field, runs on Postgres", async () => {
+  await rolledBack(async () => {
+    const clear = from(Post, "p")
+      .where(({ p }) => p.id.eq(1))
+      .set(({ p }) => ({ body: caseWhen(p.published, lit(null)).else(lit(null)) as never }))
+      .returning(({ p }) => p.body);
+    expect(await rows(clear, undefined, "updateAll")).toEqual([{ c0: null }]);
   });
 });
 

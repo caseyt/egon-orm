@@ -685,8 +685,31 @@ export function selectExpressions(shape: SelectShape, out: ExprNode[] = []): Exp
   return out;
 }
 
-/** The named windows a clause may use; `undefined` for a clause where no window function may appear. */
-type Windows = readonly WindowDefNode[] | undefined;
+/**
+ * What a clause may hold: the named windows it may use (`select`, `orderBy`), or, for a
+ * clause where no window function may appear, whether it may refer to a selected value by
+ * its `selectedAs` name (`groupBy` may; `where`, `having`, `on`, `set` and
+ * `returning` may not), and whether to suggest filtering from a query over this one.
+ */
+type Windows = readonly WindowDefNode[] | NoWindows;
+
+interface NoWindows {
+  readonly references: boolean;
+  readonly filters: boolean;
+}
+
+/** The clauses that filter rows: a window function there is best filtered from a query over this one. */
+const FILTERING: ReadonlySet<string> = new Set([
+  "where",
+  "orWhere",
+  "having",
+  "join",
+  "leftJoin",
+  "rightJoin",
+  "fullJoin",
+  "joinAssoc",
+  "leftJoinAssoc",
+]);
 
 /**
  * Refuses any window function, or aggregate over a window, in `node` (not entering
@@ -701,7 +724,7 @@ type Windows = readonly WindowDefNode[] | undefined;
  * @throws QueryError naming the clause and the function.
  */
 export function checkNoWindows(clause: string, node: ExprNode): void {
-  visit(clause, node, undefined);
+  visit(clause, node, { references: clause === "groupBy", filters: FILTERING.has(clause) });
 }
 
 function visitAll(clause: string, nodes: readonly ExprNode[], windows: Windows): void {
@@ -711,12 +734,15 @@ function visitAll(clause: string, nodes: readonly ExprNode[], windows: Windows):
 function visit(clause: string, node: ExprNode, windows: Windows): void {
   switch (node.kind) {
     case "aggregate": {
-      if (windows === undefined) {
+      if (!Array.isArray(windows)) {
         // A clause that is computed before windows are (where, having, groupBy, set, returning).
         if (node.over !== undefined || WINDOW_ONLY.has(node.name)) {
-          throw new QueryError(
-            `${clause}(): ${node.name}() over a window cannot be used in ${clause}(): window functions are computed after the rows are filtered and grouped. Select it, then filter on it from a query over this one: from(subquery(q), "s").where(…).`,
-          );
+          const what =
+            node.over === undefined ? `${node.name}() is a window function` : `${node.name}() over a window`;
+          const advice = (windows as NoWindows).filters
+            ? `window functions are computed after the rows are filtered and grouped. Select it, then filter on it from a query over this one: from(subquery(q), "s").where(…).`
+            : "window functions are allowed only in select() and orderBy().";
+          throw new QueryError(`${clause}(): ${what}, which cannot be used in ${clause}(): ${advice}`);
         }
         visitAll(clause, node.args, windows);
         if (node.filter !== undefined) visit(clause, node.filter, windows);
@@ -785,6 +811,11 @@ function visit(clause: string, node: ExprNode, windows: Windows): void {
       return;
     case "selectedAs":
       if (node.expr !== undefined) visit(clause, node.expr, windows);
+      else if (!Array.isArray(windows) && !(windows as NoWindows).references) {
+        throw new QueryError(
+          `${clause}(): selectedAs("${node.name}") refers to a selected value by its name, which ${clause}() cannot read: the database names selected values after this clause is computed. Use the expression itself; names are for orderBy() and groupBy().`,
+        );
+      }
       return;
     default:
       // Columns, values, literals, identifiers, `*`; and subqueries, whose windows are their own.

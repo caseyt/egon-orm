@@ -60,16 +60,13 @@ import {
   columnNode,
   fragmentNode,
   literalNode,
+  naryNode,
   paramNode,
   shapeOf,
-  shapeOfColumn,
-  shapeOfFragment,
-  shapeOfParam,
 } from "../query/ast.js";
-import { bindingOf } from "../query/bindings.js";
-import { AS_SOURCE, from, type Query, render, type SourceParts } from "../query/builder.js";
-import { type AnyExpr, Col, Expr, isExpr } from "../query/expr.js";
-import { and, avg, count, max, min, or, sum } from "../query/functions.js";
+import { from, type Query, render } from "../query/builder.js";
+import { type AnyExpr, Col, isExpr } from "../query/expr.js";
+import { avg, count, max, min, sum } from "../query/functions.js";
 import { selectNode } from "../query/select.js";
 import { isRow, isSchema } from "../schema/guards.js";
 import { meta } from "../schema/schema.js";
@@ -1262,76 +1259,6 @@ export async function raw(
 // reload
 // ---------------------------------------------------------------------------
 
-/** A table source with a database schema of its own: how `reload` reads a row where it was read. */
-class RowSource {
-  constructor(
-    readonly schema: AnySchema,
-    readonly schemaMeta: SchemaMeta,
-    readonly databaseSchema: string,
-  ) {}
-
-  [AS_SOURCE](alias: string): SourceParts {
-    const node: TableSourceNode = {
-      kind: "table",
-      source: this.schemaMeta.source as string,
-      meta: this.schemaMeta,
-      schema: this.databaseSchema,
-      alias,
-    };
-    return {
-      node,
-      binding: bindingOf(this.schemaMeta, this.schema, alias),
-      meta: this.schemaMeta,
-      params: NONE,
-      lists: NONE,
-      named: NONE,
-    };
-  }
-}
-
-/** A value that identifies one primary key, for matching reloaded rows to the given ones. */
-function keyOf(row: Readonly<Record<string, unknown>>, key: readonly FieldMeta[]): string {
-  let out = "";
-  for (const field of key) out += encodeKey(row[field.name]);
-  return out;
-}
-
-/**
- * An encoding of a key value in which two different values never share a string, and
- * the encodings of a key's fields can be concatenated without ambiguity: each starts with
- * a letter for its kind, and every variable-length part carries its length. Values are
- * compared by content, not identity: bytes by their hex digits, dates by their instant,
- * arrays element by element, JSON by its text.
- *
- * @example
- * ```ts
- * encodeKey(["a", "b"]) === encodeKey(["a,b"]); // false
- * encodeKey(Uint8Array.from([1])) === encodeKey(Uint8Array.from([1])); // true
- * ```
- */
-export function encodeKey(value: unknown): string {
-  if (value === null || value === undefined) return "n;";
-  if (typeof value === "string") return `s${value.length}:${value}`;
-  if (typeof value === "number") return `d${String(value)};`;
-  if (typeof value === "bigint") return `b${value};`;
-  if (typeof value === "boolean") return value ? "t;" : "f;";
-  if (value instanceof Date) return `D${value.getTime()};`;
-  if (value instanceof Uint8Array) {
-    let hex = "";
-    for (const byte of value) hex += byte.toString(16).padStart(2, "0");
-    return `x${hex.length}:${hex}`;
-  }
-  if (Array.isArray(value)) {
-    let out = `a${value.length}[`;
-    for (const element of value) out += encodeKey(element);
-    return `${out}]`;
-  }
-  const text = JSON.stringify(value, (_key, inner: unknown) =>
-    typeof inner === "bigint" ? `${inner}n` : inner,
-  );
-  return `o${text.length}:${text}`;
-}
-
 /** The schema class of a row: the class its prototype belongs to. */
 function schemaOfRow(row: object): AnySchema | undefined {
   const owner = (Object.getPrototypeOf(row) as { readonly constructor?: unknown } | null)?.constructor;
@@ -1340,9 +1267,20 @@ function schemaOfRow(row: object): AnySchema | undefined {
 
 /**
  * `repo.reload`: a fresh copy of each row, read where it was read (its `RowMeta.schema`
- * is the source's database schema), `null` for a row that is gone. Rows of one schema and
- * database schema are read together, in as few statements as the parameter limit allows
- * (`capabilities.maxParams`); the result keeps the order of the input.
+ * is the source's database schema), `null` for a row that is gone; the result keeps the
+ * order of the input.
+ *
+ * The database matches the rows, not JavaScript: the given rows' keys are joined to the
+ * table as a list that carries each key's position, and each row read back carries the
+ * position of the key it matched. So a key is found exactly when the database's own
+ * equality says so (a decimal whose scale changed, a custom type, bytes, arrays). The one
+ * limit is what the given row holds: a key value the row could not hold exactly (a
+ * timestamp with microseconds, read into a millisecond `Date`) no longer equals the
+ * stored one, and that row comes back `null`.
+ *
+ * Rows of one schema and database schema are read together: with array columns and array
+ * parameters in one statement (`unnest($1, $2) with ordinality`), otherwise in statements
+ * of at most {@link RELOAD_CHUNK_ROWS} rows (a `values` list).
  *
  * @throws TypeError when an element is not a loaded row.
  * @throws QueryError when its schema has no primary key or a key field is `null`.
@@ -1355,7 +1293,6 @@ export async function reload(
   strict: boolean,
 ): Promise<unknown[]> {
   interface Group {
-    readonly schema: AnySchema;
     readonly schemaMeta: SchemaMeta;
     readonly databaseSchema: string | undefined;
     readonly indexes: number[];
@@ -1383,7 +1320,7 @@ export async function reload(
     }
     let group = bySchema.get(databaseSchema);
     if (group === undefined) {
-      group = { schema, schemaMeta, databaseSchema, indexes: [] };
+      group = { schemaMeta, databaseSchema, indexes: [] };
       bySchema.set(databaseSchema, group);
     }
     group.indexes.push(i);
@@ -1391,45 +1328,46 @@ export async function reload(
   const out = new Array<unknown>(rows.length).fill(null);
   for (const bySchema of groups.values()) {
     for (const group of bySchema.values()) {
-      const key = group.schemaMeta.primaryKey;
-      const size = reloadChunkSize(core, key);
+      const size = reloadChunkSize(core, group.schemaMeta.primaryKey);
       for (let from = 0; from < group.indexes.length; from += size) {
         const indexes = group.indexes.slice(from, from + size);
         const given = indexes.map((index) => rows[index] as Readonly<Record<string, unknown>>);
-        const query = reloadQuery(core, group.schema, group.schemaMeta, group.databaseSchema, given);
-        const found = await load(core, "reload", query.ast, undefined, options);
-        const byKey = new Map<unknown, unknown>();
-        for (const each of found) byKey.set(keyOf(each as Readonly<Record<string, unknown>>, key), each);
-        for (let i = 0; i < given.length; i++) {
-          const fresh = byKey.get(keyOf(given[i] as Readonly<Record<string, unknown>>, key));
-          if (fresh === undefined && strict) throw new NoResultsError({ query: render(query.ast) });
-          out[indexes[i] as number] = fresh ?? null;
+        const ast = reloadAst(core, group.schemaMeta, group.databaseSchema, given);
+        const found = (await load(core, "reload", ast, undefined, options)) as readonly Reloaded[];
+        const matched = new Array<boolean>(given.length).fill(false);
+        for (const each of found) {
+          // Positions are 1-based, as `with ordinality` numbers them.
+          out[indexes[each.position - 1] as number] = each.row;
+          matched[each.position - 1] = true;
         }
+        if (strict && matched.includes(false)) throw new NoResultsError({ query: render(ast) });
       }
     }
   }
   return out;
 }
 
-/** The most rows a `reload` statement lists key by key (an `OR` of key matches, or an expanded list). */
+/** One row `reload` read back: the row, and the 1-based position of the given row it matched. */
+interface Reloaded {
+  readonly row: unknown;
+  readonly position: number;
+}
+
+/** The most rows a `reload` statement lists in a `values` list. */
 export const RELOAD_CHUNK_ROWS = 1_000;
 
 /**
- * Whether `reload` passes each key field as one array parameter: on a dialect with array
- * columns and array parameters, a single key is `= any($1)` and a composite key is
- * `(k1, k2) in (select * from unnest($1, $2))`, so one statement of fixed size reads any
- * number of rows.
+ * Whether `reload` passes each key field as one array parameter
+ * (`unnest($1, $2) with ordinality`), so that one statement of fixed size reads any number
+ * of rows: on a dialect with array columns and array parameters, unless a key field holds
+ * arrays or JSON (`unnest` would flatten a two-dimensional array).
  */
 function keysAsArrays(core: ReadCore, key: readonly FieldMeta[]): boolean {
   const capabilities = core.adapter.capabilities;
   return capabilities.arrayParams && capabilities.arrays && !key.some(comparedWhole);
 }
 
-/**
- * Whether a key field holds a value that is compared whole (an array, JSON): an array of
- * such values cannot be passed as one parameter (`unnest` flattens a two-dimensional
- * array, and `= any` compares elements), so rows with such a key are matched one by one.
- */
+/** Whether a key field holds a value that is compared whole: an array, JSON. */
 function comparedWhole(field: FieldMeta): boolean {
   return WHOLE_KINDS.has(field.type.db.kind);
 }
@@ -1439,70 +1377,41 @@ const WHOLE_KINDS: ReadonlySet<string> = new Set(["array", "json", "jsonb"]);
 /**
  * How many rows one `reload` statement reads: all of them when the keys go as arrays;
  * otherwise at most {@link RELOAD_CHUNK_ROWS}, and never more parameters than
- * `capabilities.maxParams` allows.
+ * `capabilities.maxParams` allows (one per key field and one for the position, per row).
  */
 function reloadChunkSize(core: ReadCore, key: readonly FieldMeta[]): number {
   if (keysAsArrays(core, key)) return Number.POSITIVE_INFINITY;
-  return Math.max(
-    1,
-    Math.min(RELOAD_CHUNK_ROWS, Math.floor(core.adapter.capabilities.maxParams / key.length)),
-  );
+  const perRow = key.length + 1;
+  return Math.max(1, Math.min(RELOAD_CHUNK_ROWS, Math.floor(core.adapter.capabilities.maxParams / perRow)));
 }
+
+/** The alias of the list of given keys in a `reload` statement, and its position column. */
+const KEYS = "k";
+const POSITION = "position";
+
+/** The type the position is read with: 64-bit, read as a number. */
+const POSITION_TYPE = bigintType({ mode: "number" });
 
 /**
- * `(k1, k2, …) in (select * from unnest($1, $2, …))`: every key field's values as one
- * array parameter, typed so that the dialect casts it (`cast($1 as uuid[])`). The SQL
- * text is the constant strings below; every value is a bound parameter.
+ * The statement of `reload`:
+ *
+ * ```sql
+ * select <the row's columns>, "k"."position"
+ * from "<schema>"."<table>" as "t"
+ * join unnest($1, $2) with ordinality as "k" ("k0", "k1", "position")   -- or (values …)
+ *   on "t"."<key 0>" = "k"."k0" and "t"."<key 1>" = "k"."k1"
+ * ```
+ *
+ * The table source carries the rows' database schema (the strongest position). Every key
+ * value is a bound parameter, typed by its field (arrays of it for `unnest`), so the
+ * database casts and compares it as it does the column.
  */
-function keysInArrays(
-  alias: string,
-  key: readonly FieldMeta[],
-  rows: readonly Readonly<Record<string, unknown>>[],
-): AnyExpr {
-  const between = key.slice(1).map(() => ", ");
-  const strings = ["(", ...between, ") in (select * from unnest(", ...between, "))"];
-  const args: ExprNode[] = [];
-  const shapes: number[] = [];
-  const params: unknown[] = [];
-  for (const field of key) {
-    args.push(columnNode(alias, field.name, field.column));
-    shapes.push(shapeOfColumn(alias, field.column));
-  }
-  for (const field of key) {
-    const type = arrayType(field.type);
-    const values = rows.map((row) => row[field.name]);
-    args.push(paramNode(values, type, field.redact));
-    shapes.push(shapeOfParam(type, field.redact));
-    params.push(values);
-  }
-  return new Expr(
-    fragmentNode(strings, args),
-    undefined,
-    false,
-    params,
-    NONE,
-    NONE,
-    shapeOfFragment(strings, shapes),
-  );
-}
-
-function reloadQuery(
+function reloadAst(
   core: ReadCore,
-  schema: AnySchema,
   schemaMeta: SchemaMeta,
   databaseSchema: string | undefined,
   rows: readonly Readonly<Record<string, unknown>>[],
-): Query<unknown, unknown, never, string> {
-  const alias = rootAlias(schemaMeta);
-  const base =
-    databaseSchema === undefined
-      ? rootQuery(schema)
-      : (from(new RowSource(schema, schemaMeta, databaseSchema) as never, alias) as unknown as Query<
-          unknown,
-          unknown,
-          never,
-          string
-        >);
+): QueryAst {
   const key = schemaMeta.primaryKey;
   for (const row of rows) {
     for (const field of key) {
@@ -1514,20 +1423,88 @@ function reloadQuery(
       }
     }
   }
-  return base.where((bindings: unknown) => {
-    const columns = (bindings as Readonly<Record<string, Readonly<Record<string, Col<unknown>>>>>)[
-      alias
-    ] as Readonly<Record<string, Col<unknown>>>;
-    const single = key.length === 1 ? (key[0] as FieldMeta) : undefined;
-    if (single !== undefined && !comparedWhole(single)) {
-      // `= any($1)`, or `in (…)` on a dialect that expands lists (chunked).
-      return (columns[single.name] as Col<unknown>).in(rows.map((row) => row[single.name]) as never) as never;
-    }
-    if (single === undefined && keysAsArrays(core, key)) return keysInArrays(alias, key, rows) as never;
-    // Row by row: `(k1 = $1 and k2 = $2) or …`, at most RELOAD_CHUNK_ROWS rows.
-    const matches = rows.map((row) =>
-      and(...key.map((field) => (columns[field.name] as Col<unknown>).eq(row[field.name] as never))),
-    );
-    return (matches.length === 1 ? matches[0] : or(...matches)) as never;
-  }) as Query<unknown, unknown, never, string>;
+  const alias = rootAlias(schemaMeta);
+  const columns = key.map((_, i) => `k${i}`);
+  columns.push(POSITION);
+  const keys = keysAsArrays(core, key) ? unnestSource(key, rows, columns) : valuesSource(key, rows, columns);
+  const matches: ExprNode[] = key.map((field, i) =>
+    binaryNode("eq", columnNode(alias, field.name, field.column), columnNode(KEYS, `k${i}`, `k${i}`)),
+  );
+  const on = matches.length === 1 ? (matches[0] as ExprNode) : naryNode("and", matches);
+  const table: TableSourceNode = {
+    kind: "table",
+    source: schemaMeta.source as string,
+    meta: schemaMeta,
+    schema: databaseSchema,
+    alias,
+  };
+  const select = selectNode(
+    {
+      kind: "object",
+      keys: ["row", POSITION],
+      values: [
+        { kind: "binding", binding: alias, meta: schemaMeta },
+        { kind: "expr", expr: columnNode(KEYS, POSITION, POSITION), type: POSITION_TYPE },
+      ],
+    },
+    NONE,
+  );
+  return finalize({
+    kind: "query",
+    from: table,
+    joins: [{ kind: "join", type: "inner", source: keys, on }],
+    wheres: NONE,
+    select,
+    distinct: undefined,
+    groupBys: NONE,
+    havings: NONE,
+    orderBys: NONE,
+    limit: undefined,
+    offset: undefined,
+    lock: undefined,
+    combinations: NONE,
+    ctes: NONE,
+    windows: NONE,
+    preloads: NONE,
+    updates: NONE,
+    schema: undefined,
+    hints: NONE,
+    params: NONE,
+    listLengths: NONE,
+    shape: 0,
+  });
+}
+
+/**
+ * `unnest($1, $2, …) with ordinality as "k" ("k0", "k1", …, "position")`: each key field's
+ * values as one typed array parameter; the SQL text is the constant strings below.
+ */
+function unnestSource(
+  key: readonly FieldMeta[],
+  rows: readonly Readonly<Record<string, unknown>>[],
+  columns: readonly string[],
+): SourceNode {
+  const strings = ["unnest(", ...key.slice(1).map(() => ", "), ") with ordinality"];
+  const args: ExprNode[] = key.map((field) =>
+    paramNode(
+      rows.map((row) => row[field.name]),
+      arrayType(field.type),
+      field.redact,
+    ),
+  );
+  return { kind: "fragmentSource", fragment: fragmentNode(strings, args), columns, alias: KEYS };
+}
+
+/** `(values ($1, $2, $3), …) as "k" ("k0", "k1", "position")`: one row per given row, every cell bound. */
+function valuesSource(
+  key: readonly FieldMeta[],
+  rows: readonly Readonly<Record<string, unknown>>[],
+  columns: readonly string[],
+): SourceNode {
+  const cells = rows.map((row, i) => {
+    const cellsOfRow: ExprNode[] = key.map((field) => paramNode(row[field.name], field.type, field.redact));
+    cellsOfRow.push(paramNode(i + 1, POSITION_TYPE, false));
+    return cellsOfRow;
+  });
+  return { kind: "values", columns, rows: cells, alias: KEYS };
 }

@@ -1,7 +1,6 @@
 // Unit tests for the derived queries of read.ts that need no adapter: which selects
 // `exists` and `aggregate` must read through a subquery.
 import { Post, User } from "@egon-orm/test-support";
-import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 import type { ExprNode, QueryAst } from "../contracts/query.js";
 import { QueryError } from "../errors.js";
@@ -27,7 +26,7 @@ import {
 import { from } from "../query/builder.js";
 import { selectNode } from "../query/select.js";
 import { integerType } from "../types/index.js";
-import { aggregateAst, encodeKey, existsAst } from "./read.js";
+import { aggregateAst, existsAst } from "./read.js";
 
 const COUNT: ExprNode = aggregateNode("count", [], false, undefined, undefined);
 const WINDOW_COUNT: ExprNode = aggregateNode("count", [], false, undefined, windowNode([], [], undefined));
@@ -155,65 +154,5 @@ describe("a wrapped aggregate over a field", () => {
       };
       expect(() => aggregateAst(titled, "max", "views")).toThrow(`(${reason})`);
     }
-  });
-});
-
-describe("key encodings", () => {
-  test("values are compared by content", () => {
-    expect(encodeKey(Uint8Array.from([1, 255]))).toBe(encodeKey(Uint8Array.from([1, 255])));
-    expect(encodeKey(new Date(5))).toBe(encodeKey(new Date(5)));
-    expect(encodeKey(["a", ["b"]])).toBe(encodeKey(["a", ["b"]]));
-    expect(encodeKey({ a: 1n })).toBe(encodeKey({ a: 1n }));
-  });
-
-  test("different values never share an encoding", () => {
-    const pairs: [unknown, unknown][] = [
-      [["a,b"], ["a", "b"]],
-      [[], [""]],
-      [["a"], "a"],
-      [1, "1"],
-      [1, 1n],
-      [true, "true"],
-      [null, "null"],
-      [undefined, "n;"],
-      [Uint8Array.from([1]), "01"],
-      [new Date(1), 1],
-      [{ a: 1 }, '{"a":1}'],
-      [[["a"], "b"], [["a", "b"]]],
-    ];
-    for (const [a, b] of pairs) expect(encodeKey(a)).not.toBe(encodeKey(b));
-  });
-
-  test("concatenated encodings of a composite key are unambiguous", () => {
-    const value = fc.oneof(
-      fc.string(),
-      fc.integer(),
-      fc.bigInt(),
-      fc.boolean(),
-      fc.constant(null),
-      fc.uint8Array({ maxLength: 4 }),
-      fc.array(fc.oneof(fc.string({ maxLength: 3 }), fc.integer()), { maxLength: 3 }),
-    );
-    const normal = (key: readonly unknown[]): string =>
-      JSON.stringify(key, (_k, inner: unknown) =>
-        typeof inner === "bigint"
-          ? `big:${inner}`
-          : inner instanceof Uint8Array
-            ? `bytes:${[...inner].join(",")}`
-            : typeof inner === "string"
-              ? `str:${inner}`
-              : inner,
-      );
-    fc.assert(
-      fc.property(
-        fc.array(value, { minLength: 1, maxLength: 3 }),
-        fc.array(value, { minLength: 1, maxLength: 3 }),
-        (a, b) => {
-          const same = a.map(encodeKey).join("") === b.map(encodeKey).join("");
-          expect(same).toBe(normal(a) === normal(b));
-        },
-      ),
-      { numRuns: 2_000 },
-    );
   });
 });

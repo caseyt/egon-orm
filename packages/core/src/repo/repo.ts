@@ -367,6 +367,10 @@ export interface Repo {
    * from, or `null` when it is gone. Given an array, the copies in the same order.
    * Preloaded associations are not read again.
    *
+   * The database matches the keys, with its own equality. One limit: a key value the row
+   * could not hold exactly no longer equals the stored one, so such a row comes back
+   * `null` (a timestamp key with microseconds, read into a millisecond `Date`).
+   *
    * @example
    * ```ts
    * const fresh = await repo.reload(user);

@@ -848,135 +848,100 @@ describe("stream", () => {
 });
 
 describe("reload", () => {
-  test("reads each row again by its key, in the order given, null when gone", async () => {
-    let rows: Record<string, unknown>[] = [GRACE, ADA];
-    const { repo, statements } = fake(() => rows);
+  /** A responder that answers a reload statement with the given rows, each tagged with its 1-based position. */
+  const answer =
+    (alias: string, rows: readonly (readonly [Record<string, unknown>, number])[]) =>
+    (): Record<string, unknown>[] =>
+      rows.map(([row, position]) => ({ ...row, [alias]: String(position) }));
+
+  test("the database matches the keys; rows are placed by the position they carry", async () => {
+    let respond: Responder = () => [GRACE, ADA];
+    const { repo, statements } = fake((sql, params) => respond(sql, params));
     const users = await repo.all(User);
     statements.length = 0;
-    rows = [ADA];
+    // Given [ADA, GRACE]: only ADA (position 1) is still there.
+    respond = answer("c10", [[ADA, 1]]);
     const fresh = await repo.reload([users[1] as User, users[0] as User]);
     expect(fresh.map((user) => user?.id ?? null)).toEqual([1, null]);
-    expect(statements[0]?.sql).toMatch(/where "users"\."id" = any\(\$1\)$/);
-    expect(statements[0]?.params).toEqual([[1, 2]]);
     expect(fresh[0]).not.toBe(users[1]);
+    expect(statements[0]?.sql).toBe(
+      'select "users"."id" as "c0", "users"."email" as "c1", "users"."name" as "c2", "users"."age" as "c3", "users"."role" as "c4", "users"."password_hash" as "c5", "users"."settings" as "c6", "users"."lock_version" as "c7", "users"."created_at" as "c8", "users"."updated_at" as "c9", "k"."position" as "c10" from "users" as "users" inner join unnest(cast($1 as bigint[])) with ordinality as "k" ("k0", "position") on "users"."id" = "k"."k0"',
+    );
+    expect(statements[0]?.params).toEqual([[1, 2]]);
+    // The position is not a property of the row.
+    expect(Object.keys(fresh[0] as object)).not.toContain("position");
+    respond = answer("c10", [[ADA, 1]]);
     expect((await repo.reload(users[1] as User))?.id).toBe(1);
-    rows = [];
+    respond = () => [];
     expect(await repo.reload(users[1] as User)).toBeNull();
     expect(await repo.reload([])).toEqual([]);
+    // One statement for any number of rows.
+    expect(new Set(statements.map((each) => each.sql)).size).toBe(1);
+  });
+
+  test("the same row given twice comes back twice", async () => {
+    let respond: Responder = () => [ADA];
+    const { repo } = fake(() => respond("", []));
+    const [ada] = await repo.all(User);
+    respond = answer("c10", [
+      [ADA, 1],
+      [ADA, 2],
+    ]);
+    const fresh = await repo.reload([ada as User, ada as User]);
+    expect(fresh.map((user) => user?.id)).toEqual([1, 1]);
+    expect(fresh[0]).not.toBe(fresh[1]);
   });
 
   test("reloadOrThrow throws when a row is gone", async () => {
-    let rows: Record<string, unknown>[] = [ADA];
-    const { repo } = fake(() => rows);
+    let respond: Responder = () => [ADA];
+    const { repo } = fake(() => respond("", []));
     const [ada] = await repo.all(User);
+    respond = answer("c10", [[ADA, 1]]);
     expect((await repo.reloadOrThrow(ada as User)).id).toBe(1);
     expect((await repo.reloadOrThrow([ada as User]))[0]?.id).toBe(1);
-    rows = [];
+    respond = () => [];
     const error = await rejection(repo.reloadOrThrow(ada as User));
     expect(error).toBeInstanceOf(NoResultsError);
-    expect((error as NoResultsError).query).toMatch(/^from users as users where users\.id in \?/);
+    expect((error as NoResultsError).query).toMatch(/^from users as users inner join /);
     expect(await rejection(repo.reloadOrThrow([ada as User]))).toBeInstanceOf(NoResultsError);
   });
 
   test("a row is reloaded from the database schema it was read from", async () => {
-    const { repo, statements } = fake(() => [ADA], { schema: "tenant_9" });
+    const { repo, statements } = fake(() => [{ ...ADA, c10: "1" }], { schema: "tenant_9" });
     const [ada] = await repo.all(User);
     statements.length = 0;
     // The row's own schema is the source's: neither the call's nor another default moves it.
     await repo.reload(ada as User, { schema: "tenant_x" });
     expect(statements[0]?.sql).toContain('from "tenant_9"."users" as "users"');
-    const other = fake(() => [ADA], { schema: "tenant_y" });
+    const other = fake(() => [{ ...ADA, c10: "1" }], { schema: "tenant_y" });
     await other.repo.reload(ada as User);
     expect(other.statements[0]?.sql).toContain('from "tenant_9"."users" as "users"');
   });
 
-  test("many rows of a composite key are read in statements under the parameter limit", async () => {
-    const { adapter, driver } = setup(() => [], { ...POSTGRES_CAPABILITIES, maxParams: 5, arrays: false });
-    const repo = createRepo({ adapter });
-    const orgId = "0190d8a0-0000-7000-8000-00000000000a";
-    driver.respond = () =>
-      Array.from({ length: 5 }, (_, i) => ({ c0: orgId, c1: String(i + 1), c2: "member" }));
-    const memberships = await repo.all(Membership);
-    driver.statements.length = 0;
-    driver.respond = (_sql, params) => {
-      const out: Record<string, unknown>[] = [];
-      for (let i = 0; i < params.length; i += 2)
-        out.push({ c0: params[i], c1: String(params[i + 1]), c2: "member" });
-      return out;
-    };
-    const fresh = await repo.reload(memberships);
-    // 2 key fields: at most 2 rows (4 parameters) per statement.
-    expect(driver.statements.map((each) => each.params.length)).toEqual([4, 4, 2]);
-    expect(fresh.map((each) => each?.userId)).toEqual([1, 2, 3, 4, 5]);
-  });
-
-  test("a single key without array parameters is chunked too", async () => {
-    const { adapter, driver } = setup(() => [], {
-      ...POSTGRES_CAPABILITIES,
-      maxParams: 2,
-      arrayParams: false,
-    });
-    const repo = createRepo({ adapter });
-    driver.respond = () => [ADA, GRACE, { ...ADA, c0: "3" }];
-    const users = await repo.all(User);
-    driver.statements.length = 0;
-    driver.respond = () => [];
-    await repo.reload(users);
-    expect(driver.statements.map((each) => each.params.length)).toEqual([2, 1]);
-  });
-
-  test("keys holding arrays are matched row by row, and bytes by content", async () => {
-    class Path extends Schema("paths", { path: t.array(t.string()).primaryKey(), n: t.integer() }) {}
-    class Tagged extends Schema("tagged", {
-      a: t.integer().primaryKey(),
-      tags: t.array(t.string()).primaryKey(),
-    }) {}
-    class Blob extends Schema("blobs", { id: t.binary().primaryKey() }) {}
-    const { repo, driver } = fake();
-    driver.respond = () => [
-      { c0: ["a", "b"], c1: 1 },
-      { c0: ["a,b"], c1: 2 },
-    ];
-    const paths = await repo.all(Path);
-    driver.statements.length = 0;
-    driver.respond = () => [{ c0: ["a,b"], c1: 2 }];
-    const fresh = await repo.reload(paths);
-    expect(fresh.map((each) => each?.n ?? null)).toEqual([null, 2]);
-    expect(driver.statements[0]?.sql).toMatch(/where "paths"\."path" = \$1 or "paths"\."path" = \$2$/);
-    expect(driver.statements[0]?.params).toEqual([["a", "b"], ["a,b"]]);
-    driver.respond = () => [{ c0: 1, c1: ["x"] }];
-    const tagged = await repo.all(Tagged);
-    driver.statements.length = 0;
-    await repo.reload(tagged);
-    expect(driver.statements[0]?.sql).toMatch(/where "tagged"\."a" = \$1 and "tagged"\."tags" = \$2$/);
-    driver.respond = () => [{ c0: Uint8Array.from([1, 2]) }];
-    const blobs = await repo.all(Blob);
-    driver.respond = () => [{ c0: Uint8Array.from([1, 2]) }];
-    expect(await repo.reloadOrThrow(blobs)).toHaveLength(1);
-  });
-
-  test("rows of a composite key go as one array per key field, in one statement", async () => {
+  test("a composite key: one array per key field, in one statement", async () => {
     const orgId = "0190d8a0-0000-7000-8000-00000000000a";
     const member = { c0: orgId, c1: "2", c2: "member" };
     const owner = { c0: orgId, c1: "1", c2: "owner" };
-    const { repo, statements } = fake(() => [member, owner]);
+    let respond: Responder = () => [member, owner];
+    const { repo, statements } = fake(() => respond("", []));
     const memberships = await repo.all(Membership);
     statements.length = 0;
+    respond = answer("c3", [
+      [owner, 2],
+      [member, 1],
+    ]);
     const fresh = await repo.reload(memberships);
     expect(fresh.map((each) => each?.userId)).toEqual([2, 1]);
     expect(statements[0]?.sql).toMatch(
-      /where \("memberships"\."org_id", "memberships"\."user_id"\) in \(select \* from unnest\(cast\(\$1 as uuid\[\]\), cast\(\$2 as bigint\[\]\)\)\)$/,
+      /inner join unnest\(cast\(\$1 as uuid\[\]\), cast\(\$2 as bigint\[\]\)\) with ordinality as "k" \("k0", "k1", "position"\) on "memberships"\."org_id" = "k"\."k0" and "memberships"\."user_id" = "k"\."k1"$/,
     );
     expect(statements[0]?.params).toEqual([
       [orgId, orgId],
       [2, 1],
     ]);
-    // Any number of rows: the same statement.
-    await repo.reload(memberships[0] as Membership);
-    expect(statements[1]?.sql).toBe(statements[0]?.sql);
   });
 
-  test("without array columns, a composite key is matched row by row, at most 1,000 rows a statement", async () => {
+  test("without array parameters, a values list of at most 1,000 rows, under the parameter limit", async () => {
     const orgId = "0190d8a0-0000-7000-8000-00000000000a";
     const { adapter, driver } = setup(() => [], { ...POSTGRES_CAPABILITIES, arrays: false });
     const repo = createRepo({ adapter });
@@ -986,28 +951,56 @@ describe("reload", () => {
     driver.statements.length = 0;
     driver.respond = () => [];
     await repo.reload(memberships);
-    expect(driver.statements.map((each) => each.params.length)).toEqual([2_000, 2_000, 1_000]);
+    // Three parameters a row: two key fields and the position.
+    expect(driver.statements.map((each) => each.params.length)).toEqual([3_000, 3_000, 1_500]);
     expect(driver.statements[2]?.sql).toMatch(
-      /where \("memberships"\."org_id" = \$1 and "memberships"\."user_id" = \$2\) or \(/,
+      /inner join \(values \(cast\(\$1 as uuid\), cast\(\$2 as bigint\), cast\(\$3 as bigint\)\), .*\) as "k" \("k0", "k1", "position"\) on "memberships"\."org_id" = "k"\."k0" and "memberships"\."user_id" = "k"\."k1"$/,
     );
-    await repo.reload(memberships[0] as Membership);
-    expect(driver.statements[3]?.sql).toMatch(
-      /where "memberships"\."org_id" = \$1 and "memberships"\."user_id" = \$2$/,
-    );
+    const small = setup(() => [], { ...POSTGRES_CAPABILITIES, arrays: false, maxParams: 7 });
+    const limited = createRepo({ adapter: small.adapter });
+    small.driver.respond = () =>
+      Array.from({ length: 5 }, (_, i) => ({ c0: orgId, c1: String(i + 1), c2: "member" }));
+    const five = await limited.all(Membership);
+    small.driver.statements.length = 0;
+    small.driver.respond = () => [];
+    await limited.reload(five);
+    // 7 parameters at most: 2 rows (6 parameters) a statement.
+    expect(small.driver.statements.map((each) => each.params.length)).toEqual([6, 6, 3]);
   });
 
-  test("rows keyed by a timestamp are matched by its instant", async () => {
-    class Reading extends Schema("readings", { at: t.timestamp().primaryKey(), value: t.integer() }) {}
-    const at = new Date("2026-05-01T00:00:00.000Z");
-    const { repo } = fake(() => [{ c0: new Date(at.getTime()), c1: 7 }]);
-    const [reading] = await repo.all(Reading);
-    const [fresh] = await repo.reload([reading as Reading]);
-    expect(fresh?.value).toBe(7);
+  test("rows placed from several values statements land at their own positions", async () => {
+    const { adapter, driver } = setup(() => [], {
+      ...POSTGRES_CAPABILITIES,
+      arrayParams: false,
+      maxParams: 4,
+    });
+    const repo = createRepo({ adapter });
+    driver.respond = () => [ADA, GRACE, { ...ADA, c0: "3" }];
+    const users = await repo.all(User);
+    // Two rows a statement; the second statement's first row is the third given.
+    driver.respond = (_sql, params) => (params.length === 2 ? [{ ...ADA, c0: "3", c10: "1" }] : []);
+    const fresh = await repo.reload(users);
+    expect(fresh.map((user) => user?.id ?? null)).toEqual([null, null, 3]);
+  });
+
+  test("keys holding arrays or JSON go as a values list", async () => {
+    class Path extends Schema("paths", { path: t.array(t.string()).primaryKey(), n: t.integer() }) {}
+    const { repo, driver } = fake(() => [{ c0: ["a", "b"], c1: 1 }]);
+    const paths = await repo.all(Path);
+    driver.statements.length = 0;
+    driver.respond = () => [{ c0: ["a", "b"], c1: 1, c2: "1" }];
+    expect((await repo.reload(paths))[0]?.n).toBe(1);
+    expect(driver.statements[0]?.sql).toMatch(
+      /inner join \(values \(cast\(\$1 as text\[\]\), cast\(\$2 as bigint\)\)\) as "k"/,
+    );
+    expect(driver.statements[0]?.params).toEqual([["a", "b"], 1]);
   });
 
   test("rows of several schemas are read with one query each", async () => {
     const { repo, statements } = fake((sql) =>
-      sql.includes('"profiles"') ? [{ c0: "5", c1: "1", c2: null, c3: null }] : [ADA],
+      sql.includes('"profiles"')
+        ? [{ c0: "5", c1: "1", c2: null, c3: null, c4: "1" }]
+        : [{ ...ADA, c10: "1" }],
     );
     const [ada] = await repo.all(User);
     const [profile] = await repo.all(Profile);
@@ -1146,7 +1139,11 @@ describe("events", () => {
 
   test("operations report their method name", async () => {
     const { repo } = fake((sql) =>
-      sql.startsWith("explain") ? [{ p: "x" }] : sql.includes("count") ? [{ c0: "1" }] : [ADA],
+      sql.startsWith("explain")
+        ? [{ p: "x" }]
+        : sql.includes("count")
+          ? [{ c0: "1" }]
+          : [{ ...ADA, c10: "1" }],
     );
     const operations: string[] = [];
     repo.on("query", (event) => operations.push(event.operation));

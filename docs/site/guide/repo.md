@@ -79,10 +79,13 @@ and methods) unless the query has a `select`.
 - **`reload`** reads a row again from the table and database schema it was read from. Rows
   of one schema are read together: on Postgres in one statement whatever their number
   (each key field's values go as one array); elsewhere, and for a key column that holds
-  arrays or JSON, in statements of at most 1,000 rows. Keys are compared by content
-  (bytes, dates, arrays included). An array comes back in the same order, with `null` for
-  a row that is gone.
-  Preloaded associations are not read again.
+  arrays or JSON, in statements of at most 1,000 rows. The database matches the keys with
+  its own equality (a decimal whose scale changed is still the same key). An array comes
+  back in the same order, with `null` for a row that is gone. Preloaded associations are
+  not read again.
+- **A key the row cannot hold exactly is not found again**: a JavaScript `Date` holds
+  milliseconds, so a row whose timestamp key has microseconds reloads as `null` (and
+  `get` with that `Date` finds nothing). Avoid such keys, or reload by another column.
 - **`get` with an array** throws `QueryError` (unless the key column itself holds arrays
   or JSON):
   to read several rows by key, use `where(({ u }) => u.id.in(ids))`.

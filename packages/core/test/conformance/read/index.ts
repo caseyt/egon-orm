@@ -14,6 +14,7 @@ import {
   createRepo,
   type DatabaseAdapter,
   DatabaseError,
+  defineType,
   type Expr,
   fragment,
   from,
@@ -1085,6 +1086,87 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
           );
           await insertRows(adapter(), profile, schema, rows);
         }
+
+        /** A key value with private state: nothing but its own conversions can read it. */
+        class Code {
+          readonly #value: string;
+          constructor(value: string) {
+            this.#value = value;
+          }
+          get value(): string {
+            return this.#value;
+          }
+        }
+        const codeType = defineType<Code, string>({
+          name: "code",
+          db: { kind: "text" },
+          cast: (input) => (input instanceof Code ? { success: true, data: input } : { success: false }),
+          fromDb: (stored) => new Code(stored),
+          toDb: (code) => code.value,
+          equal: (a, b) => a.value === b.value,
+        });
+        class Coded extends Schema("rt_coded_keys", { id: t.type(codeType).primaryKey(), n: t.integer() }) {}
+        class Priced extends Schema("rt_priced_keys", { id: t.decimal().primaryKey(), n: t.integer() }) {}
+        class Labelled extends Schema("rt_labelled_keys", {
+          a: t.string().primaryKey(),
+          b: t.string().primaryKey(),
+          n: t.integer(),
+        }) {}
+
+        test("a key of a custom type with private state", async () => {
+          await create(Coded, [
+            { id: new Code("100"), n: 1 },
+            { id: new Code("200"), n: 2 },
+            { id: new Code("300"), n: 3 },
+          ]);
+          const r = repo();
+          const coded = await r.all(from(Coded, "c").orderBy(({ c }) => c.n));
+          expect((await r.reloadOrThrow(coded)).map((each) => each.n)).toEqual([1, 2, 3]);
+          expect((await r.reload([...coded].reverse())).map((each) => each?.id.value)).toEqual([
+            "300",
+            "200",
+            "100",
+          ]);
+          expect((await r.get(Coded, new Code("200")))?.n).toBe(2);
+        });
+
+        test("a decimal key whose scale changed is still the same key", async () => {
+          await create(Priced, [{ id: "1.0", n: 1 }]);
+          const r = repo();
+          const [priced] = await r.all(Priced);
+          expect(priced?.id).toBe("1.0");
+          await db.exec("update rt_priced_keys set id = 1.00");
+          const fresh = await r.reloadOrThrow(priced as Priced);
+          expect(fresh.id).toBe("1.00");
+          expect((await r.get(Priced, "1.000"))?.n).toBe(1);
+        });
+
+        test("composite text keys that would run together", async () => {
+          await create(Labelled, [
+            { a: "as:", b: "b", n: 1 },
+            { a: "a", b: "s:b", n: 2 },
+            { a: "a,b", b: "", n: 3 },
+            { a: "a", b: ",b", n: 4 },
+          ]);
+          const r = repo();
+          const labelled = await r.all(from(Labelled, "l").orderBy(({ l }) => l.n));
+          expect((await r.reloadOrThrow(labelled)).map((each) => each.n)).toEqual([1, 2, 3, 4]);
+          await db.exec("delete from rt_labelled_keys where n in (1, 3)");
+          expect((await r.reload(labelled)).map((each) => each?.n ?? null)).toEqual([null, 2, null, 4]);
+        });
+
+        test("a timestamp key with microseconds is not found: a Date holds milliseconds (known limit)", async (context) => {
+          const column = profile.microsecondTimestamp;
+          if (column === undefined) return context.skip("no microsecond timestamps");
+          class Moment extends Schema("rt_moment_keys", { at: t.timestamp().primaryKey(), n: t.integer() }) {}
+          await db.exec(`create table rt_moment_keys (at ${column} primary key, n integer not null)`);
+          await db.exec(
+            "insert into rt_moment_keys values ('2026-01-01 00:00:00.123456+00', 1), ('2026-01-01 00:00:00.5+00', 2)",
+          );
+          const r = repo();
+          const moments = await r.all(from(Moment, "m").orderBy(({ m }) => m.n));
+          expect((await r.reload(moments)).map((each) => each?.n ?? null)).toEqual([null, 2]);
+        });
 
         test("a binary key", async (context) => {
           if (profile.columnType(meta(Blob).primaryKey[0]?.type as never) === undefined)

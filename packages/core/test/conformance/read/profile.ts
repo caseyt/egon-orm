@@ -39,6 +39,8 @@ export interface ReadConformanceProfile {
    * `"k<a mod 7>"`.
    */
   readonly insertPairs: (count: number) => string;
+  /** A column type that stores timestamps with microseconds; `undefined` when there is none. */
+  readonly microsecondTimestamp: string | undefined;
   /**
    * A statement, written with the `fragment` tag, that takes `seconds` to run and returns
    * one row: what `repo.raw` runs to test cancellation.

@@ -24,5 +24,6 @@ export const POSTGRES_READ_PROFILE: ReadConformanceProfile = {
     `insert into stream_rows (id, label) select n, 'row ' || n from generate_series(1, ${count}) as n`,
   insertPairs: (count) =>
     `insert into pairs (a, b) select n, 'k' || (n % 7) from generate_series(1, ${count}) as n`,
+  microsecondTimestamp: "timestamptz(6)",
   sleep: (seconds) => fragment`select pg_sleep(${val(seconds, t.float())}) as slept`,
 };

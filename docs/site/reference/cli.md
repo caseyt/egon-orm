@@ -38,20 +38,10 @@ or Bun. Without one, `egon` says so and exits with 1.
 
 ## Commands
 
-### `egon gen migration <name>`
-
-Writes `<version>_<name>.ts` in the migrations directory, where the version is the current
-UTC time, `YYYYMMDDHHMMSS`. The name is lower-case letters, digits and underscores.
-
-| Flag | Meaning |
-|---|---|
-| `--from-schema <file>` | Prefill `createTable` from the schema classes the file exports. A one-time scaffold, not a diff. |
-| `--export <names>` | With `--from-schema`: the exports to use, comma-separated. Needed when the file exports more than one schema class. |
-| `--dir <directory>` | Where to write it, instead of the configured directory. |
-
 ### `egon migrate`
 
-Applies the pending migrations, oldest first, each in its own transaction.
+Applies the pending migrations, oldest first, each in its own transaction. It takes no
+argument other than the subcommand `create` (below).
 
 | Flag | Meaning |
 |---|---|
@@ -59,6 +49,21 @@ Applies the pending migrations, oldest first, each in its own transaction.
 | `--step <n>` | Apply this many. |
 | `--dry-run` | Print the SQL of each pending migration; run nothing. |
 | `--json` | Print one JSON object instead of log lines. |
+
+### `egon migrate create <name>`
+
+Writes a new, empty migration file, `<version>_<name>.ts`, in the migrations directory, and
+prints its path. The version is the current UTC time, `YYYYMMDDHHMMSS`; the name is
+lower-case letters, digits and underscores. The file exports an empty reversible migration,
+`defineMigration({ change(m) {} })`, for you to fill in.
+
+It never overwrites a file: if a migration with the same version already exists (two runs
+in the same second), it exits with 1 and asks you to run it again a second later.
+
+| Flag | Meaning |
+|---|---|
+| `--dir <directory>` | Where to write it, instead of the configured directory (`migrations` without a config file). |
+| `--json` | Print `{ "ok": true, "command": "migrate create", "version", "name", "path" }` instead of the path; `path` is absolute. |
 
 ### `egon rollback`
 

@@ -1,12 +1,13 @@
 // The egon command without a database: help, usage errors, exit codes, the config file,
-// the production guard and `gen migration`. The commands that need a database are run
+// the production guard and `migrate create`. The commands that need a database are run
 // through the built binary against Postgres in test/cli.itest.ts.
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { type CliIo, run, statusTable } from "./cli.js";
 import { CliError, importUserModule, loadConfig, typescriptHelp } from "./config.js";
+import { migrationTemplate } from "./create.js";
 import { COMMAND_HELP, MAIN_HELP } from "./help.js";
 import { defineConfig, VERSION } from "./index.js";
 
@@ -72,8 +73,8 @@ describe("help and version", () => {
       "Usage: egon <command> [options]
 
       Commands:
-        gen migration <name>   Write a new migration file (--from-schema to prefill it).
         migrate                Apply pending migrations.
+        migrate create <name>  Write a new, empty migration file.
         rollback               Roll back applied migrations (the latest one by default).
         migrations             List migrations and their state.
         db create|drop|reset   Create, drop or recreate the development database.
@@ -104,12 +105,32 @@ describe("help and version", () => {
     [["rollback", "--help"], "rollback"],
     [["migrations", "--help"], "migrations"],
     [["db", "--help"], "db"],
-    [["gen", "migration", "--help"], "gen migration"],
-    [["gen", "--help"], "gen migration"],
+    [["migrate", "create", "--help"], "migrate create"],
+    [["migrate", "create", "a", "--help"], "migrate create"],
+    [["migrate", "--config", "x.mjs", "create", "--help"], "migrate create"],
   ])("egon %j prints that command's help", async (argv, command) => {
     const captured = capture(cwd);
     expect(await run(argv, captured.io)).toBe(0);
     expect(captured.out()).toBe(COMMAND_HELP[command]);
+  });
+
+  test("the help of migrate names create, and the help of create", () => {
+    expect(COMMAND_HELP.migrate).toMatch(
+      /^Usage: egon migrate \[options\]\n {7}egon migrate create <name> \[options\]\n/,
+    );
+    expect(COMMAND_HELP["migrate create"]).toMatchInlineSnapshot(`
+      "Usage: egon migrate create <name> [options]
+
+      Writes a new, empty migration file, <version>_<name>.ts, in the migrations directory.
+      The version is the current UTC time (YYYYMMDDHHMMSS); the name is lower-case letters,
+      digits and underscores. An existing file is never overwritten.
+
+      Options:
+        --dir <directory>      Where to write it (default: the configured migrations directory).
+        --json                 Print one JSON object instead of the path.
+        --config <file>        The config file (default: egon.config.ts in this directory).
+      "
+    `);
   });
 
   test("--version", async () => {
@@ -126,16 +147,32 @@ describe("usage errors exit with 2", () => {
     [["migrate", "--step", "0"], /--step takes a positive whole number/],
     [["migrate", "--to", "v2"], /--to takes a positive whole number/],
     [["migrate", "--steps", "1"], /Unknown option '--steps'/],
-    [["migrate", "extra"], /migrate takes no arguments/],
+    [["migrate", "extra"], /migrate takes no arguments other than the subcommand create, not "extra"/],
+    [
+      ["migrate", "--step", "1", "extra"],
+      /migrate takes no arguments other than the subcommand create, not "extra"/,
+    ],
+    [
+      ["migrate", "--", "create", "a"],
+      /migrate takes no arguments other than the subcommand create, not "create"/,
+    ],
     [["rollback", "--all", "--step", "2"], /at most one of --step and --all/],
     [["rollback", "now"], /rollback takes no arguments/],
     [["migrations", "x"], /migrations takes no arguments/],
     [["db"], /db takes one of create, drop and reset/],
     [["db", "destroy"], /db takes one of create, drop and reset/],
-    [["gen", "model", "x"], /egon gen makes migrations/],
-    [["gen", "migration"], /gen migration takes one name/],
-    [["gen", "migration", "CreateUsers"], /must be lower-case letters, digits and underscores/],
-    [["gen", "migration", "a", "--export", "User"], /--export goes with --from-schema/],
+    [["gen"], /Unknown command "gen"/],
+    [["gen", "migration", "create_users"], /Unknown command "gen"/],
+    [["migrate", "create"], /migrate create takes one name/],
+    [["migrate", "create", "a", "b"], /migrate create takes one name/],
+    [
+      ["migrate", "create", "CreateUsers"],
+      /The migration name "CreateUsers" must be lower-case letters, digits and underscores/,
+    ],
+    [["migrate", "create", "create-users"], /must be lower-case letters, digits and underscores/],
+    [["migrate", "create", "a", "--step", "1"], /Unknown option '--step'/],
+    [["migrate", "create", "a", "--from-schema", "s.ts"], /Unknown option '--from-schema'/],
+    [["migrate", "--dir", "x"], /Unknown option '--dir'/],
   ])("egon %j", async (argv, message) => {
     const captured = capture(cwd);
     expect(await run(argv, captured.io)).toBe(2);
@@ -143,10 +180,12 @@ describe("usage errors exit with 2", () => {
     expect(captured.out()).toBe("");
   });
 
-  test("gen alone prints the help of gen migration, exit 2", async () => {
+  test("a usage error of migrate create prints its help; nothing is written", async () => {
     const captured = capture(cwd);
-    expect(await run(["gen"], captured.io)).toBe(2);
-    expect(captured.out()).toBe(COMMAND_HELP["gen migration"]);
+    expect(await run(["migrate", "create"], captured.io)).toBe(2);
+    expect(captured.err()).toContain(COMMAND_HELP["migrate create"]);
+    expect(await run(["migrate", "create", "Bad"], capture(cwd).io)).toBe(2);
+    expect(await readdir(cwd)).toEqual([]);
   });
 });
 
@@ -235,48 +274,125 @@ describe("egon db", () => {
   });
 });
 
-describe("egon gen migration", () => {
-  test("writes an empty migration named by the UTC time into ./migrations without a config", async () => {
+describe("egon migrate create", () => {
+  const FILE = join("migrations", "20261012093000_create_users.ts");
+
+  test("writes the empty template, named by the UTC time, into ./migrations without a config", async () => {
     const captured = capture(cwd);
-    expect(await run(["gen", "migration", "create_users"], captured.io)).toBe(0);
-    expect(captured.out()).toBe(`Created ${join("migrations", "20261012093000_create_users.ts")}\n`);
-    const source = await readFile(join(cwd, "migrations", "20261012093000_create_users.ts"), "utf8");
-    expect(source).toContain('import { defineMigration } from "egon-orm/migration";');
-    expect(source).toContain("export default defineMigration({");
+    expect(await run(["migrate", "create", "create_users"], captured.io)).toBe(0);
+    expect(captured.out()).toBe(`Created ${FILE}\n`);
+    expect(captured.err()).toBe("");
+    expect(await readdir(join(cwd, "migrations"))).toEqual(["20261012093000_create_users.ts"]);
+    expect(await readFile(join(cwd, FILE), "utf8")).toBe(migrationTemplate());
+    expect(migrationTemplate()).toContain('import { defineMigration } from "egon-orm/migration";');
+    expect(migrationTemplate()).toContain("export default defineMigration({\n  change(m) {\n  },\n});");
   });
 
-  test("writes into the configured directory, or --dir", async () => {
+  test("the version is the clock's UTC time", async () => {
+    const captured = capture(cwd);
+    const io: CliIo = { ...captured.io, now: () => new Date("2027-01-02T03:04:05.999+05:00") };
+    expect(await run(["migrate", "create", "a"], io)).toBe(0);
+    expect(captured.out()).toBe(`Created ${join("migrations", "20270101220405_a.ts")}\n`);
+  });
+
+  test("writes into the configured directory, or --dir, and closes the config's adapter", async () => {
     await writeFile(join(cwd, "egon.config.mjs"), FAKE_CONFIG);
-    expect(await run(["gen", "migration", "a"], capture(cwd).io)).toBe(0);
+    const closed: string[] = [];
+    (globalThis as { egonClosed?: string[] }).egonClosed = closed;
+    const configured = capture(cwd);
+    expect(await run(["migrate", "create", "a"], configured.io)).toBe(0);
+    expect(configured.out()).toBe(`Created ${join("db", "migrations", "20261012093000_a.ts")}\n`);
     expect(await readdir(join(cwd, "db", "migrations"))).toEqual(["20261012093000_a.ts"]);
-    expect(await run(["gen", "migration", "b", "--dir", "elsewhere"], capture(cwd).io)).toBe(0);
-    expect(await readdir(join(cwd, "elsewhere"))).toEqual(["20261012093000_b.ts"]);
+    expect(closed).toEqual(["main"]);
+    const elsewhere = capture(cwd);
+    expect(await run(["migrate", "create", "b", "--dir", "elsewhere/deeper"], elsewhere.io)).toBe(0);
+    expect(elsewhere.out()).toBe(`Created ${join("elsewhere", "deeper", "20261012093000_b.ts")}\n`);
+    expect(await readdir(join(cwd, "elsewhere", "deeper"))).toEqual(["20261012093000_b.ts"]);
+    // --dir does not read the config at all.
+    expect(closed).toEqual(["main"]);
   });
 
-  test("refuses a second migration with the same version", async () => {
-    expect(await run(["gen", "migration", "first"], capture(cwd).io)).toBe(0);
+  test("options may come before create", async () => {
+    await writeFile(join(cwd, "other.mjs"), FAKE_CONFIG);
     const captured = capture(cwd);
-    expect(await run(["gen", "migration", "second"], captured.io)).toBe(1);
-    expect(captured.err()).toMatch(/version 20261012093000 already exists \(20261012093000_first\.ts\)/);
+    expect(await run(["migrate", "--config", "other.mjs", "create", "a", "--json"], captured.io)).toBe(0);
+    expect(await readdir(join(cwd, "db", "migrations"))).toEqual(["20261012093000_a.ts"]);
   });
 
-  test("a broken config is reported, not ignored", async () => {
+  test("--json prints one object with the version, the name and the absolute path", async () => {
+    const captured = capture(cwd);
+    expect(await run(["migrate", "create", "create_users", "--json"], captured.io)).toBe(0);
+    expect(JSON.parse(captured.out())).toEqual({
+      ok: true,
+      command: "migrate create",
+      version: 20261012093000,
+      name: "create_users",
+      path: join(cwd, FILE),
+    });
+    expect(captured.out().endsWith("}\n")).toBe(true);
+  });
+
+  test("never overwrites: a file with the same version is refused, with or without the same name", async () => {
+    expect(await run(["migrate", "create", "first"], capture(cwd).io)).toBe(0);
+    await writeFile(join(cwd, "migrations", "20261012093000_first.ts"), "// edited\n");
+    for (const name of ["first", "second"]) {
+      const captured = capture(cwd);
+      expect(await run(["migrate", "create", name], captured.io)).toBe(1);
+      expect(captured.err()).toBe(
+        "error: A migration with the version 20261012093000 already exists (20261012093000_first.ts), and egon migrate create never overwrites a file. Wait a second and run it again.\n",
+      );
+      expect(captured.out()).toBe("");
+    }
+    expect(await readdir(join(cwd, "migrations"))).toEqual(["20261012093000_first.ts"]);
+    expect(await readFile(join(cwd, "migrations", "20261012093000_first.ts"), "utf8")).toBe("// edited\n");
+  });
+
+  test("two runs racing in the same second: one writes the file, the other is refused", async () => {
+    const runs = [capture(cwd), capture(cwd), capture(cwd)];
+    const codes = await Promise.all(runs.map((one) => run(["migrate", "create", "first"], one.io)));
+    expect([...codes].sort()).toEqual([0, 1, 1]);
+    for (const [index, one] of runs.entries()) {
+      if (codes[index] === 1)
+        expect(one.err()).toMatch(
+          /^error: A migration with the version 20261012093000 already exists \(20261012093000_first\.ts\), and egon migrate create never overwrites a file\./,
+        );
+    }
+    expect(await readdir(join(cwd, "migrations"))).toEqual(["20261012093000_first.ts"]);
+  });
+
+  test("a file that cannot be written is reported", async () => {
+    const locked = join(cwd, "locked");
+    await mkdir(locked);
+    await chmod(locked, 0o555);
+    try {
+      const captured = capture(cwd);
+      expect(await run(["migrate", "create", "a", "--dir", "locked"], captured.io)).toBe(1);
+      expect(captured.err()).toMatch(/^error: EACCES/);
+    } finally {
+      await chmod(locked, 0o755);
+    }
+  });
+
+  test("with --json, the refusal is one JSON object", async () => {
+    expect(await run(["migrate", "create", "first"], capture(cwd).io)).toBe(0);
+    const captured = capture(cwd);
+    expect(await run(["migrate", "create", "first", "--json"], captured.io)).toBe(1);
+    const report = JSON.parse(captured.out()) as { ok: boolean; error: { name: string; message: string } };
+    expect(report.ok).toBe(false);
+    expect(report.error.name).toBe("CliError");
+    expect(report.error.message).toMatch(/already exists/);
+  });
+
+  test("a broken config is reported, not ignored; a missing --config file too", async () => {
     await writeFile(join(cwd, "egon.config.mjs"), "export default {};");
-    const captured = capture(cwd);
-    expect(await run(["gen", "migration", "a"], captured.io)).toBe(1);
-    expect(captured.err()).toMatch(/must export/);
-  });
-
-  test("--from-schema refuses a file without schema classes, or a missing export", async () => {
-    await writeFile(join(cwd, "nothing.mjs"), "export const x = 1;");
-    const none = capture(cwd);
-    expect(await run(["gen", "migration", "a", "--from-schema", "nothing.mjs"], none.io)).toBe(1);
-    expect(none.err()).toMatch(/exports no schema class with a table/);
+    const broken = capture(cwd);
+    expect(await run(["migrate", "create", "a"], broken.io)).toBe(1);
+    expect(broken.err()).toMatch(/must export/);
+    await rm(join(cwd, "egon.config.mjs"));
     const missing = capture(cwd);
-    expect(
-      await run(["gen", "migration", "a", "--from-schema", "nothing.mjs", "--export", "User"], missing.io),
-    ).toBe(1);
-    expect(missing.err()).toMatch(/no schema class exported as "User"/);
+    expect(await run(["migrate", "create", "a", "--config", "missing.mjs"], missing.io)).toBe(1);
+    expect(missing.err()).toMatch(/does not exist/);
+    expect(await readdir(cwd)).toEqual([]);
   });
 });
 

@@ -6,7 +6,7 @@
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { type Adapter, type AnySchema, isEgonError, isSchema, meta } from "egon-orm";
+import { type Adapter, isEgonError } from "egon-orm";
 import {
   createDatabase,
   createMigrator,
@@ -16,14 +16,8 @@ import {
   type MigrationStatus,
   type Migrator,
 } from "egon-orm/migration";
-import { CliError, type EgonConfig, importUserModule, type LoadedConfig, loadConfig } from "./config.js";
-import {
-  MIGRATION_NAME,
-  migrationTemplate,
-  scaffoldFromSchemas,
-  scaffoldHeader,
-  versionAt,
-} from "./generate.js";
+import { CliError, type EgonConfig, type LoadedConfig, loadConfig } from "./config.js";
+import { MIGRATION_NAME, migrationTemplate, versionAt } from "./create.js";
 import { COMMAND_HELP, MAIN_HELP } from "./help.js";
 import { VERSION } from "./version.js";
 
@@ -112,7 +106,7 @@ function atMostOne(values: Values, flags: readonly string[]): void {
  */
 export async function run(argv: readonly string[], io: CliIo = processIo()): Promise<number> {
   const [first, ...rest] = argv;
-  let json = rest.includes("--json");
+  const json = rest.includes("--json");
   try {
     if (first === undefined || first === "--help" || first === "-h" || first === "help") {
       io.stdout(MAIN_HELP);
@@ -123,8 +117,6 @@ export async function run(argv: readonly string[], io: CliIo = processIo()): Pro
       return OK;
     }
     switch (first) {
-      case "gen":
-        return await gen(rest, io);
       case "migrate":
         return await migrate(rest, io);
       case "rollback":
@@ -141,7 +133,6 @@ export async function run(argv: readonly string[], io: CliIo = processIo()): Pro
       io.stderr(`${error.message.trimEnd()}\n`);
       return USAGE;
     }
-    json &&= first !== "gen";
     report(io, json, error);
     return FAILED;
   }
@@ -312,14 +303,37 @@ function bigints(_key: string, value: unknown): unknown {
 // Commands
 // ---------------------------------------------------------------------------
 
+/**
+ * Where the subcommand `create` is in the arguments of `egon migrate`, or -1: the first
+ * argument that is neither an option nor an option's value. The options that take a value
+ * are those of `migrate` and of `migrate create`, so `--config x create` finds `create`.
+ */
+function createIndex(args: readonly string[]): number {
+  const { tokens } = parseArgs({
+    args: [...args],
+    options: { ...COMMON, to: { type: "string" }, step: { type: "string" }, dir: { type: "string" } },
+    allowPositionals: true,
+    strict: false,
+    tokens: true,
+  });
+  const first = tokens.find((token) => token.kind !== "option");
+  return first?.kind === "positional" && first.value === "create" ? first.index : -1;
+}
+
 async function migrate(args: readonly string[], io: CliIo): Promise<number> {
+  const at = createIndex(args);
+  if (at >= 0) return create([...args.slice(0, at), ...args.slice(at + 1)], io);
   const { values, positionals } = parse("migrate", args, {
     to: { type: "string" },
     step: { type: "string" },
     "dry-run": { type: "boolean" },
   });
   if (values.help === true) return help(io, "migrate");
-  if (positionals.length > 0) throw new UsageError(`migrate takes no arguments.\n\n${COMMAND_HELP.migrate}`);
+  if (positionals.length > 0) {
+    throw new UsageError(
+      `migrate takes no arguments other than the subcommand create, not "${positionals[0]}".\n\n${COMMAND_HELP.migrate}`,
+    );
+  }
   atMostOne(values, ["to", "step"]);
   const to = positiveInteger("to", values.to);
   const step = positiveInteger("step", values.step);
@@ -456,69 +470,48 @@ async function db(args: readonly string[], io: CliIo): Promise<number> {
   });
 }
 
-async function gen(args: readonly string[], io: CliIo): Promise<number> {
-  const [kind, ...rest] = args;
-  if (kind === "--help" || kind === undefined) {
-    io.stdout(COMMAND_HELP["gen migration"] as string);
-    return kind === undefined ? USAGE : OK;
-  }
-  if (kind !== "migration") throw new UsageError(`egon gen makes migrations: egon gen migration <name>.`);
-  const { values, positionals } = parse("gen migration", rest, {
-    "from-schema": { type: "string" },
-    export: { type: "string" },
-    dir: { type: "string" },
-  });
-  if (values.help === true) return help(io, "gen migration");
+async function create(args: readonly string[], io: CliIo): Promise<number> {
+  const { values, positionals } = parse("migrate create", args, { dir: { type: "string" } });
+  if (values.help === true) return help(io, "migrate create");
   const [name, ...extra] = positionals;
   if (name === undefined || extra.length > 0) {
-    throw new UsageError(`gen migration takes one name.\n\n${COMMAND_HELP["gen migration"]}`);
+    throw new UsageError(`migrate create takes one name.\n\n${COMMAND_HELP["migrate create"]}`);
   }
   if (!MIGRATION_NAME.test(name)) {
     throw new UsageError(
       `The migration name "${name}" must be lower-case letters, digits and underscores: for example create_users.`,
     );
   }
-  if (values.export !== undefined && values["from-schema"] === undefined) {
-    throw new UsageError("--export goes with --from-schema.");
-  }
-  const directory = await generationDirectory(io, values);
-  let body = "";
-  let header = "";
-  let notes: readonly string[] = [];
-  const schemaFile = values["from-schema"];
-  if (typeof schemaFile === "string") {
-    const path = resolve(io.cwd, schemaFile);
-    const schemas = pickSchemas(path, await importUserModule(path), values.export as string | undefined);
-    const scaffold = scaffoldFromSchemas(schemas);
-    body = scaffold.body;
-    notes = scaffold.notes;
-    header = scaffoldHeader(
-      schemaFile,
-      schemas.map((schema) => meta(schema).name),
-    );
-  }
+  const directory = await migrationsDirectory(io, values);
   const version = versionAt(io.now());
   await mkdir(directory, { recursive: true });
   const taken = (await readdir(directory)).find((file) => file.startsWith(`${version}_`));
-  if (taken !== undefined) {
-    throw new CliError(
-      `A migration with the version ${version} already exists (${taken}). Wait a second and run it again.`,
+  const refuse = (existing: string): CliError =>
+    new CliError(
+      `A migration with the version ${version} already exists (${existing}), and egon migrate create never overwrites a file. Wait a second and run it again.`,
     );
+  if (taken !== undefined) throw refuse(taken);
+  const base = `${version}_${name}.ts`;
+  const file = resolve(directory, base);
+  try {
+    // "wx" fails if the file appeared since the check above (two runs racing).
+    await writeFile(file, migrationTemplate(), { flag: "wx" });
+  } catch (error) {
+    if ((error as { readonly code?: unknown }).code === "EEXIST") throw refuse(base);
+    throw error;
   }
-  const file = resolve(directory, `${version}_${name}.ts`);
-  await writeFile(file, header + migrationTemplate(body), { flag: "wx" });
-  io.stdout(`Created ${relative(io.cwd, file) || file}\n`);
-  if (typeof schemaFile === "string") {
+  if (values.json === true) {
     io.stdout(
-      "This is a one-time scaffold from the schema, not a diff: check it before running it. Unique indexes are not part of a schema; add them by hand.\n",
+      `${JSON.stringify({ ok: true, command: "migrate create", version: Number(version), name, path: file })}\n`,
     );
-    for (const note of notes) io.stdout(`note: ${note}\n`);
+  } else {
+    io.stdout(`Created ${relative(io.cwd, file)}\n`);
   }
   return OK;
 }
 
-/** Where `gen migration` writes: `--dir`, else the configured directory, else `migrations`. */
-async function generationDirectory(io: CliIo, values: Values): Promise<string> {
+/** Where `migrate create` writes: `--dir`, else the configured directory, else `migrations`. */
+async function migrationsDirectory(io: CliIo, values: Values): Promise<string> {
   if (typeof values.dir === "string") return resolve(io.cwd, values.dir);
   let loaded: LoadedConfig | undefined;
   try {
@@ -542,32 +535,6 @@ async function generationDirectory(io: CliIo, values: Values): Promise<string> {
     if (config.database !== undefined) adapters.add(config.database.admin);
     await Promise.all([...adapters].map((adapter) => adapter.close()));
   }
-}
-
-/** The schema classes of a module, or those named by --export. */
-function pickSchemas(
-  path: string,
-  module: Record<string, unknown>,
-  exportNames: string | undefined,
-): AnySchema[] {
-  const found = Object.entries(module).filter(
-    ([, value]) => isSchema(value) && meta(value as AnySchema).source !== null,
-  );
-  if (exportNames !== undefined) {
-    const names = exportNames.split(",").map((name) => name.trim());
-    return names.map((name) => {
-      const value = module[name];
-      if (!isSchema(value)) throw new CliError(`"${path}" has no schema class exported as "${name}".`);
-      return value as AnySchema;
-    });
-  }
-  if (found.length === 0) throw new CliError(`"${path}" exports no schema class with a table.`);
-  if (found.length > 1) {
-    throw new CliError(
-      `"${path}" exports ${found.length} schema classes (${found.map(([name]) => name).join(", ")}): choose with --export ${found.map(([name]) => name).join(",")}`,
-    );
-  }
-  return [(found[0] as [string, unknown])[1] as AnySchema];
 }
 
 function help(io: CliIo, command: string): number {

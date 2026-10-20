@@ -7,8 +7,9 @@ and the runner applies the pending ones and records what it applied.
 <<< @/examples/migrations.ts#create-users
 
 The file name holds the version and the name: `20261012093000_create_users.ts` is version
-`20261012093000` (a UTC timestamp, `YYYYMMDDHHMMSS`) named `create_users`. `egon gen
-migration create_users` writes such a file for you ([CLI reference](/reference/cli)).
+`20261012093000` (a UTC timestamp, `YYYYMMDDHHMMSS`) named `create_users`. `egon migrate
+create create_users` writes such a file, with an empty `change` for you to fill in
+([CLI reference](/reference/cli#egon-migrate-create-name)).
 
 If you come from Prisma Migrate or drizzle-kit: there is no schema diffing. You write the
 change you want, as with Sequelize's or Knex's migrations; the schema classes and the
@@ -19,6 +20,7 @@ migrations are kept in step by you, not inferred from each other.
 From the command line, with the configuration in [`egon.config.ts`](/reference/cli#configuration):
 
 ```sh
+egon migrate create add_age  # write migrations/<version>_add_age.ts
 egon migrate                 # apply every pending migration
 egon migrate --dry-run       # print the SQL, run nothing
 egon rollback                # roll back the latest one
@@ -226,10 +228,9 @@ For bundlers and deployments without a file system, pass the migrations as a lis
 ## Adopting an existing database
 
 To start using migrations on a database that already has its tables, write a first
-migration that describes them (`egon gen migration initial --from-schema src/schemas.ts`
-gives you a start), and record it as applied without running it. On a database that has
-never been migrated the tracking table does not exist yet, so create it first, as the
-runner would:
+migration that describes them (`egon migrate create initial` gives you the empty file), and
+record it as applied without running it. On a database that has never been migrated the
+tracking table does not exist yet, so create it first, as the runner would:
 
 <<< @/examples/migrations.ts#baseline
 
@@ -238,14 +239,6 @@ If the database already has a `schema_migrations` table from another tool, with 
 its timestamp column if it is not `created_at`:
 
 <<< @/examples/migrations.ts#adopt
-
-## Scaffolding from a schema
-
-`egon gen migration create_posts --from-schema src/schemas/post.ts` writes a `createTable`
-for the schema classes the file exports, with their column types, nullability, constant
-defaults, primary keys and the foreign keys of their `belongsTo` associations. It is a
-one-time scaffold, not a diff: unique indexes, enum values and defaults the application
-computes are not in a schema, and the file says where to add them.
 
 ::: tip Good to know
 - Columns allow `NULL` unless you call `.notNull()`, as in SQL. (Schema fields are the

@@ -1,5 +1,5 @@
 /**
- * `@egon-orm/cli`: the `egon` command (migrations, generators, development databases)
+ * `@egon-orm/cli`: the `egon` command (migrations and development databases)
  * and the helper that types its configuration file.
  *
  * @module

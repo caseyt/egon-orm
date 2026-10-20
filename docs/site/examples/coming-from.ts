@@ -85,15 +85,16 @@ export async function run(): Promise<void> {
 
   // #region create
   const created = await repo.insert(User.changeset(User, { email: "ada@example.com", name: "Ada" }));
-  if (!created.success) {
+  if (created.success) {
+    // A User, with its id, role and timestamps filled in.
+    created.data.role; // => "member"
+  } else {
     console.log(created.error.errorMessages()); // for the form: { email: ["has invalid format"] }
-    return;
   }
-  const ada = created.data; // User, with id, role, createdAt and updatedAt filled in
-  ada.role; // => "member"
 
   const bo = await repo.insertOrThrow(User.changeset(User, { email: "bo@example.com" })); // throws if invalid
   // #endregion create
+  const ada = await repo.getByOrThrow(User, { email: "ada@example.com" });
 
   // #region create-error
   const taken = await repo.insert(User.changeset(User, { email: "ada@example.com" }));

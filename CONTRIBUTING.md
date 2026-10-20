@@ -182,6 +182,7 @@ A TypeScript block is never typed into a page. It is a region of a file under
 <<< @/examples/changesets.ts#register
 ```
 
+<!-- illustrative -->
 ```ts
 // docs/site/examples/changesets.ts
 // #region register
@@ -195,11 +196,14 @@ const result = await repo.insert(User.changeset(User, params));
   database, in `pnpm test:integration` (project `docs:integration`). Each statement that
   ends its line with `// => value` is checked: the statement's value (or, for
   `const x = …;`, the value of `x`) must deep-equal `value`, a JavaScript expression. Keep
-  such a statement on one line. A runnable example creates its own tables, exports a `run`
+  such a statement on one line. Every such check must run: one in a branch that is not
+  taken fails the test. A runnable example creates its own tables, exports a `run`
   function if it needs one, and closes every adapter it opens. A `// =>` comment in a file
   without `// @run` is refused, since nothing would check it.
-- Shell, SQL, text and configuration blocks may be written inline. Deliberately invalid
-  TypeScript may be too, with `<!-- illustrative -->` on the line above the block.
+- Shell, SQL, text and configuration blocks may be written inline. TypeScript that is not
+  meant to compile as it stands (deliberately invalid code, or a sketch of this tooling, as
+  above) may be too, with `<!-- illustrative -->` on the line above the block. The checks
+  below apply to the README and to this file as well.
 
 ### Checks
 

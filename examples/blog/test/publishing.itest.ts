@@ -47,7 +47,7 @@ test("publishing twice fails at the first step and writes nothing", async () => 
 });
 
 // #region batch-test
-test("the batch is a value: its steps can be checked without a database", async () => {
+test("the batch is a value: its steps can be checked without running it", async () => {
   const { draft } = await setUp();
 
   const steps = Batch.toList(publishBatch(draft)).map((s) => `${s.name}:${s.operation}`);

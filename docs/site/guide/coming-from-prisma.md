@@ -5,7 +5,8 @@ Prisma calls are shown inline for reference; every Egon block is a checked, runn
 example (it runs in CI against Postgres, and the `// =>` comments are the values it
 produces).
 
-The examples use a `User` with many `Post`s.
+The Prisma calls are those of Prisma ORM 7, the current major release in October 2026;
+where Prisma 6 differs, the page says so. The examples use a `User` with many `Post`s.
 
 ## The model in one paragraph
 
@@ -33,7 +34,8 @@ Prisma: a `model User { … posts Post[] }` block in `schema.prisma`, then `pris
 
 ## Connecting
 
-Prisma: `const prisma = new PrismaClient()`.
+Prisma 7: `new PrismaClient({ adapter: new PrismaPg({ connectionString }) })`, with the
+`@prisma/adapter-pg` driver adapter (Prisma 6: `new PrismaClient()`).
 
 <<< @/examples/coming-from.ts#connect
 
@@ -203,9 +205,9 @@ Prisma: `prisma.post.delete({ where: { id } })` and `deleteMany({ where })`.
 | Fluent API (`prisma.user.findUnique(…).posts()`) | Not supported. Use `assoc(User, user, "posts")` for a query of the related rows, or preload. |
 | Nested `select` of relations (`select: { posts: { select: { title: true } } }`) | A preload callback with a `select`: `preload("posts", (q) => q.select(…))`. |
 | `createMany` | `repo.insertAll(Post, rows)`: no changesets, no validation, but defaults and timestamps. |
-| Middleware and client extensions | No equivalent. Changeset functions, `prepareChanges` and query functions cover the common uses. |
-| Prisma Accelerate and Pulse | No equivalent. |
-| MongoDB, SQL Server, CockroachDB | Not supported: Postgres, SQLite and MySQL only. |
+| Client extensions (`$extends`) | No equivalent. Changeset functions, `prepareChanges` and query functions cover the common uses. |
+| Prisma Accelerate (pooling and caching as a service) | No equivalent. |
+| SQL Server, CockroachDB, and MongoDB (Prisma 6; Prisma 7 does not support it yet) | Not supported: Postgres, SQLite and MySQL only. |
 
 ## What works differently
 

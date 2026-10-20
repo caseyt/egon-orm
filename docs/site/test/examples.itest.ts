@@ -1,18 +1,29 @@
 // Runs every docs example marked `// @run` against a database of its own, and checks its
 // `// =>` comments (vitest.config.ts, project docs:integration, rewrites them into calls of
-// the check below). An example runs when it is imported; one that exports `run` has it
+// the functions below). An example runs when it is imported; one that exports `run` has it
 // awaited after that. Each must close the adapters it opens.
+//
+// Every check must run: the rewritten file announces its checks when it loads
+// (`__egonDocsExpect`), and a check that was announced but never reached fails the test.
 import { readdirSync, readFileSync } from "node:fs";
 import { withDatabase } from "@egon-orm/test-support";
 import { expect, test, vi } from "vitest";
 
 declare global {
   var __egonDocsCheck: (actual: unknown, expected: unknown, where: string) => void;
+  var __egonDocsExpect: (wheres: readonly string[]) => void;
 }
 
-let checks = 0;
+const announced = new Set<string>();
+const ran = new Set<string>();
+
+globalThis.__egonDocsExpect = (wheres) => {
+  for (const where of wheres) announced.add(where);
+};
+// Deep equality as `toEqual` checks it: a row (an instance of its schema class) equals the
+// plain object a comment writes for it.
 globalThis.__egonDocsCheck = (actual, expected, where) => {
-  checks += 1;
+  ran.add(where);
   expect(actual, `the // => comment at ${where}`).toEqual(expected);
 };
 
@@ -31,9 +42,12 @@ for (const file of runnable) {
     withDatabase("postgres", { label: "docs" }, async (db) => {
       process.env.DATABASE_URL = db.url;
       vi.resetModules(); // every example starts from fresh modules, which read the URL above
-      const before = checks;
+      announced.clear();
+      ran.clear();
       const module: { run?: () => Promise<void> } = await import(new URL(file, examples).href);
       if (module.run !== undefined) await module.run();
-      expect(checks - before, "a runnable example checks at least one // => comment").toBeGreaterThan(0);
+      expect(announced.size, "a runnable example checks at least one // => comment").toBeGreaterThan(0);
+      const skipped = [...announced].filter((where) => !ran.has(where));
+      expect(skipped, "every // => comment of a runnable example must be reached").toEqual([]);
     }));
 }

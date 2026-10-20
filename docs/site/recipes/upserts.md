@@ -24,7 +24,16 @@ With `onConflict: "nothing"`, `data` is `null` when the row existed; its type in
 
 <<< @/examples/recipes/upserts.ts#bulk
 
-`insertAll` skips changesets: use it for data you trust, such as counters and imports.
+`insertAll` skips changesets: use it for data you trust, such as imports.
+
+`update` writes the values of the row being inserted; it does not compute from the row that
+is there. To increment a counter, insert the row if it is missing, and otherwise update it
+with an expression:
+
+<<< @/examples/recipes/upserts.ts#counter
+
+Inserting first is safe when two requests count at once: one inserts, the other finds the
+row there and increments it.
 
 ::: tip Good to know
 - An upsert is not `insertOrUpdate`. `insertOrUpdate` chooses insert or update from the

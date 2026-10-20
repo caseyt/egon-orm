@@ -6,7 +6,8 @@ everyday Sequelize code to Egon, task by task. The Sequelize calls are shown inl
 reference; every Egon block is a checked, runnable example (it runs in CI against
 Postgres, and the `// =>` comments are the values it produces).
 
-The examples use a `User` with many `Post`s.
+The Sequelize calls are those of Sequelize 6 (npm's `latest`, 6.37, in October 2026). The
+examples use a `User` with many `Post`s.
 
 ## The model in one paragraph
 

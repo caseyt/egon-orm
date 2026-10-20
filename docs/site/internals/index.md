@@ -72,8 +72,9 @@ Each compiled plan gets one row decoder (`repo/hydrate.ts`), built from its outp
   schemas; a transaction is a value (`tx`) passed explicitly.
 - **Hot-path rules.** No `Proxy`, no per-row `defineProperty`, no spread or `delete` of row
   objects, monomorphic shapes, and anything derivable from a schema or a query shape is
-  computed once and cached. Plan README §7 has the full list; budgets are measured in
-  step 19.
+  computed once and cached. The full list is in
+  [§7 of the plan](https://github.com/caseyt/egon-orm/blob/main/docs/plan/README.md#7-performance-standards)
+  and in [`CONTRIBUTING.md`](https://github.com/caseyt/egon-orm/blob/main/CONTRIBUTING.md).
 
 ## Decision records
 

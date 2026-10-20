@@ -122,9 +122,13 @@ QueryError: preload "posts" selects without its key. Add `authorId: posts.author
 ```
 
 A preload whose callback selects columns must include the field the association is matched
-on (`authorId` for `User.posts`, `id` for `Post.author`); nothing is added for you. Where
-the types can see it, this is a compile error that names the field
-(`"~error": "preload \"posts\" selects without its key: add authorId to the select"`).
+on (`authorId` for `User.posts`, `id` for `Post.author`); nothing is added for you.
+
+- For `hasMany` and `hasOne`, where the key is the foreign key on the child, leaving it out
+  is also a compile error that names the field
+  (`"~error": "preload \"posts\" selects without its key: add authorId to the select"`).
+- For `belongsTo` (the target's primary key), the query compiles, and throws this
+  `QueryError` when it is built.
 
 ## Errors at run time
 
@@ -154,7 +158,7 @@ A filter built from optional input had no value. Add the clause only when there 
 ### `QueryError: repo.raw() takes a fragment`
 
 ```text
-QueryError: repo.raw() takes a fragment: repo.raw(fragment`select …`). It was given something else; values go into the template as interpolations, where they are bound.
+QueryError: repo.raw() takes a fragment: repo.raw(fragment`select …`). It was given a string, which would put text into the SQL unchecked; values go into the template as interpolations, where they are bound.
 ```
 
 `repo.raw` never takes a string. Write ``repo.raw(fragment`select … where id = ${id}`)``:
@@ -195,12 +199,6 @@ migrating it.
 
 Yes, with the gaps listed in [Dialect support](/reference/dialect-support). Postgres
 supports every feature.
-
-### Is it fast?
-
-It is designed to stay close to the driver (no `Proxy`, rows built from precomputed
-tables, compiled SQL cached per query shape). Its overhead is measured in step 19 of the
-plan; no numbers are published yet.
 
 ## See also
 

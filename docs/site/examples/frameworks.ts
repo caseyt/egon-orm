@@ -72,8 +72,8 @@ export function fastifyApp() {
   // #region fastify
   const app = Fastify({ logger: true });
 
-  // Every statement the repo runs goes to the request's logger, with its id.
-  repo.on("query", (event) => {
+  // Slow statements go to Fastify's logger, with the call's context (the request id below).
+  const stopListening = repo.on("query", (event) => {
     if (event.durationMs > 200)
       app.log.warn({ sql: event.sql, ms: event.durationMs, ...event.context }, "slow query");
   });
@@ -83,7 +83,9 @@ export function fastifyApp() {
     return post ?? reply.code(404).send({ error: "not found" });
   });
 
-  app.addHook("onClose", () => repo.close()); // app.close() also closes the pool
+  // The repo outlives the app (tests may build several): only the listener goes with it.
+  // Close the repo itself at shutdown (below).
+  app.addHook("onClose", async () => stopListening());
   // #endregion fastify
   return app;
 }
@@ -129,9 +131,12 @@ export function shutdown() {
 
   async function stop(signal: string) {
     process.stderr.write(`${signal}: shutting down\n`);
-    server.close(); //        stop accepting connections; running requests finish
-    await repo.close(); //    waits for running queries, then closes the pool
-    process.exitCode = 0;
+    // Stop accepting connections, and wait until the running requests have finished...
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+    // ...then close the pool: no request is left to need it.
+    await repo.close();
   }
   process.once("SIGTERM", () => void stop("SIGTERM"));
   process.once("SIGINT", () => void stop("SIGINT"));

@@ -71,7 +71,11 @@ function summaryOf(symbol: ts.Symbol, checker: ts.TypeChecker): string {
     .replace(/\s+/g, " ")
     .trim();
   const sentence = /^(.*?[.:])(?:\s|$)/.exec(text)?.[1] ?? text;
-  return sentence.replace(/:$/, ".").replace(/\|/g, "\\|");
+  // Drop references to the build plan ("(step 15)"): readers cannot see it.
+  return sentence
+    .replace(/\s*\(step \d+\)/g, "")
+    .replace(/:$/, ".")
+    .replace(/\|/g, "\\|");
 }
 
 function entriesOf(program: ts.Program, file: string): Entry[] {

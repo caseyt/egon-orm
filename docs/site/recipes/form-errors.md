@@ -6,7 +6,7 @@ part that matters, the state the action returns, works with any framework.
 
 ## The action
 
-<<< @/examples/recipes/form-errors.tsx#action
+<<< ../../../examples/react-form/src/form-errors.tsx#action
 
 `errorMessages()` returns a plain object, `{ field: ["message", …] }`, with validation
 errors and declared constraint violations in the same shape. It is serialisable, so it can
@@ -15,7 +15,7 @@ keeps what the user typed.
 
 ## The form
 
-<<< @/examples/recipes/form-errors.tsx#form
+<<< ../../../examples/react-form/src/form-errors.tsx#form
 
 - `aria-invalid` and `aria-describedby` tie each message to its input for screen readers.
 - `noValidate` leaves the checking to the changeset, so the messages are the same with and

@@ -29,7 +29,7 @@ Guide: [Schemas and associations](/guide/schemas).
 | [`EmbeddedSchemaOptions`](/api/reference/egon-orm/interfaces/EmbeddedSchemaOptions) | interface | Options of `EmbeddedSchema`. |
 | [`EmbedFieldBuilder`](/api/reference/egon-orm/interfaces/EmbedFieldBuilder) | interface | The builder of an embed field, as the types see it. |
 | [`EmbedMeta`](/api/reference/egon-orm/interfaces/EmbedMeta) | interface | Everything known about one embed. |
-| [`EmbedOnReplace`](/api/reference/egon-orm/type-aliases/EmbedOnReplace) | type | What a nested write does with an embed that the new value replaces (step 15). |
+| [`EmbedOnReplace`](/api/reference/egon-orm/type-aliases/EmbedOnReplace) | type | What a nested write does with an embed that the new value replaces. |
 | [`EmbedOptions`](/api/reference/egon-orm/interfaces/EmbedOptions) | interface | Options of `t.embedOne` and `t.embedMany`. |
 | [`FieldBuilder`](/api/reference/egon-orm/interfaces/FieldBuilder) | interface | A field declaration. |
 | [`FieldMeta`](/api/reference/egon-orm/interfaces/FieldMeta) | interface | Everything known about one field of a schema. |
@@ -56,7 +56,7 @@ Guide: [Schemas and associations](/guide/schemas).
 | [`ManyToManyTableOptions`](/api/reference/egon-orm/interfaces/ManyToManyTableOptions) | interface | Options of `manyToMany` when the join table is given by name. |
 | [`meta`](/api/reference/egon-orm/functions/meta) | function | The metadata of a schema class. |
 | [`Naming`](/api/reference/egon-orm/type-aliases/Naming) | type | How field names become column names (or, in an embedded schema, JSON keys). |
-| [`OnReplace`](/api/reference/egon-orm/type-aliases/OnReplace) | type | What happens to associated rows that a parent changeset no longer mentions (step 15). |
+| [`OnReplace`](/api/reference/egon-orm/type-aliases/OnReplace) | type | What happens to associated rows that a parent changeset no longer mentions. |
 | [`PreloadSpec`](/api/reference/egon-orm/type-aliases/PreloadSpec) | type | Which associations of schema `S` are loaded, to any depth. |
 | [`primaryKeyOf`](/api/reference/egon-orm/functions/primaryKeyOf) | function | The value that identifies a row. |
 | [`PrimaryKeyOf`](/api/reference/egon-orm/type-aliases/PrimaryKeyOf) | type | The value that identifies one row of schema `S`. |

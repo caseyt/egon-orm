@@ -34,7 +34,8 @@ errors to responses, and how to shut down. The examples are type-checked against
 
 `repo.on("query", …)` sees every statement, with the call's `context`. Here it logs the slow
 ones through Fastify's logger; `log: true` on the repo writes every statement to standard
-error instead.
+error instead. `repo.on` returns the function that removes the listener, so an app built
+twice (in tests, say) does not leave the first app's listener behind.
 
 ### Hono
 
@@ -71,8 +72,10 @@ needs Node.js, not a browser or the Edge runtime.
 
 `repo.close()` waits for the queries that are running and for checked-out connections
 (a transaction in progress, an open stream), then ends the pool. Calls made after it reject
-with a `DatabaseError` whose code is `"connection"`. Close the HTTP server first, so that no
-new request starts a query on a closing pool.
+with a `DatabaseError` whose code is `"connection"`. So close the HTTP server first, and wait
+for its callback: `server.close()` returns at once, while requests that are still running
+may have queries left to run. A server with long-lived connections (keep-alive, streaming
+responses) may need a time limit on that wait.
 
 ## Serverless functions
 

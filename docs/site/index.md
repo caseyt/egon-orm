@@ -22,7 +22,7 @@ features:
   - title: Queries are values
     details: Build a query in one function, extend it in another, run it with the repo. Nothing runs until you ask, and every value is a bound parameter.
   - title: Nothing implicit
-    details: No lazy loading, no hidden transactions, no save() on rows. A missing preload is a compile error, not an extra query.
+    details: No lazy loading and no save() on rows; a missing preload is a compile error, not an extra query. Nothing joins a transaction you did not open; a single call that writes several statements is atomic on its own.
 ---
 
 ::: warning Work in progress

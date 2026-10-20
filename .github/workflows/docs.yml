@@ -22,11 +22,14 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
-      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
-      # The site is served from https://<owner>.github.io/<repository>/.
+      - id: pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      # The path Pages serves the site from: "/<repository>" for a project site, "" for a
+      # custom domain or a <owner>.github.io repository. VitePress wants it with a slash at
+      # each end.
       - run: pnpm docs:build
         env:
-          DOCS_BASE: /${{ github.event.repository.name }}/
+          DOCS_BASE: ${{ steps.pages.outputs.base_path }}/
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: docs/site/.vitepress/dist

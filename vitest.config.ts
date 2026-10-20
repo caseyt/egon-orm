@@ -114,8 +114,9 @@ const sandboxPair: TestProjectConfiguration = {
 
 /**
  * Step 20: the tutorial's blog (examples/blog), an application with its own test suite and
- * the docs' end-to-end test. `test/setup.ts` gives each test file its own database, points
- * the application's `DATABASE_URL` at it and runs the migrations before the file loads.
+ * the docs' end-to-end test. `test/test-database.ts` (this repository only) gives each test
+ * file a database of its own and points `DATABASE_URL` at it; then `test/setup.ts`, the setup
+ * file the tutorial shows, runs the migrations there.
  */
 const blog: TestProjectConfiguration = {
   resolve: { alias },
@@ -124,7 +125,7 @@ const blog: TestProjectConfiguration = {
     root: fromRoot("./examples/blog"),
     environment: "node",
     include: ["test/**/*.itest.ts"],
-    setupFiles: ["test/setup.ts"],
+    setupFiles: ["test/test-database.ts", "test/setup.ts"],
     globalSetup: [fromRoot("./packages/core/test/support/global-setup.ts")],
     fileParallelism: true,
     sequence: { concurrent: false },
@@ -137,8 +138,9 @@ const blog: TestProjectConfiguration = {
  * Step 20: docs examples marked `// @run` (first lines of a file under docs/site/examples)
  * run against a fresh Postgres database, and each `// =>` comment is checked. A statement
  * that ends a line with `// => value` becomes a deep-equality check of the statement's value
- * (or, for `const x = …;`, of `x`) against `value`, a JavaScript expression. The rewrite
- * keeps every line where it was, so stack traces point at the example's own lines.
+ * (or, for `const x = …;`, of `x`) against `value`, a JavaScript expression, and every such
+ * check must run. The rewrite keeps every line where it was, so stack traces point at the
+ * example's own lines.
  */
 const RUN_MARKER = /^\/\/ @run\b/m;
 const CHECK_LINE = /^(\s*)(.*?);\s*\/\/ => (.+?)\s*$/;
@@ -149,16 +151,21 @@ const runExamples: Plugin = {
   enforce: "pre",
   transform(code, id) {
     if (!id.includes("/docs/site/examples/") || !RUN_MARKER.test(code.slice(0, 2000))) return null;
+    const wheres: string[] = [];
     const lines = code.split("\n").map((line, index) => {
       const match = CHECK_LINE.exec(line);
       if (match === null) return line;
       const [, indent = "", statement = "", expected = ""] = match;
+      wheres.push(`${id}:${index + 1}`);
       const where = JSON.stringify(`${id}:${index + 1}`);
       const declared = DECLARATION.exec(statement)?.[1];
       return declared === undefined
         ? `${indent}globalThis.__egonDocsCheck((${statement}), (${expected}), ${where});`
         : `${indent}${statement}; globalThis.__egonDocsCheck(${declared}, (${expected}), ${where});`;
     });
+    // Announce every check of the file on its first line, so that the test can require each
+    // one to have run: a check in a branch not taken, or after an early return, fails.
+    lines[0] = `globalThis.__egonDocsExpect(${JSON.stringify(wheres)}); ${lines[0] ?? ""}`;
     return { code: lines.join("\n"), map: null };
   },
 };

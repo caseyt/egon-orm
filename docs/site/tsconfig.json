@@ -3,8 +3,7 @@
   "compilerOptions": {
     "rootDir": ".",
     "outDir": "./.tsbuild",
-    "tsBuildInfoFile": "./.tsbuild/tsconfig.tsbuildinfo",
-    "jsx": "react-jsx"
+    "tsBuildInfoFile": "./.tsbuild/tsconfig.tsbuildinfo"
   },
   "include": [".vitepress/config.ts", "examples", "test"],
   "references": [

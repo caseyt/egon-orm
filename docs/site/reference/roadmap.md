@@ -17,7 +17,7 @@ Egon ORM is under construction: nothing is published to npm yet.
 
 | Work | Notes |
 |---|---|
-| Performance | Benchmarks against the raw drivers and the performance budgets, measured in step 19 of the plan. No numbers are published until then. |
+| Performance | Benchmarks against the raw drivers. No numbers are published until then. |
 | Release hardening | Publishing the packages, versioning and the changelog. Whether `@egon-orm/cli` is published is decided then. |
 
 ## Planned after the first release
@@ -40,6 +40,8 @@ These are deliberate choices, not gaps:
 - **Active-record methods** such as `user.save()`. Rows are data.
 - **Lazy loading.** Associations are loaded only when asked for.
 - **An identity map or unit of work.** Two queries for the same row return two objects.
-- **Implicit transactions.** Only calls on the transaction object are inside it.
+- **Implicit transactions.** Nothing joins a transaction you did not open: only calls on
+  the transaction object are inside it. (A single call that writes several statements, a
+  parent with its children or a chunked `insertAll`, is atomic on its own.)
 - **Generating migrations from schema differences.** Migrations are written by hand.
 - **Non-SQL stores.**

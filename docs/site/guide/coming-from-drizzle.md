@@ -6,7 +6,11 @@ to Egon, task by task. The Drizzle calls are shown inline for reference; every E
 is a checked, runnable example (it runs in CI against Postgres, and the `// =>` comments
 are the values it produces).
 
-The examples use a `User` with many `Post`s.
+The Drizzle calls are those of drizzle-orm 0.45 (npm's `latest` in October 2026): tables
+with `relations()`, and the relational query API v1 (`db.query`). Drizzle 1.0, in release
+candidates, replaces `relations()` with `defineRelations()` (Relational Queries v2, with
+object filters), and moves `drizzle-zod` to `drizzle-orm/zod`. The examples use a `User`
+with many `Post`s.
 
 ## The model in one paragraph
 
@@ -49,7 +53,8 @@ Drizzle: `db.insert(users).values({ email, name }).returning()`.
 
 ### Handle a unique violation
 
-Drizzle: catch the driver's error and check the Postgres code `23505`.
+Drizzle (0.44 and later): catch the `DrizzleQueryError`, which keeps the driver's error as
+its `cause`, and check `error.cause.code === "23505"`.
 
 <<< @/examples/coming-from.ts#create-error
 
@@ -195,7 +200,7 @@ Drizzle: `db.delete(posts).where(eq(posts.id, id))`, or with any condition.
 | Drizzle | In Egon |
 |---|---|
 | `drizzle-kit generate` / `push` (migrations from schema changes) | Not supported. Migrations are written by hand; `egon migrate create <name>` writes an empty one to fill in. See [Migrations](/guide/migrations). |
-| `drizzle-zod` | [`@egon-orm/zod`](/guide/validation#deriving-zod-schemas-from-a-schema-class) derives Zod schemas from schema classes. |
+| `drizzle-zod` (`drizzle-orm/zod` in 1.0) | [`@egon-orm/zod`](/guide/validation#deriving-zod-schemas-from-a-schema-class) derives Zod schemas from schema classes. |
 | `sql.raw(…)` | Not supported on purpose. Build dynamic identifiers with `fragment.ident()`. |
 | Lateral joins | Planned; see the [Roadmap](/reference/roadmap). |
 | Views, sequences, enums as schema objects | Create them in a migration; map a Postgres enum with `t.enum([...])` on the field. |

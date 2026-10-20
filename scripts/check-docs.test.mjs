@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  codeOf,
   exportedNames,
   fencedBlocks,
   forbiddenNameMentions,
@@ -58,6 +59,28 @@ test("a region must be opened and closed, by its whole name", () => {
   assert.equal(hasRegion(source, "feed-test"), false);
   assert.equal(hasRegion(source, "fee"), false);
   assert.equal(regionText(source, "feed"), "x;");
+});
+
+test("a region is not found through a longer name that starts with it", () => {
+  const source = "// #region feed-test\nx;\n// #endregion feed-test\n";
+  assert.equal(hasRegion(source, "feed"), false);
+  assert.equal(hasRegion(source, "feed-test"), true);
+});
+
+test("the README may hold the copy of a checked example, and only after its marker", () => {
+  const copy = "<!-- example: docs/site/examples/home.ts#example -->\n```ts\nconst x = 1;\n```\n";
+  assert.deepEqual(handWrittenBlocks(copy, { readme: true }), []);
+  assert.equal(handWrittenBlocks(copy).length, 1); // anywhere else, the marker allows nothing
+  assert.equal(handWrittenBlocks("```ts\nconst x = 1;\n```\n", { readme: true }).length, 1);
+});
+
+test("the code of a page is its code spans and blocks, not its prose", () => {
+  const page = "Count the rows with `repo.count(q)` and ``fragment`now()` ``.\n\n```sh\npnpm from\n```\n";
+  const code = codeOf(page);
+  assert.match(code, /repo\.count\(q\)/);
+  assert.match(code, /fragment`now\(\)`/);
+  assert.match(code, /pnpm from/);
+  assert.doesNotMatch(code, /Count the rows/);
 });
 
 test("the forbidden name is found as a word, in any case, and not inside other words", () => {

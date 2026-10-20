@@ -62,8 +62,14 @@ A small function runs the pending migrations, and a script calls it:
 
 <<< ../../../examples/blog/src/run-migrations.ts#run
 
-Run it once now. The [Migrations](/guide/migrations) guide covers rollbacks, the `egon`
-command-line tool and deployments.
+Run it once now:
+
+```sh
+npx tsx src/run-migrations.ts
+```
+
+The [Migrations](/guide/migrations) guide covers rollbacks and deployments, and the
+[CLI](/reference/cli) runs the same migrations from a configuration file (`egon migrate`).
 
 ## 4. Describe the tables
 
@@ -184,19 +190,31 @@ results of the steps before it, by name and fully typed:
 
 If any step fails, everything is rolled back and the result says which step failed
 (`result.error.step` is typed as the names of the steps that can fail) and what had
-already completed. Because a batch is a value, a test can check its steps without a
-database (see below).
+already completed. Because a batch is a value, a test can check its steps without running
+it (see below).
 
 ## 10. Test it
 
+Tests need a database of their own. Create one next to the first (in `psql`:
+`create database blog_test;`), and run the tests with `DATABASE_URL` pointing at it. A
+Vitest setup file brings its tables up to date before the tests run:
+
+<<< ../../../examples/blog/test/setup.ts#setup
+
+Register it in `vitest.config.ts` with `test: { setupFiles: ["test/setup.ts"] }`, then run:
+
+```sh
+DATABASE_URL=postgres://postgres:blog@localhost:5432/blog_test npx vitest run
+```
+
 `egon-orm/testing` has a **sandbox**: each test runs in a transaction that is rolled back
 afterwards, so tests see their own writes, start from empty tables, and need no cleanup.
-It works with the repo your application already imports:
+It works with the repo your application already imports, and test files that run at the
+same time do not see each other's rows:
 
 <<< ../../../examples/blog/test/accounts.itest.ts#sandbox
 
-Create the test database and run the migrations once, before the tests (the blog does it
-in a Vitest setup file, `test/setup.ts`). Test data is plain functions:
+Test data is plain functions:
 
 <<< ../../../examples/blog/test/posts.itest.ts#factory
 
@@ -209,9 +227,21 @@ The nested form, with an update, an insert and a delete in one call:
 
 <<< ../../../examples/blog/test/posts.itest.ts#moderate-test
 
-And the batch, checked as data:
+And the batch, checked as data, without running it:
 
 <<< ../../../examples/blog/test/publishing.itest.ts#batch-test
+
+### Running the blog from the repository
+
+The finished blog is in the repository, with its tests. They use the Postgres that the
+repository's Docker Compose file starts (on port 54329), and give each test file a database
+of its own:
+
+```sh
+pnpm i
+pnpm db:up
+pnpm --filter @egon-orm/example-blog test
+```
 
 ## What you used
 

@@ -1,17 +1,11 @@
-// Runs before each test file (vitest.config.ts, project blog:integration): gives the file a
-// database of its own, points DATABASE_URL at it before the application is imported, and
-// applies the migrations. The sandbox in each file then keeps the tables empty between tests.
-import { createTestDatabase } from "@egon-orm/test-support";
+// #region setup
+// test/setup.ts: a Vitest setup file (setupFiles in vitest.config.ts), run before each test
+// file. DATABASE_URL points at a database for the tests; this brings its tables up to date.
 import { afterAll } from "vitest";
+import { adapter } from "../src/db.js";
+import { migrate } from "../src/migrate.js";
 
-const handle = await createTestDatabase("postgres", { label: "blog" });
-process.env.DATABASE_URL = handle.db.url;
+await migrate(adapter); // nothing to do after the first file: every migration is applied
 
-const { adapter } = await import("../src/db.js");
-const { migrate } = await import("../src/migrate.js");
-await migrate(adapter);
-
-afterAll(async () => {
-  await adapter.close();
-  await handle.drop();
-});
+afterAll(() => adapter.close());
+// #endregion setup

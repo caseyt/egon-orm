@@ -58,8 +58,8 @@ A dialect is a package like `packages/sqlite`, plus tables in core:
    `normalizePgError`, `normalizeSqliteError` and `normalizeMysqlError` by the existing
    packages), the
    capabilities (`dialect.ts`), and `index.ts`, which calls `createAdapter`.
-5. **Conformance.** Each suite in `packages/core/test/conformance/` (read, write,
-   preload, nested, transaction, compiler, migration) runs against the package through a
+5. **Conformance.** Each suite in `packages/core/test/conformance/` (adapter, read,
+   write, preload, nested, transaction, compiler, migration) runs against the package through a
    profile file in its `test/` directory. A case that needs a missing capability is skipped
    by name.
 6. **Docs.** Add the dialect to `scripts/dialect-support.ts` and run `pnpm docs:dialects`;

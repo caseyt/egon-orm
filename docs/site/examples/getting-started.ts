@@ -79,11 +79,11 @@ export async function firstSteps(): Promise<void> {
   // #region insert
   const result = await repo.insert(User.changeset(User, { email: "ada@example.com" }));
 
-  if (!result.success) {
+  if (result.success) {
+    console.log(result.data.id); // a User: id, createdAt and updatedAt are filled in
+  } else {
     console.log(result.error.errorMessages()); // { email: ["has already been taken"] }
-    return;
   }
-  const ada = result.data; // User: id, createdAt and updatedAt are filled in
   // #endregion insert
 
   // #region query
@@ -104,6 +104,7 @@ export async function firstSteps(): Promise<void> {
   // #endregion query
 
   // #region update
+  const ada = await repo.getByOrThrow(User, { email: "ada@example.com" });
   const renamed = await repo.updateOrThrow(User.changeset(ada, { name: "Ada" }));
   renamed.name; // => "Ada"
   await repo.deleteOrThrow(renamed);

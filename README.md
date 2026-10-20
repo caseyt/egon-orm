@@ -1,7 +1,6 @@
 # Egon ORM
 
 [![CI](https://github.com/caseyt/egon-orm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/caseyt/egon-orm/actions/workflows/ci.yml)
-[![Docs](https://github.com/caseyt/egon-orm/actions/workflows/docs.yml/badge.svg?branch=main)](https://caseyt.github.io/egon-orm/)
 ![Status: under construction](https://img.shields.io/badge/status-under%20construction-orange)
 
 A TypeScript ORM for Postgres, SQLite and MySQL with **schemas**, **changesets**,
@@ -14,8 +13,10 @@ composable **queries** and a **repo**, typed end to end with no code generation.
   Writes return `{ success, data }` or `{ success: false, error }`.
 - **Queries are values.** Build them in one place, extend them in another; every value is
   a bound parameter.
-- **Nothing implicit.** No lazy loading (a missing preload is a compile error), no hidden
-  transactions, no `save()` on rows.
+- **Nothing implicit.** No lazy loading (a missing preload is a compile error) and no
+  `save()` on rows. Nothing joins a transaction you did not open; a single call that
+  writes several statements (a parent with its children, a chunked `insertAll`) is atomic
+  on its own.
 
 > **Status: under construction.** Nothing is published to npm yet. The design and build
 > plan live in [`docs/plan/README.md`](docs/plan/README.md).
@@ -81,12 +82,14 @@ const stats = await repo.all(
 
 ## Documentation
 
-- [Getting started](https://caseyt.github.io/egon-orm/guide/getting-started): a first query in five minutes.
-- [Tutorial](https://caseyt.github.io/egon-orm/guide/tutorial): a blog, step by step ([source](examples/blog)).
-- Coming from [Prisma](https://caseyt.github.io/egon-orm/guide/coming-from-prisma), [Drizzle](https://caseyt.github.io/egon-orm/guide/coming-from-drizzle) or [Sequelize](https://caseyt.github.io/egon-orm/guide/coming-from-sequelize).
-- [Recipes](https://caseyt.github.io/egon-orm/recipes/), the [API reference](https://caseyt.github.io/egon-orm/api/) and the [roadmap](https://caseyt.github.io/egon-orm/reference/roadmap).
+The documentation site is not published yet. Its pages are Markdown in
+[`docs/site`](docs/site), readable here on GitHub, and `pnpm docs:dev` serves the site,
+API reference included, locally.
 
-The site's sources are in [`docs/site`](docs/site); `pnpm docs:dev` serves it locally.
+- [Getting started](docs/site/guide/getting-started.md): a first query in five minutes.
+- [Tutorial](docs/site/guide/tutorial.md): a blog, step by step ([source](examples/blog)).
+- Coming from [Prisma](docs/site/guide/coming-from-prisma.md), [Drizzle](docs/site/guide/coming-from-drizzle.md) or [Sequelize](docs/site/guide/coming-from-sequelize.md).
+- [Recipes](docs/site/recipes/index.md) and the [roadmap](docs/site/reference/roadmap.md).
 
 ## Packages
 
@@ -94,7 +97,7 @@ The site's sources are in [`docs/site`](docs/site); `pnpm docs:dev` serves it lo
 |---|---|
 | `egon-orm` | Schemas, types, changesets, queries, the repo; `egon-orm/testing` and `egon-orm/migration` |
 | `@egon-orm/postgres` | The Postgres adapter (every feature) |
-| `@egon-orm/sqlite`, `@egon-orm/mysql` | The SQLite and MySQL adapters ([documented gaps](https://caseyt.github.io/egon-orm/reference/dialect-support)) |
+| `@egon-orm/sqlite`, `@egon-orm/mysql` | The SQLite and MySQL adapters ([documented gaps](docs/site/reference/dialect-support.md)) |
 | `@egon-orm/zod` | Zod schemas derived from schema classes |
 | `@egon-orm/cli` | The `egon` command: migrations and development databases (not published yet) |
 

@@ -23,7 +23,8 @@ docker run -d --name egon-pg -e POSTGRES_PASSWORD=egon -p 5432:5432 postgres:16
 export DATABASE_URL=postgres://postgres:egon@localhost:5432/postgres
 ```
 
-The examples import these:
+The examples import these. A `// =>` comment in an example gives the value of its line:
+these examples run in the documentation's tests, and those values are checked.
 
 <<< @/examples/getting-started.ts#imports
 

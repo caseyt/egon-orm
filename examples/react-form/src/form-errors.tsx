@@ -1,5 +1,7 @@
-// The checked source of recipes/form-errors.md: a sign-up form in React 19 whose server
-// action returns the changeset's errors. Type-checked; it is not run.
+// The checked source of docs/site/recipes/form-errors.md: a sign-up form in React 19 whose
+// server action returns the changeset's errors. Type-checked; it is not run. It stands for two
+// files of a Next.js app, so their directives are comments here: a file holds one or the other.
+// (A package of its own, so that the React types stay out of the docs site's dependencies.)
 import { postgres } from "@egon-orm/postgres";
 import { cast, createRepo, type ErrorTree, Schema, t } from "egon-orm";
 import { useActionState } from "react";
@@ -20,8 +22,9 @@ class User extends Schema("users", {
 }
 
 // #region action
-// actions.ts: runs on the server ("use server" in Next.js). The state is plain data, so it
-// crosses from server to client as it is.
+// actions.ts
+// "use server";
+// Runs on the server. The state it returns is plain data, so it crosses to the client as it is.
 export type SignUpState = {
   values: Record<string, string>;
   errors: ErrorTree<string>;
@@ -38,7 +41,9 @@ export async function signUp(_previous: SignUpState, form: FormData): Promise<Si
 // #endregion action
 
 // #region form
-// SignUpForm.tsx: a client component.
+// SignUpForm.tsx
+// "use client";
+// A client component: it imports the server action, which Next.js turns into a request.
 const initial: SignUpState = { values: {}, errors: {}, saved: false };
 
 export function SignUpForm() {

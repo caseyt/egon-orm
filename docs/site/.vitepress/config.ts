@@ -76,6 +76,16 @@ export default defineConfig({
   base,
   cleanUrls: true,
   lastUpdated: true,
+  // Generated pages have no source to edit: the API reference (TypeDoc) and the index of
+  // exports (scripts/api-index.ts). They get no edit link.
+  transformPageData(pageData) {
+    if (
+      pageData.relativePath.startsWith("api/reference/") ||
+      pageData.relativePath === "reference/exports.md"
+    ) {
+      pageData.frontmatter.editLink = false;
+    }
+  },
   // Checked example sources live beside the pages but are not pages themselves.
   srcExclude: ["examples/**", "test/**"],
   // VitePress does not prefix `head` links with the base, so it is added here.

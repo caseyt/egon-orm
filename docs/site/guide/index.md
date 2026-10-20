@@ -41,7 +41,7 @@ its goals.
 | Where the schema lives | TypeScript classes | a `.prisma` file, compiled by `prisma generate` | TypeScript table objects | decorated entity classes or model definitions |
 | Reading related rows | `preload`, typed per query | `include` / `select` | relational queries (`with`) or joins | eager `include` / `relations`, and lazy loading |
 | Validating input | changesets, with built-in rules or any Standard Schema library | not built in | not built in (`drizzle-zod` derives schemas) | Sequelize model validators; TypeORM uses `class-validator` |
-| A rejected write | a result: `{ success: false, error }` with field errors | an exception (`P2002` for a unique violation) | the driver's exception | an exception |
+| A rejected write | a result: `{ success: false, error }` with field errors | an exception (`P2002` for a unique violation) | an exception (a `DrizzleQueryError` wrapping the driver's error) | an exception |
 | Transactions | explicit: only calls on `tx` are inside | explicit (`$transaction`) | explicit (`db.transaction`) | explicit; Sequelize can pass them implicitly through CLS |
 | Migrations | written by hand | generated from schema changes | generated from schema changes (drizzle-kit) | TypeORM: generated or written by hand; Sequelize: written by hand |
 
@@ -52,8 +52,9 @@ What you get from the Egon approach:
   `posts` property in its type.
 - **Forms and database errors in one shape.** A unique index violated at write time comes
   back as `{ email: ["has already been taken"] }`, next to the validation errors.
-- **No hidden queries.** No lazy loading, no implicit transaction, no query you did not
-  write.
+- **No hidden queries.** No lazy loading and no query you did not write. Nothing joins a
+  transaction you did not open; a single call that writes several statements (a parent
+  with its children, a chunked `insertAll`) is atomic on its own.
 
 What it costs, honestly:
 
@@ -80,7 +81,8 @@ What it costs, honestly:
   `{ success: false, error }`, where `error` is the changeset with its errors.
   `repo.insertOrThrow` throws instead.
 - **Fields are non-null by default.** `.nullable()` opts in.
-- **Transactions are explicit.** Only calls on the transaction object are inside it.
+- **Transactions are explicit.** Only calls on the transaction object are inside it. A
+  single write that spans several statements opens its own, so it is all or nothing.
 - **Every value is a bound parameter.** Raw SQL is possible only through the `fragment`
   template, whose interpolations are bound too.
 

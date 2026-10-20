@@ -16,6 +16,7 @@
     { "path": "./benchmarks" },
     { "path": "./docs/site" },
     { "path": "./examples/blog" },
+    { "path": "./examples/react-form" },
     { "path": "./docs/plan/spikes/kysely-bridge" }
   ]
 }

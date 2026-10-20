@@ -308,7 +308,7 @@ export const SQLITE_CASES: DialectTable = {
       params: [SINCE],
     },
     "a recursive CTE": {
-      sql: 'with recursive "n" as (select "v"."i" as "i" from (select "column1" as "i" from (values (cast(? as integer)))) as "v" union all select "n"."i" + ? as "i" from "n" as "n" where "n"."i" < ?) select sum("n"."i") as "c0" from "n" as "n"',
+      sql: 'with recursive "n" as (select "v"."i" as "i" from (select "column1" as "i" from (values (cast(? as integer)))) as "v" union all select "n"."i" + cast(? as integer) as "i" from "n" as "n" where "n"."i" < ?) select sum("n"."i") as "c0" from "n" as "n"',
       params: [1, 1, 5],
     },
     "a CTE with a fragment body": {
@@ -486,6 +486,19 @@ export const SQLITE_CASES: DialectTable = {
     "a typed value beside arithmetic keeps its own type (review round 1)": {
       sql: 'select cast(? as real) / (cast(? as integer) + cast(? as integer)) as "c0", cast(? as integer) + (cast(? as integer) + cast(? as integer)) as "c1" from "users" as "u" limit ?',
       params: [7.5, 2, 1, 1099511627776, 1, 1, 1],
+    },
+    // An integer and a bigint are both `integer` here, so the key's value is not cast.
+    "a typed value beside a column of another type in arithmetic is cast, on either side": {
+      sql: 'select "p"."views" / cast(? as real) as "c0", cast(? as real) / "p"."views" as "c1", "p"."views" + ? as "c2", "p"."author_id" + ? as "c3" from "posts" as "p" where "p"."id" = ?',
+      params: [2, 6, 1, 1, 2],
+    },
+    "a typed value of another type beside a column in where, as a named parameter": {
+      sql: 'select "p"."id" as "c0" from "posts" as "p" where "p"."views" / cast(? as real) = ?',
+      params: [2, 1.5],
+    },
+    "updateAll sets a column times a typed value of another type": {
+      sql: 'update "posts" as "p" set "views" = "p"."views" * cast(? as real) where "p"."id" = ?',
+      params: [2, 2],
     },
     "a CASE or coalesce with no typed value beside a typed value takes its type (review round 1)": {
       sql: 'select "u"."id" as "c0" from "users" as "u" where ? = cast(? as integer) + cast(coalesce(?, ?) as integer) and case when true then cast(? as integer) end + cast(case when true then ? end as integer) = ? and cast(? as integer) = cast(coalesce(?, ?) as integer) and case when true then cast(? as integer) end = cast(case when true then ? end as integer) and cast(? as integer) between cast(case when true then ? end as integer) and cast(case when true then ? end as integer)',

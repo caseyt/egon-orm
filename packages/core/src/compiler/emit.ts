@@ -53,6 +53,7 @@ import { IDENTITY } from "../contracts/type.js";
 import { QueryError } from "../errors.js";
 import { OUTER_REFS } from "../query/advanced/outer-refs.js";
 import { collectParams, IDENTIFIER } from "../query/ast.js";
+import { numericRank } from "../query/widen.js";
 import { resolveCodec } from "../types/codec.js";
 import { hidesValues } from "../types/embed.js";
 import {
@@ -628,18 +629,18 @@ function binary(ctx: Ctx, frame: Frame, node: BinaryNode): string {
   }
   // A CASE or coalesce of bound values beside an expression that has a type: written as
   // it is, the database reads it as text (see typedCompound). In arithmetic, a typed value
-  // keeps its type unless a column is on the other side (see typedArithmeticValue).
+  // keeps its type, beside a column only between numeric types (see typedArithmeticValue).
   const context = comparison ? columnType(frame, isBoundCompound(left) ? right : left) : undefined;
   const l = isBoundCompound(left)
     ? typedCompound(ctx, frame, left, context)
     : comparison
       ? operand(ctx, frame, left, leftMin)
-      : typedArithmeticValue(ctx, frame, left, right, leftMin);
+      : typedArithmeticValue(ctx, frame, op, left, right, leftMin);
   const r = isBoundCompound(right)
     ? typedCompound(ctx, frame, right, context)
     : comparison
       ? operand(ctx, frame, right, rightMin)
-      : typedArithmeticValue(ctx, frame, right, left, rightMin);
+      : typedArithmeticValue(ctx, frame, op, right, left, rightMin);
   return infix(ctx, op, sql, l, r);
 }
 
@@ -664,19 +665,56 @@ function infix(ctx: Ctx, op: BinaryOp, sql: string, l: string, r: string): strin
 
 /**
  * An operand of arithmetic whose other operand is not a bound value. A typed value is
- * cast to its type unless the other operand is a column: written bare, it would take the
- * type of the other side (`$1 / (cast($2 as integer) + …)` reads a float as an integer).
- * Beside a column it is left to the column, as before (status note 10, Known gaps).
+ * cast to its type: written bare, it would take the type of the other side
+ * (`$1 / (cast($2 as integer) + …)` reads a float as an integer, and `"x"."i" / $1`
+ * divides as integers when `$1` is a float). Beside a column, see {@link castBesideColumn}.
+ * The plan is built once per query shape, so this is decided once and cached with it.
  */
-function typedArithmeticValue(ctx: Ctx, frame: Frame, node: ExprNode, other: ExprNode, min: number): string {
+function typedArithmeticValue(
+  ctx: Ctx,
+  frame: Frame,
+  op: BinaryOp,
+  node: ExprNode,
+  other: ExprNode,
+  min: number,
+): string {
   if (
     (node.kind === "param" || node.kind === "namedParam") &&
     node.type !== undefined &&
-    other.kind !== "column"
+    (other.kind !== "column" || castBesideColumn(ctx, frame, op, node.type, other))
   ) {
     return `cast(${expr(ctx, frame, node)} as ${typeName(ctx, node.type)})`;
   }
   return operand(ctx, frame, node, min);
+}
+
+/**
+ * Whether a value of `type` beside the column `column` in arithmetic is cast to its own
+ * type (owner decisions, 2026-10-20). It is when both types are numeric (integer, bigint,
+ * decimal, float: the widening order of `query/widen.ts`, which the builder reads the
+ * result with) and their SQL names differ in the dialect, so the database computes in the
+ * wider type: `"p"."views" / cast($1 as double precision)`. It is too beside a column whose
+ * type is not known (of a source with no schema), where a redundant cast is harmless and a
+ * missing one divides as integers. It is not, as before, for a value of the column's type
+ * (`"p"."views" + $1`), for a type outside the order (a custom type: the result keeps the
+ * left operand's type, and MySQL's `CAST` takes few type names), or for `%` (Postgres has
+ * no `%` for floats; the result keeps the left operand's type).
+ */
+function castBesideColumn(
+  ctx: Ctx,
+  frame: Frame,
+  op: BinaryOp,
+  type: AnyFieldType,
+  column: ExprNode,
+): boolean {
+  const value = dbTypeOf(type);
+  if (op === "mod" || numericRank(value) === undefined) return false;
+  const known = columnType(frame, column);
+  if (known === undefined) return true;
+  return (
+    numericRank(known) !== undefined &&
+    lookup(ctx.dialect.types, known.kind) !== lookup(ctx.dialect.types, value.kind)
+  );
 }
 
 /**

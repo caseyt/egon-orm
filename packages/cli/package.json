@@ -2,7 +2,7 @@
   "name": "@egon-orm/cli",
   "version": "0.0.0",
   "private": true,
-  "description": "The egon command for Egon ORM: migrations, migration generators and development databases.",
+  "description": "The egon command for Egon ORM: migrations and development databases.",
   "license": "MIT",
   "author": "Casey Tickes",
   "repository": {

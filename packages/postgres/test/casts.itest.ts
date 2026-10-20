@@ -1,12 +1,13 @@
 // Bound values that only an operand or a column can type, run through the repo on
 // Postgres: arithmetic of typed values in where, select, set and insertAll; a column
-// compared with a CASE or coalesce of untyped values; and comparisons of untyped values.
+// compared with a CASE or coalesce of untyped values; comparisons of untyped values; and a
+// typed value beside a column of another type in arithmetic.
 // Each of these was refused by Postgres before (42725 "operator is not unique", or
 // "operator does not exist: bigint = text").
 
 import { createTestDatabase, Membership, Post, type TestDatabaseHandle, User } from "@egon-orm/test-support";
 import type { Repo } from "egon-orm";
-import { caseWhen, coalesce, createRepo, from, lit, param, t, val } from "egon-orm";
+import { caseWhen, coalesce, createRepo, defineType, from, lit, param, subquery, t, val } from "egon-orm";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { postgres } from "../src/index.js";
 
@@ -265,5 +266,99 @@ describe("untyped values with widened types", () => {
         .select(({ u }) => u.email),
     );
     expect(aged).toEqual(["ann@example.com"]);
+  });
+});
+
+describe("a typed value beside a column of another type in arithmetic keeps its type (owner decision, 2026-10-20)", () => {
+  // Left to the column, the value took its type: an integer column divided as integers
+  // (7 / 2 was 3), and a fraction beside it was refused (22P02).
+  test("in select, on either side, and as a named parameter", async () => {
+    const [row] = await repo.all(
+      from(Post, "p")
+        .where(({ p }) => p.id.eq(1))
+        .select(({ p }) => ({
+          half: p.views.div(val(2, t.float())),
+          share: val(14, t.float()).div(p.views),
+          plus: p.views.add(val(0.5, t.float())),
+          named: p.views.div(param("by", t.float())),
+          // A value of the column's own type is still left to it: integer division.
+          whole: p.views.div(int(2)),
+        })),
+      { by: 4 },
+    );
+    expect(row).toEqual({ half: 3.5, share: 2, plus: 7.5, named: 1.75, whole: 3 });
+  });
+
+  test("in where", async () => {
+    const rows = await repo.all(
+      from(Post, "p")
+        .where(({ p }) => p.views.div(val(2, t.float())).eq(val(3.5, t.float())))
+        .select(({ p }) => p.title),
+    );
+    expect(rows).toEqual(["First"]);
+  });
+
+  test("a comparison leaves the value to the column; the guide's cast of the column compares a fraction", async () => {
+    const fraction = from(Post, "p").where(({ p }) => p.views.lt(val(7.5, t.float())));
+    expect(repo.toSql(fraction).sql).toContain('where "p"."views" < $1');
+    await expect(repo.all(fraction)).rejects.toMatchObject({ code: "database", cause: { code: "22P02" } });
+    const rows = await repo.all(
+      from(Post, "p")
+        .where(({ p }) => p.views.cast(t.float()).lt(val(7.5, t.float())))
+        .orderBy(({ p }) => p.id)
+        .select(({ p }) => p.title),
+    );
+    expect(rows).toEqual(["First", "Second"]);
+  });
+
+  test("the result is read as the wider type: a bigint, or a float beside a bigint column (review round 1)", async () => {
+    const [row] = await repo.all(
+      from(Post, "p")
+        .where(({ p }) => p.id.eq(1))
+        .select(({ p }) => ({
+          // int4 + int8 is int8, which pg returns as text: read as the bigint, a number.
+          wide: p.views.add(val(1, t.bigint({ mode: "number" }))),
+          // A bigint({ mode: "number" }) column halved: a float, not an unsafe integer.
+          keyHalf: p.authorId.div(val(2, t.float())),
+        })),
+    );
+    expect(row).toEqual({ wide: 8, keyHalf: 0.5 });
+    expect(typeof row?.wide).toBe("number");
+    expect(typeof row?.keyHalf).toBe("number");
+  });
+
+  test("a custom numeric type has no place in the order: left to the column, as before (review round 1)", async () => {
+    const cents = defineType<number, string | number>({
+      name: "cents",
+      db: { kind: "custom", sql: "numeric(10, 2)" },
+      cast: (v) => ({ success: true, data: Number(v) }),
+      fromDb: (v) => Number(v),
+      toDb: (v) => v,
+    });
+    const by = val(2, t.type(cents));
+    const q = from(Post, "p").where(({ p }) => p.id.eq(1));
+    expect(repo.toSql(q.select(({ p }) => p.views.div(by))).sql).toContain('"p"."views" / $1');
+    // The value takes the column's type: integer division, read as an integer.
+    expect(await repo.all(q.select(({ p }) => p.views.div(by)))).toEqual([3]);
+    // The guide's workaround, a built-in type, runs on every database: read conformance.
+  });
+
+  test("beside a column of a subquery that selects values the value is cast too (review round 1)", async () => {
+    const inner = from(Post, "x")
+      .where(({ x }) => x.id.eq(1))
+      .select(({ x }) => ({ k: x.views }));
+    const [half] = await repo.all(from(subquery(inner), "s").select(({ s }) => s.k.div(val(2, t.float()))));
+    expect(half).toBe(3.5);
+  });
+
+  test("in set", async () => {
+    await repo.insertAll(Post, [{ authorId: 1, title: "Scaled", views: 2 }]);
+    const scaled = from(Post, "p").where(({ p }) => p.title.eq("Scaled"));
+    try {
+      await repo.updateAll(scaled.set(({ p }) => ({ views: p.views.mul(val(2.5, t.float())) })));
+      expect(await repo.all(scaled.select(({ p }) => p.views))).toEqual([5]);
+    } finally {
+      await repo.deleteAll(scaled);
+    }
   });
 });

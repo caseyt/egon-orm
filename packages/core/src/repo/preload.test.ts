@@ -556,7 +556,7 @@ describe("callbacks", () => {
       ),
     );
     expect(driver.statements[1]?.sql).toBe(
-      'select "books"."id" as "c0", "books"."author_id" as "c1", "books"."title" as "c2", "books"."printed_at" as "c3" from "books" as "books" inner join (select "books"."id" as "$k0", row_number() over (partition by "books"."author_id" order by "books"."id" desc) as "$rank" from "books" as "books" where "books"."author_id" = any($1)) as "$books__ranked" on "$books__ranked"."$k0" = "books"."id" where "$books__ranked"."$rank" > $2 and "$books__ranked"."$rank" - $3 <= $4 order by "$books__ranked"."$rank" asc',
+      'select "books"."id" as "c0", "books"."author_id" as "c1", "books"."title" as "c2", "books"."printed_at" as "c3" from "books" as "books" inner join (select "books"."id" as "$k0", row_number() over (partition by "books"."author_id" order by "books"."id" desc) as "$rank" from "books" as "books" where "books"."author_id" = any($1)) as "$books__ranked" on "$books__ranked"."$k0" = "books"."id" where "$books__ranked"."$rank" > $2 and "$books__ranked"."$rank" - cast($3 as integer) <= $4 order by "$books__ranked"."$rank" asc',
     );
     expect(driver.statements[1]?.params).toEqual([[1, 2, 3], 1, 1, 2]);
   });

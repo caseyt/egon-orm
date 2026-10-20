@@ -18,6 +18,8 @@ export const SQLITE_TRANSACTION_PROFILE: TransactionConformanceProfile = {
     create table wide_rows (id integer primary key autoincrement, ${wideColumns}, constraint wide_rows_c0_key unique (c0));
     create table egon_rendezvous (marker text not null);
   `,
+  // One writer, and a COMMIT that cannot be cancelled once it runs.
+  slowCommit: undefined,
   module: { url: import.meta.url, exportName: "SQLITE_TRANSACTION_PROFILE" },
   // No sessions to list: each file writes its marker into a table, committed at once.
   rendezvous: {

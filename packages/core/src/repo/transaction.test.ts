@@ -7,16 +7,16 @@ import { Tag } from "@egon-orm/test-support";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { createAdapter, type DatabaseAdapter } from "../adapter/adapter.js";
 import type { DriverConnection, DriverCursor, DriverWrapper } from "../adapter/driver.js";
-import { POSTGRES_CAPABILITIES } from "../compiler/index.js";
-import type { PoolEvent, RawResult } from "../contracts/adapter.js";
+import { MYSQL_CAPABILITIES, POSTGRES_CAPABILITIES } from "../compiler/index.js";
+import type { ExecuteOptions, PoolEvent, RawResult } from "../contracts/adapter.js";
 import { ConstraintError, DatabaseError, QueryError, RollbackError } from "../errors.js";
 import { change, createBatch, failure, fragment, from, success } from "../index.js";
 import { createSandbox, expectQueries } from "../testing.js";
 import { insertAll } from "./bulk.js";
 import type { RepoQueryEvent } from "./options.js";
-import { QueryHub, ReadCore } from "./read.js";
+import { Call, QueryHub, ReadCore } from "./read.js";
 import { createRepo, type Repo } from "./repo.js";
-import { atomically } from "./transaction.js";
+import { atomically, Session } from "./transaction.js";
 
 // --- a scripted driver -----------------------------------------------------------------
 
@@ -40,6 +40,8 @@ class ScriptedPool implements DriverWrapper {
   released = 0;
   destroyed = 0;
   cancels = 0;
+  /** Whether a cancel request stops the running statement; when false, it comes too late. */
+  cancelStops = true;
   /** When set, `acquire` waits for it. */
   gate: Promise<void> | undefined = undefined;
 
@@ -98,7 +100,7 @@ class ScriptedPool implements DriverWrapper {
       },
       async cancel(): Promise<void> {
         pool.cancels++;
-        running?.(new Error("canceling statement due to user request"));
+        if (pool.cancelStops) running?.(new Error("canceling statement due to user request"));
       },
       inTransaction: () => inTransaction,
     };
@@ -298,13 +300,39 @@ describe("when a transaction statement fails", () => {
     expect(pool.released + pool.destroyed).toBe(1);
   });
 
-  test("COMMIT fails: its error is thrown and the connection, still in a transaction, is closed", async () => {
+  test("COMMIT fails: its error is thrown; the transaction it left open is rolled back and the connection goes back", async () => {
     const { pool, repo } = setup();
     const refused = databaseError("no commit");
     pool.fail = (sql) => (sql === "commit" ? refused : undefined);
     expect(await rejection(repo.transaction(async (tx) => tx.raw(say("one"))))).toBe(refused);
+    expect(pool.sent).toEqual(["begin", "one", "commit", "rollback"]);
+    expect([pool.released, pool.destroyed]).toEqual([1, 0]);
+  });
+
+  test("COMMIT fails and so does the ROLLBACK after it: the COMMIT's error carries it as suppressed; the connection is closed", async () => {
+    const { pool, repo } = setup();
+    const refused = databaseError("no commit");
+    const lost = databaseError("no rollback");
+    pool.fail = (sql) => (sql === "commit" ? refused : sql === "rollback" ? lost : undefined);
+    const error = await rejection(repo.transaction(async (tx) => tx.raw(say("one"))));
+    expect(error).toBe(refused);
+    expect((error as { suppressed?: unknown }).suppressed).toBe(lost);
+    expect(pool.sent).toEqual(["begin", "one", "commit", "rollback"]);
+    expect([pool.released, pool.destroyed]).toEqual([0, 1]);
+  });
+
+  test("COMMIT fails and the transaction ended with it: nothing more is sent", async () => {
+    const { pool, adapter, repo } = setup();
+    const refused = databaseError("no commit");
+    pool.fail = (sql) => (sql === "commit" ? refused : undefined);
+    const acquire = adapter.acquire.bind(adapter);
+    vi.spyOn(adapter, "acquire").mockImplementation(async () => {
+      const connection = await acquire();
+      vi.spyOn(connection, "inTransaction").mockReturnValue(false);
+      return connection;
+    });
+    expect(await rejection(repo.transaction(async (tx) => tx.raw(say("one"))))).toBe(refused);
     expect(pool.sent).toEqual(["begin", "one", "commit"]);
-    expect(pool.destroyed).toBe(1);
   });
 
   test("ROLLBACK fails after a throw: the original error is rethrown with the failure as suppressed; the connection is closed", async () => {
@@ -2112,7 +2140,9 @@ describe("expectQueries", () => {
     });
     expect(queries.map((event) => [event.operation, readable(event.sql)])).toEqual([
       ["raw", "one"],
+      ["transaction", "begin"],
       ["raw", "two"],
+      ["transaction", "commit"],
     ]);
     const boom = new Error("boom");
     expect(
@@ -2124,7 +2154,7 @@ describe("expectQueries", () => {
     ).toBe(boom);
     // Nothing is listening any more: a statement afterwards is not added to the first array.
     await repo.raw(say("after"));
-    expect(queries).toHaveLength(2);
+    expect(queries).toHaveLength(4);
     const throwing: RepoQueryEvent[] = [];
     repo.on("query", (event) => throwing.push(event));
     await repo.raw(say("counted once"));
@@ -2203,5 +2233,505 @@ describe("running a batch", () => {
     );
     expect((error as RollbackError).reason).toBe("by hand");
     expect((error as Error).message).toContain("tx.rollback(reason) was called");
+  });
+});
+
+// --- the transaction statements: budget and telemetry (ADR 0005) ---------------------------
+
+/** The transaction methods of `Connection`, and the position of their execution options. */
+const OPTION_AT = {
+  begin: 1,
+  commit: 0,
+  rollback: 0,
+  savepoint: 1,
+  rollbackTo: 1,
+  releaseSavepoint: 1,
+} as const;
+
+/** Records the execution options each transaction method of the adapter's connections is given. */
+function recordOptions(adapter: DatabaseAdapter): [string, ExecuteOptions | undefined][] {
+  const calls: [string, ExecuteOptions | undefined][] = [];
+  const acquire = adapter.acquire.bind(adapter);
+  vi.spyOn(adapter, "acquire").mockImplementation(async () => {
+    const connection = await acquire();
+    for (const method of Object.keys(OPTION_AT) as (keyof typeof OPTION_AT)[]) {
+      const original = (connection[method] as (...args: unknown[]) => Promise<void>).bind(connection);
+      vi.spyOn(connection, method).mockImplementation((...args: unknown[]) => {
+        calls.push([method, args[OPTION_AT[method]] as ExecuteOptions | undefined]);
+        return original(...args);
+      });
+    }
+    return connection;
+  });
+  return calls;
+}
+
+/** Busy-waits for `ms` milliseconds without giving timers a chance to run. */
+function block(ms: number): void {
+  const end = performance.now() + ms;
+  while (performance.now() < end) {
+    // spin
+  }
+}
+
+describe("transaction statements: budget and telemetry", () => {
+  test("without timeoutMs or listeners, they are sent with no options", async () => {
+    const { adapter, repo } = setup();
+    const calls = recordOptions(adapter);
+    await repo.transaction(async (tx) => {
+      await tx.transaction(async () => undefined);
+      await tx.transaction(async (inner) => inner.rollback("undo"));
+    });
+    await repo
+      .transaction(async () => {
+        throw new Error("boom");
+      })
+      .catch(() => undefined);
+    expect(calls).toEqual([
+      ["begin", undefined],
+      ["savepoint", undefined],
+      ["releaseSavepoint", undefined],
+      ["savepoint", undefined],
+      ["rollbackTo", undefined],
+      ["commit", undefined],
+      ["begin", undefined],
+      ["rollback", undefined],
+    ]);
+  });
+
+  test("with timeoutMs, BEGIN, SAVEPOINT, RELEASE and COMMIT get what is left of it; ROLLBACK and ROLLBACK TO get none", async () => {
+    const { adapter, repo } = setup();
+    const calls = recordOptions(adapter);
+    await repo.transaction(
+      async (tx) => {
+        await sleep(20);
+        await tx.transaction(async () => undefined);
+        await tx.transaction(async (inner) => inner.rollback("undo"));
+      },
+      { timeoutMs: 1_000 },
+    );
+    await repo
+      .transaction(
+        async () => {
+          throw new Error("boom");
+        },
+        { timeoutMs: 1_000 },
+      )
+      .catch(() => undefined);
+    expect(
+      calls.map(([method, options]) => [method, options === undefined ? "none" : typeof options.timeoutMs]),
+    ).toEqual([
+      ["begin", "number"],
+      ["savepoint", "number"],
+      ["releaseSavepoint", "number"],
+      ["savepoint", "number"],
+      ["rollbackTo", "none"],
+      ["commit", "number"],
+      ["begin", "number"],
+      ["rollback", "none"],
+    ]);
+    const budgets = calls.map(([, options]) => options?.timeoutMs ?? 0);
+    // The first BEGIN gets almost all of it; everything after the 20 ms pause, less.
+    expect(budgets[0]).toBeGreaterThan(990);
+    for (const left of budgets.slice(1, 6)) expect(left).toBeLessThanOrEqual(985);
+    expect(budgets[5]).toBeGreaterThan(0);
+    // No signal on any of them: a transaction has none.
+    expect(calls.every(([, options]) => options?.signal === undefined)).toBe(true);
+  });
+
+  test("a COMMIT the budget stops: the call rejects with the transaction's timeout, then ROLLBACK, and the connection goes back", async () => {
+    const { pool, repo } = setup();
+    pool.delay = (sql) => (sql === "commit" ? 1_000 : 0);
+    const started = performance.now();
+    const error = await rejection(repo.transaction(async (tx) => tx.raw(say("one")), { timeoutMs: 40 }));
+    expect(performance.now() - started).toBeLessThan(500);
+    expect(error).toBeInstanceOf(DatabaseError);
+    expect(error).toMatchObject({ code: "timeout", sql: "commit" });
+    expect((error as Error).message).toContain("timeoutMs (40 ms)");
+    expect((error as DatabaseError).cause).toMatchObject({ code: "timeout" });
+    expect(pool.cancels).toBe(1);
+    expect(pool.sent).toEqual(["begin", "one", "commit", "rollback"]);
+    expect([pool.released, pool.destroyed]).toEqual([1, 0]);
+  });
+
+  test("a COMMIT that completes although the budget ran out while it ran did commit: the call succeeds", async () => {
+    const { pool, repo } = setup();
+    pool.delay = (sql) => (sql === "commit" ? 60 : 0);
+    pool.cancelStops = false;
+    const result = await repo.transaction(async () => "kept", { timeoutMs: 20 });
+    expect(result).toEqual({ success: true, data: "kept" });
+    expect(pool.cancels).toBe(1);
+    expect(pool.sent).toEqual(["begin", "commit"]);
+    expect([pool.released, pool.destroyed]).toEqual([1, 0]);
+  });
+
+  test("a RELEASE that completes although the budget ran out while it ran did release: the nested call succeeds", async () => {
+    const { pool, repo } = setup();
+    pool.delay = (sql) => (sql.startsWith("release") ? 60 : 0);
+    pool.cancelStops = false;
+    const result = await repo.transaction(async (tx) =>
+      tx.transactionOrThrow(async () => "inner", { timeoutMs: 20 }),
+    );
+    expect(result).toEqual({ success: true, data: "inner" });
+    expect(pool.sent).toEqual(["begin", 'savepoint "egon_1"', 'release savepoint "egon_1"', "commit"]);
+  });
+
+  test("a budget spent before the COMMIT could be sent: ROLLBACK instead, and the call rejects with the transaction's timeout", async () => {
+    const { pool, repo } = setup();
+    const events: RepoQueryEvent[] = [];
+    repo.on("query", (event) => events.push(event));
+    const error = await rejection(
+      repo.transaction(
+        async () => {
+          // Past the deadline before its timer can fire: the callback returns first.
+          block(30);
+          return "too late";
+        },
+        { timeoutMs: 10 },
+      ),
+    );
+    expect(error).toMatchObject({ code: "timeout" });
+    expect((error as Error).message).toContain("timeoutMs (10 ms)");
+    expect(pool.sent).toEqual(["begin", "rollback"]);
+    // No COMMIT was tried (not even one refused before it was sent).
+    expect(events.map((event) => [event.sql, event.error])).toEqual([
+      ["begin", undefined],
+      ["rollback", undefined],
+    ]);
+    expect([pool.released, pool.destroyed]).toEqual([1, 0]);
+  });
+
+  test("a nested transaction whose budget is spent before its RELEASE rolls back to its savepoint; the outer one carries on", async () => {
+    const { pool, repo } = setup();
+    const result = await repo.transaction(async (tx) => {
+      const inner = await rejection(
+        tx.transaction(
+          async () => {
+            block(30);
+          },
+          { timeoutMs: 10 },
+        ),
+      );
+      expect(inner).toMatchObject({ code: "timeout" });
+      await tx.raw(say("after"));
+      return "outer";
+    });
+    expect(result).toEqual({ success: true, data: "outer" });
+    expect(pool.sent).toEqual([
+      "begin",
+      'savepoint "egon_1"',
+      'rollback to savepoint "egon_1"',
+      "after",
+      "commit",
+    ]);
+  });
+
+  test("a BEGIN that waits for the connection past the budget is never sent (in a checkout)", async () => {
+    const { pool, repo } = setup();
+    pool.delay = (sql) => (sql === "slow" ? 120 : 0);
+    let called = false;
+    await repo.checkout(async (c) => {
+      const slow = c.raw(say("slow"));
+      const error = await rejection(
+        c.transaction(
+          async () => {
+            called = true;
+          },
+          { timeoutMs: 30 },
+        ),
+      );
+      expect(error).toMatchObject({ code: "timeout" });
+      expect((error as Error).message).toContain("timeoutMs (30 ms)");
+      // It gave up at its deadline, while the statement before it was still running.
+      expect(pool.running).toBe(1);
+      await slow;
+      await c.raw(say("after"));
+    });
+    expect(called).toBe(false);
+    expect(pool.sent).toEqual(["slow", "after"]);
+    expect([pool.released, pool.destroyed]).toEqual([1, 0]);
+  });
+
+  test("a SAVEPOINT that waits past the nested transaction's budget is never sent; the outer transaction carries on", async () => {
+    const { pool, repo } = setup();
+    pool.delay = (sql) => (sql === "slow" ? 120 : 0);
+    const result = await repo.transaction(async (tx) => {
+      const slow = tx.raw(say("slow"));
+      const error = await rejection(tx.transaction(async () => "never", { timeoutMs: 30 }));
+      expect(error).toMatchObject({ code: "timeout" });
+      // It gave up at its deadline, while the statement before it was still running.
+      expect(pool.running).toBe(1);
+      await slow;
+      await tx.raw(say("after"));
+      return "outer";
+    });
+    expect(result).toEqual({ success: true, data: "outer" });
+    expect(pool.sent).toEqual(["begin", "slow", "after", "commit"]);
+  });
+
+  test("a BEGIN that waits in the queue, then runs in time, gets what the wait left", async () => {
+    const { adapter, pool, repo } = setup();
+    pool.delay = (sql) => (sql === "slow" ? 40 : 0);
+    const calls = recordOptions(adapter);
+    await repo.checkout(async (c) => {
+      const slow = c.raw(say("slow"));
+      await c.transaction(async () => undefined, { timeoutMs: 1_000 });
+      await slow;
+    });
+    expect(pool.sent).toEqual(["slow", "begin", "commit"]);
+    const begin = calls[0]?.[1]?.timeoutMs ?? 0;
+    expect(begin).toBeLessThanOrEqual(965);
+    expect(begin).toBeGreaterThan(0);
+  });
+
+  test("they are the repo's query events, operation transaction, with no source and no context", async () => {
+    const { repo } = setup();
+    const events: RepoQueryEvent[] = [];
+    repo.on("query", (event) => events.push(event));
+    await repo.transaction(async (tx) => {
+      await tx.raw(say("one"));
+      await tx.transaction(async (inner) => inner.rollback("undo"));
+    });
+    await repo
+      .transaction(async () => {
+        throw new Error("boom");
+      })
+      .catch(() => undefined);
+    expect(
+      events.map((event) => [event.operation, readable(event.sql), event.source, event.context]),
+    ).toEqual([
+      ["transaction", "begin", undefined, undefined],
+      ["raw", "one", undefined, undefined],
+      ["transaction", 'savepoint "egon_1"', undefined, undefined],
+      ["transaction", 'rollback to savepoint "egon_1"', undefined, undefined],
+      ["transaction", "commit", undefined, undefined],
+      ["transaction", "begin", undefined, undefined],
+      ["transaction", "rollback", undefined, undefined],
+    ]);
+    const statements = events.filter((event) => event.operation === "transaction");
+    expect(statements.every((event) => event.paramCount === 0 && event.decodeMs === 0)).toBe(true);
+  });
+
+  test("a failed transaction statement is an event that carries its error", async () => {
+    const { pool, repo } = setup();
+    const refused = databaseError("no commit");
+    pool.fail = (sql) => (sql === "commit" ? refused : undefined);
+    const events: RepoQueryEvent[] = [];
+    repo.on("query", (event) => events.push(event));
+    await rejection(repo.transaction(async () => undefined));
+    expect(events.map((event) => [readable(event.sql), event.error])).toEqual([
+      ["begin", undefined],
+      ["commit", refused],
+      ["rollback", undefined],
+    ]);
+  });
+
+  test("a BEGIN of two statements (MySQL) is two events", async () => {
+    const pool = new ScriptedPool();
+    const adapter = createAdapter({
+      dialect: "mysql",
+      capabilities: MYSQL_CAPABILITIES,
+      quoteIdentifier: (name) => `\`${name.replaceAll("`", "``")}\``,
+      driver: () => pool,
+      driverCodecs: {},
+      normalizeError: (error) => error,
+    });
+    const repo = createRepo({ adapter });
+    const queries = await expectQueries(repo, () =>
+      repo.transaction(async () => undefined, { isolation: "serializable" }),
+    );
+    expect(queries.map((event) => [event.operation, event.sql])).toEqual([
+      ["transaction", "set transaction isolation level serializable"],
+      ["transaction", "start transaction"],
+      ["transaction", "commit"],
+    ]);
+  });
+
+  test("in the sandbox, the repo's transactions report their savepoints; the sandbox's own statements are not reported", async () => {
+    const { repo } = setup();
+    const sandbox = await createSandbox(repo);
+    const events: RepoQueryEvent[] = [];
+    repo.on("query", (event) => events.push(event));
+    await sandbox.begin();
+    await repo.raw(say("app"));
+    await repo.transaction(async (tx) => tx.raw(say("in transaction")));
+    await sandbox.rollback();
+    expect(events.map((event) => [event.operation, readable(event.sql)])).toEqual([
+      ["raw", "app"],
+      ["transaction", 'savepoint "egon_1"'],
+      ["raw", "in transaction"],
+      ["transaction", 'release savepoint "egon_1"'],
+    ]);
+  });
+
+  test("a call made only when someone listens: a listener added later sees the next transaction's statements", async () => {
+    const { adapter, repo } = setup();
+    const calls = recordOptions(adapter);
+    await repo.transaction(async () => undefined);
+    const events: RepoQueryEvent[] = [];
+    const off = repo.on("query", (event) => events.push(event));
+    await repo.transaction(async () => undefined);
+    off();
+    expect(calls.map(([method, options]) => [method, options?.context instanceof Call])).toEqual([
+      ["begin", false],
+      ["commit", false],
+      ["begin", true],
+      ["commit", true],
+    ]);
+    expect(events).toHaveLength(2);
+  });
+});
+
+describe("transaction statements of a write of several statements", () => {
+  const capabilities = { ...POSTGRES_CAPABILITIES, maxParams: 1 };
+
+  function small() {
+    const pool = new ScriptedPool();
+    const adapter = createAdapter({
+      dialect: "postgres",
+      capabilities,
+      quoteIdentifier: quote,
+      driver: () => pool,
+      driverCodecs: {},
+      normalizeError: (error) => error,
+    });
+    pool.rows = () => [];
+    return { pool, adapter, repo: createRepo({ adapter }) };
+  }
+
+  const head = (sql: string) => sql.split(" ").slice(0, 2).join(" ");
+  const rows = [{ name: "a" }, { name: "b" }];
+
+  test("its BEGIN and COMMIT carry the call's signal, context and budget; its ROLLBACK only the context", async () => {
+    const { adapter, pool, repo } = small();
+    const calls = recordOptions(adapter);
+    const events: RepoQueryEvent[] = [];
+    repo.on("query", (event) => events.push(event));
+    const signal = new AbortController().signal;
+    const context = { request: "r-1" };
+    await repo.insertAll(Tag, rows, { signal, context, timeoutMs: 1_000 });
+    pool.fail = (sql) => (sql.startsWith("insert") ? violation() : undefined);
+    await rejection(repo.insertAll(Tag, rows, { signal, context, timeoutMs: 1_000 }));
+    expect(
+      calls.map(([method, options]) => [method, options?.signal === signal, typeof options?.timeoutMs]),
+    ).toEqual([
+      ["begin", true, "number"],
+      ["commit", true, "number"],
+      ["begin", true, "number"],
+      ["rollback", false, "undefined"],
+    ]);
+    expect(events.map((event) => [event.operation, head(event.sql), event.context])).toEqual([
+      ["transaction", "begin", context],
+      ["insertAll", "insert into", context],
+      ["insertAll", "insert into", context],
+      ["transaction", "commit", context],
+      ["transaction", "begin", context],
+      ["insertAll", "insert into", context],
+      ["transaction", "rollback", context],
+    ]);
+  });
+
+  test("a COMMIT its budget stops rejects with the call's timeout, and the transaction is rolled back", async () => {
+    const { pool, repo } = small();
+    pool.delay = (sql) => (sql === "commit" ? 1_000 : 0);
+    const error = await rejection(repo.insertAll(Tag, rows, { timeoutMs: 40 }));
+    expect(error).toMatchObject({ code: "timeout" });
+    expect((error as Error).message).toContain("The call ran longer than its timeoutMs (40 ms)");
+    expect(pool.sent.map(head)).toEqual(["begin", "insert into", "insert into", "commit", "rollback"]);
+  });
+
+  test("a budget the call spent before its COMMIT: ROLLBACK instead, and the call's timeout", async () => {
+    const { adapter, pool } = small();
+    const core = new ReadCore(adapter, adapter, undefined, true, new QueryHub(adapter, false));
+    const options = { timeoutMs: 10 };
+    const deadline = performance.now() + 10;
+    const error = await rejection(
+      atomically(core, options, deadline, async () => {
+        block(20);
+        return "late";
+      }),
+    );
+    expect(error).toMatchObject({ code: "timeout" });
+    expect((error as Error).message).toContain("The call ran longer than its timeoutMs (10 ms)");
+    expect(((error as DatabaseError).cause as Error).message).toContain("spent before it could start");
+    expect(pool.sent).toEqual(["begin", "rollback"]);
+  });
+
+  test("its signal stops its COMMIT: the call rejects as aborted and the transaction is rolled back", async () => {
+    const { adapter, pool } = small();
+    pool.delay = (sql) => (sql === "commit" ? 1_000 : 0);
+    const core = new ReadCore(adapter, adapter, undefined, true, new QueryHub(adapter, false));
+    const controller = new AbortController();
+    const running = rejection(atomically(core, { signal: controller.signal }, undefined, async () => "done"));
+    await sleep(20);
+    controller.abort();
+    const error = await running;
+    expect(error).toMatchObject({ code: "aborted" });
+    expect(pool.sent).toEqual(["begin", "commit", "rollback"]);
+    expect([pool.released, pool.destroyed]).toEqual([1, 0]);
+  });
+
+  test("a signal that fired before its COMMIT: nothing is sent but the ROLLBACK", async () => {
+    const { adapter, pool } = small();
+    const core = new ReadCore(adapter, adapter, undefined, true, new QueryHub(adapter, false));
+    const controller = new AbortController();
+    const error = await rejection(
+      atomically(core, { signal: controller.signal }, undefined, async () => {
+        controller.abort();
+        return "done";
+      }),
+    );
+    expect(error).toMatchObject({ code: "aborted" });
+    expect(pool.sent).toEqual(["begin", "rollback"]);
+  });
+
+  test("its SAVEPOINT that waits past the call's budget is never sent; the transaction carries on", async () => {
+    const { pool, repo } = small();
+    pool.delay = (sql) => (sql === "slow" ? 300 : 0);
+    const result = await repo.transaction(async (tx) => {
+      const slow = tx.raw(say("slow"));
+      const error = await rejection(tx.insertAll(Tag, rows, { timeoutMs: 30 }));
+      expect(error).toMatchObject({ code: "timeout" });
+      expect((error as Error).message).toContain("The call ran longer than its timeoutMs (30 ms)");
+      // It gave up at the call's deadline, while the statement before it was still running.
+      expect(pool.running).toBe(1);
+      await slow;
+      return "outer";
+    });
+    expect(result).toEqual({ success: true, data: "outer" });
+    expect(pool.sent.map(head)).toEqual(["begin", "slow", "commit"]);
+  });
+
+  test("inside a transaction, the shorter budget stops its RELEASE: the transaction's own, or the call's", async () => {
+    const { pool, repo } = small();
+    pool.delay = (sql) => (sql.startsWith("release") ? 1_000 : 0);
+    // The call's budget is the shorter one: its timeout.
+    const byCall = await rejection(
+      repo.transaction(async (tx) => tx.insertAll(Tag, rows, { timeoutMs: 40 }), { timeoutMs: 5_000 }),
+    );
+    expect((byCall as Error).message).toContain("The call ran longer than its timeoutMs (40 ms)");
+    // The transaction's budget is the shorter one: the transaction's timeout.
+    const byTransaction = await rejection(
+      repo.transaction(async (tx) => tx.insertAll(Tag, rows, { timeoutMs: 5_000 }), { timeoutMs: 40 }),
+    );
+    expect((byTransaction as Error).message).toContain(
+      "The transaction ran longer than its timeoutMs (40 ms)",
+    );
+  });
+});
+
+describe("the session's control", () => {
+  test("work that throws before it returns a promise rejects, and frees the connection for the next work", async () => {
+    const { adapter } = setup();
+    const connection = await adapter.acquire();
+    const session = new Session(connection, undefined, new QueryHub(adapter, false));
+    const boom = new Error("boom");
+    await expect(
+      session.control(() => {
+        throw boom;
+      }),
+    ).rejects.toBe(boom);
+    await expect(session.control(async () => "next")).resolves.toBe("next");
+    await connection.release();
   });
 });

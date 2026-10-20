@@ -210,9 +210,11 @@ describe("nested insert", () => {
       [102, 100, "b"],
     ]);
     expect(events.map((event) => `${event.operation} ${event.source}`)).toEqual([
+      "transaction undefined",
       "insert crews",
       "insert boats",
       "insert boats",
+      "transaction undefined",
     ]);
   });
 
@@ -634,7 +636,13 @@ describe("nested writes, other paths", () => {
       signal: controller.signal,
       context: { request: "r-1" },
     });
-    expect(events.map((event) => event.context)).toEqual([{ request: "r-1" }, { request: "r-1" }]);
+    // BEGIN and COMMIT included.
+    expect(events.map((event) => [event.operation, event.context])).toEqual([
+      ["transaction", { request: "r-1" }],
+      ["insert", { request: "r-1" }],
+      ["insert", { request: "r-1" }],
+      ["transaction", { request: "r-1" }],
+    ]);
   });
 
   test("a child prepare function that makes it invalid fails the parent and rolls back", async () => {

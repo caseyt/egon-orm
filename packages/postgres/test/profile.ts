@@ -66,7 +66,13 @@ export const POSTGRES_PROFILE: AdapterConformanceProfile = {
     insert into authors values (1, 'ada@example.com');
     insert into bookings values (1, '[1,5)');
     insert into counters values (1, 0), (2, 0);
+    create table slow_commits (id integer);
+    create function slow_commit() returns trigger language plpgsql as $$ begin perform pg_sleep(5); return null; end $$;
+    create constraint trigger slow_commit after insert on slow_commits
+      deferrable initially deferred for each row execute function slow_commit();
   `,
+  // A deferred constraint trigger runs at COMMIT; this one sleeps there.
+  slowCommit: "insert into slow_commits values (1)",
   violations: {
     unique: {
       sql: "insert into authors values (2, 'ada@example.com')",

@@ -1010,6 +1010,7 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
         data: { titles: ["In the transaction", "Also in it"], outside: outsideExists ? 0 : undefined },
       });
       expect(operations(events)).toEqual([
+        "transaction",
         "raw",
         "all users",
         "preload profiles",
@@ -1017,6 +1018,7 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
         "preload comments",
         "preload tags",
         ...(outsideExists ? ["aggregate posts"] : []),
+        "transaction",
       ]);
       // Committed with the transaction.
       expect(await repo.count(from(Post, "p").where(({ p }) => p.id.gte(40)))).toBe(2);

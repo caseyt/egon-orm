@@ -6,7 +6,7 @@ import {
   POSTGRES_CAPABILITIES,
   SQLITE_CAPABILITIES,
 } from "../compiler/index.js";
-import type { Capabilities, PoolEvent, QueryEvent, RawResult } from "../contracts/adapter.js";
+import type { Capabilities, Connection, PoolEvent, QueryEvent, RawResult } from "../contracts/adapter.js";
 import type { FieldMeta } from "../contracts/schema.js";
 import type { AnyFieldType } from "../contracts/type.js";
 import { ConstraintError, DatabaseError, QueryError } from "../errors.js";
@@ -1170,6 +1170,85 @@ describe("dedicated connections", () => {
     ]);
   });
 
+  test("transaction statements take execution options: the context reaches the listeners with each one", async () => {
+    const { adapter, driver } = setup();
+    const events: QueryEvent[] = [];
+    adapter.on("query", (event) => events.push(event), { params: true });
+    const connection = await adapter.acquire();
+    const context = { step: "tx" };
+    await connection.begin({ readOnly: true }, { context });
+    await connection.savepoint("a", { context });
+    await connection.rollbackTo("a", { context });
+    await connection.releaseSavepoint("a", { context });
+    await connection.commit({ context });
+    await connection.rollback({ context });
+    await connection.release();
+    expect(driver.connections[0]?.statements.map((s) => [s.sql, s.params, s.name])).toEqual([
+      ["begin read only", [], undefined],
+      ['savepoint "a"', [], undefined],
+      ['rollback to savepoint "a"', [], undefined],
+      ['release savepoint "a"', [], undefined],
+      ["commit", [], undefined],
+      ["rollback", [], undefined],
+    ]);
+    expect(events.map((event) => [event.sql, event.context, event.paramCount, event.params])).toEqual([
+      ["begin read only", context, 0, []],
+      ['savepoint "a"', context, 0, []],
+      ['rollback to savepoint "a"', context, 0, []],
+      ['release savepoint "a"', context, 0, []],
+      ["commit", context, 0, []],
+      ["rollback", context, 0, []],
+    ]);
+  });
+
+  test("timeoutMs cancels a COMMIT that runs too long; the connection, still in a transaction, is closed", async () => {
+    const { adapter, driver } = setup();
+    const statement = deferred<RawResult>();
+    driver.connectionSetup = (connection) => {
+      connection.respond = async (sql) => (sql === "commit" ? statement.promise : EMPTY);
+      connection.cancelResult = async () => statement.reject(new Error("canceling statement"));
+      connection.transaction = () => true;
+    };
+    const connection = await adapter.acquire();
+    await connection.begin();
+    const error = await rejection(connection.commit({ timeoutMs: 5 }));
+    expect(error).toMatchObject({ code: "timeout", sql: "commit" });
+    expect((error as DatabaseError).cause).toBeInstanceOf(Error);
+    expect(driver.connections[0]?.cancels).toBe(1);
+    await connection.release();
+    expect(driver.released).toEqual([{ id: 1, destroy: true }]);
+  });
+
+  test("a signal stops a SAVEPOINT, a RELEASE and a ROLLBACK TO as it stops any statement", async () => {
+    const { adapter, driver } = setup();
+    const connection = await adapter.acquire();
+    const signal = AbortSignal.abort();
+    await expect(connection.savepoint("a", { signal })).rejects.toMatchObject({ code: "aborted" });
+    await expect(connection.releaseSavepoint("a", { signal })).rejects.toMatchObject({ code: "aborted" });
+    await expect(connection.rollbackTo("a", { signal })).rejects.toMatchObject({ code: "aborted" });
+    await expect(connection.rollback({ signal })).rejects.toMatchObject({ code: "aborted" });
+    await expect(connection.begin(undefined, { timeoutMs: 0 })).rejects.toMatchObject({ code: "timeout" });
+    // Nothing was sent.
+    expect(driver.connections[0]?.statements).toEqual([]);
+    await connection.release();
+  });
+
+  test.each([
+    ["begin", (c: Connection) => c.begin(undefined, { statementName: "s" })],
+    ["commit", (c: Connection) => c.commit({ statementName: "s" })],
+    ["rollback", (c: Connection) => c.rollback({ statementName: "s" })],
+    ["savepoint", (c: Connection) => c.savepoint("a", { statementName: "s" })],
+    ["rollbackTo", (c: Connection) => c.rollbackTo("a", { statementName: "s" })],
+    ["releaseSavepoint", (c: Connection) => c.releaseSavepoint("a", { statementName: "s" })],
+  ] as const)("%s refuses a statementName before anything is sent", async (method, call) => {
+    const { adapter, driver } = setup();
+    const connection = await adapter.acquire();
+    expect(() => call(connection)).toThrow(TypeError);
+    expect(() => call(connection)).toThrow(`connection.${method}(…, options): statementName is not accepted`);
+    expect(driver.connections[0]?.statements).toEqual([]);
+    await connection.release();
+  });
+
   test.each([
     ["savepoint", ""],
     ["rollbackTo", 42],
@@ -1354,6 +1433,116 @@ describe("beginStatements", () => {
       "set transaction isolation level repeatable read",
       "start transaction",
     ]);
+  });
+
+  function mysqlSetup() {
+    const driver = new FakeDriver();
+    const adapter = createAdapter({
+      dialect: "mysql",
+      capabilities: MYSQL_CAPABILITIES,
+      quoteIdentifier: (name) => `\`${name.replaceAll("`", "``")}\``,
+      driver: () => driver,
+      driverCodecs: {},
+      normalizeError: (error) => error,
+    });
+    return { adapter, driver };
+  }
+
+  test("its timeoutMs is one budget for both statements: the second gets what the first left", async () => {
+    vi.useFakeTimers();
+    const { adapter, driver } = mysqlSetup();
+    const first = deferred<RawResult>();
+    const second = deferred<RawResult>();
+    driver.connectionSetup = (connection) => {
+      connection.respond = (sql) =>
+        sql.startsWith("set") ? first.promise : sql === "rollback" ? Promise.resolve(EMPTY) : second.promise;
+      connection.cancelResult = async () => second.reject(new Error("canceling statement"));
+    };
+    const events: QueryEvent[] = [];
+    adapter.on("query", (event) => events.push(event));
+    const connection = await adapter.acquire();
+    const context = { step: "begin" };
+    const begun = rejection(connection.begin({ isolation: "serializable" }, { timeoutMs: 100, context }));
+    await vi.advanceTimersByTimeAsync(60);
+    first.resolve(EMPTY);
+    await vi.advanceTimersByTimeAsync(39);
+    // 99 ms spent: the second statement is still running, with 1 ms left.
+    expect(driver.connections[0]?.cancels).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    const error = await begun;
+    expect(error).toMatchObject({ code: "timeout", sql: "start transaction" });
+    expect(driver.connections[0]?.cancels).toBe(1);
+    // What the first statement set must not reach the next transaction on the connection:
+    // ROLLBACK clears it, and the connection stays usable.
+    expect(events.map((event) => [event.sql, event.context])).toEqual([
+      ["set transaction isolation level serializable", context],
+      ["start transaction", context],
+      ["rollback", undefined],
+    ]);
+    await connection.release();
+    expect(driver.released).toEqual([{ id: 1, destroy: false }]);
+  });
+
+  test("a budget the first statement spent stops the second before it is sent", async () => {
+    const { adapter, driver } = mysqlSetup();
+    // The first statement takes the whole budget on the adapter's clock, and completes
+    // before its own timer can fire.
+    const real = performance.now.bind(performance);
+    let skew = 0;
+    vi.spyOn(performance, "now").mockImplementation(() => real() + skew);
+    driver.connectionSetup = (connection) => {
+      connection.respond = async () => {
+        skew = 100;
+        return EMPTY;
+      };
+    };
+    const connection = await adapter.acquire();
+    const error = await rejection(connection.begin({ isolation: "serializable" }, { timeoutMs: 50 }));
+    expect(error).toMatchObject({ code: "timeout", sql: "start transaction" });
+    expect((error as Error).message).toContain("was spent before it could start");
+    expect(driver.connections[0]?.statements.map((s) => s.sql)).toEqual([
+      "set transaction isolation level serializable",
+      "rollback",
+    ]);
+    await connection.release();
+    expect(driver.released).toEqual([{ id: 1, destroy: false }]);
+  });
+
+  test("a second statement that fails, then a ROLLBACK that fails too: the begin's error is thrown and the connection is closed", async () => {
+    const { adapter, driver } = mysqlSetup();
+    const refused = new Error("start refused");
+    driver.connectionSetup = (connection) => {
+      connection.respond = async (sql) => {
+        if (sql === "start transaction") throw refused;
+        if (sql === "rollback") throw new Error("rollback refused");
+        return EMPTY;
+      };
+    };
+    const connection = await adapter.acquire();
+    expect(await rejection(connection.begin({ isolation: "serializable" }))).toBe(refused);
+    expect(driver.connections[0]?.statements.map((s) => s.sql)).toEqual([
+      "set transaction isolation level serializable",
+      "start transaction",
+      "rollback",
+    ]);
+    await connection.release();
+    expect(driver.released).toEqual([{ id: 1, destroy: true }]);
+  });
+
+  test("a first statement that fails leaves the connection reusable; without a budget both are sent as they are", async () => {
+    const { adapter, driver } = mysqlSetup();
+    driver.connectionSetup = (connection) => {
+      connection.respond = async (sql) => {
+        if (sql.startsWith("set")) throw new Error("no such level");
+        return EMPTY;
+      };
+    };
+    const connection = await adapter.acquire();
+    await expect(connection.begin({ isolation: "serializable" }, { context: 1 })).rejects.toThrow(
+      "no such level",
+    );
+    await connection.release();
+    expect(driver.released).toEqual([{ id: 1, destroy: false }]);
   });
 });
 

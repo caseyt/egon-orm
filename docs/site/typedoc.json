@@ -37,15 +37,15 @@
   "logLevel": "Warn",
   "externalSymbolLinkMappings": {
     "egon-orm": {
-      "CompiledQuery": "https://github.com/caseyt/ectype-orm/blob/main/packages/core/src/contracts/adapter.ts",
-      "CompiledQuery.schema": "https://github.com/caseyt/ectype-orm/blob/main/packages/core/src/contracts/adapter.ts",
-      "OutputPlan": "https://github.com/caseyt/ectype-orm/blob/main/packages/core/src/contracts/adapter.ts",
-      "FieldValueOf": "https://github.com/caseyt/ectype-orm/blob/main/packages/core/src/contracts/schema.ts",
-      "FieldFlagsOf": "https://github.com/caseyt/ectype-orm/blob/main/packages/core/src/contracts/schema.ts",
-      "ROW": "https://github.com/caseyt/ectype-orm/blob/main/packages/core/src/contracts/schema.ts",
-      "META": "https://github.com/caseyt/ectype-orm/blob/main/packages/core/src/contracts/schema.ts",
-      "IDENTITY": "https://github.com/caseyt/ectype-orm/blob/main/packages/core/src/contracts/type.ts",
-      "CUSTOM_SQL_TYPE": "https://github.com/caseyt/ectype-orm/blob/main/packages/core/src/contracts/type.ts"
+      "CompiledQuery": "https://github.com/caseyt/egon-orm/blob/main/packages/core/src/contracts/adapter.ts",
+      "CompiledQuery.schema": "https://github.com/caseyt/egon-orm/blob/main/packages/core/src/contracts/adapter.ts",
+      "OutputPlan": "https://github.com/caseyt/egon-orm/blob/main/packages/core/src/contracts/adapter.ts",
+      "FieldValueOf": "https://github.com/caseyt/egon-orm/blob/main/packages/core/src/contracts/schema.ts",
+      "FieldFlagsOf": "https://github.com/caseyt/egon-orm/blob/main/packages/core/src/contracts/schema.ts",
+      "ROW": "https://github.com/caseyt/egon-orm/blob/main/packages/core/src/contracts/schema.ts",
+      "META": "https://github.com/caseyt/egon-orm/blob/main/packages/core/src/contracts/schema.ts",
+      "IDENTITY": "https://github.com/caseyt/egon-orm/blob/main/packages/core/src/contracts/type.ts",
+      "CUSTOM_SQL_TYPE": "https://github.com/caseyt/egon-orm/blob/main/packages/core/src/contracts/type.ts"
     }
   }
 }

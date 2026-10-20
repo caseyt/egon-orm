@@ -205,7 +205,7 @@ cycle and type it as `any`. A class whose fields are in its base and whose assoc
 are `static` members does not: the base mentions only fields, and TypeScript works out
 static members lazily. The class also gives the row type a name, `User`, and a place for
 getters and methods. The decision and the experiment behind it are recorded in
-[ADR 0001](https://github.com/caseyt/ectype-orm/blob/main/docs/adr/0001-schema-classes.md).
+[ADR 0001](https://github.com/caseyt/egon-orm/blob/main/docs/adr/0001-schema-classes.md).
 
 ## See also
 

@@ -1,7 +1,7 @@
 # Egon ORM
 
-[![CI](https://github.com/caseyt/ectype-orm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/caseyt/ectype-orm/actions/workflows/ci.yml)
-[![Docs](https://github.com/caseyt/ectype-orm/actions/workflows/docs.yml/badge.svg?branch=main)](https://caseyt.github.io/ectype-orm/)
+[![CI](https://github.com/caseyt/egon-orm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/caseyt/egon-orm/actions/workflows/ci.yml)
+[![Docs](https://github.com/caseyt/egon-orm/actions/workflows/docs.yml/badge.svg?branch=main)](https://caseyt.github.io/egon-orm/)
 ![Status: under construction](https://img.shields.io/badge/status-under%20construction-orange)
 
 A TypeScript ORM for Postgres, SQLite and MySQL with **schemas**, **changesets**,
@@ -81,10 +81,10 @@ const stats = await repo.all(
 
 ## Documentation
 
-- [Getting started](https://caseyt.github.io/ectype-orm/guide/getting-started): a first query in five minutes.
-- [Tutorial](https://caseyt.github.io/ectype-orm/guide/tutorial): a blog, step by step ([source](examples/blog)).
-- Coming from [Prisma](https://caseyt.github.io/ectype-orm/guide/coming-from-prisma), [Drizzle](https://caseyt.github.io/ectype-orm/guide/coming-from-drizzle) or [Sequelize](https://caseyt.github.io/ectype-orm/guide/coming-from-sequelize).
-- [Recipes](https://caseyt.github.io/ectype-orm/recipes/), the [API reference](https://caseyt.github.io/ectype-orm/api/) and the [roadmap](https://caseyt.github.io/ectype-orm/reference/roadmap).
+- [Getting started](https://caseyt.github.io/egon-orm/guide/getting-started): a first query in five minutes.
+- [Tutorial](https://caseyt.github.io/egon-orm/guide/tutorial): a blog, step by step ([source](examples/blog)).
+- Coming from [Prisma](https://caseyt.github.io/egon-orm/guide/coming-from-prisma), [Drizzle](https://caseyt.github.io/egon-orm/guide/coming-from-drizzle) or [Sequelize](https://caseyt.github.io/egon-orm/guide/coming-from-sequelize).
+- [Recipes](https://caseyt.github.io/egon-orm/recipes/), the [API reference](https://caseyt.github.io/egon-orm/api/) and the [roadmap](https://caseyt.github.io/egon-orm/reference/roadmap).
 
 The site's sources are in [`docs/site`](docs/site); `pnpm docs:dev` serves it locally.
 
@@ -94,7 +94,7 @@ The site's sources are in [`docs/site`](docs/site); `pnpm docs:dev` serves it lo
 |---|---|
 | `egon-orm` | Schemas, types, changesets, queries, the repo; `egon-orm/testing` and `egon-orm/migration` |
 | `@egon-orm/postgres` | The Postgres adapter (every feature) |
-| `@egon-orm/sqlite`, `@egon-orm/mysql` | The SQLite and MySQL adapters ([documented gaps](https://caseyt.github.io/ectype-orm/reference/dialect-support)) |
+| `@egon-orm/sqlite`, `@egon-orm/mysql` | The SQLite and MySQL adapters ([documented gaps](https://caseyt.github.io/egon-orm/reference/dialect-support)) |
 | `@egon-orm/zod` | Zod schemas derived from schema classes |
 | `@egon-orm/cli` | The `egon` command: migrations and development databases (not published yet) |
 

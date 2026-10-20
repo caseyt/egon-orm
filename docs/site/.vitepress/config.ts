@@ -72,7 +72,7 @@ const base = process.env.DOCS_BASE ?? "/";
 export default defineConfig({
   title: "Egon ORM",
   description: "A TypeScript ORM with schemas, changesets, composable queries and a repo, typed end to end.",
-  // Set DOCS_BASE (e.g. "/ectype-orm/") when the site is served from a sub-path.
+  // Set DOCS_BASE (e.g. "/egon-orm/") when the site is served from a sub-path.
   base,
   cleanUrls: true,
   lastUpdated: true,
@@ -256,9 +256,9 @@ export default defineConfig({
       },
     },
     editLink: {
-      pattern: "https://github.com/caseyt/ectype-orm/edit/main/docs/site/:path",
+      pattern: "https://github.com/caseyt/egon-orm/edit/main/docs/site/:path",
       text: "Edit this page on GitHub",
     },
-    socialLinks: [{ icon: "github", link: "https://github.com/caseyt/ectype-orm" }],
+    socialLinks: [{ icon: "github", link: "https://github.com/caseyt/egon-orm" }],
   },
 });

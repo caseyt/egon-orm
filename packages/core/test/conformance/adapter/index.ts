@@ -693,11 +693,12 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
           expect(Date.now() - started).toBeLessThan(3_000);
           expect(error).toBeInstanceOf(DatabaseError);
           expect(error).toMatchObject({ code: "timeout", sql: "commit" });
-          // The database ended the transaction: nothing of it was committed.
-          expect(connection.inTransaction()).toBe(false);
+          // The database ended the transaction: nothing of it was committed. (The driver's
+          // transaction status is read after the next round trip: it may lag the error.)
           expect((await connection.execute("select value from counters where id = 1", [])).rows).toEqual(
             before,
           );
+          expect(connection.inTransaction()).toBe(false);
         } finally {
           await connection.release();
         }

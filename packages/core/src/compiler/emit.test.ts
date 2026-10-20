@@ -27,7 +27,19 @@ import { POSTGRES_CAPABILITIES, postgresDialect, type SqlDialect } from "./diale
 import { precedenceOf } from "./emit.js";
 import { PRECEDENCE, registerNodeEmitter } from "./registry.js";
 import { ALL_CASES } from "./sql-cases.js";
-import { bareQuery, col, frag, rebuild, run, selectOne, tableOf, typeOf, value } from "./sql-fixtures.js";
+import {
+  bareQuery,
+  col,
+  DIALECTS,
+  frag,
+  rebuild,
+  run,
+  selectOne,
+  tableOf,
+  typeOf,
+  value,
+  withDialects,
+} from "./sql-fixtures.js";
 
 /** A dialect like Postgres with some capabilities taken away, named after another database. */
 function limited(capabilities: Partial<Capabilities>, rest: Partial<SqlDialect> = {}): SqlDialect {
@@ -704,16 +716,33 @@ describe("extension registry", () => {
 });
 
 describe("the case tables", () => {
-  test("every case has a Postgres expectation", () => {
-    for (const [, cases] of ALL_CASES) {
-      for (const sqlCase of cases) expect(sqlCase.expected.postgres, sqlCase.name).toBeDefined();
+  test("every case has an expectation for every dialect, and Postgres refuses none", () => {
+    for (const [area, cases] of ALL_CASES) {
+      for (const sqlCase of cases) {
+        for (const dialect of DIALECTS) {
+          expect(sqlCase.expected[dialect.name], `${area}: ${sqlCase.name} on ${dialect.name}`).toBeDefined();
+        }
+        expect(sqlCase.expected.postgres, sqlCase.name).not.toHaveProperty("error");
+      }
     }
   });
 
   test("run() binds named values", () => {
     const sqlCase = ALL_CASES.flatMap(([, cases]) => cases).find((c) => c.named !== undefined);
     expect(sqlCase).toBeDefined();
-    if (sqlCase !== undefined)
-      expect(run(createCompiler(postgresDialect), sqlCase).params.length).toBeGreaterThan(0);
+    if (sqlCase !== undefined) {
+      const result = run(createCompiler(postgresDialect), sqlCase);
+      expect("params" in result && result.params.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("withDialects refuses a table that names a case the area has not, and two cases of one name", () => {
+    const [one] = ALL_CASES[0]?.[1] ?? [];
+    if (one === undefined) throw new Error("no cases");
+    expect(() => withDialects("select", [one], { mysql: { select: { nope: { error: "x" } } } })).toThrow(
+      /names "nope", which the select matrix has not/,
+    );
+    expect(() => withDialects("select", [one, one], {})).toThrow(/two cases of one name/);
+    expect(withDialects("other", [one], { mysql: {} })[0]?.expected).toEqual(one.expected);
   });
 });

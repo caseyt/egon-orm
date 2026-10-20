@@ -407,7 +407,7 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
         if (!a.capabilities.readOnlyTransactions) {
           const refusing = await a.acquire();
           try {
-            expect(() => refusing.begin({ readOnly: true })).toThrow(/not supported by this database/);
+            expect(() => refusing.begin({ readOnly: true })).toThrow(`not supported by ${a.dialect}`);
           } finally {
             await refusing.release();
           }
@@ -427,7 +427,7 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
             await connection.begin({ isolation: "serializable", readOnly: true, deferrable: true });
           } else {
             expect(() => connection.begin({ readOnly: true, deferrable: true })).toThrow(
-              /not supported by this database/,
+              `not supported by ${a.dialect}`,
             );
             await connection.begin({ isolation: "serializable", readOnly: true });
           }

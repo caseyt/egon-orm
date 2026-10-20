@@ -27,6 +27,8 @@ export const POSTGRES_CAPABILITIES: Capabilities = Object.freeze({
   nullsOrder: true,
   updateJoin: true,
   cteMaterialized: true,
+  writingCtes: true,
+  intersectExceptAll: true,
   insertDefaultValues: true,
   defaultInValues: true,
   aggregateFilter: true,

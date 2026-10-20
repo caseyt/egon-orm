@@ -14,6 +14,7 @@ import { createRequire } from "node:module";
 import Database from "better-sqlite3";
 import type { createAdapter, PoolEvent, RawResult } from "egon-orm";
 import type { OpenSettings } from "./options.js";
+import { formatTimestamp } from "./values.js";
 
 /** The driver interface of the shared adapter (not exported by name from `egon-orm`). */
 type Definition = Parameters<typeof createAdapter>[0];
@@ -89,9 +90,12 @@ function insertedKey(rowid: number | bigint): number | bigint {
 }
 
 /**
- * The parameters as better-sqlite3 binds them: it takes no booleans, so a boolean with no
- * type to convert it (an untyped value, `val(true)`) is bound as 1 or 0, as SQLite stores
- * one. The array is copied only when it holds one.
+ * The parameters as better-sqlite3 binds them. It takes no booleans and no dates, so a value
+ * with no type to convert it (an untyped value, `val(true)`, `val(new Date())`) is bound as
+ * SQLite stores one: a boolean as 1 or 0, a `Date` as the text a `timestamptz` column
+ * holds. The array is copied only when it holds one.
+ *
+ * @throws CastError for an invalid `Date`.
  */
 function bindable(params: readonly unknown[]): unknown[] {
   let copy: unknown[] | undefined;
@@ -100,6 +104,9 @@ function bindable(params: readonly unknown[]): unknown[] {
     if (typeof value === "boolean") {
       if (copy === undefined) copy = params.slice();
       copy[i] = value ? 1 : 0;
+    } else if (value instanceof Date) {
+      if (copy === undefined) copy = params.slice();
+      copy[i] = formatTimestamp(value, true);
     }
   }
   return copy ?? (params as unknown[]);

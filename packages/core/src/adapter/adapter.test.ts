@@ -1302,20 +1302,12 @@ describe("beginStatements", () => {
   });
 
   test.each([
-    [
-      "mysql",
-      { deferrable: true },
-      "A deferrable transaction (deferrable: true) is not supported by this database.",
-    ],
-    [
-      "sqlite",
-      { readOnly: true },
-      "A read-only transaction (readOnly: true) is not supported by this database.",
-    ],
+    ["mysql", { deferrable: true }, "A deferrable transaction (deferrable: true) is not supported by mysql."],
+    ["sqlite", { readOnly: true }, "A read-only transaction (readOnly: true) is not supported by sqlite."],
     [
       "sqlite",
       { isolation: "serializable" },
-      'The isolation level "serializable" is not supported by this database.',
+      'The isolation level "serializable" is not supported by sqlite.',
     ],
   ] as const)("%s refuses %o with QueryError", (dialect, options, message) => {
     const capabilities = dialect === "mysql" ? MYSQL_CAPABILITIES : SQLITE_CAPABILITIES;

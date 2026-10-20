@@ -1324,6 +1324,9 @@ function ctes(ctx: Ctx, frame: Frame, nodes: readonly CteNode[]): string {
     const node = nodes[i] as CteNode;
     if (node.recursive) recursive = true;
     const entry = cteEntry(frame.scope, node);
+    if (node.operation !== "all" && !ctx.dialect.capabilities.writingCtes) {
+      throw unsupported(ctx.dialect, "A CTE that writes (updateAll or deleteAll in a WITH)");
+    }
     let body: string;
     if (node.query.kind === "query") {
       const written = query(
@@ -1410,6 +1413,9 @@ function select(
     for (const combination of ast.combinations) {
       const op = lookup(SET_OPERATIONS, combination.op);
       if (op === undefined) throw new QueryError(`Unknown set operation "${String(combination.op)}".`);
+      if (combination.all && op !== "union" && !ctx.dialect.capabilities.intersectExceptAll) {
+        throw unsupported(ctx.dialect, `${op.toUpperCase()} ALL`);
+      }
       // Each set operation applies to everything before it. INTERSECT binds tighter than
       // UNION and EXCEPT in SQL, so what comes before it is grouped when it holds those.
       // A database that takes no parentheses here (SQLite) applies them left to right.
@@ -1417,7 +1423,14 @@ function select(
       if (op !== "intersect") loose = true;
       const branch = query(ctx, combination.query, frame.scope, frame.schema, "all", mode, undefined);
       result = mergeProvenance(result, branch.output);
-      const operand = parenthesized ? `(${branch.sql})` : `select * from (${branch.sql})`;
+      // Without parentheses, a branch with clauses of its own that would apply to the whole
+      // (order, limit, offset, its own WITH or set operations) is read from a subquery; a
+      // plain one is written as it is (a recursive CTE refers to itself only that way).
+      const operand = parenthesized
+        ? `(${branch.sql})`
+        : plainBranch(combination.query)
+          ? branch.sql
+          : `select * from (${branch.sql})`;
       sql += ` ${op}${combination.all ? " all" : ""} ${operand}`;
     }
   }
@@ -1455,6 +1468,17 @@ function select(
     sql += at(ctx, start[LOCK] as number, () => lockClause(ctx, frame, lock.clause));
   }
   return { sql, output: result };
+}
+
+/** Whether a set-operation branch can be written without parentheses and mean the same. */
+function plainBranch(ast: QueryAst): boolean {
+  return (
+    ast.orderBys.length === 0 &&
+    ast.limit === undefined &&
+    ast.offset === undefined &&
+    ast.ctes.length === 0 &&
+    ast.combinations.length === 0
+  );
 }
 
 function selectList(ctx: Ctx, frame: Frame, items: readonly SelectItem[]): string {
@@ -1606,6 +1630,9 @@ function source(ctx: Ctx, frame: Frame, node: SourceNode, lateral = false): stri
       return `${text}) as ${alias} (${node.columns.map((column) => quote(ctx, column)).join(", ")})`;
     }
     case "fragmentSource": {
+      if (node.columns.length > 0 && !ctx.dialect.sourceColumnList) {
+        throw unsupported(ctx.dialect, "A column list after a fragment source's alias");
+      }
       const text = `${fragment(ctx, frame, node.fragment)} as ${alias}`;
       return node.columns.length === 0
         ? text

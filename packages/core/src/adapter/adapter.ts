@@ -149,7 +149,11 @@ const NO_BEGIN_OPTIONS: CheckedBegin = Object.freeze({
  * database lacks is refused when it asks for something (`readOnly: true`,
  * `deferrable: true`); asking for the default (`false`) is accepted everywhere.
  */
-function checkBegin(options: BeginOptions | undefined, capabilities: Capabilities): CheckedBegin {
+function checkBegin(
+  options: BeginOptions | undefined,
+  capabilities: Capabilities,
+  dialect: Dialect,
+): CheckedBegin {
   if (options === undefined) return NO_BEGIN_OPTIONS;
   if (!isPlainObject(options)) {
     throw new TypeError("connection.begin(options): options must be a plain object or undefined.");
@@ -162,14 +166,14 @@ function checkBegin(options: BeginOptions | undefined, capabilities: Capabilitie
       );
     }
     if (!capabilities.isolationLevels.includes(isolation)) {
-      throw new QueryError(`The isolation level "${isolation}" is not supported by this database.`);
+      throw new QueryError(`The isolation level "${isolation}" is not supported by ${dialect}.`);
     }
   }
   if (readOnly !== undefined) {
     if (typeof readOnly !== "boolean")
       throw new TypeError("connection.begin({ readOnly }): readOnly must be a boolean.");
     if (readOnly && !capabilities.readOnlyTransactions) {
-      throw new QueryError("A read-only transaction (readOnly: true) is not supported by this database.");
+      throw new QueryError(`A read-only transaction (readOnly: true) is not supported by ${dialect}.`);
     }
   }
   if (deferrable !== undefined) {
@@ -177,15 +181,19 @@ function checkBegin(options: BeginOptions | undefined, capabilities: Capabilitie
       throw new TypeError("connection.begin({ deferrable }): deferrable must be a boolean.");
     }
     if (deferrable && !capabilities.deferrableTransactions) {
-      throw new QueryError("A deferrable transaction (deferrable: true) is not supported by this database.");
+      throw new QueryError(`A deferrable transaction (deferrable: true) is not supported by ${dialect}.`);
     }
   }
   return { isolation, readOnly, deferrable };
 }
 
 /** The statement that starts a transaction with `options`, as Postgres writes it. */
-export function beginSql(options: BeginOptions | undefined, capabilities: Capabilities): string {
-  const { isolation, readOnly, deferrable } = checkBegin(options, capabilities);
+export function beginSql(
+  options: BeginOptions | undefined,
+  capabilities: Capabilities,
+  dialect: Dialect = "postgres",
+): string {
+  const { isolation, readOnly, deferrable } = checkBegin(options, capabilities, dialect);
   const modes: string[] = [];
   if (isolation !== undefined) modes.push(ISOLATION_SQL.get(isolation) as string);
   if (readOnly !== undefined) modes.push(readOnly ? "read only" : "read write");
@@ -215,7 +223,7 @@ export function beginStatements(
   capabilities: Capabilities,
 ): readonly string[] {
   if (dialect === "postgres") return [beginSql(options, capabilities)];
-  const { isolation, readOnly } = checkBegin(options, capabilities);
+  const { isolation, readOnly } = checkBegin(options, capabilities, dialect);
   if (dialect === "sqlite") return ["begin"];
   const start =
     readOnly === undefined

@@ -1,27 +1,43 @@
-// SQL snapshots of the step 09 features on every dialect with expected output (Postgres;
-// step 17 adds the others), and the plan-cache behaviour of queries that nest others.
+// SQL snapshots of the step 09 features on every dialect, and the plan-cache behaviour of
+// queries that nest others.
 import { Post, User } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
+import type { Dialect } from "../../contracts/adapter.js";
+import { QueryError } from "../../errors.js";
 import { from } from "../../index.js";
 import { collectParams, shapeOf } from "../../query/ast.js";
 import { bindParams } from "../bind.js";
 import { createCompiler } from "../compiler.js";
 import { postgresDialect } from "../dialect.js";
-import { rebuild } from "../sql-fixtures.js";
-import { POSTGRES } from "./advanced-cases.js";
+import { DIALECTS, type Expected, rebuild } from "../sql-fixtures.js";
+import { MYSQL, POSTGRES, SQLITE } from "./advanced-cases.js";
 import { ADVANCED_QUERIES } from "./advanced-queries.js";
 
-describe("step 09 statements on postgres", () => {
+const EXPECTED: Readonly<Record<Dialect, Readonly<Record<string, Expected>>>> = {
+  postgres: POSTGRES,
+  mysql: MYSQL,
+  sqlite: SQLITE,
+};
+
+describe.each(DIALECTS)("step 09 statements on $name", (dialect) => {
   for (const entry of ADVANCED_QUERIES) {
     test(entry.name, () => {
-      const plan = createCompiler(postgresDialect).compile(entry.query.ast, entry.operation, undefined);
-      const params = bindParams(plan.slots, entry.query.ast.params, entry.named);
-      expect({ sql: plan.sql, params }).toEqual(POSTGRES[entry.name]);
+      let actual: Expected;
+      try {
+        const plan = createCompiler(dialect).compile(entry.query.ast, entry.operation, undefined);
+        actual = { sql: plan.sql, params: bindParams(plan.slots, entry.query.ast.params, entry.named) };
+      } catch (error) {
+        if (!(error instanceof QueryError)) throw error;
+        actual = { error: error.message };
+      }
+      expect(actual).toEqual(EXPECTED[dialect.name][entry.name]);
     });
   }
 
   test("every query has an expected output, and every expected output a query", () => {
-    expect(Object.keys(POSTGRES).sort()).toEqual(ADVANCED_QUERIES.map((entry) => entry.name).sort());
+    expect(Object.keys(EXPECTED[dialect.name]).sort()).toEqual(
+      ADVANCED_QUERIES.map((entry) => entry.name).sort(),
+    );
   });
 });
 

@@ -32,6 +32,10 @@ export const SQLITE_CAPABILITIES: Capabilities = Object.freeze({
   // SQLite has UPDATE … FROM (3.33) but no DELETE … USING; neither is offered.
   updateJoin: false,
   cteMaterialized: true,
+  // SQLite has no CTE that writes.
+  writingCtes: false,
+  // SQLite has UNION ALL only.
+  intersectExceptAll: false,
   insertDefaultValues: true,
   defaultInValues: false,
   aggregateFilter: true,

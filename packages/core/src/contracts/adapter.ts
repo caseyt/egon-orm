@@ -314,6 +314,10 @@ export interface Capabilities {
   readonly updateJoin: boolean;
   /** `WITH … AS [NOT] MATERIALIZED`. */
   readonly cteMaterialized: boolean;
+  /** A CTE whose query writes (`updateAll` or `deleteAll` in a `WITH`): Postgres only. */
+  readonly writingCtes: boolean;
+  /** `INTERSECT ALL` and `EXCEPT ALL` (`UNION ALL` is everywhere). */
+  readonly intersectExceptAll: boolean;
   /** `INSERT … DEFAULT VALUES`. */
   readonly insertDefaultValues: boolean;
   /**

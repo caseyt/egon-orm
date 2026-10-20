@@ -33,6 +33,8 @@ export const MYSQL_CAPABILITIES: Capabilities = Object.freeze({
   nullsOrder: false,
   updateJoin: true,
   cteMaterialized: false,
+  writingCtes: false,
+  intersectExceptAll: true,
   insertDefaultValues: true,
   defaultInValues: true,
   aggregateFilter: false,

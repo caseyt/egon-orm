@@ -14,16 +14,17 @@ import type {
 } from "../contracts/query.js";
 import type { SchemaMeta } from "../contracts/schema.js";
 import type { AnyFieldType } from "../contracts/type.js";
+import { QueryError } from "../errors.js";
 import { collectParams, columnNode, fragmentNode, paramNode, shapeOf } from "../query/ast.js";
 import { typeArgument } from "../query/expr.js";
 import { meta, Schema, t } from "../schema/index.js";
 import type { NamedValues } from "./bind.js";
 import { bindParams } from "./bind.js";
 import type { Compiler } from "./compiler.js";
-import { postgresDialect, type SqlDialect } from "./dialect.js";
+import { mysqlDialect, postgresDialect, type SqlDialect, sqliteDialect } from "./dialect.js";
 
-/** The dialects whose expected output the matrices hold. Step 17 adds MySQL and SQLite. */
-export const DIALECTS: readonly SqlDialect[] = [postgresDialect];
+/** The dialects whose expected output the matrices hold. */
+export const DIALECTS: readonly SqlDialect[] = [postgresDialect, mysqlDialect, sqliteDialect];
 
 /** A table whose schema declares its own database schema, `audit`. */
 export class AuditLog extends Schema(
@@ -65,17 +66,61 @@ export interface ExpectedSql {
   readonly params: readonly unknown[];
 }
 
+/** What a dialect that lacks a feature the case needs gives instead: the `QueryError`'s message. */
+export interface ExpectedError {
+  readonly error: string;
+}
+
+/** A dialect's expected output for a case: its statement, or the error refusing it. */
+export type Expected = ExpectedSql | ExpectedError;
+
 /**
  * One statement of a snapshot matrix: how to compile it, the parameter array it was
- * compiled over, the named values to bind, and the expected output per dialect. Step 17
- * adds the other dialects' expected output to the same tables.
+ * compiled over, the named values to bind, and the expected output per dialect. The
+ * Postgres output is written next to the case; the MySQL and SQLite output is in the
+ * keyed tables of `sql-cases.mysql.ts` and `sql-cases.sqlite.ts`, by area and case name.
  */
 export interface SqlCase {
   readonly name: string;
   readonly compile: (compiler: Compiler) => CompiledQuery;
   readonly params: readonly unknown[];
   readonly named: NamedValues | undefined;
-  readonly expected: Readonly<Partial<Record<Dialect, ExpectedSql>>>;
+  readonly expected: Readonly<Partial<Record<Dialect, Expected>>>;
+}
+
+/** The expected output of one dialect, by area and case name. */
+export type DialectTable = Readonly<Record<string, Readonly<Record<string, Expected>>>>;
+
+/**
+ * The cases of one area with the expected output of the other dialects added, from their
+ * keyed tables (`tables[dialect][area][case name]`). The snapshot tests check that every
+ * case has an expectation for every dialect.
+ *
+ * @throws Error when two cases share a name, or a table names a case the area does not
+ * have: the tables cannot drift from the cases.
+ */
+export function withDialects(
+  area: string,
+  cases: readonly SqlCase[],
+  tables: Readonly<Partial<Record<Dialect, DialectTable>>>,
+): readonly SqlCase[] {
+  const names = new Set(cases.map((each) => each.name));
+  if (names.size !== cases.length) throw new Error(`The ${area} matrix has two cases of one name.`);
+  for (const [dialect, byArea] of Object.entries(tables)) {
+    for (const name of Object.keys(byArea?.[area] ?? {})) {
+      if (!names.has(name)) {
+        throw new Error(`The ${dialect} table names "${name}", which the ${area} matrix has not.`);
+      }
+    }
+  }
+  return cases.map((each) => {
+    const expected: Partial<Record<Dialect, Expected>> = { ...each.expected };
+    for (const [dialect, byArea] of Object.entries(tables) as [Dialect, DialectTable | undefined][]) {
+      const found = byArea?.[area]?.[each.name];
+      if (found !== undefined) expected[dialect] = found;
+    }
+    return { ...each, expected };
+  });
 }
 
 /** Options of {@link queryCase}. */
@@ -113,9 +158,18 @@ export function statementCase(
   return { name, compile, params, named, expected: { postgres } };
 }
 
-/** Compiles a case and binds its parameters: what the snapshot tests compare. */
-export function run(compiler: Compiler, sqlCase: SqlCase): ExpectedSql {
-  const plan = sqlCase.compile(compiler);
+/**
+ * Compiles a case and binds its parameters: what the snapshot tests compare. A dialect
+ * that refuses the case gives its `QueryError`'s message.
+ */
+export function run(compiler: Compiler, sqlCase: SqlCase): Expected {
+  let plan: CompiledQuery;
+  try {
+    plan = sqlCase.compile(compiler);
+  } catch (error) {
+    if (error instanceof QueryError) return { error: error.message };
+    throw error;
+  }
   return { sql: plan.sql, params: bindParams(plan.slots, sqlCase.params, sqlCase.named) };
 }
 

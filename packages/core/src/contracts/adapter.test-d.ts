@@ -56,6 +56,8 @@ const capabilities: Capabilities = {
   nullsOrder: true,
   updateJoin: true,
   cteMaterialized: true,
+  writingCtes: true,
+  intersectExceptAll: true,
   insertDefaultValues: true,
   defaultInValues: true,
   aggregateFilter: true,

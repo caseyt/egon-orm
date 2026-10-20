@@ -144,6 +144,11 @@ export interface SqlDialect {
    * which takes no column list after the alias and names the columns of `values` itself).
    */
   readonly valuesSource: "values" | "valuesRow" | "valuesSelect";
+  /**
+   * Whether a source takes a column list after its alias (`… as g (n)`). SQLite does not:
+   * a fragment source with columns is refused there.
+   */
+  readonly sourceColumnList: boolean;
   /** How an insert without columns is written: ` default values`, or ` () values ()` (MySQL). */
   readonly defaultValues: string;
   /**
@@ -226,6 +231,8 @@ export const POSTGRES_CAPABILITIES: Capabilities = Object.freeze({
   nullsOrder: true,
   updateJoin: true,
   cteMaterialized: true,
+  writingCtes: true,
+  intersectExceptAll: true,
   insertDefaultValues: true,
   defaultInValues: true,
   aggregateFilter: true,
@@ -345,6 +352,7 @@ export const postgresDialect: SqlDialect = Object.freeze({
   setOperand: "parenthesized",
   singleTuple: "row",
   valuesSource: "values",
+  sourceColumnList: true,
   defaultValues: " default values",
   upsert: "onConflict",
   updateJoin: "fromUsing",
@@ -422,6 +430,8 @@ export const MYSQL_CAPABILITIES: Capabilities = Object.freeze({
   nullsOrder: false,
   updateJoin: true,
   cteMaterialized: false,
+  writingCtes: false,
+  intersectExceptAll: true,
   insertDefaultValues: true,
   defaultInValues: true,
   aggregateFilter: false,
@@ -471,6 +481,9 @@ export const SQLITE_CAPABILITIES: Capabilities = Object.freeze({
   nullsOrder: true,
   updateJoin: false,
   cteMaterialized: true,
+  // SQLite has no CTE that writes.
+  writingCtes: false,
+  intersectExceptAll: false,
   insertDefaultValues: true,
   defaultInValues: false,
   aggregateFilter: true,
@@ -566,6 +579,7 @@ export const mysqlDialect: SqlDialect = Object.freeze({
   setOperand: "parenthesized",
   singleTuple: "parenthesized",
   valuesSource: "valuesRow",
+  sourceColumnList: true,
   defaultValues: " () values ()",
   upsert: "onDuplicateKey",
   updateJoin: "joinClause",
@@ -643,6 +657,7 @@ export const sqliteDialect: SqlDialect = Object.freeze({
   setOperand: "subquery",
   singleTuple: "parenthesized",
   valuesSource: "valuesSelect",
+  sourceColumnList: false,
   defaultValues: " default values",
   upsert: "onConflict",
   updateJoin: "fromUsing",

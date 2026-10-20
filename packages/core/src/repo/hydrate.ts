@@ -45,7 +45,7 @@ const FLOAT: AnyFieldType = floatType();
  * `writeThenRead` to a decoding error of the row it reads back after an insert.
  */
 export const WRITTEN =
-  " The write itself was applied: outside a transaction it stays, inside one it is rolled back with the transaction.";
+  " The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction.";
 
 function wrongKind(label: string, type: AnyFieldType, value: unknown, written: boolean): CastError {
   const after = written ? WRITTEN : "";

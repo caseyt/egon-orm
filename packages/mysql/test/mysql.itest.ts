@@ -225,7 +225,7 @@ describe.runIf(tier2Enabled())("mysql", () => {
       score: t.integer().dbGenerated(),
     }) {}
     await expect(repo.insert(change(Tally, { label: "first" }))).rejects.toThrow(
-      /^Tally\.score is declared t\.integer\(\), but the database returned a string.* The write itself was applied: outside a transaction it stays, inside one it is rolled back with the transaction\.$/,
+      /^Tally\.score is declared t\.integer\(\), but the database returned a string.* The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction\.$/,
     );
     // The row is there: the insert ran before the read-back failed.
     expect(await repo.count(from(Tally, "t"))).toBe(1);

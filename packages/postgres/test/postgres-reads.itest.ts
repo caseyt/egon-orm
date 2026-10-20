@@ -105,7 +105,7 @@ test("a write whose returned key fails to decode throws after the row is written
   await handle.db.exec("select setval('users_id_seq', 100)");
   const insert = repo.insert(change(LooseUser, { email: "written@example.com" }));
   await expect(insert).rejects.toThrow(
-    /^LooseUser\.id is declared t\.integer\(\).* The write itself was applied: outside a transaction it stays/,
+    /^LooseUser\.id is declared t\.integer\(\).* The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction\.$/,
   );
   await expect(
     repo.insertAll(LooseUser, [{ email: "bulk@example.com" }], { returning: true }),

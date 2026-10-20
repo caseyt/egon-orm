@@ -558,7 +558,7 @@ describe("integer and float values must be numbers", () => {
           ? generateDecoder(returned, codecs, "Gauge")
           : interpretDecoder(returned, codecs, "Gauge");
       expect(() => decode({ c0: "12" }, [])).toThrow(
-        /^Gauge\.id is declared t\.integer\(\).* The write itself was applied: outside a transaction it stays, inside one it is rolled back with the transaction\.$/,
+        /^Gauge\.id is declared t\.integer\(\).* The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction\.$/,
       );
       // A read says nothing about writes.
       expect(() => decoderOf(kind, returned)({ c0: "12" }, [])).toThrow(/change the column's type\.$/);

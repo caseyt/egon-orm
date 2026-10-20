@@ -110,6 +110,13 @@ export interface MigrationDialect {
    * `session` lock.
    */
   readonly busyTimeout: Readonly<{ read: string; write: (ms: number) => string }> | undefined;
+  /**
+   * How to read and set whether the connection enforces foreign keys, for a `transaction`
+   * lock: a migration without a transaction may turn them off (SQLite's table rebuild), and
+   * the connection is shared with the application, so the runner puts them back as they
+   * were after it, whether it succeeded or not. `undefined` where nothing needs restoring.
+   */
+  readonly foreignKeys: Readonly<{ read: string; write: (on: boolean) => string }> | undefined;
   /** Selects one row when the table (`$1` database schema or `null`, `$2` name) exists. */
   readonly tableExists: string;
   /** Selects one row when the column (`$1` database schema or `null`, `$2` table, `$3` column) exists. */
@@ -208,6 +215,7 @@ export const POSTGRES_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
     abandon: undefined,
   }),
   busyTimeout: undefined,
+  foreignKeys: undefined,
   tableExists:
     "select 1 from information_schema.tables where table_schema = coalesce($1, current_schema()) and table_name = $2",
   columnExists:
@@ -307,6 +315,7 @@ export const MYSQL_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
     abandon: undefined,
   }),
   busyTimeout: undefined,
+  foreignKeys: undefined,
   tableExists:
     "select 1 from information_schema.tables where table_schema = coalesce(?, database()) and table_name = ?",
   columnExists:
@@ -397,6 +406,10 @@ export const SQLITE_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
   busyTimeout: Object.freeze({
     read: "pragma busy_timeout",
     write: (ms: number) => `pragma busy_timeout = ${Math.max(0, Math.trunc(ms))}`,
+  }),
+  foreignKeys: Object.freeze({
+    read: "pragma foreign_keys",
+    write: (on: boolean) => `pragma foreign_keys = ${on ? "on" : "off"}`,
   }),
   tableExists: "select 1 from pragma_table_list where schema = coalesce(?, 'main') and name = ?",
   columnExists: "select 1 from pragma_table_info where schema = coalesce(?, 'main') and arg = ? and name = ?",

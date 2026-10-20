@@ -168,8 +168,22 @@ Pass `name` to choose your own; then give the same name to the changeset functio
   Check what the migration did, then delete the row with version `-1`; a waiting run then
   carries on.
 
-  A table rebuild ends by turning foreign keys back on (the adapter's one handle keeps the
-  pragma) and checking the rows against them:
+  After such a migration, whether it succeeded or failed, the runner:
+  - rolls back a transaction the migration left open (a `begin` without a `commit` is a
+    failure);
+  - puts `foreign_keys` back as it was before, since the adapter's one handle is shared
+    with the application.
+
+  A failure is reported as "failed inside a transaction of its own, which was rolled
+  back" when the migration's own transaction was undone, and otherwise as "ran without a
+  transaction": statements before the failing one stay applied.
+
+  A table rebuild follows SQLite's own order:
+  1. foreign keys off, outside any transaction;
+  2. the rebuild and its check inside `begin … commit`;
+  3. foreign keys on.
+
+  A row left without its parent fails the check, and the whole rebuild is rolled back:
 
   <<< @/examples/migrations.ts#sqlite-rebuild
 

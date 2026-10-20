@@ -199,6 +199,30 @@ describe("a migration without a transaction under a transaction lock", () => {
     expect(after.some((sql) => sql.startsWith("insert into"))).toBe(false);
   });
 
+  test("a claim it cannot remove is not kept quiet: a warning and the error say how to clear it", async () => {
+    let failed = false;
+    const { adapter } = scripted({
+      fail: (sql) => {
+        if (sql === "vacuum") {
+          failed = true;
+          return new Error("disk full");
+        }
+        return failed && sql === "begin immediate" ? new Error("disk I/O error") : undefined;
+      },
+    });
+    const events: MigrationEvent[] = [];
+    const error = await createMigrator({ adapter, migrations: OUTSIDE, log: (event) => events.push(event) })
+      .up()
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(MigrationError);
+    expect((error as Error).message).toMatch(
+      /could not then take its lock back and remove its claim \(disk I\/O error\).*delete the row with version -1/,
+    );
+    const warnings = events.filter((event) => event.kind === "warning");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatchObject({ version: 20260101000000 });
+  });
+
   test("another runner that finds a claim gives the lock back and waits until it is gone", async () => {
     const { adapter, sent } = scripted({ claims: 2 });
     const events: MigrationEvent[] = [];

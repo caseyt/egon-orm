@@ -544,6 +544,11 @@ export interface Connection extends Executor {
   rollbackTo(name: string): Promise<void>;
   /** `RELEASE SAVEPOINT name`. */
   releaseSavepoint(name: string): Promise<void>;
+  /**
+   * Whether a transaction is open on the connection, as the database reports it: also one
+   * that a raw statement (`begin`) started, or that a failed statement ended.
+   */
+  inTransaction(): boolean;
   /** Returns the connection to the pool. Idempotent, and a no-op after `destroy`. */
   release(): Promise<void>;
   /** Closes the connection and removes it from the pool instead of returning it. Idempotent. */

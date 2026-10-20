@@ -615,6 +615,33 @@ class DatabaseMigrator implements Migrator {
     await this.#statement(connection, this.#settings.dialect.lock.release, [], undefined);
   }
 
+  /** Whether the connection enforces foreign keys, where the dialect says how to ask; `undefined` otherwise. */
+  async #foreignKeys(connection: Connection): Promise<boolean | undefined> {
+    const keys = this.#settings.dialect.foreignKeys;
+    if (keys === undefined) return undefined;
+    const row = (await this.#statement(connection, keys.read, [], undefined)).rows[0];
+    return row === undefined ? undefined : Number(Object.values(row)[0]) === 1;
+  }
+
+  /**
+   * Ends a migration that ran outside the lock, whether it succeeded or not:
+   * 1. a transaction it left open is rolled back;
+   * 2. foreign keys go back to what they were before it;
+   * 3. the lock is taken back and the claim removed.
+   *
+   * Returns whether it had to roll back.
+   */
+  async #endOutside(connection: Connection, foreignKeys: boolean | undefined): Promise<boolean> {
+    const { dialect } = this.#settings;
+    const open = connection.inTransaction();
+    if (open) await this.#statement(connection, dialect.lock.abandon ?? "rollback", [], undefined);
+    if (foreignKeys !== undefined && dialect.foreignKeys !== undefined) {
+      await this.#statement(connection, dialect.foreignKeys.write(foreignKeys), [], undefined);
+    }
+    await this.#unclaim(connection);
+    return open;
+  }
+
   /** Takes the `transaction` lock back after a migration without a transaction, and removes the claim. */
   async #unclaim(connection: Connection): Promise<void> {
     // No timeout: other runners only take the lock for a moment while the claim is there.
@@ -761,9 +788,12 @@ class DatabaseMigrator implements Migrator {
     // vacuum refuses to, and its foreign_keys pragma is ignored there): the runner records a
     // claim and gives the lock up while it runs, then takes it back and records the version.
     let claimed = false;
+    let foreignKeys: boolean | undefined;
+    let leftOpen = false;
     try {
       if (transaction) await begin();
       else if (nested) {
+        foreignKeys = await this.#foreignKeys(connection);
         await this.#claim(connection);
         claimed = true;
       }
@@ -777,8 +807,13 @@ class DatabaseMigrator implements Migrator {
       }
       current = undefined;
       if (claimed) {
+        // A transaction the migration opened and never ended is a failure: it is rolled back.
+        if (connection.inTransaction()) {
+          leftOpen = true;
+          throw new MigrationError("it opened a transaction and did not end it (a begin without a commit).");
+        }
+        await this.#endOutside(connection, foreignKeys);
         claimed = false;
-        await this.#unclaim(connection);
       }
       await this.#record(connection, source.version, direction);
       if (transaction) await commit();
@@ -791,25 +826,38 @@ class DatabaseMigrator implements Migrator {
           healthy = false;
         }
       }
+      let rolledBackOwn = false;
+      let unclaimFailure: unknown;
       if (claimed) {
         try {
-          await this.#unclaim(connection);
-        } catch {
+          rolledBackOwn = await this.#endOutside(connection, foreignKeys);
+        } catch (error) {
           healthy = false;
+          unclaimFailure = error;
         }
       }
       const message = cause instanceof Error ? cause.message : String(cause);
       const outcome = transaction
         ? "failed and was rolled back"
-        : "failed; it ran without a transaction, so the statements before the failing one stay applied";
+        : rolledBackOwn || leftOpen
+          ? "failed inside a transaction of its own, which was rolled back (anything it committed before that stays applied)"
+          : "failed; it ran without a transaction, so the statements before the failing one stay applied";
+      const stuck =
+        unclaimFailure === undefined
+          ? ""
+          : ` The runner could not then take its lock back and remove its claim (${unclaimFailure instanceof Error ? unclaimFailure.message : String(unclaimFailure)}): later runs wait for the claim. Check the database, then delete the row with version ${CLAIM} from "${this.#settings.table.name}".`;
+      if (stuck !== "") this.#emit({ kind: "warning", message: stuck.trim(), version: source.version });
       return {
         healthy,
         durationMs: 0,
-        error: new MigrationError(`Migration ${source.version}_${source.name} ${outcome}: ${message}`, {
-          ...context,
-          ...(current === undefined ? {} : { sql: current }),
-          cause,
-        }),
+        error: new MigrationError(
+          `Migration ${source.version}_${source.name} ${outcome}: ${message}${stuck}`,
+          {
+            ...context,
+            ...(current === undefined ? {} : { sql: current }),
+            cause,
+          },
+        ),
       };
     }
     const durationMs = performance.now() - start;

@@ -867,6 +867,10 @@ class SharedConnection implements Connection {
     return promise;
   }
 
+  inTransaction(): boolean {
+    return this.connection.inTransaction();
+  }
+
   stream(
     sql: string,
     params: readonly unknown[],

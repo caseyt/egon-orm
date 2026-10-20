@@ -97,3 +97,15 @@ its name.
 - Every flag is listed, with its value per dialect, on the generated
   `reference/dialect-support.md`.
 - A new feature gap later is a new flag and a new ADR row, not a dialect-name check.
+
+## Also changed in step 17: `Connection.inTransaction()`
+
+The frozen `Connection` contract gains `inTransaction(): boolean`: whether a transaction is
+open on the connection, as the driver reports it. That includes one a raw `begin` started.
+
+The migration runner needs it to roll back a `transaction: false` migration that left its
+own transaction open, before it takes its SQLite lock back (review round 4 of PR #38).
+
+Only the shared adapter's `SharedConnection` implements `Connection`, and it reads the
+answer from the driver connection, which already tracks it. Code that only uses
+`Connection` is unaffected.

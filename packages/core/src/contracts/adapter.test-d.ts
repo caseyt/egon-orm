@@ -101,6 +101,7 @@ const connection: Connection = {
   savepoint: async () => {},
   rollbackTo: async () => {},
   releaseSavepoint: async () => {},
+  inTransaction: () => false,
   release: async () => {},
   destroy: async () => {},
 };

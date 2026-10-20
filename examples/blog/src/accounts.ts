@@ -1,19 +1,24 @@
-// src/accounts.ts: signing up. The tutorial includes each region.
 // #region registration
+// src/accounts.ts: signing up
 import { randomBytes, scryptSync } from "node:crypto";
 import { type Changeset, cast } from "egon-orm";
 import { z } from "zod";
 import { repo } from "./db.js";
 import { User } from "./schemas.js";
 
-const Registration = z.object({
-  email: z.email(),
-  name: z.string().trim().min(1).max(80),
-  password: z.string().min(12),
-});
+// The rules for the values that are there. Whether they are there is validateRequired's job,
+// so the schema is partial: a missing name gets one message, "can't be blank", not two.
+const Registration = z
+  .object({
+    email: z.email(),
+    name: z.string().trim().max(80),
+    password: z.string().min(12),
+  })
+  .partial();
 
 export function registrationChangeset(params: unknown) {
   return cast(User, params, ["email", "name", "password"])
+    .validateRequired(["email", "name", "password"]) // "", null, blank or missing: can't be blank
     .validate(Registration) // every issue becomes an error on its field
     .uniqueConstraint("email") // a duplicate email becomes { email: ["has already been taken"] }
     .pipe(hashPassword);

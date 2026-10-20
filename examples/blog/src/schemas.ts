@@ -1,5 +1,7 @@
-// src/schemas.ts: the blog's tables as schema classes. The tutorial includes each region.
+// #region imports
+// src/schemas.ts: the blog's tables as schema classes. The classes below all go in this file.
 import { belongsTo, cast, hasMany, Schema, t, timestamps } from "egon-orm";
+// #endregion imports
 
 // #region user
 export class User extends Schema("users", {

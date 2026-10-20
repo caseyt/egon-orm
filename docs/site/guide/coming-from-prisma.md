@@ -39,6 +39,38 @@ Prisma 7: `new PrismaClient({ adapter: new PrismaPg({ connectionString }) })`, w
 
 <<< @/examples/coming-from.ts#connect
 
+## Setting up
+
+The examples are one runnable file. To follow them in a project of your own:
+
+```sh
+npm install egon-orm @egon-orm/postgres pg
+npm install -D typescript tsx @types/node @types/pg
+```
+
+with the `tsconfig.json` of [Getting started](/guide/getting-started#create-the-project), and
+these imports:
+
+<<< @/examples/coming-from.ts#imports
+
+### The tables
+
+Prisma: `prisma migrate dev`, from the `@unique` and `@default` attributes in `schema.prisma`. In Egon, a migration you write
+creates them, and unique indexes and defaults are part of it:
+
+<<< @/examples/coming-from.ts#migration
+
+Run it once, before the rest:
+
+<<< @/examples/coming-from.ts#migrate
+
+::: warning Match the key types
+Declare each key with the type of its column. `table.id("id", { type: "integer" })` is a
+32-bit `serial`, for `t.integer()`, as here. A bare `table.id()` is a 64-bit `bigserial`, for
+`t.bigint({ mode: "number" })` (or `t.bigint()`). The types cannot see a mismatch between a
+schema class and its table: an integer field over a `bigint` column reads its values wrongly.
+:::
+
 ## Common tasks
 
 ### Create a record
@@ -62,7 +94,17 @@ Prisma: `prisma.user.create({ data: { email, posts: { create: [{ title }] } } })
 
 <<< @/examples/coming-from.ts#nested-create
 
+The returned row holds the saved posts, but its type is a plain `User`: the type of a
+write's result does not list associations. To use them, narrow it with
+`isLoaded(User, row, "posts")`, or read the user again with a preload, as the example does.
+
 Each post is validated by `Post.changeset`. See [Nested changesets](/guide/nested-changesets).
+
+### Sample data
+
+The reads below run against these rows, besides the users created above:
+
+<<< @/examples/coming-from.ts#fixtures
 
 ### Find by id
 

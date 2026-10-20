@@ -3,6 +3,10 @@
 Return the row with a given unique value, creating it if it does not exist, safely when two
 requests ask at once.
 
+::: details The schemas and tables this recipe uses
+<<< @/examples/recipes/find-or-create.ts#setup
+:::
+
 ## The function
 
 <<< @/examples/recipes/find-or-create.ts#find-or-create

@@ -4,6 +4,10 @@ Give each tenant its own database schema (a Postgres schema, a MySQL database) w
 same tables, and choose the schema per request. The schema classes stay the same for every
 tenant.
 
+::: details The schemas and tables this recipe uses
+<<< @/examples/recipes/multi-tenancy.ts#setup
+:::
+
 ## Creating a tenant's tables
 
 The same migration runs once per tenant, with the schema in its operations:

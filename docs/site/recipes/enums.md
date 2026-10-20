@@ -2,6 +2,10 @@
 
 A field that holds one of a fixed set of values.
 
+::: details The schemas and tables this recipe uses
+<<< @/examples/recipes/enums.ts#setup
+:::
+
 ## Declaring one
 
 <<< @/examples/recipes/enums.ts#schema

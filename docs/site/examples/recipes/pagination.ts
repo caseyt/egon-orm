@@ -1,9 +1,9 @@
 // @run
 // The checked source of recipes/pagination.md. Each `#region` is included in the page by
 // name; the rest makes it compile and run (docs:integration checks the `// =>` comments).
+// #region setup
 import { postgres } from "@egon-orm/postgres";
 import { createRepo, from, Schema, t, tuple } from "egon-orm";
-import { createTables } from "./support.js";
 
 class Post extends Schema("posts", {
   id: t.integer().primaryKey().dbGenerated(),
@@ -12,6 +12,20 @@ class Post extends Schema("posts", {
 }) {}
 
 const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATABASE_URL }) });
+
+// The tables, in SQL. A project creates them with a migration.
+const TABLES = `
+  create table posts (id serial primary key, title text not null, created_at timestamptz not null);
+  create index posts_created_at_id_index on posts (created_at desc, id desc);
+`;
+
+/** Creates the tables, in the database that DATABASE_URL names. */
+export async function createTables(): Promise<void> {
+  const admin = postgres({ connectionString: process.env.DATABASE_URL });
+  await admin.execute(TABLES, []);
+  await admin.close();
+}
+// #endregion setup
 
 // #region offset
 export async function page(number: number, perPage = 20) {
@@ -43,10 +57,7 @@ export async function after(cursor: Cursor | null, perPage = 20) {
 // #endregion keyset
 
 export async function run(): Promise<void> {
-  await createTables(`
-    create table posts (id serial primary key, title text not null, created_at timestamptz not null);
-    create index posts_created_at_id_index on posts (created_at desc, id desc);
-  `);
+  await createTables();
   const start = Date.UTC(2026, 0, 1);
   await repo.insertAll(
     Post,

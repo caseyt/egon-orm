@@ -1,9 +1,9 @@
 // @run
 // The checked source of recipes/top-n-per-parent.md. Each `#region` is included in the page by
 // name; the rest makes it compile and run (docs:integration checks the `// =>` comments).
+// #region setup
 import { postgres } from "@egon-orm/postgres";
 import { change, createRepo, from, hasMany, rowNumber, Schema, subquery, t } from "egon-orm";
-import { createTables } from "./support.js";
 
 const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATABASE_URL }) });
 
@@ -21,12 +21,23 @@ class Post extends Schema("posts", {
   views: t.integer(),
 }) {}
 
+// The tables, in SQL. A project creates them with a migration.
+const TABLES = `
+  create table authors (id serial primary key, name text not null);
+  create table posts (id serial primary key, author_id integer not null references authors (id),
+    title text not null, views integer not null);
+`;
+
+/** Creates the tables, in the database that DATABASE_URL names. */
+export async function createTables(): Promise<void> {
+  const admin = postgres({ connectionString: process.env.DATABASE_URL });
+  await admin.execute(TABLES, []);
+  await admin.close();
+}
+// #endregion setup
+
 export async function run(): Promise<void> {
-  await createTables(`
-    create table authors (id serial primary key, name text not null);
-    create table posts (id serial primary key, author_id integer not null references authors (id),
-      title text not null, views integer not null);
-  `);
+  await createTables();
   const ada = await repo.insertOrThrow(change(Author, { name: "Ada" }));
   const bo = await repo.insertOrThrow(change(Author, { name: "Bo" }));
   await repo.insertAll(Post, [

@@ -1,3 +1,5 @@
+// #region header
+// test/posts.itest.ts: every test file sets up its own sandbox, as accounts.itest.ts does.
 import { change } from "egon-orm";
 import { createSandbox, expectQueries } from "egon-orm/testing";
 import { afterEach, beforeEach, expect, test } from "vitest";
@@ -9,9 +11,10 @@ import { Comment, Post, User } from "../src/schemas.js";
 const sandbox = await createSandbox(repo);
 beforeEach(() => sandbox.begin());
 afterEach(() => sandbox.rollback());
+// #endregion header
 
 // #region factory
-// test data: insertOrThrow makes a broken fixture fail loudly
+// Test data, in the same file: insertOrThrow makes a broken fixture fail loudly.
 function insertUser(name: string) {
   return repo.insertOrThrow(
     change(User, { email: `${name.toLowerCase()}@example.com`, name, passwordHash: "x" }),

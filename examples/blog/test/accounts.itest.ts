@@ -26,10 +26,14 @@ test("reports a taken email on the field", async () => {
 });
 // #endregion sandbox
 
-test("reports every invalid field at once", async () => {
+test("reports every invalid field at once, with one message for a blank one", async () => {
   const result = await register({ email: "not an email", name: "", password: "short" });
 
   expect(Object.keys(result.errors ?? {}).sort()).toEqual(["email", "name", "password"]);
+  expect(result.errors?.name).toEqual(["can't be blank"]);
+  expect((await register({ email: "bo@example.com", name: "  ", password: "short" })).errors?.name).toEqual([
+    "can't be blank",
+  ]);
   expect(await repo.count(User)).toBe(0);
 });
 

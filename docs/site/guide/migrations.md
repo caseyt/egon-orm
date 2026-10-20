@@ -92,7 +92,7 @@ The helpers:
 
 | Helper | Column |
 |---|---|
-| `t.id()` | `"id" bigserial primary key` (`{ type: "integer" }` for `serial`) |
+| `t.id()` | `"id" bigserial primary key`; `t.id("id", { type: "integer" })` for `serial` (the first argument is the column name) |
 | `t.references(column, table, options?)` | a `bigint` (or `type`) with a foreign key to `table` (`column`, `onDelete`, `onUpdate`, `schema`, `name`) |
 | `t.enumText(column, values)` | `text` with a check constraint allowing only `values` |
 | `t.timestamps()` | `created_at` and `updated_at`, `timestamptz not null default now()` |

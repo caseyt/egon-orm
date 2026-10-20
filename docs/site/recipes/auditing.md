@@ -3,6 +3,10 @@
 Record who changed what, in the same transaction as the change, so a change is never
 written without its audit entry or the other way round.
 
+::: details The schemas and tables this recipe uses
+<<< @/examples/recipes/auditing.ts#setup
+:::
+
 ## The audit table
 
 <<< @/examples/recipes/auditing.ts#schema

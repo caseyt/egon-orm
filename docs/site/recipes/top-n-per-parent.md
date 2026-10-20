@@ -3,6 +3,10 @@
 The three most viewed posts of each author, the latest comment of each post: a limit that
 applies to each parent rather than to the whole result.
 
+::: details The schemas and tables this recipe uses
+<<< @/examples/recipes/top-n.ts#setup
+:::
+
 ## With a preload
 
 When the parents are loaded too, a preload with a `limit` does it:

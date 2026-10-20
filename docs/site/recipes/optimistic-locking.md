@@ -3,6 +3,10 @@
 Stop a user from overwriting an edit made by someone else since they loaded the page,
 without holding a lock while they type.
 
+::: details The schemas and tables this recipe uses
+<<< @/examples/recipes/optimistic-locking.ts#setup
+:::
+
 ## A version field
 
 <<< @/examples/recipes/optimistic-locking.ts#schema

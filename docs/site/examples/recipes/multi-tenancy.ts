@@ -1,6 +1,7 @@
 // @run
 // The checked source of recipes/multi-tenancy.md. Each `#region` is included in the page by
 // name; the rest makes it compile and run (docs:integration checks the `// =>` comments).
+// #region setup
 import { postgres } from "@egon-orm/postgres";
 import { cast, createRepo, from, type Repo, Schema, t } from "egon-orm";
 import { createMigrator, defineMigration } from "egon-orm/migration";
@@ -15,21 +16,26 @@ class Project extends Schema("projects", {
 }
 
 const adapter = postgres({ connectionString: process.env.DATABASE_URL });
+// #endregion setup
 
 // #region migration
 // The tables of one tenant, created in that tenant's database schema.
 const tenantTables = (schema: string) =>
   defineMigration({
-    change(m) {
+    up(m) {
       m.createSchema(schema, { ifNotExists: true });
       m.createTable(
         "projects",
-        (t) => {
-          t.id("id", { type: "integer" });
-          t.text("name").notNull().unique();
+        (table) => {
+          table.id("id", { type: "integer" });
+          table.text("name").notNull().unique();
         },
         { schema },
       );
+    },
+    down(m) {
+      m.dropTable("projects", undefined, { schema });
+      m.dropSchema(schema);
     },
   });
 

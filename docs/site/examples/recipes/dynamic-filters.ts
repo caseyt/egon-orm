@@ -1,9 +1,9 @@
 // @run
 // The checked source of recipes/dynamic-filters.md. Each `#region` is included in the page by
 // name; the rest makes it compile and run (docs:integration checks the `// =>` comments).
+// #region setup
 import { postgres } from "@egon-orm/postgres";
 import { applyAction, cast, createRepo, from, Schema, t } from "egon-orm";
-import { createTables } from "./support.js";
 
 const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATABASE_URL }) });
 
@@ -14,6 +14,20 @@ class Post extends Schema("posts", {
   views: t.integer(),
   createdAt: t.timestamp(),
 }) {}
+
+// The tables, in SQL. A project creates them with a migration.
+const TABLES = `
+  create table posts (id serial primary key, title text not null, status text not null,
+    views integer not null, created_at timestamptz not null);
+`;
+
+/** Creates the tables, in the database that DATABASE_URL names. */
+export async function createTables(): Promise<void> {
+  const admin = postgres({ connectionString: process.env.DATABASE_URL });
+  await admin.execute(TABLES, []);
+  await admin.close();
+}
+// #endregion setup
 
 // #region parse
 // ?q=launch&status=published&minViews=10&sort=popular&page=2
@@ -63,10 +77,7 @@ export async function listPosts(search: URLSearchParams, perPage = 20) {
 // #endregion query
 
 export async function run(): Promise<void> {
-  await createTables(`
-    create table posts (id serial primary key, title text not null, status text not null,
-      views integer not null, created_at timestamptz not null);
-  `);
+  await createTables();
   await repo.insertAll(Post, [
     { title: "Launch day", status: "published", views: 40, createdAt: new Date("2026-10-01T00:00:00Z") },
     { title: "Launch plan", status: "draft", views: 2, createdAt: new Date("2026-10-02T00:00:00Z") },

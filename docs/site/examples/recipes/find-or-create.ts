@@ -1,9 +1,9 @@
 // @run
 // The checked source of recipes/find-or-create.md. Each `#region` is included in the page by
 // name; the rest makes it compile and run (docs:integration checks the `// =>` comments).
+// #region setup
 import { postgres } from "@egon-orm/postgres";
 import { cast, createRepo, type Repo, Schema, t } from "egon-orm";
-import { createTables } from "./support.js";
 
 const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATABASE_URL }) });
 
@@ -19,6 +19,17 @@ class Tag extends Schema("tags", {
   }
 }
 
+// The tables, in SQL. A project creates them with a migration.
+const TABLES = `create table tags (id serial primary key, name text not null unique)`;
+
+/** Creates the tables, in the database that DATABASE_URL names. */
+export async function createTables(): Promise<void> {
+  const admin = postgres({ connectionString: process.env.DATABASE_URL });
+  await admin.execute(TABLES, []);
+  await admin.close();
+}
+// #endregion setup
+
 // #region find-or-create
 // Safe under concurrency: the unique index decides, and a lost race reads the winner's row.
 export async function findOrCreateTag(db: Repo, name: string): Promise<Tag> {
@@ -29,7 +40,7 @@ export async function findOrCreateTag(db: Repo, name: string): Promise<Tag> {
 // #endregion find-or-create
 
 export async function run(): Promise<void> {
-  await createTables("create table tags (id serial primary key, name text not null unique)");
+  await createTables();
 
   // #region use
   const first = await findOrCreateTag(repo, "TypeScript");

@@ -1,6 +1,7 @@
 // @run
 // The checked source of recipes/full-text-search.md. Each `#region` is included in the page
 // by name; the rest makes it compile and run (docs:integration checks the `// =>` comments).
+// #region setup
 import { postgres } from "@egon-orm/postgres";
 import { createRepo, fragment, from, Schema, t } from "egon-orm";
 import { createMigrator, defineMigration } from "egon-orm/migration";
@@ -13,6 +14,21 @@ class Article extends Schema("articles", {
 
 const adapter = postgres({ connectionString: process.env.DATABASE_URL });
 const repo = createRepo({ adapter });
+
+// The table, created by a migration of its own.
+export const articles = defineMigration({
+  up(m) {
+    m.createTable("articles", (table) => {
+      table.id("id", { type: "integer" });
+      table.text("title").notNull();
+      table.text("body").notNull();
+    });
+  },
+  down(m) {
+    m.dropTable("articles");
+  },
+});
+// #endregion setup
 
 // #region index
 // A generated tsvector column, and a GIN index on it.
@@ -57,19 +73,10 @@ export function searchWithSnippets(terms: string) {
 // #endregion headline
 
 export async function run(): Promise<void> {
-  const tables = defineMigration({
-    change(m) {
-      m.createTable("articles", (t) => {
-        t.id("id", { type: "integer" });
-        t.text("title").notNull();
-        t.text("body").notNull();
-      });
-    },
-  });
   await createMigrator({
     adapter,
     migrations: [
-      { version: 1, name: "articles", migration: tables },
+      { version: 1, name: "articles", migration: articles },
       { version: 2, name: "searchable", migration: searchable },
     ],
   }).up();

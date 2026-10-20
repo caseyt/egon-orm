@@ -7,22 +7,49 @@ tests that run each case in a transaction that is rolled back.
 
 The code on this page is the source of a working application,
 [`examples/blog`](https://github.com/caseyt/egon-orm/tree/main/examples/blog) in the
-repository, and its test suite runs in CI. You can read the page from top to bottom, or
-clone the repository and run it.
+repository, and its test suite runs in CI. Every block starts with the name of its file.
+You can read the page from top to bottom, or clone the repository and run it (see the
+end).
 
-It takes about thirty minutes. You need Node.js 22.12 or later and a Postgres server
-(Docker is the quickest way to get one).
+It takes about thirty minutes. You need Node.js 22.12 or later and a Postgres server, 14 or
+later.
 
 ## 1. Set up the project
 
 ```sh
 mkdir blog && cd blog
-pnpm init
-pnpm add egon-orm @egon-orm/postgres pg zod
-pnpm add -D typescript tsx vitest @types/node @types/pg
+npm init -y
+npm pkg set type=module
+npm install egon-orm @egon-orm/postgres pg zod
+npm install -D @egon-orm/cli typescript tsx vitest @types/node @types/pg
+mkdir -p src/migrations test
 ```
 
-Set `"type": "module"` in `package.json`. Egon is published as ES modules only.
+Egon is published as ES modules only, hence `"type": "module"`. `@egon-orm/cli` is the
+`egon` command, used in step 3; it is not on npm yet (see the [CLI](/reference/cli)), and
+the tutorial works without it.
+
+Add a `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src", "test", "vitest.config.ts"]
+}
+```
+
+`tsx` and Vitest run the TypeScript; `npx tsc` checks its types. `skipLibCheck` is
+required today (without it, `tsc` reports `TS2637` inside the library's own declaration
+files), and declaration output does not work yet for files that export schema classes
+(`TS2883`); both are known problems, being fixed. The imports between your own files end
+in `.js`, as Node.js expects.
 
 Start a database and tell the application where it is:
 
@@ -31,8 +58,8 @@ docker run -d --name blog-db -e POSTGRES_PASSWORD=blog -p 5432:5432 postgres:16
 export DATABASE_URL=postgres://postgres:blog@localhost:5432/postgres
 ```
 
-A `tsconfig.json` with `"module": "NodeNext"` and `"strict": true` is all the compiler
-needs. The imports between your own files end in `.js`, as Node.js expects.
+Without Docker, any Postgres 14 or later works (a local install or a hosted one): point
+`DATABASE_URL` at it.
 
 ## 2. Connect
 
@@ -47,14 +74,15 @@ it.
 ## 3. Create the tables
 
 A migration describes a change to the database. Write it by hand, in a file whose name
-starts with its version (a UTC timestamp); `egon migrate create create_blog` writes an
-empty one for you:
+starts with its version (a UTC timestamp); `npx egon migrate create create_blog --dir
+src/migrations` writes an empty one for you to fill in:
 
 <<< ../../../examples/blog/src/migrations/20261020090000_create_blog.ts#migration
 
-This one is reversible: written with `change`, it can be rolled back by running each
-operation's inverse. `t.references` adds a foreign key, and `.unique()` a unique index
-named `users_email_key`; the changesets below refer to these names.
+`up` makes the change and `down` undoes it, so the migration can be rolled back.
+`table.references` adds a foreign key, and `.unique()` a unique index named
+`users_email_key`; the changesets below refer to these names. The table builder is named
+`table` because `t` is the field builder of the schema classes, imported from `egon-orm`.
 
 A small function runs the pending migrations, and a script calls it:
 
@@ -74,7 +102,10 @@ The [Migrations](/guide/migrations) guide covers rollbacks and deployments, and 
 ## 4. Describe the tables
 
 A **schema** is a class that describes one table. Its instances are the rows the database
-returns, so the class name is the row type.
+returns, so the class name is the row type. All the classes of this step go in one file,
+`src/schemas.ts`, which starts with:
+
+<<< ../../../examples/blog/src/schemas.ts#imports
 
 <<< ../../../examples/blog/src/schemas.ts#user
 
@@ -97,6 +128,11 @@ check them.
 
 <<< ../../../examples/blog/src/schemas.ts#comment
 
+Last, the two tables that step 9 uses, for readers who follow an author and the
+notifications they get:
+
+<<< ../../../examples/blog/src/schemas.ts#follow
+
 ## 5. Sign up with a changeset
 
 Writes go through a **changeset**: a value that holds the input a form sent, filtered to
@@ -106,12 +142,17 @@ database constraints to watch for. It never touches the database.
 <<< ../../../examples/blog/src/accounts.ts#registration
 
 `cast` keeps only `email`, `name` and `password` from `params`: a request that also sends
-`passwordHash` or `id` has no effect. The Zod schema reports every problem at once, each on
-its field. `uniqueConstraint("email")` tells the repo that a violation of
+`passwordHash` or `id` has no effect. `validateRequired` reports a missing or blank field
+once, as `can't be blank`. The Zod schema then checks the values that are there, and
+reports every problem at once, each on its field. It is `.partial()` so that a missing
+field is not reported twice: without it, `name: ""` would give both `can't be blank` (the
+empty string becomes `null`, which a non-null field refuses) and Zod's `expected string,
+received undefined`. `uniqueConstraint("email")` tells the repo that a violation of
 `users_email_key` is a form error, not a crash. `pipe` applies a step of your own: here,
 hashing the password once the input is valid.
 
-The repo writes the changeset and returns a **result**, never a half-saved row:
+The repo writes the changeset and returns a **result**, never a half-saved row. In the same
+file:
 
 <<< ../../../examples/blog/src/accounts.ts#register
 
@@ -121,6 +162,10 @@ form. Every write also has a throwing twin, `insertOrThrow`, for code where a fa
 a bug.
 
 ## 6. Write posts
+
+The functions of steps 6 and 7 go in `src/posts.ts`, which starts with:
+
+<<< ../../../examples/blog/src/posts.ts#imports
 
 <<< ../../../examples/blog/src/posts.ts#write
 
@@ -156,6 +201,10 @@ A `select` decides the shape and the type of the result:
 
 ## 8. A form with nested rows
 
+This step's two functions go in `src/comments.ts`:
+
+<<< ../../../examples/blog/src/comments.ts#imports
+
 Readers comment:
 
 <<< ../../../examples/blog/src/comments.ts#add
@@ -173,20 +222,29 @@ removed by accident. The association has to be preloaded first: the changeset co
 the form with what is there.
 
 `repo.update` writes the post and every comment in one transaction. If one comment is
-invalid, nothing is written and the errors come back nested:
-`{ comments: [{ body: ["can't be blank"] }] }`.
+invalid, nothing is written and the errors come back nested, one entry per submitted
+comment, in the order of the form: a form that keeps an existing comment as it is and adds
+one with an empty body gets `{ comments: [{}, { body: ["can't be blank"] }] }`. The `{}`
+says that the first item is valid, so a form can show each item's errors next to it.
 
 ## 9. Publish and notify, in one batch
 
 Publishing sets `publishedAt` and creates a notification for each reader who follows the
-author. The two tables for that:
-
-<<< ../../../examples/blog/src/schemas.ts#follow
+author (the `Subscription` and `Notification` classes of step 4).
 
 A **batch** is a list of named steps that run in one transaction. Each step can use the
-results of the steps before it, by name and fully typed:
+results of the steps before it, by name and fully typed. In `src/publishing.ts`:
+
+<<< ../../../examples/blog/src/publishing.ts#imports
 
 <<< ../../../examples/blog/src/publishing.ts#publish
+
+The batch takes the post's id and reads the post again, locked, as its first step. A `Post`
+object in memory is a copy of the row as it was read: one read before someone else
+published the post still says `publishedAt: null`, so a guard that trusted it would
+publish twice. Reading the row in the transaction, with `lock("update")`, makes the guard
+see the current row, and keeps a second publisher waiting until the first one's
+transaction ends.
 
 If any step fails, everything is rolled back and the result says which step failed
 (`result.error.step` is typed as the names of the steps that can fail) and what had
@@ -195,13 +253,23 @@ it (see below).
 
 ## 10. Test it
 
-Tests need a database of their own. Create one next to the first (in `psql`:
-`create database blog_test;`), and run the tests with `DATABASE_URL` pointing at it. A
-Vitest setup file brings its tables up to date before the tests run:
+Tests need a database of their own. With the Docker container of step 1, create one with:
+
+```sh
+docker exec blog-db createdb -U postgres blog_test
+```
+
+(With another Postgres, use `createdb blog_test` or `create database blog_test;` in `psql`.)
+
+A Vitest setup file brings its tables up to date before the tests run:
 
 <<< ../../../examples/blog/test/setup.ts#setup
 
-Register it in `vitest.config.ts` with `test: { setupFiles: ["test/setup.ts"] }`, then run:
+The Vitest configuration names the test files and the setup file:
+
+<<< ../../../examples/blog/vitest.config.ts#config
+
+Then run the tests against the test database:
 
 ```sh
 DATABASE_URL=postgres://postgres:blog@localhost:5432/blog_test npx vitest run
@@ -210,11 +278,14 @@ DATABASE_URL=postgres://postgres:blog@localhost:5432/blog_test npx vitest run
 `egon-orm/testing` has a **sandbox**: each test runs in a transaction that is rolled back
 afterwards, so tests see their own writes, start from empty tables, and need no cleanup.
 It works with the repo your application already imports, and test files that run at the
-same time do not see each other's rows:
+same time do not see each other's rows. Every test file sets it up for itself:
 
 <<< ../../../examples/blog/test/accounts.itest.ts#sandbox
 
-Test data is plain functions:
+The tests of posts and comments are a second file, with the same sandbox setup and its
+test data as plain functions:
+
+<<< ../../../examples/blog/test/posts.itest.ts#header
 
 <<< ../../../examples/blog/test/posts.itest.ts#factory
 
@@ -227,7 +298,9 @@ The nested form, with an update, an insert and a delete in one call:
 
 <<< ../../../examples/blog/test/posts.itest.ts#moderate-test
 
-And the batch, checked as data, without running it:
+And the batch, in a third file, checked as data, without running it:
+
+<<< ../../../examples/blog/test/publishing.itest.ts#header
 
 <<< ../../../examples/blog/test/publishing.itest.ts#batch-test
 
@@ -258,7 +331,7 @@ pnpm --filter @egon-orm/example-blog test
 
 ::: tip Good to know
 - **Rows are data.** There is no `post.save()`: you describe a change with a changeset
-  and give it to the repo.
+  and give it to the repo. A row in memory is a copy of the database row as it was read.
 - **Writes return a result.** Check `result.success`, or use the `OrThrow` twin.
 - **Nothing is loaded lazily.** Preload what a page needs; the types tell you when you
   forgot.

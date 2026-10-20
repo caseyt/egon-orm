@@ -1,7 +1,9 @@
-// src/posts.ts: writing, reading and moderating posts. The tutorial includes each region.
+// #region imports
+// src/posts.ts: writing and reading posts. The functions below all go in this file.
 import { count, from, type Loaded } from "egon-orm";
 import { repo } from "./db.js";
 import { Post, type User } from "./schemas.js";
+// #endregion imports
 
 // #region write
 export function createPost(author: User, params: unknown) {

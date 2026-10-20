@@ -197,7 +197,8 @@ const result = await repo.insert(User.changeset(User, params));
   ends its line with `// => value` is checked: the statement's value (or, for
   `const x = …;`, the value of `x`) must deep-equal `value`, a JavaScript expression. Keep
   such a statement on one line. Every such check must run: one in a branch that is not
-  taken fails the test. A runnable example creates its own tables, exports a `run`
+  taken fails the test. `// @run after: ./setup.ts` runs another file of the example first,
+  as a reader would (a script that creates the tables). A runnable example creates its own tables, exports a `run`
   function if it needs one, and closes every adapter it opens. A `// =>` comment in a file
   without `// @run` is refused, since nothing would check it.
 - Shell, SQL, text and configuration blocks may be written inline. TypeScript that is not

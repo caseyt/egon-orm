@@ -1,9 +1,9 @@
 // @run
 // The checked source of recipes/auditing.md. Each `#region` is included in the page by name;
 // the rest makes it compile and run (docs:integration checks the `// =>` comments).
+// #region setup
 import { postgres } from "@egon-orm/postgres";
 import { type Changeset, cast, change, createBatch, createRepo, from, Schema, t, timestamps } from "egon-orm";
-import { createTables } from "./support.js";
 
 const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATABASE_URL }) });
 
@@ -16,6 +16,22 @@ class Account extends Schema("accounts", {
     return cast(account, params, ["email", "plan"]).validateRequired(["email"]);
   }
 }
+
+// The tables, in SQL. A project creates them with a migration.
+const TABLES = `
+  create table accounts (id serial primary key, email text not null, plan text not null default 'free');
+  create table audit_entries (id serial primary key, actor_id integer not null, action text not null,
+    table_name text not null, row_id integer not null, changes jsonb not null,
+    created_at timestamptz not null, updated_at timestamptz not null);
+`;
+
+/** Creates the tables, in the database that DATABASE_URL names. */
+export async function createTables(): Promise<void> {
+  const admin = postgres({ connectionString: process.env.DATABASE_URL });
+  await admin.execute(TABLES, []);
+  await admin.close();
+}
+// #endregion setup
 
 // #region schema
 class AuditEntry extends Schema("audit_entries", {
@@ -47,12 +63,7 @@ export function auditedUpdate(actorId: number, changeset: Changeset<typeof Accou
 // #endregion audited
 
 export async function run(): Promise<void> {
-  await createTables(`
-    create table accounts (id serial primary key, email text not null, plan text not null default 'free');
-    create table audit_entries (id serial primary key, actor_id integer not null, action text not null,
-      table_name text not null, row_id integer not null, changes jsonb not null,
-      created_at timestamptz not null, updated_at timestamptz not null);
-  `);
+  await createTables();
   const account = await repo.insertOrThrow(Account.changeset(Account, { email: "ada@example.com" }));
   const adminId = 7;
 

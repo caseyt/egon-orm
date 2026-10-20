@@ -4,6 +4,7 @@
 // three pages. Each `#region` is included by name; everything outside a region is the
 // scaffolding that makes the regions compile and run (docs:integration runs this file and
 // checks its `// =>` comments).
+// #region imports
 import { postgres } from "@egon-orm/postgres";
 import {
   belongsTo,
@@ -19,6 +20,7 @@ import {
   timestamps,
 } from "egon-orm";
 import { createMigrator, defineMigration } from "egon-orm/migration";
+// #endregion imports
 
 // #region define
 export class User extends Schema("users", {
@@ -58,43 +60,54 @@ export class Post extends Schema("posts", {
 const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATABASE_URL }) });
 // #endregion connect
 
+// #region migration
+// The tables, with what Prisma's @unique and @default say: in Egon they belong to the database.
 const tables = defineMigration({
-  change(m) {
-    m.createTable("users", (t) => {
-      t.id("id", { type: "integer" }); // serial
-      t.text("email").notNull().unique();
-      t.text("name");
-      t.text("role").notNull().default("member");
-      t.timestamps();
+  up(m) {
+    m.createTable("users", (table) => {
+      table.id("id", { type: "integer" }); //              serial: an integer, as User.id says
+      table.text("email").notNull().unique(); //           @unique (users_email_key)
+      table.text("name");
+      table.text("role").notNull().default("member"); //   @default("member")
+      table.timestamps();
     });
-    m.createTable("posts", (t) => {
-      t.id("id", { type: "integer" }); // serial
-      t.references("author_id", "users", { type: "integer" }).notNull();
-      t.text("title").notNull();
-      t.boolean("published").notNull().default(false);
-      t.integer("views").notNull().default(0);
-      t.timestamps();
+    m.createTable("posts", (table) => {
+      table.id("id", { type: "integer" });
+      table.references("author_id", "users", { type: "integer" }).notNull();
+      table.text("title").notNull();
+      table.boolean("published").notNull().default(false);
+      table.integer("views").notNull().default(0);
+      table.timestamps();
     });
   },
+  down(m) {
+    m.dropTable("posts");
+    m.dropTable("users");
+  },
 });
+// #endregion migration
 
 export async function run(): Promise<void> {
-  const adapter = postgres({ connectionString: process.env.DATABASE_URL });
-  await createMigrator({ adapter, migrations: [{ version: 1, name: "tables", migration: tables }] }).up();
-  await adapter.close();
+  // #region migrate
+  const admin = postgres({ connectionString: process.env.DATABASE_URL });
+  await createMigrator({
+    adapter: admin,
+    migrations: [{ version: 1, name: "tables", migration: tables }],
+  }).up();
+  await admin.close();
+  // #endregion migrate
 
   // #region create
   const created = await repo.insert(User.changeset(User, { email: "ada@example.com", name: "Ada" }));
-  if (created.success) {
-    // A User, with its id, role and timestamps filled in.
-    created.data.role; // => "member"
-  } else {
-    console.log(created.error.errorMessages()); // for the form: { email: ["has invalid format"] }
+  if (!created.success) {
+    // Invalid input (an email without "@", say): a form would show these messages instead.
+    throw new Error(`invalid: ${JSON.stringify(created.error.errorMessages())}`);
   }
+  const ada = created.data; // type: User, with its id, role and timestamps filled in
+  ada.role; // => "member"
 
   const bo = await repo.insertOrThrow(User.changeset(User, { email: "bo@example.com" })); // throws if invalid
   // #endregion create
-  const ada = await repo.getByOrThrow(User, { email: "ada@example.com" });
 
   // #region create-error
   const taken = await repo.insert(User.changeset(User, { email: "ada@example.com" }));
@@ -111,13 +124,20 @@ export async function run(): Promise<void> {
       posts: [{ title: "Hello" }, { title: "Again" }],
     }).castAssoc("posts"),
   ); // the user and both posts, in one transaction
+  // type: User. The posts are on the returned row, but its type does not say so: to use
+  // them, check with isLoaded(User, cy, "posts"), or read the user again with a preload.
+  const cy = await repo.one(from(User, "u").where({ id: withPosts.id }).preload("posts"));
+  cy?.posts.length; // => 2
   // #endregion nested-create
 
+  // #region fixtures
+  // The rows the next examples read: Ada has a draft and a launch post, Bo has notes.
   await repo.insertAll(Post, [
     { authorId: ada.id, title: "Draft", published: false },
     { authorId: ada.id, title: "Launch", published: true, views: 10 },
     { authorId: bo.id, title: "Notes", published: true, views: 3 },
   ]);
+  // #endregion fixtures
 
   // #region find-by-id
   const user = await repo.get(User, ada.id); // User | null

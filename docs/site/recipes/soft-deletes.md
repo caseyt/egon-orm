@@ -3,6 +3,10 @@
 Keep deleted rows, marked with the time they were deleted, and leave them out of every
 listing.
 
+::: details The schemas and tables this recipe uses
+<<< @/examples/recipes/soft-deletes.ts#setup
+:::
+
 ## The field
 
 <<< @/examples/recipes/soft-deletes.ts#schema

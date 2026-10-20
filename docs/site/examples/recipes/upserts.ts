@@ -1,9 +1,9 @@
 // @run
 // The checked source of recipes/upserts.md. Each `#region` is included in the page by name;
 // the rest makes it compile and run (docs:integration checks the `// =>` comments).
+// #region setup
 import { postgres } from "@egon-orm/postgres";
 import { change, createRepo, from, Schema, t, timestamps } from "egon-orm";
-import { createTables } from "./support.js";
 
 const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATABASE_URL }) });
 
@@ -18,6 +18,21 @@ class DailyView extends Schema("daily_views", {
   day: t.date().primaryKey(),
   views: t.integer(),
 }) {}
+
+// The tables, in SQL. A project creates them with a migration.
+const TABLES = `
+  create table settings (key text primary key, value jsonb not null,
+    created_at timestamptz not null, updated_at timestamptz not null);
+  create table daily_views (page_id integer, day date, views integer not null, primary key (page_id, day));
+`;
+
+/** Creates the tables, in the database that DATABASE_URL names. */
+export async function createTables(): Promise<void> {
+  const admin = postgres({ connectionString: process.env.DATABASE_URL });
+  await admin.execute(TABLES, []);
+  await admin.close();
+}
+// #endregion setup
 
 // #region counter
 export async function countView(pageId: number, day: string) {
@@ -35,11 +50,7 @@ export async function countView(pageId: number, day: string) {
 // #endregion counter
 
 export async function run(): Promise<void> {
-  await createTables(`
-    create table settings (key text primary key, value jsonb not null,
-      created_at timestamptz not null, updated_at timestamptz not null);
-    create table daily_views (page_id integer, day date, views integer not null, primary key (page_id, day));
-  `);
+  await createTables();
 
   // #region one
   // Insert the setting, or replace its value (and updatedAt) if the key exists.

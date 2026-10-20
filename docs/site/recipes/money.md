@@ -5,6 +5,10 @@ choices are a decimal string (what `t.decimal()` gives) or a whole number of cen
 recipe defines a custom type that keeps cents in your code and a `numeric` column in the
 database.
 
+::: details The schemas and tables this recipe uses
+<<< @/examples/recipes/money.ts#setup
+:::
+
 ## The type
 
 <<< @/examples/recipes/money.ts#type

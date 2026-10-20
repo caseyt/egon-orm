@@ -43,6 +43,38 @@ Drizzle: `drizzle({ client: pool })` from `drizzle-orm/node-postgres`.
 
 <<< @/examples/coming-from.ts#connect
 
+## Setting up
+
+The examples are one runnable file. To follow them in a project of your own:
+
+```sh
+npm install egon-orm @egon-orm/postgres pg
+npm install -D typescript tsx @types/node @types/pg
+```
+
+with the `tsconfig.json` of [Getting started](/guide/getting-started#create-the-project), and
+these imports:
+
+<<< @/examples/coming-from.ts#imports
+
+### The tables
+
+Drizzle: `drizzle-kit generate`, from the `.unique()` and `.default()` calls on the table objects. In Egon, a migration you write
+creates them, and unique indexes and defaults are part of it:
+
+<<< @/examples/coming-from.ts#migration
+
+Run it once, before the rest:
+
+<<< @/examples/coming-from.ts#migrate
+
+::: warning Match the key types
+Declare each key with the type of its column. `table.id("id", { type: "integer" })` is a
+32-bit `serial`, for `t.integer()`, as here. A bare `table.id()` is a 64-bit `bigserial`, for
+`t.bigint({ mode: "number" })` (or `t.bigint()`). The types cannot see a mismatch between a
+schema class and its table: an integer field over a `bigint` column reads its values wrongly.
+:::
+
 ## Common tasks
 
 ### Insert a row
@@ -67,7 +99,17 @@ Drizzle: two inserts in a transaction, the second using the first's returned id.
 
 <<< @/examples/coming-from.ts#nested-create
 
+The returned row holds the saved posts, but its type is a plain `User`: the type of a
+write's result does not list associations. To use them, narrow it with
+`isLoaded(User, row, "posts")`, or read the user again with a preload, as the example does.
+
 See [Nested changesets](/guide/nested-changesets).
+
+### Sample data
+
+The reads below run against these rows, besides the users created above:
+
+<<< @/examples/coming-from.ts#fixtures
 
 ### Find by id
 

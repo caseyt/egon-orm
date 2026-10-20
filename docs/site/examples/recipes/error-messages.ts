@@ -1,6 +1,7 @@
 // @run
 // The checked source of recipes/translating-errors.md. Each `#region` is included in the page
 // by name; the rest makes it compile (docs:integration runs it and checks the `// =>` comments).
+// #region setup
 import { type ChangesetError, cast, Schema, t, traverseErrors } from "egon-orm";
 
 class User extends Schema("users", {
@@ -17,6 +18,7 @@ class User extends Schema("users", {
       .uniqueConstraint("email");
   }
 }
+// #endregion setup
 
 // #region catalogue
 // The default messages are the keys. Placeholders such as {count} are filled from meta.

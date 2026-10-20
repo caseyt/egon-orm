@@ -1,9 +1,22 @@
 // @run
 // The checked source of recipes/money.md. Each `#region` is included in the page by name;
 // the rest makes it compile and run (docs:integration checks the `// =>` comments).
+// #region setup
 import { postgres } from "@egon-orm/postgres";
 import { cast, createRepo, defineType, from, Schema, sum, t } from "egon-orm";
-import { createTables } from "./support.js";
+
+const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATABASE_URL }) });
+
+// The tables, in SQL. A project creates them with a migration.
+const TABLES = `create table products (id serial primary key, name text not null, price numeric(12, 2) not null)`;
+
+/** Creates the tables, in the database that DATABASE_URL names. */
+export async function createTables(): Promise<void> {
+  const admin = postgres({ connectionString: process.env.DATABASE_URL });
+  await admin.execute(TABLES, []);
+  await admin.close();
+}
+// #endregion setup
 
 // #region type
 const AMOUNT = /^(-?)(\d{1,10})(?:\.(\d{1,2}))?$/;
@@ -48,12 +61,8 @@ class Product extends Schema("products", {
 }
 // #endregion schema
 
-const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATABASE_URL }) });
-
 export async function run(): Promise<void> {
-  await createTables(
-    "create table products (id serial primary key, name text not null, price numeric(12, 2) not null)",
-  );
+  await createTables();
 
   // #region use
   const pen = await repo.insertOrThrow(Product.changeset(Product, { name: "Pen", price: "19.99" }));

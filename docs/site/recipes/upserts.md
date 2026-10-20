@@ -2,6 +2,10 @@
 
 Insert a row, or update the one that is already there, in one statement.
 
+::: details The schemas and tables this recipe uses
+<<< @/examples/recipes/upserts.ts#setup
+:::
+
 ## Insert or update one row
 
 <<< @/examples/recipes/upserts.ts#one

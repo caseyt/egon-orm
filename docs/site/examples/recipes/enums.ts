@@ -1,12 +1,14 @@
 // @run
 // The checked source of recipes/enums.md. Each `#region` is included in the page by name;
 // the rest makes it compile and run (docs:integration checks the `// =>` comments).
+// #region setup
 import { postgres } from "@egon-orm/postgres";
 import { cast, createRepo, from, Schema, t } from "egon-orm";
 import { createMigrator, defineMigration } from "egon-orm/migration";
 
 const adapter = postgres({ connectionString: process.env.DATABASE_URL });
 const repo = createRepo({ adapter });
+// #endregion setup
 
 // #region schema
 export const STATUSES = ["draft", "review", "published"] as const;
@@ -26,12 +28,15 @@ export type Status = Post["status"]; // "draft" | "review" | "published"
 
 // #region migration
 export const posts = defineMigration({
-  change(m) {
-    m.createTable("posts", (t) => {
-      t.id("id", { type: "integer" });
-      t.enumText("status", STATUSES).notNull().default("draft"); // text with posts_status_check
-      t.integer("priority").notNull().default(2);
+  up(m) {
+    m.createTable("posts", (table) => {
+      table.id("id", { type: "integer" });
+      table.enumText("status", STATUSES).notNull().default("draft"); // text with posts_status_check
+      table.integer("priority").notNull().default(2);
     });
+  },
+  down(m) {
+    m.dropTable("posts");
   },
 });
 // #endregion migration

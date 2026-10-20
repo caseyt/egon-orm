@@ -3,6 +3,10 @@
 Turn `?q=launch&status=published&minViews=10&sort=popular&page=2` into a query, with every
 parameter validated and converted, and an error response for bad input.
 
+::: details The schemas and tables this recipe uses
+<<< @/examples/recipes/dynamic-filters.ts#setup
+:::
+
 ## Validating the parameters
 
 A changeset does not need a table. Give it the parameters' types, and it casts and validates

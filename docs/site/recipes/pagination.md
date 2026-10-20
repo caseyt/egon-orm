@@ -3,6 +3,10 @@
 Two ways to read a large list a page at a time: by page number (offset), or after the last
 row seen (keyset).
 
+::: details The schemas and tables this recipe uses
+<<< @/examples/recipes/pagination.ts#setup
+:::
+
 ## By page number
 
 <<< @/examples/recipes/pagination.ts#offset

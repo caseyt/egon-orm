@@ -1,8 +1,10 @@
+// #region imports
 // src/comments.ts: adding comments, and the moderation form that edits a post together
-// with its comments. The tutorial includes each region.
+// with its comments. Both functions go in this file.
 import { from } from "egon-orm";
 import { repo } from "./db.js";
 import { Comment, Post } from "./schemas.js";
+// #endregion imports
 
 // #region add
 export function addComment(post: Post, params: unknown) {

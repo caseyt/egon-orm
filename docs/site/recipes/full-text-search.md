@@ -4,6 +4,10 @@ Search articles by words, ranked by relevance, with Postgres's full-text search.
 operators have no builder methods, so the query writes them with `fragment`, whose
 interpolations are bound parameters.
 
+::: details The schemas and tables this recipe uses
+<<< @/examples/recipes/full-text-search.ts#setup
+:::
+
 ## The index
 
 A generated `tsvector` column keeps the searchable text up to date by itself, and a GIN
@@ -42,4 +46,4 @@ before you render it as HTML.
 ## See also
 
 - [Fragments](/guide/query-expressions#fragments)
-- [Up and down migrations](/guide/migrations#reversible-migrations-and-up-down)
+- [Migrations](/guide/migrations)

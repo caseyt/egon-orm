@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { type CliIo, run, statusTable } from "./cli.js";
 import { CliError, importUserModule, loadConfig, typescriptHelp } from "./config.js";
-import { migrationTemplate } from "./create.js";
+import { MAX_NAME_LENGTH, migrationTemplate } from "./create.js";
 import { COMMAND_HELP, MAIN_HELP } from "./help.js";
 import { defineConfig, VERSION } from "./index.js";
 
@@ -146,6 +146,9 @@ describe("usage errors exit with 2", () => {
     [["migrate", "--to", "1", "--step", "1"], /at most one of --to and --step/],
     [["migrate", "--step", "0"], /--step takes a positive whole number/],
     [["migrate", "--to", "v2"], /--to takes a positive whole number/],
+    // The value of --to or --step is never taken for the subcommand.
+    [["migrate", "--to", "create"], /--to takes a positive whole number, not "create"/],
+    [["migrate", "--step", "create"], /--step takes a positive whole number, not "create"/],
     [["migrate", "--steps", "1"], /Unknown option '--steps'/],
     [["migrate", "extra"], /migrate takes no arguments other than the subcommand create, not "extra"/],
     [
@@ -317,6 +320,28 @@ describe("egon migrate create", () => {
     const captured = capture(cwd);
     expect(await run(["migrate", "--config", "other.mjs", "create", "a", "--json"], captured.io)).toBe(0);
     expect(await readdir(join(cwd, "db", "migrations"))).toEqual(["20261012093000_a.ts"]);
+    const dir = capture(cwd);
+    expect(await run(["migrate", "--dir", "d", "create", "b"], dir.io)).toBe(0);
+    expect(dir.out()).toBe(`Created ${join("d", "20261012093000_b.ts")}\n`);
+    expect(await readdir(join(cwd, "d"))).toEqual(["20261012093000_b.ts"]);
+  });
+
+  test("a config that lists its migrations needs --dir", async () => {
+    await writeFile(
+      join(cwd, "egon.config.mjs"),
+      FAKE_CONFIG.replace('migrations: { directory: "db/migrations" }', "migrations: { migrations: [] }"),
+    );
+    const closed: string[] = [];
+    (globalThis as { egonClosed?: string[] }).egonClosed = closed;
+    const refused = capture(cwd);
+    expect(await run(["migrate", "create", "a"], refused.io)).toBe(1);
+    expect(refused.err()).toBe(
+      "error: The config lists its migrations instead of naming a directory, so the runner reads no directory: pass --dir to say where to write the file.\n",
+    );
+    expect(closed).toEqual(["main"]);
+    expect(await readdir(cwd)).toEqual(["egon.config.mjs"]);
+    expect(await run(["migrate", "create", "a", "--dir", "src/migrations"], capture(cwd).io)).toBe(0);
+    expect(await readdir(join(cwd, "src", "migrations"))).toEqual(["20261012093000_a.ts"]);
   });
 
   test("--json prints one object with the version, the name and the absolute path", async () => {
@@ -360,17 +385,51 @@ describe("egon migrate create", () => {
     expect(await readdir(join(cwd, "migrations"))).toEqual(["20261012093000_first.ts"]);
   });
 
-  test("a file that cannot be written is reported", async () => {
+  test("file-system failures are reported in one line, without a stack trace", async () => {
     const locked = join(cwd, "locked");
+    const unreadable = join(cwd, "unreadable");
     await mkdir(locked);
+    await mkdir(unreadable);
+    await writeFile(join(cwd, "plain"), "");
     await chmod(locked, 0o555);
+    await chmod(unreadable, 0o333);
+    const failures: [string, RegExp][] = [
+      ["locked", /^error: Cannot write locked\/20261012093000_a\.ts: EACCES: permission denied/],
+      ["locked/sub", /^error: Cannot create the directory locked\/sub: EACCES: permission denied/],
+      ["unreadable", /^error: Cannot read the directory unreadable: EACCES: permission denied/],
+      ["plain", /^error: Cannot create the directory plain: a file is in the way\.\n$/],
+      ["plain/sub", /^error: Cannot create the directory plain\/sub: a file is in the way\.\n$/],
+    ];
+    const elsewhere = `${cwd}-plain`;
     try {
-      const captured = capture(cwd);
-      expect(await run(["migrate", "create", "a", "--dir", "locked"], captured.io)).toBe(1);
-      expect(captured.err()).toMatch(/^error: EACCES/);
+      await writeFile(elsewhere, "");
+      for (const [dir, message] of failures) {
+        const captured = capture(cwd);
+        expect(await run(["migrate", "create", "a", "--dir", dir], captured.io)).toBe(1);
+        expect(captured.err()).toMatch(message);
+        expect(captured.err()).not.toContain("\n    at ");
+        expect(captured.err().split("\n")).toHaveLength(2);
+      }
+      // Outside the current directory a path is shown in full.
+      const outside = capture(cwd);
+      expect(await run(["migrate", "create", "a", "--dir", elsewhere], outside.io)).toBe(1);
+      expect(outside.err()).toBe(`error: Cannot create the directory ${elsewhere}: a file is in the way.\n`);
     } finally {
       await chmod(locked, 0o755);
+      await chmod(unreadable, 0o755);
+      await rm(elsewhere, { force: true });
     }
+  });
+
+  test("a name longer than 100 characters is refused before anything is written", async () => {
+    expect(await run(["migrate", "create", "a".repeat(MAX_NAME_LENGTH)], capture(cwd).io)).toBe(0);
+    const captured = capture(cwd);
+    expect(await run(["migrate", "create", "b".repeat(MAX_NAME_LENGTH + 1)], captured.io)).toBe(2);
+    expect(captured.err()).toBe("The migration name is 101 characters long; the limit is 100.\n");
+    expect(await readdir(join(cwd, "migrations"))).toHaveLength(1);
+    const long = capture(cwd);
+    expect(await run(["migrate", "create", "c".repeat(300)], long.io)).toBe(2);
+    expect(long.err()).not.toMatch(/ENAMETOOLONG/);
   });
 
   test("with --json, the refusal is one JSON object", async () => {
@@ -381,6 +440,21 @@ describe("egon migrate create", () => {
     expect(report.ok).toBe(false);
     expect(report.error.name).toBe("CliError");
     expect(report.error.message).toMatch(/already exists/);
+  });
+
+  test("with --json, another name in the same second is refused and the existing file named", async () => {
+    expect(await run(["migrate", "create", "first"], capture(cwd).io)).toBe(0);
+    const captured = capture(cwd);
+    expect(await run(["migrate", "create", "second", "--json"], captured.io)).toBe(1);
+    expect(JSON.parse(captured.out())).toMatchObject({
+      ok: false,
+      error: {
+        name: "CliError",
+        message:
+          "A migration with the version 20261012093000 already exists (20261012093000_first.ts), and egon migrate create never overwrites a file. Wait a second and run it again.",
+      },
+    });
+    expect(await readdir(join(cwd, "migrations"))).toEqual(["20261012093000_first.ts"]);
   });
 
   test("a broken config is reported, not ignored; a missing --config file too", async () => {

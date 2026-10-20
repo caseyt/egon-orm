@@ -16,6 +16,17 @@
 export const MIGRATION_NAME = /^[a-z0-9_]+$/;
 
 /**
+ * The longest migration name, in characters. With the version and `.ts` the file name stays
+ * far below the 255 bytes file systems allow.
+ *
+ * @example
+ * ```ts
+ * "create_users".length <= MAX_NAME_LENGTH; // true
+ * ```
+ */
+export const MAX_NAME_LENGTH = 100;
+
+/**
  * The version of a migration created at `now`: its UTC time as `YYYYMMDDHHMMSS`.
  *
  * @example

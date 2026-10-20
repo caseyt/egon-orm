@@ -17,7 +17,7 @@ import {
   type Migrator,
 } from "egon-orm/migration";
 import { CliError, type EgonConfig, type LoadedConfig, loadConfig } from "./config.js";
-import { MIGRATION_NAME, migrationTemplate, versionAt } from "./create.js";
+import { MAX_NAME_LENGTH, MIGRATION_NAME, migrationTemplate, versionAt } from "./create.js";
 import { COMMAND_HELP, MAIN_HELP } from "./help.js";
 import { VERSION } from "./version.js";
 
@@ -482,10 +482,31 @@ async function create(args: readonly string[], io: CliIo): Promise<number> {
       `The migration name "${name}" must be lower-case letters, digits and underscores: for example create_users.`,
     );
   }
+  if (name.length > MAX_NAME_LENGTH) {
+    throw new UsageError(
+      `The migration name is ${name.length} characters long; the limit is ${MAX_NAME_LENGTH}.`,
+    );
+  }
   const directory = await migrationsDirectory(io, values);
+  const shown = display(io, directory);
   const version = versionAt(io.now());
-  await mkdir(directory, { recursive: true });
-  const taken = (await readdir(directory)).find((file) => file.startsWith(`${version}_`));
+  try {
+    await mkdir(directory, { recursive: true });
+  } catch (error) {
+    const code = (error as { readonly code?: unknown }).code;
+    throw new CliError(
+      code === "EEXIST" || code === "ENOTDIR"
+        ? `Cannot create the directory ${shown}: a file is in the way.`
+        : `Cannot create the directory ${shown}: ${(error as Error).message}`,
+    );
+  }
+  let files: string[];
+  try {
+    files = await readdir(directory);
+  } catch (error) {
+    throw new CliError(`Cannot read the directory ${shown}: ${(error as Error).message}`);
+  }
+  const taken = files.find((file) => file.startsWith(`${version}_`));
   const refuse = (existing: string): CliError =>
     new CliError(
       `A migration with the version ${version} already exists (${existing}), and egon migrate create never overwrites a file. Wait a second and run it again.`,
@@ -498,7 +519,7 @@ async function create(args: readonly string[], io: CliIo): Promise<number> {
     await writeFile(file, migrationTemplate(), { flag: "wx" });
   } catch (error) {
     if ((error as { readonly code?: unknown }).code === "EEXIST") throw refuse(base);
-    throw error;
+    throw new CliError(`Cannot write ${display(io, file)}: ${(error as Error).message}`);
   }
   if (values.json === true) {
     io.stdout(
@@ -508,6 +529,12 @@ async function create(args: readonly string[], io: CliIo): Promise<number> {
     io.stdout(`Created ${relative(io.cwd, file)}\n`);
   }
   return OK;
+}
+
+/** A path as messages show it: relative to the current directory when inside it, else absolute. */
+function display(io: CliIo, path: string): string {
+  const shown = relative(io.cwd, path);
+  return /^(?:\.\.|$)/.test(shown) ? path : shown;
 }
 
 /** Where `migrate create` writes: `--dir`, else the configured directory, else `migrations`. */
@@ -529,6 +556,11 @@ async function migrationsDirectory(io: CliIo, values: Values): Promise<string> {
   }
   const config: EgonConfig = loaded.config;
   try {
+    if (config.migrations?.migrations !== undefined) {
+      throw new CliError(
+        "The config lists its migrations instead of naming a directory, so the runner reads no directory: pass --dir to say where to write the file.",
+      );
+    }
     return resolve(loaded.root, config.migrations?.directory ?? "migrations");
   } finally {
     const adapters = new Set<Adapter>([config.adapter]);

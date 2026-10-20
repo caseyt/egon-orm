@@ -54,11 +54,14 @@ argument other than the subcommand `create` (below).
 
 Writes a new, empty migration file, `<version>_<name>.ts`, in the migrations directory, and
 prints its path. The version is the current UTC time, `YYYYMMDDHHMMSS`; the name is
-lower-case letters, digits and underscores. The file exports an empty reversible migration,
-`defineMigration({ change(m) {} })`, for you to fill in.
+lower-case letters, digits and underscores, at most 100 characters. The file exports an
+empty reversible migration, `defineMigration({ change(m) {} })`, for you to fill in.
 
 It never overwrites a file: if a migration with the same version already exists (two runs
 in the same second), it exits with 1 and asks you to run it again a second later.
+
+When the config lists its migrations (`migrations: { migrations: [...] }`) instead of naming
+a directory, there is no directory to write to: `--dir` is then required.
 
 | Flag | Meaning |
 |---|---|

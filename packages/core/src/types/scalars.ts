@@ -309,8 +309,16 @@ function normalizeDecimal(text: string, precision: number | undefined, scale: nu
   return `${negative ? "-" : ""}${integer}${fraction === "" ? "" : `.${fraction}`}`;
 }
 
-/** The form in which two decimals are equal exactly when they are the same number. */
-function canonicalDecimal(text: string): string {
+/**
+ * The form in which two decimals are equal exactly when they are the same number
+ * (internal: also the key preloads group decimal keys by).
+ *
+ * @example
+ * ```ts
+ * canonicalDecimal("01.500"); // "1.5"
+ * ```
+ */
+export function canonicalDecimal(text: string): string {
   const normal = normalizeDecimal(text, undefined, 0);
   // Not decimal text (the database's "NaN", say): compared as written.
   if (normal === undefined || !normal.includes(".")) return normal ?? text;

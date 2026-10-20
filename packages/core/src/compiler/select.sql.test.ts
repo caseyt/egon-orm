@@ -99,7 +99,9 @@ describe("the output plan", () => {
   test("preloads are listed on the root row; a join preload has a row of its own", () => {
     const q = from(User, "u").joinAssoc("u", "posts", "p").preload({ posts: "p", profile: true });
     const output = outputOf(q.ast) as { preloads: unknown[] };
+    // In the order User declares its associations (profile before posts), not the order given.
     expect(output.preloads).toEqual([
+      { assoc: "profile", cardinality: "one" },
       {
         assoc: "posts",
         cardinality: "many",
@@ -113,7 +115,6 @@ describe("the output plan", () => {
           preloads: [],
         },
       },
-      { assoc: "profile", cardinality: "one" },
     ]);
   });
 

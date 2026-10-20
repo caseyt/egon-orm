@@ -925,10 +925,10 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
       });
     });
 
-    describe("preloads (step 14)", () => {
-      // The getting-started guide shows this query. It compiles and is typed, but preloads
-      // run in step 14; until then it throws QueryError. Remove `fails` when it passes.
-      test.fails("a query that preloads returns rows with their associations", async () => {
+    describe("preloads", () => {
+      // The getting-started guide shows this query (the preload conformance suite covers
+      // preloads in full).
+      test("a query that preloads returns rows with their associations", async () => {
         const users = await repo().all(
           from(User, "u")
             .preload("posts")

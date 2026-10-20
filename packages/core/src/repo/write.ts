@@ -83,6 +83,7 @@ import { meta } from "../schema/schema.js";
 import { handleViolation } from "./constraints.js";
 import { decoderFor } from "./hydrate.js";
 import { checkReadOptions, READ_OPTION_KEYS, type ReadOptions, type RepoOperation } from "./options.js";
+import { keepPreloads } from "./preload.js";
 import { Call, isFragment, load, ReadCore } from "./read.js";
 
 /** A changeset of any schema, as the repo handles it. */
@@ -875,6 +876,8 @@ function buildRow(
     if (hasOwn(changes, field.name)) out[field.name] = changes[field.name];
     else if (previous !== null) out[field.name] = previous[field.name];
   }
+  // The kept associations come with how they were preloaded, for a later reload.
+  if (previous !== null) keepPreloads(previous, out);
   return out;
 }
 

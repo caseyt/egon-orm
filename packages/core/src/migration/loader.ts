@@ -1,0 +1,198 @@
+/**
+ * Where migrations come from: the files of a directory, loaded with dynamic `import()`,
+ * or a list given in memory (for bundlers and edge deployments). Either way the result is
+ * the same sorted list of {@link MigrationSource}s.
+ *
+ * @module
+ */
+import { MigrationError } from "../errors.js";
+import { isMigration, type Migration } from "./define.js";
+
+/**
+ * One migration with its version and name: what a file `20261012093000_create_users.ts`
+ * holds, or an entry of an in-memory list.
+ *
+ * @example
+ * ```ts
+ * declare const createUsers: Migration;
+ * const source: MigrationSource = { version: 20261012093000, name: "create_users", migration: createUsers };
+ * ```
+ */
+export interface MigrationSource {
+  /** The 14-digit timestamp `YYYYMMDDHHMMSS`, as a number. */
+  readonly version: number;
+  /** Letters, digits and underscores: `create_users`. */
+  readonly name: string;
+  readonly migration: Migration;
+}
+
+/** `<14 digits>_<name>.<ext>`: the file name of a migration. */
+const FILE = /^(\d+)_([A-Za-z0-9_]+)\.(ts|mts|js|mjs)$/;
+const NAME = /^[A-Za-z0-9_]+$/;
+
+/**
+ * Parses a migration file name: `20261012093000_create_users.ts` is version
+ * `20261012093000`, name `create_users`. `undefined` for a file that is not a migration
+ * (`README.md`, `helpers.ts`, `x.d.ts`).
+ *
+ * @example
+ * ```ts
+ * parseMigrationFileName("20261012093000_create_users.ts"); // { version: 20261012093000, name: "create_users" }
+ * ```
+ *
+ * @throws MigrationError when the name starts with digits and an underscore but the
+ * digits are not a 14-digit version.
+ */
+export function parseMigrationFileName(file: string): { version: number; name: string } | undefined {
+  const match = FILE.exec(file);
+  if (match === null) return undefined;
+  const digits = match[1] as string;
+  if (digits.length !== 14) {
+    throw new MigrationError(
+      `The migration file "${file}" does not start with a 14-digit version (YYYYMMDDHHMMSS). Rename it, for example "20261012093000_${match[2] as string}.${match[3] as string}".`,
+    );
+  }
+  return { version: Number(digits), name: match[2] as string };
+}
+
+/**
+ * Checks a version given by a caller: a positive safe integer.
+ *
+ * @example
+ * ```ts
+ * checkVersion("migrator.up({ to })", 20261012093000);
+ * ```
+ *
+ * @throws TypeError when it is not one.
+ */
+export function checkVersion(where: string, version: unknown): number {
+  if (typeof version !== "number" || !Number.isSafeInteger(version) || version < 1) {
+    throw new TypeError(`${where}: a version is a positive whole number (YYYYMMDDHHMMSS).`);
+  }
+  return version;
+}
+
+/** Sorts sources by version and refuses duplicates. */
+function sorted(sources: MigrationSource[]): readonly MigrationSource[] {
+  sources.sort((a, b) => a.version - b.version);
+  for (let i = 1; i < sources.length; i++) {
+    const previous = sources[i - 1] as MigrationSource;
+    const current = sources[i] as MigrationSource;
+    if (previous.version === current.version) {
+      throw new MigrationError(
+        `Two migrations have the version ${current.version}: "${previous.name}" and "${current.name}". Give one of them a new version.`,
+        { version: current.version },
+      );
+    }
+  }
+  return sources;
+}
+
+/**
+ * Checks an in-memory list of migrations and sorts it by version.
+ *
+ * @example
+ * ```ts
+ * declare const createUsers: Migration;
+ * const list = migrationList([{ version: 20261012093000, name: "create_users", migration: createUsers }]);
+ * ```
+ *
+ * @throws TypeError when an entry is not a {@link MigrationSource}.
+ * @throws MigrationError when two entries have the same version.
+ */
+export function migrationList(list: readonly unknown[]): readonly MigrationSource[] {
+  if (!Array.isArray(list))
+    throw new TypeError("migrations must be an array of { version, name, migration }.");
+  const sources: MigrationSource[] = [];
+  for (const entry of list) {
+    const { version, name, migration } = (entry ?? {}) as Partial<Record<keyof MigrationSource, unknown>>;
+    checkVersion("migrations[]", version);
+    if (typeof name !== "string" || !NAME.test(name)) {
+      throw new TypeError("migrations[]: a name is letters, digits and underscores.");
+    }
+    if (!isMigration(migration)) {
+      throw new TypeError(`migrations[]: "${name}" has no migration made by defineMigration().`);
+    }
+    sources.push({ version: version as number, name, migration });
+  }
+  return sorted(sources);
+}
+
+/** How a module is imported; replaced in tests. */
+export type ImportModule = (url: string) => Promise<Record<string, unknown>>;
+
+const importModule: ImportModule = (url) => import(url) as Promise<Record<string, unknown>>;
+
+const TS_EXTENSION = /\.m?ts$/;
+
+/** The explanation for a TypeScript file that the process cannot load. */
+function typescriptHelp(file: string, cause: unknown): MigrationError {
+  return new MigrationError(
+    `Cannot load the TypeScript migration "${file}": this process has no TypeScript loader. Run it with one: Node 22.18 or later strips types by itself (node --experimental-strip-types on 22.12 to 22.17), or use tsx (node --import tsx), or Bun. Or compile the migrations to .js.`,
+    { cause },
+  );
+}
+
+/**
+ * Loads every migration file of `directory` (not its subdirectories) and sorts them by
+ * version. A file is a migration when its name is `<14-digit version>_<name>.<ts|mts|js|mjs>`;
+ * other files are ignored. Its migration is the module's default export, or its export
+ * named `migration`.
+ *
+ * @example
+ * ```ts
+ * const sources = await loadMigrations("./migrations");
+ * ```
+ *
+ * @throws MigrationError when the directory cannot be read, a file cannot be loaded (a
+ * TypeScript file without a TypeScript loader gets an explanation of what to install), a
+ * file exports no migration, or two files have the same version.
+ */
+export async function loadMigrations(
+  directory: string,
+  load: ImportModule = importModule,
+): Promise<readonly MigrationSource[]> {
+  if (typeof directory !== "string" || directory.length === 0) {
+    throw new TypeError("The migrations directory must be a non-empty path.");
+  }
+  // Imported here, not at the top: an in-memory list must work where there is no file system.
+  const [{ readdir }, { join, resolve }, { pathToFileURL }] = await Promise.all([
+    import("node:fs/promises"),
+    import("node:path"),
+    import("node:url"),
+  ]);
+  const root = resolve(directory);
+  let files: string[];
+  try {
+    files = await readdir(root);
+  } catch (cause) {
+    throw new MigrationError(`Cannot read the migrations directory "${root}".`, { cause });
+  }
+  const sources: MigrationSource[] = [];
+  for (const file of files.sort()) {
+    const parsed = parseMigrationFileName(file);
+    if (parsed === undefined) continue;
+    const path = join(root, file);
+    let module: Record<string, unknown>;
+    try {
+      module = await load(pathToFileURL(path).href);
+    } catch (cause) {
+      const code = (cause as { readonly code?: unknown } | null)?.code;
+      if (TS_EXTENSION.test(file) && code === "ERR_UNKNOWN_FILE_EXTENSION") throw typescriptHelp(path, cause);
+      throw new MigrationError(`Cannot load the migration file "${path}".`, {
+        version: parsed.version,
+        migration: parsed.name,
+        cause,
+      });
+    }
+    const migration = isMigration(module.default) ? module.default : module.migration;
+    if (!isMigration(migration)) {
+      throw new MigrationError(
+        `The migration file "${path}" exports no migration. Export the result of defineMigration() as the default export or as "migration".`,
+        { version: parsed.version, migration: parsed.name },
+      );
+    }
+    sources.push({ version: parsed.version, name: parsed.name, migration });
+  }
+  return sorted(sources);
+}

@@ -279,9 +279,15 @@ importers:
 
   packages/cli:
     devDependencies:
+      '@egon-orm/postgres':
+        specifier: workspace:*
+        version: link:../postgres
       egon-orm:
         specifier: workspace:*
         version: link:../core
+      pg:
+        specifier: 8.23.1
+        version: 8.23.1
 
   packages/core:
     devDependencies:

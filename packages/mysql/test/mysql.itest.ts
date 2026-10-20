@@ -213,4 +213,21 @@ describe.runIf(tier2Enabled())("mysql", () => {
       { m: 14, s: 8 },
     ]);
   });
+
+  test("an insert whose read-back row fails to decode says that the write was applied", async () => {
+    // MySQL has no RETURNING: the row is read back after the insert, by an ordinary read.
+    await handle.db.query(
+      "create table tallies (id integer primary key auto_increment, label text not null, score decimal(10, 2) not null default 1.50)",
+    );
+    class Tally extends Schema("tallies", {
+      id: t.integer().primaryKey().dbGenerated(),
+      label: t.string(),
+      score: t.integer().dbGenerated(),
+    }) {}
+    await expect(repo.insert(change(Tally, { label: "first" }))).rejects.toThrow(
+      /^Tally\.score is declared t\.integer\(\), but the database returned a string.* The write itself was applied: outside a transaction it stays, inside one it is rolled back with the transaction\.$/,
+    );
+    // The row is there: the insert ran before the read-back failed.
+    expect(await repo.count(from(Tally, "t"))).toBe(1);
+  });
 });

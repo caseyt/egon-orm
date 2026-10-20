@@ -291,7 +291,11 @@ export const alterUsers = defineMigration({
     });
   },
   down(m) {
-    m.dropTable("users");
+    m.alterTable("users", (table) => {
+      table.rename("full_name", "name");
+      table.modify("age", "integer");
+      table.remove("nickname");
+    });
   },
 });
 

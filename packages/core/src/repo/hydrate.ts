@@ -40,8 +40,11 @@ type NumberCheck = (value: unknown) => unknown;
 const INTEGER: AnyFieldType = integerType();
 const FLOAT: AnyFieldType = floatType();
 
-/** Said when the row came back from a write: the statement has run. */
-const WRITTEN =
+/**
+ * Said when the row came back from a write: the statement has run. Also added by
+ * `writeThenRead` to a decoding error of the row it reads back after an insert.
+ */
+export const WRITTEN =
   " The write itself was applied: outside a transaction it stays, inside one it is rolled back with the transaction.";
 
 function wrongKind(label: string, type: AnyFieldType, value: unknown, written: boolean): CastError {

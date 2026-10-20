@@ -67,6 +67,7 @@ import {
   type SchemaMeta,
 } from "../contracts/schema.js";
 import {
+  CastError,
   ConstraintError,
   DatabaseError,
   InvalidChangesetError,
@@ -82,7 +83,7 @@ import { and, not } from "../query/functions.js";
 import { isRow } from "../schema/guards.js";
 import { meta } from "../schema/schema.js";
 import { handleViolation } from "./constraints.js";
-import { decoderFor } from "./hydrate.js";
+import { decoderFor, WRITTEN } from "./hydrate.js";
 import { writeNested } from "./nested.js";
 import { checkReadOptions, READ_OPTION_KEYS, type ReadOptions, type RepoOperation } from "./options.js";
 import { keepPreloads } from "./preload.js";
@@ -1187,7 +1188,15 @@ async function writeThenRead(
     signal: settings.options?.signal,
     context: settings.options?.context,
   };
-  const rows = await load(reader, "insert", query.ast, undefined, options);
+  let rows: readonly unknown[];
+  try {
+    rows = await load(reader, "insert", query.ast, undefined, options);
+  } catch (error) {
+    // The read plan is an ordinary read's, shared with other queries, so its decoder cannot
+    // say that a write came first: the error is re-thrown here with that said.
+    if (error instanceof CastError) throw new CastError(`${error.message}${WRITTEN}`, error);
+    throw error;
+  }
   const row = rows[0] as Readonly<Record<string, unknown>> | undefined;
   if (row === undefined && isUpsert(settings.onConflict)) {
     // The update hit a row with another key (a conflict on another unique field), and a

@@ -197,4 +197,20 @@ describe.runIf(tier2Enabled())("mysql", () => {
     class Measure extends Schema("measures", { id: t.integer().primaryKey(), amount: t.float() }) {}
     expect((await repo.all(from(Measure, "m"))).map((m) => m.amount)).toEqual([1.5]);
   });
+
+  test("integer division with / returns a decimal on MySQL, which a t.integer() result refuses", async () => {
+    // Pinned as it stands (status 03, follow-up, known gaps): MySQL's / returns DECIMAL text
+    // ("3.5000"), where Postgres and SQLite divide integers to an integer. Whether integer
+    // div should compile to MySQL's DIV is an open owner question.
+    await handle.db.query("create table halves (id integer primary key, n integer not null)");
+    await handle.db.query("insert into halves values (1, 7)");
+    class Half extends Schema("halves", { id: t.integer().primaryKey(), n: t.integer() }) {}
+    await expect(repo.all(from(Half, "h").select(({ h }) => ({ d: h.n.div(2) })))).rejects.toThrow(
+      '"d" is declared t.integer(), but the database returned a string for it, not a number',
+    );
+    // Other integer arithmetic reads numbers.
+    expect(await repo.all(from(Half, "h").select(({ h }) => ({ m: h.n.mul(2), s: h.n.add(1) })))).toEqual([
+      { m: 14, s: 8 },
+    ]);
+  });
 });

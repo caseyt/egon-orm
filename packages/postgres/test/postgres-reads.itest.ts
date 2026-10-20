@@ -4,7 +4,7 @@
 // that pg reads a bigint or numeric column as text, which a t.integer() or t.float() field
 // refuses.
 import { Comment, createTestDatabase, Post, type TestDatabaseHandle, User } from "@egon-orm/test-support";
-import { CastError, createRepo, from, type Repo, Schema, t } from "egon-orm";
+import { CastError, change, createRepo, from, type Repo, Schema, t } from "egon-orm";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { postgres } from "../src/index.js";
 
@@ -60,7 +60,7 @@ test("a t.integer() field over a bigint column throws a CastError instead of hol
   const read = repo.all(from(LooseUser, "u").orderBy(({ u }) => u.id));
   await expect(read).rejects.toThrow(CastError);
   await expect(repo.all(from(LooseUser, "u"))).rejects.toThrow(
-    'LooseUser.id is declared t.integer(), but the database returned a string for it, not a number. A bigint or numeric column is read as text: declare the field t.bigint({ mode: "number" }) to read a 64-bit column as a number, or make the column an integer column.',
+    "LooseUser.id is declared t.integer(), but the database returned a string for it, not a number: the column or expression is not of an integer type (Postgres reads bigint, bigserial and numeric columns as text; MySQL's / returns a decimal). Declare the field t.bigint({ mode: \"number\" }) for a 64-bit integer column, or t.decimal() for a decimal, or change the column's type.",
   );
   // A selected column is checked too, named by its key.
   await expect(repo.all(from(LooseUser, "u").select(({ u }) => ({ key: u.id })))).rejects.toThrow(
@@ -91,9 +91,35 @@ test("a t.float() field over a numeric column throws a CastError; t.decimal() or
   }) {}
   class ExactMeasure extends Schema("measures", { id: t.integer().primaryKey(), amount: t.decimal() }) {}
   await expect(repo.all(from(Measure, "m"))).rejects.toThrow(
-    "Measure.amount is declared t.float(), but the database returned a string for it, not a number. A numeric (decimal) column is read as text: declare the field t.decimal(), or make the column a floating-point column.",
+    "Measure.amount is declared t.float(), but the database returned a string for it, not a number: the column or expression is not of a floating-point type (Postgres reads numeric columns as text). Declare the field t.decimal() for a decimal column, or change the column's type.",
   );
   expect((await repo.all(from(ExactMeasure, "m"))).map((m) => m.amount)).toEqual(["1.50"]);
   const asFloat = from(ExactMeasure, "m").select(({ m }) => ({ amount: m.amount.cast(t.float()) }));
   expect(await repo.all(asFloat)).toEqual([{ amount: 1.5 }]);
+});
+
+test("a write whose returned key fails to decode throws after the row is written, naming the schema", async () => {
+  // The documented consequence of the check (status 03, owner row 2): outside a transaction
+  // the insert stays; the error says so.
+  // The seed rows took ids 1 and 2 explicitly: move the sequence past them.
+  await handle.db.exec("select setval('users_id_seq', 100)");
+  const insert = repo.insert(change(LooseUser, { email: "written@example.com" }));
+  await expect(insert).rejects.toThrow(
+    /^LooseUser\.id is declared t\.integer\(\).* The write itself was applied: outside a transaction it stays/,
+  );
+  await expect(
+    repo.insertAll(LooseUser, [{ email: "bulk@example.com" }], { returning: true }),
+  ).rejects.toThrow(/^LooseUser\.id is declared t\.integer\(\)/);
+  const emails = await repo.all(
+    from(User, "u")
+      .where(({ u }) => u.email.in(["written@example.com", "bulk@example.com"]))
+      .select(({ u }) => u.email)
+      .orderBy(({ u }) => u.email),
+  );
+  expect(emails).toEqual(["bulk@example.com", "written@example.com"]);
+  // Inside a transaction the error rolls the write back.
+  await expect(
+    repo.transaction(async (tx) => tx.insert(change(LooseUser, { email: "rolled@example.com" }))),
+  ).rejects.toThrow(CastError);
+  expect(await repo.count(from(User, "u").where({ email: "rolled@example.com" }))).toBe(0);
 });

@@ -452,7 +452,7 @@ describe("integer and float values must be numbers", () => {
     const read = () => decode(rawRow(GAUGE, 0, { id: "12", label: "a", total: 1 }), []);
     expect(read).toThrow(CastError);
     expect(read).toThrow(
-      'Gauge.id is declared t.integer(), but the database returned a string for it, not a number. A bigint or numeric column is read as text: declare the field t.bigint({ mode: "number" }) to read a 64-bit column as a number, or make the column an integer column.',
+      "Gauge.id is declared t.integer(), but the database returned a string for it, not a number: the column or expression is not of an integer type (Postgres reads bigint, bigserial and numeric columns as text; MySQL's / returns a decimal). Declare the field t.bigint({ mode: \"number\" }) for a 64-bit integer column, or t.decimal() for a decimal, or change the column's type.",
     );
   });
 
@@ -460,7 +460,7 @@ describe("integer and float values must be numbers", () => {
     // pg reads a numeric column as text.
     const decode = decoderOf(kind, rowLeaf(GAUGE, 0));
     expect(() => decode(rawRow(GAUGE, 0, { id: 1, level: "1.5", label: "a", total: 1 }), [])).toThrow(
-      "Gauge.level is declared t.float(), but the database returned a string for it, not a number. A numeric (decimal) column is read as text: declare the field t.decimal(), or make the column a floating-point column.",
+      "Gauge.level is declared t.float(), but the database returned a string for it, not a number: the column or expression is not of a floating-point type (Postgres reads numeric columns as text). Declare the field t.decimal() for a decimal column, or change the column's type.",
     );
   });
 
@@ -470,7 +470,7 @@ describe("integer and float values must be numbers", () => {
       "returned a bigint for it",
     );
     expect(() => decode(rawRow(GAUGE, 0, { id: { secret: "s3cr3t" }, label: "a", total: 1 }), [])).toThrow(
-      /returned a object for it/,
+      /returned an object for it/,
     );
     // The value never appears in the message: the field may be redacted.
     try {
@@ -542,6 +542,36 @@ describe("integer and float values must be numbers", () => {
     const inObject: OutputPlan = { kind: "object", keys: ["pair"], values: [pair] };
     expect(() => decoderOf(kind, inObject)({ c0: "3" }, [])).toThrow('"pair"[0] is declared');
     expect(decoderOf(kind, nested)({ c0: 3 }, [])).toEqual({ stats: { posts: 3 } });
+  });
+
+  test.for(kinds)(
+    "a write's returned row is named by its schema, and the error says the write was applied (%s)",
+    (kind) => {
+      // What a write decodes: an object of the returned fields, labelled with the schema's name.
+      const returned: OutputPlan = {
+        kind: "object",
+        keys: ["id"],
+        values: [{ kind: "value", alias: "c0", type: integerType() as AnyFieldType }],
+      };
+      const decode =
+        kind === "generated"
+          ? generateDecoder(returned, codecs, "Gauge")
+          : interpretDecoder(returned, codecs, "Gauge");
+      expect(() => decode({ c0: "12" }, [])).toThrow(
+        /^Gauge\.id is declared t\.integer\(\).* The write itself was applied: outside a transaction it stays, inside one it is rolled back with the transaction\.$/,
+      );
+      // A read says nothing about writes.
+      expect(() => decoderOf(kind, returned)({ c0: "12" }, [])).toThrow(/change the column's type\.$/);
+      expect(decode({ c0: 12 }, [])).toEqual({ id: 12 });
+    },
+  );
+
+  test("decoderFor passes the label to the decoder it builds", () => {
+    const plan = {
+      output: { kind: "object", keys: ["id"], values: [{ kind: "value", alias: "c0", type: integerType() }] },
+      decoder: undefined,
+    } as unknown as CompiledQuery;
+    expect(() => decoderFor(plan, codecs, false, "Gauge")({ c0: "1" }, [])).toThrow(/^Gauge\.id is declared/);
   });
 
   test("the generated decoder tests a value that needs no conversion inline", () => {

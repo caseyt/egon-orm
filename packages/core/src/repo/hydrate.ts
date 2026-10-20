@@ -40,15 +40,21 @@ type NumberCheck = (value: unknown) => unknown;
 const INTEGER: AnyFieldType = integerType();
 const FLOAT: AnyFieldType = floatType();
 
-function wrongKind(label: string, type: AnyFieldType, value: unknown): CastError {
+/** Said when the row came back from a write: the statement has run. */
+const WRITTEN =
+  " The write itself was applied: outside a transaction it stays, inside one it is rolled back with the transaction.";
+
+function wrongKind(label: string, type: AnyFieldType, value: unknown, written: boolean): CastError {
+  const after = written ? WRITTEN : "";
   // The value itself is left out of the message: the field may be redacted.
   const got = typeof value;
+  const article = got === "object" || got === "undefined" ? "an" : "a";
   return type === INTEGER
     ? new CastError(
-        `${label} is declared t.integer(), but the database returned a ${got} for it, not a number. A bigint or numeric column is read as text: declare the field t.bigint({ mode: "number" }) to read a 64-bit column as a number, or make the column an integer column.`,
+        `${label} is declared t.integer(), but the database returned ${article} ${got} for it, not a number: the column or expression is not of an integer type (Postgres reads bigint, bigserial and numeric columns as text; MySQL's / returns a decimal). Declare the field t.bigint({ mode: "number" }) for a 64-bit integer column, or t.decimal() for a decimal, or change the column's type.${after}`,
       )
     : new CastError(
-        `${label} is declared t.float(), but the database returned a ${got} for it, not a number. A numeric (decimal) column is read as text: declare the field t.decimal(), or make the column a floating-point column.`,
+        `${label} is declared t.float(), but the database returned ${article} ${got} for it, not a number: the column or expression is not of a floating-point type (Postgres reads numeric columns as text). Declare the field t.decimal() for a decimal column, or change the column's type.${after}`,
       );
 }
 
@@ -61,20 +67,25 @@ function wrongKind(label: string, type: AnyFieldType, value: unknown): CastError
  * Anything else means the column is of another type, such as a `bigint` (`bigserial`) or
  * `numeric` column that `pg` reads as text, which would otherwise reach the row as a
  * string typed `number`. `label` names the value in the error: `User.id`, or the key of
- * a selected object.
+ * a selected object. `written`: the row was returned by a write, which the error then says
+ * has been applied.
  *
  * @example
  * ```ts
  * numberCheck(integerType(), "User.id")?.("12"); // throws CastError
  * ```
  */
-export function numberCheck(type: AnyFieldType | undefined, label: string): NumberCheck | undefined {
+export function numberCheck(
+  type: AnyFieldType | undefined,
+  label: string,
+  written = false,
+): NumberCheck | undefined {
   if (type !== INTEGER && type !== FLOAT) return undefined;
   return (value) => {
     // `undefined` is a column missing from the row, which no driver returns (a stub
     // adapter in a test may): it is left as it is, as without the check.
     if (typeof value === "number" || value === undefined) return value;
-    throw wrongKind(label, type, value);
+    throw wrongKind(label, type, value, written);
   };
 }
 
@@ -150,6 +161,11 @@ function loadedFactoryOf(leaf: Extract<OutputPlan, { readonly kind: "row" }>): F
  * reuses it. Generated and interpreted decoders return the same rows, so which one it is
  * changes only the speed.
  *
+ * `label` is given by the writes only: the name of the schema whose returned row the plan
+ * decodes. It names the values in a decoding error (`User.id`, where a read's object would
+ * say `"id"`), and the error then says that the write was applied. A write plan is never a
+ * read plan (their SQL differs), so the label a cached decoder was built with is its own.
+ *
  * @example
  * ```ts
  * const plan = adapter.compile(query.ast, "all", undefined);
@@ -159,7 +175,12 @@ function loadedFactoryOf(leaf: Extract<OutputPlan, { readonly kind: "row" }>): F
  *
  * @throws TypeError when the plan describes no rows (`output` is `undefined`).
  */
-export function decoderFor(plan: CompiledQuery, codecs: CodecSource, codegen: boolean): RowDecoder {
+export function decoderFor(
+  plan: CompiledQuery,
+  codecs: CodecSource,
+  codegen: boolean,
+  label?: string,
+): RowDecoder {
   let decoder = plan.decoder;
   if (decoder === undefined) {
     const output = plan.output;
@@ -169,7 +190,7 @@ export function decoderFor(plan: CompiledQuery, codecs: CodecSource, codegen: bo
         "This compiled statement returns no rows to decode (its output plan is undefined).",
       );
     }
-    decoder = buildDecoder(output, codecs, codegen);
+    decoder = buildDecoder(output, codecs, codegen, label);
     plan.decoder = decoder;
   }
   return decoder;
@@ -184,8 +205,15 @@ export function decoderFor(plan: CompiledQuery, codecs: CodecSource, codegen: bo
  * const decode = buildDecoder(plan.output, adapter, true);
  * ```
  */
-export function buildDecoder(output: OutputPlan, codecs: CodecSource, codegen: boolean): RowDecoder {
-  return codegen && generationAllowed() ? generateDecoder(output, codecs) : interpretDecoder(output, codecs);
+export function buildDecoder(
+  output: OutputPlan,
+  codecs: CodecSource,
+  codegen: boolean,
+  label?: string,
+): RowDecoder {
+  return codegen && generationAllowed()
+    ? generateDecoder(output, codecs, label)
+    : interpretDecoder(output, codecs, label);
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +225,8 @@ interface Bindings {
   readonly fromDb: FromDb[];
   /** The {@link numberCheck} of each checked value, by index. */
   readonly checks: NumberCheck[];
+  /** Whether the rows come back from a write (see {@link numberCheck}). */
+  readonly written: boolean;
   /** `meta.create` (two arguments) or a `createWith` factory (three), as each row needs. */
   readonly factories: (Factory | SchemaMeta["create"])[];
   readonly rowMetas: RowMeta[];
@@ -256,7 +286,7 @@ function generate(b: Bindings, plan: OutputPlan, codecs: CodecSource, label: str
         b,
         plan.alias,
         converter(plan.type, codecs),
-        numberCheck(plan.type, label ?? SELECTED),
+        numberCheck(plan.type, label ?? SELECTED, b.written),
       );
     case "constant":
       return `k[${plan.index}]`;
@@ -292,7 +322,7 @@ function generateRow(
         b,
         leaf.aliases[i] as string,
         converter(field.type, codecs),
-        numberCheck(field.type, `${leaf.meta.name}.${field.name}`),
+        numberCheck(field.type, `${leaf.meta.name}.${field.name}`, b.written),
       ),
     );
   }
@@ -338,17 +368,18 @@ function generateRow(
  * decode({ c0: 1 }, []); // 1
  * ```
  */
-export function generateDecoder(output: OutputPlan, codecs: CodecSource): RowDecoder {
+export function generateDecoder(output: OutputPlan, codecs: CodecSource, label?: string): RowDecoder {
   const b: Bindings = {
     fromDb: [],
     checks: [],
+    written: label !== undefined,
     factories: [],
     rowMetas: [],
     lines: [],
     locals: new Map(),
     next: 0,
   };
-  const result = generate(b, output, codecs, undefined);
+  const result = generate(b, output, codecs, label);
   const prelude: string[] = [];
   for (let i = 0; i < b.fromDb.length; i++) prelude.push(`const f${i} = f[${i}];`);
   for (let i = 0; i < b.checks.length; i++) prelude.push(`const n${i} = n[${i}];`);
@@ -405,13 +436,13 @@ function checked(fromDb: FromDb | undefined, check: NumberCheck | undefined): Fr
   return (value) => check(fromDb(value));
 }
 
-function prepare(plan: OutputPlan, codecs: CodecSource, label: string | undefined): Step {
+function prepare(plan: OutputPlan, codecs: CodecSource, label: string | undefined, written: boolean): Step {
   switch (plan.kind) {
     case "value":
       return {
         kind: "value",
         alias: plan.alias,
-        fromDb: checked(converter(plan.type, codecs), numberCheck(plan.type, label ?? SELECTED)),
+        fromDb: checked(converter(plan.type, codecs), numberCheck(plan.type, label ?? SELECTED, written)),
       };
     case "constant":
       return { kind: "constant", index: plan.index };
@@ -420,21 +451,24 @@ function prepare(plan: OutputPlan, codecs: CodecSource, label: string | undefine
         kind: "object",
         keys: plan.keys,
         values: plan.values.map((value, i) =>
-          prepare(value, codecs, keyLabel(label, plan.keys[i] as string)),
+          prepare(value, codecs, keyLabel(label, plan.keys[i] as string), written),
         ),
         protoKey: plan.keys.includes("__proto__"),
       };
     case "tuple":
       return {
         kind: "tuple",
-        items: plan.items.map((item, i) => prepare(item, codecs, `${label ?? SELECTED}[${i}]`)),
+        items: plan.items.map((item, i) => prepare(item, codecs, `${label ?? SELECTED}[${i}]`, written)),
       };
     case "row":
       return {
         kind: "row",
         aliases: plan.aliases,
         fromDb: plan.meta.persisted.map((field) =>
-          checked(converter(field.type, codecs), numberCheck(field.type, `${plan.meta.name}.${field.name}`)),
+          checked(
+            converter(field.type, codecs),
+            numberCheck(field.type, `${plan.meta.name}.${field.name}`, written),
+          ),
         ),
         absentWhenNull: plan.nullable ? (plan.key.length > 0 ? plan.key : plan.aliases) : NO_COLUMNS,
         create: plan.meta.create,
@@ -442,7 +476,7 @@ function prepare(plan: OutputPlan, codecs: CodecSource, label: string | undefine
         rowMeta: plan.meta.rowMeta("loaded", plan.schema),
         preloads: plan.preloads.map((preload) => ({
           many: preload.cardinality === "many",
-          child: preload.row === undefined ? undefined : prepare(preload.row, codecs, undefined),
+          child: preload.row === undefined ? undefined : prepare(preload.row, codecs, undefined, written),
         })),
       };
   }
@@ -527,8 +561,8 @@ function runRow(
  * decode({ c0: 1 }, []); // 1
  * ```
  */
-export function interpretDecoder(output: OutputPlan, codecs: CodecSource): RowDecoder {
-  const root = prepare(output, codecs, undefined);
+export function interpretDecoder(output: OutputPlan, codecs: CodecSource, label?: string): RowDecoder {
+  const root = prepare(output, codecs, label, label !== undefined);
   return (row, constants) => run(root, row, constants);
 }
 

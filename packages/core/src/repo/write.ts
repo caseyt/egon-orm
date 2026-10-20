@@ -619,13 +619,18 @@ interface Written {
   readonly insertId: bigint | number | undefined;
 }
 
-/** Decodes the returned row of a row-level write. */
-function decodeWritten(result: RawResult, plan: CompiledQuery, core: ReadCore): Written {
+/**
+ * Decodes the returned row of a row-level write. `schemaName` names its values in a
+ * decoding error (`User.id`).
+ */
+function decodeWritten(result: RawResult, plan: CompiledQuery, core: ReadCore, schemaName: string): Written {
   const row = result.rows[0];
   const returned =
     row === undefined || plan.output === undefined
       ? undefined
-      : (decoderFor(plan, core.adapter, core.codegen)(row, NONE) as Readonly<Record<string, unknown>>);
+      : (decoderFor(plan, core.adapter, core.codegen, schemaName)(row, NONE) as Readonly<
+          Record<string, unknown>
+        >);
   return { rowCount: result.rowCount, returned, insertId: result.insertId };
 }
 
@@ -1048,7 +1053,7 @@ export async function insertRow(
         settings.options,
         undefined,
         decodeWritten,
-        undefined,
+        schemaMeta.name,
       );
     } else {
       [result, reread] = await insertThenRead(
@@ -1162,7 +1167,7 @@ async function writeThenRead(
     settings.options,
     deadline,
     decodeWritten,
-    undefined,
+    schemaMeta.name,
   );
   if (result.rowCount === 0 && !isUpsert(settings.onConflict)) return [result, undefined];
   const generated = insertIdRow(schemaMeta, result.insertId);
@@ -1320,7 +1325,7 @@ export async function updateRow(
       settings.options,
       undefined,
       decodeWritten,
-      undefined,
+      schemaMeta.name,
     );
   } catch (error) {
     if (isConstraintError(error))
@@ -1438,7 +1443,7 @@ export async function remove(
       settings.options,
       undefined,
       decodeWritten,
-      undefined,
+      schemaMeta.name,
     );
   } catch (error) {
     if (isConstraintError(error))

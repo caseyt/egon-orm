@@ -5,8 +5,8 @@
 // node_modules, where its dev dependencies are (`@types/pg`, for one), so a check run from
 // here would not see what a consumer sees. This script therefore packs the packages, installs
 // the tarballs with their peer dependencies (optional ones included, at the versions the
-// workspace pins) into a fresh directory outside the workspace, and runs tsc there on
-// types/consumer.ts with
+// workspace pins; their own dependencies under the workspace's strict minimum release age)
+// into a fresh directory outside the workspace, and runs tsc there on types/consumer.ts with
 //
 // - `declaration: true`: every type that an exported, inferred declaration mentions must be
 //   reachable from a public entry point (TS2883 otherwise);
@@ -49,8 +49,8 @@ try {
   for (const name of packages) {
     const packageDir = join(root, "packages", name);
     const manifest = readJson(join(packageDir, "package.json"));
-    const file = pnpm(["pack", "--pack-destination", tarballs], packageDir).trim().split("\n").at(-1);
-    dependencies[manifest.name] = `file:${file}`;
+    const { filename } = JSON.parse(pnpm(["pack", "--json", "--pack-destination", tarballs], packageDir));
+    dependencies[manifest.name] = `file:${filename}`;
     for (const peer of Object.keys(manifest.peerDependencies ?? {})) {
       if (peer.startsWith("egon-orm") || peer.startsWith("@egon-orm/")) continue;
       // The version the workspace tests the package with, which satisfies the peer range.
@@ -92,7 +92,20 @@ try {
   );
   copyFileSync(new URL("types/consumer.ts", import.meta.url), join(project, "src", "consumer.ts"));
   // No install scripts: only the declarations are needed (better-sqlite3 would build).
-  pnpm(["install", "--ignore-scripts", "--config.confirmModulesPurge=false"], project);
+  // The project is outside the workspace, so the workspace's supply-chain policy is given
+  // here: the direct dependencies are pinned above, and everything they pull in resolves
+  // under the same strict minimum release age (pnpm refuses a release that is too new). The
+  // store is preferred, so CI fetches only what its cache lacks.
+  pnpm(
+    [
+      "install",
+      "--ignore-scripts",
+      "--prefer-offline",
+      "--config.minimumReleaseAgeStrict=true",
+      "--config.confirmModulesPurge=false",
+    ],
+    project,
+  );
 
   // The `tsc` bin of the package (TypeScript 7 does not export `typescript/bin/tsc`).
   const typescriptDir = join(tsVersion === undefined ? root : project, "node_modules", "typescript");

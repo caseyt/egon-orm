@@ -61,8 +61,8 @@ export default defineMigration({
   up(m) {
     // the change
   },
-  down(m) {
-    // undo it, or leave a // noop comment
+  down() {
+    // undo the change (write down(m) to use m), or leave a // noop comment
   },
 });
 `;

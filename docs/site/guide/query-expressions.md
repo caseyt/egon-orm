@@ -185,7 +185,10 @@ two operands' types, in the order integer < bigint < decimal < float:
 `p.views.div(val(2, t.float()))` divides as floats (7 / 2 is 3.5), and
 `p.views.add(p.authorId)` (an integer and a `bigint({ mode: "number" })`) is read as that
 bigint. A plain value (`p.views.add(1)`) or a value of the column's own type takes the
-column's type. Two cases keep the left operand's type and leave the value to the column:
+column's type. Two integers divide as integers, truncating towards zero, on every
+database: for 7 views `p.views.div(2)` is `3` (MySQL's `/` would give the decimal
+`3.5000`, so it is written with `DIV` there). Two cases keep the left operand's type and
+leave the value to the column:
 `mod`, and a type made with `defineType`, which has no place in the order. For a value of
 such a type, give the value a built-in type instead: `p.views.div(val(2, t.float()))`
 rather than `p.views.div(val(2, t.type(Cents)))`. Postgres has no `%` for floats: `mod`

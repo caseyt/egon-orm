@@ -51,6 +51,21 @@ export type ScalarDbKind = Exclude<DbType["kind"], "array" | "custom">;
 export type TableOperator = Exclude<BinaryOp, "in" | "notIn" | "has">;
 
 /**
+ * How a dialect writes the division of two integers (see {@link SqlDialect.integerDivision}).
+ *
+ * @example
+ * ```ts
+ * const mysql: IntegerDivision = { operator: "div", castQuotient: false };
+ * ```
+ */
+export interface IntegerDivision {
+  /** The SQL written between the two operands (`/`, or MySQL's `div`). */
+  readonly operator: string;
+  /** Whether the quotient is cast to the integer type: `cast(a / b as integer)`. */
+  readonly castQuotient: boolean;
+}
+
+/**
  * A database as the emitter sees it. A plain object; build one with a literal and
  * `Object.freeze` it.
  *
@@ -83,6 +98,19 @@ export interface SqlDialect {
   readonly ignoresLocks: boolean;
   /** The SQL name of each scalar column type, for `CAST`. */
   readonly types: Readonly<Record<ScalarDbKind, string>>;
+  /**
+   * How `div` is written when both operands are integers (`integer` or `bigint`), so that
+   * it divides as integers and truncates towards zero on every database: the operator
+   * written between the operands, and whether the quotient is cast to the integer type.
+   *
+   * - Postgres: `/`, which divides integers as integers.
+   * - MySQL: `div`, since its `/` gives a decimal (`7 / 2` is `3.5000`).
+   * - SQLite: `/` with the quotient cast to `integer`, since better-sqlite3 binds every
+   *   JavaScript number as a `real` (`"p"."views" / ?` gives 3.5).
+   *
+   * Any other `div` is written with `operators.div`.
+   */
+  readonly integerDivision: IntegerDivision;
   /**
    * How a JSON path is written:
    *
@@ -340,6 +368,7 @@ export const postgresDialect: SqlDialect = Object.freeze({
     json: "json",
     jsonb: "jsonb",
   }),
+  integerDivision: Object.freeze({ operator: "/", castQuotient: false }),
   jsonPath: "pathArray",
   conflictUpdateNeedsTarget: true,
   explain: "options",
@@ -566,6 +595,8 @@ export const mysqlDialect: SqlDialect = Object.freeze({
     json: "json",
     jsonb: "json",
   }),
+  // `/` gives a decimal; `div` divides as integers, truncating towards zero.
+  integerDivision: Object.freeze({ operator: "div", castQuotient: false }),
   jsonPath: "pathFunctions",
   conflictUpdateNeedsTarget: false,
   explain: "keywords",
@@ -644,6 +675,9 @@ export const sqliteDialect: SqlDialect = Object.freeze({
     json: "text",
     jsonb: "text",
   }),
+  // A bound number is a real, so `integer / ?` divides as floats: the quotient is cast back
+  // to an integer, which truncates towards zero.
+  integerDivision: Object.freeze({ operator: "/", castQuotient: true }),
   jsonPath: "pathOperators",
   conflictUpdateNeedsTarget: true,
   explain: "queryPlan",

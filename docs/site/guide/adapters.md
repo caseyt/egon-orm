@@ -133,8 +133,9 @@ of used.
   with nothing else to type them, a value in a `select`, a value beside an expression) such
   a value is still cast to its type's name, which MySQL refuses unless it is one of those
   names; give the value a built-in type there.
-- **`/` of two integers gives a decimal** (`7 / 2` is `3.5000`), where Postgres divides as
-  integers (`3`).
+- **Integer division is written `DIV`.** MySQL's `/` gives a decimal (`7 / 2` is
+  `3.5000`), so `div` of two integers is written with `DIV`, which gives `3`, as Postgres
+  and SQLite do. With a float or decimal operand it is `/`.
 - A write conflict between serializable transactions is reported as a deadlock
   (`code: "deadlock"`, retryable), not a serialization failure.
 - `timeoutMs` and `signal` stop a statement with `KILL QUERY`, sent on a connection of

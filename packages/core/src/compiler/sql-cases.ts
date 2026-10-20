@@ -1861,6 +1861,24 @@ export const CAST_CASES: readonly SqlCase[] = withDialects(
       { operation: "updateAll" },
     ),
     queryCase(
+      "a division of two integers divides as integers on every database; a float keeps /",
+      posts
+        .where(({ p }) => p.id.eq(2))
+        .select(({ p }) => ({
+          half: p.views.div(2),
+          key: p.authorId.div(int(2)),
+          wide: p.views.div(val(2, t.bigint({ mode: "number" }))),
+          nested: p.views.add(1).div(2),
+          named: p.views.div(param("by", t.integer())),
+          float: p.views.div(val(2, t.float())),
+        })),
+      {
+        sql: 'select "p"."views" / $1 as "c0", "p"."author_id" / cast($2 as integer) as "c1", "p"."views" / cast($3 as bigint) as "c2", ("p"."views" + $4) / cast($5 as integer) as "c3", "p"."views" / $6 as "c4", "p"."views" / cast($7 as double precision) as "c5" from "posts" as "p" where "p"."id" = $8',
+        params: [2, 2, 2, 1, 2, 2, 2, 2],
+      },
+      { named: { by: 2 } },
+    ),
+    queryCase(
       "a CASE or coalesce with no typed value beside a typed value takes its type (review round 1)",
       users
         .where(() => int(3).eq(int(1).add(coalesce(val(null as number | null), val(2)))))

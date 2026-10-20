@@ -114,4 +114,32 @@ describe("sqlite", () => {
       await repo.close();
     }
   });
+
+  test("a division of two integers reads the integer quotient, though a bound number is a real", async () => {
+    // better-sqlite3 binds every JavaScript number as a real, so `n / ?` alone gives 3.5;
+    // the quotient is cast back to an integer, truncating towards zero (owner decision,
+    // 2026-10-20).
+    const adapter = sqlite({ filename: ":memory:" });
+    const repo = createRepo({ adapter });
+    try {
+      await adapter.execute("create table halves (id integer primary key, n integer not null)", []);
+      await adapter.execute("insert into halves values (1, 7), (2, -7)", []);
+      class Half extends Schema("halves", { id: t.integer().primaryKey(), n: t.integer() }) {}
+      const q = from(Half, "h")
+        .orderBy(({ h }) => h.id)
+        .select(({ h }) => ({ d: h.n.div(2) }));
+      expect(repo.toSql(q).sql).toContain('cast("h"."n" / ? as integer)');
+      expect(await repo.all(q)).toEqual([{ d: 3 }, { d: -3 }]);
+      // A float operand keeps /, and reads the fraction.
+      expect(
+        await repo.all(
+          from(Half, "h")
+            .where({ id: 1 })
+            .select(({ h }) => ({ f: h.n.div(val(2, t.float())) })),
+        ),
+      ).toEqual([{ f: 3.5 }]);
+    } finally {
+      await repo.close();
+    }
+  });
 });

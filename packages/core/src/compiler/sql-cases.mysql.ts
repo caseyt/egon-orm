@@ -164,7 +164,7 @@ export const MYSQL_CASES: DialectTable = {
       params: [],
     },
     "arithmetic keeps its grouping": {
-      sql: "select -`p`.`views` as `c0` from `posts` as `p` where (`p`.`views` + ?) * cast(? as signed) > (`p`.`views` - `p`.`views` % ?) / cast(? as signed)",
+      sql: "select -`p`.`views` as `c0` from `posts` as `p` where (`p`.`views` + ?) * cast(? as signed) > (`p`.`views` - `p`.`views` % ?) div cast(? as signed)",
       params: [1, 2, 3, 4],
     },
     "text functions and concatenation": {
@@ -209,7 +209,7 @@ export const MYSQL_CASES: DialectTable = {
       params: [18],
     },
     "right-nested arithmetic and concatenation keep their parentheses; left-nested need none": {
-      sql: "select `p`.`views` - (`p`.`views` - ?) as `c0`, `p`.`views` - `p`.`views` - ? as `c1`, `p`.`views` / (2 * 3) as `c2`, `p`.`views` % (7 % 4) as `c3`, `p`.`views` * (`p`.`views` + 1) as `c4`, `p`.`views` * `p`.`views` + 1 as `c5`, concat(`p`.`title`, concat(`p`.`title`, ?)) as `c6`, concat(concat(`p`.`title`, ?), `p`.`title`) as `c7` from `posts` as `p`",
+      sql: "select `p`.`views` - (`p`.`views` - ?) as `c0`, `p`.`views` - `p`.`views` - ? as `c1`, `p`.`views` div (2 * 3) as `c2`, `p`.`views` % (7 % 4) as `c3`, `p`.`views` * (`p`.`views` + 1) as `c4`, `p`.`views` * `p`.`views` + 1 as `c5`, concat(`p`.`title`, concat(`p`.`title`, ?)) as `c6`, concat(concat(`p`.`title`, ?), `p`.`title`) as `c7` from `posts` as `p`",
       params: [1, 2, "!", "?"],
     },
     "comparisons and booleans mixed keep their parentheses": {
@@ -431,7 +431,7 @@ export const MYSQL_CASES: DialectTable = {
       params: [3, 4],
     },
     "every arithmetic operator, and unary minus, on typed values in a select": {
-      sql: "select cast(? as signed) + cast(? as signed) as `c0`, cast(? as signed) - cast(? as signed) as `c1`, cast(? as signed) * cast(? as signed) as `c2`, cast(? as signed) / cast(? as signed) as `c3`, cast(? as signed) % cast(? as signed) as `c4`, -cast(? as signed) as `c5` from `users` as `u` limit ?",
+      sql: "select cast(? as signed) + cast(? as signed) as `c0`, cast(? as signed) - cast(? as signed) as `c1`, cast(? as signed) * cast(? as signed) as `c2`, cast(? as signed) div cast(? as signed) as `c3`, cast(? as signed) % cast(? as signed) as `c4`, -cast(? as signed) as `c5` from `users` as `u` limit ?",
       params: [7, 2, 7, 2, 7, 2, 7, 2, 7, 2, 7, 1],
     },
     "arithmetic of typed values nested and beside a column: only bound pairs are cast": {
@@ -500,6 +500,10 @@ export const MYSQL_CASES: DialectTable = {
     "updateAll sets a column times a typed value of another type": {
       sql: "update `posts` as `p` set `views` = `p`.`views` * cast(? as double) where `p`.`id` = ?",
       params: [2, 2],
+    },
+    "a division of two integers divides as integers on every database; a float keeps /": {
+      sql: "select `p`.`views` div ? as `c0`, `p`.`author_id` div ? as `c1`, `p`.`views` div ? as `c2`, (`p`.`views` + ?) div cast(? as signed) as `c3`, `p`.`views` div ? as `c4`, `p`.`views` / cast(? as double) as `c5` from `posts` as `p` where `p`.`id` = ?",
+      params: [2, 2, 2, 1, 2, 2, 2, 2],
     },
     "a CASE or coalesce with no typed value beside a typed value takes its type (review round 1)": {
       sql: "select `u`.`id` as `c0` from `users` as `u` where ? = cast(? as signed) + cast(coalesce(?, ?) as signed) and case when true then cast(? as signed) end + cast(case when true then ? end as signed) = ? and cast(? as signed) = cast(coalesce(?, ?) as signed) and case when true then cast(? as signed) end = cast(case when true then ? end as signed) and cast(? as signed) between cast(case when true then ? end as signed) and cast(case when true then ? end as signed)",

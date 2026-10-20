@@ -8,7 +8,7 @@ import { Post, User } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
 import type { BinaryOp, ExprNode, QueryAst } from "../contracts/query.js";
 import { caseWhen, coalesce, defineType, from, lit, param, Schema, subquery, t, val } from "../index.js";
-import { caseNode, fnNode, literalNode, unaryNode } from "../query/ast.js";
+import { caseNode, castNode, fnNode, literalNode, unaryNode } from "../query/ast.js";
 import { bindParams } from "./bind.js";
 import { createCompiler } from "./compiler.js";
 import { mysqlDialect, postgresDialect, sqliteDialect } from "./dialect.js";
@@ -461,5 +461,82 @@ describe("a NULL or untyped value beside a CASE result with a type (review round
     expect(compile(selecting(nested)).sql).toBe(
       'select case when true then cast(case when true then $1 end as integer) else "u"."age" end as "c0" from "users" as "u"',
     );
+  });
+});
+
+describe("a division of two integers (owner decision, 2026-10-20)", () => {
+  const float = typeOf(t.float());
+  const bigint = typeOf(t.bigint({ mode: "number" }));
+  const on = (dialect: Parameters<typeof createCompiler>[0], node: ExprNode) =>
+    createCompiler(dialect).compile(selecting(node), "all", undefined).sql;
+  const mysql = (node: ExprNode) => on(mysqlDialect, node);
+  const age = col("u", "age");
+
+  test("is written with the dialect's integer division: / on Postgres, div on MySQL, a cast quotient on SQLite", () => {
+    const node = binary("div", age, typed(2));
+    expect(on(postgresDialect, node)).toBe('select "u"."age" / $1 as "c0" from "users" as "u"');
+    expect(mysql(node)).toBe("select `u`.`age` div ? as `c0` from `users` as `u`");
+    expect(on(sqliteDialect, node)).toBe('select cast("u"."age" / ? as integer) as "c0" from "users" as "u"');
+    // A bigint operand: the quotient is cast to the wider type's name.
+    expect(on(sqliteDialect, binary("div", age, value(2, bigint)))).toBe(
+      'select cast("u"."age" / ? as integer) as "c0" from "users" as "u"',
+    );
+  });
+
+  test("operands known to be integers: columns, typed values, casts, integer literals, minus and arithmetic of those", () => {
+    for (const [left, right] of [
+      [typed(7), age],
+      [castNode(col("u", "email"), integer), typed(2)],
+      [age, literalNode(2)],
+      [unaryNode("neg", age), typed(2)],
+      [binary("mod", age, typed(3)), binary("mul", literalNode(2), value(1, bigint))],
+      [binary("sub", age, binary("add", typed(1), literalNode(-4))), typed(2)],
+    ] as const) {
+      expect(mysql(binary("div", left, right))).toMatch(/ div /);
+    }
+  });
+
+  test("a value bound without a type takes the other operand's type, on either side", () => {
+    expect(mysql(binary("div", age, untyped(2)))).toBe("select `u`.`age` div ? as `c0` from `users` as `u`");
+    expect(mysql(binary("div", untyped(7), age))).toBe("select ? div `u`.`age` as `c0` from `users` as `u`");
+  });
+
+  test("anything else keeps /: a float, a fraction, a custom type, an unknown or non-numeric operand", () => {
+    const money = defineType<number>({
+      name: "money",
+      db: { kind: "custom", sql: "money" },
+      cast: (v) => ({ success: true, data: Number(v) }),
+    });
+    for (const [left, right] of [
+      [age, value(2, float)],
+      [age, literalNode(2.5)],
+      [age, literalNode(true)],
+      [age, value(2, money)],
+      [binary("add", age, value(1, float)), typed(2)],
+      // A column node whose column is not its field's: its type is not known here.
+      [col("u", "other", "age"), typed(2)],
+      [fnNode("coalesce", [age, typed(0)]), typed(2)],
+      [unaryNode("not", age), typed(2)],
+      [binary("concat", age, age), typed(2)],
+      // A value without a type beside an operand of unknown type: nothing says what either is.
+      [untyped(7), col("u", "other", "age")],
+    ] as const) {
+      expect(mysql(binary("div", left, right))).not.toMatch(/ div /);
+    }
+  });
+
+  test("through the builder: p.views.div(2), in a select and in where; the decision is part of the plan", () => {
+    const compiler = createCompiler(mysqlDialect);
+    const q = from(Post, "p")
+      .where(({ p }) => p.views.div(2).gt(1))
+      .select(({ p }) => ({ half: p.views.div(2) }));
+    expect(compiler.compile(q.ast, "all", undefined).sql).toBe(
+      "select `p`.`views` div ? as `c0` from `posts` as `p` where `p`.`views` div ? > ?",
+    );
+    const byFloat = from(Post, "p").select(({ p }) => ({ half: p.views.div(val(2, t.float())) }));
+    expect(compiler.compile(byFloat.ast, "all", undefined).sql).toBe(
+      "select `p`.`views` / cast(? as double) as `c0` from `posts` as `p`",
+    );
+    expect(compiler.stats().collisions).toBe(0);
   });
 });

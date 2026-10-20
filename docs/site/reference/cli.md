@@ -55,10 +55,11 @@ argument other than the subcommand `create` (below).
 Writes a new, empty migration file, `<version>_<name>.ts`, in the migrations directory, and
 prints its path. The version is the current UTC time, `YYYYMMDDHHMMSS`; the name is
 lower-case letters, digits and underscores, at most 100 characters. The file's default
-export is `defineMigration({ up(m) { … }, down(m) { … } })` with both bodies empty but for
-a comment: fill `up` with the change and `down` with what undoes it, or leave a `// noop`
-comment in `down` when there is nothing to undo ([Up and
-down](/guide/migrations#up-and-down)). Both functions are required.
+export is `defineMigration({ up(m) { … }, down() { … } })` with both bodies empty but for
+a comment: fill `up` with the change, and `down` with what undoes it, adding the `m`
+parameter (`down(m)`); or leave a `// noop` comment in `down` when there is nothing to undo
+([Up and down](/guide/migrations#up-and-down)). `down` has no parameter until you need one,
+so an untouched `down` compiles under `noUnusedParameters`. Both functions are required.
 
 It never overwrites a file: if a migration with the same version already exists (two runs
 in the same second), it exits with 1 and asks you to run it again a second later.

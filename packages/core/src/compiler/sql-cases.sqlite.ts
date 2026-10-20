@@ -164,7 +164,7 @@ export const SQLITE_CASES: DialectTable = {
       params: [],
     },
     "arithmetic keeps its grouping": {
-      sql: 'select -"p"."views" as "c0" from "posts" as "p" where ("p"."views" + ?) * cast(? as integer) > ("p"."views" - "p"."views" % ?) / cast(? as integer)',
+      sql: 'select -"p"."views" as "c0" from "posts" as "p" where ("p"."views" + ?) * cast(? as integer) > cast(("p"."views" - "p"."views" % ?) / cast(? as integer) as integer)',
       params: [1, 2, 3, 4],
     },
     "text functions and concatenation": {
@@ -209,7 +209,7 @@ export const SQLITE_CASES: DialectTable = {
       params: [18],
     },
     "right-nested arithmetic and concatenation keep their parentheses; left-nested need none": {
-      sql: 'select "p"."views" - ("p"."views" - ?) as "c0", "p"."views" - "p"."views" - ? as "c1", "p"."views" / (2 * 3) as "c2", "p"."views" % (7 % 4) as "c3", "p"."views" * ("p"."views" + 1) as "c4", "p"."views" * "p"."views" + 1 as "c5", "p"."title" || ("p"."title" || ?) as "c6", "p"."title" || ? || "p"."title" as "c7" from "posts" as "p"',
+      sql: 'select "p"."views" - ("p"."views" - ?) as "c0", "p"."views" - "p"."views" - ? as "c1", cast("p"."views" / (2 * 3) as integer) as "c2", "p"."views" % (7 % 4) as "c3", "p"."views" * ("p"."views" + 1) as "c4", "p"."views" * "p"."views" + 1 as "c5", "p"."title" || ("p"."title" || ?) as "c6", "p"."title" || ? || "p"."title" as "c7" from "posts" as "p"',
       params: [1, 2, "!", "?"],
     },
     "comparisons and booleans mixed keep their parentheses": {
@@ -430,7 +430,7 @@ export const SQLITE_CASES: DialectTable = {
       params: [3, 4],
     },
     "every arithmetic operator, and unary minus, on typed values in a select": {
-      sql: 'select cast(? as integer) + cast(? as integer) as "c0", cast(? as integer) - cast(? as integer) as "c1", cast(? as integer) * cast(? as integer) as "c2", cast(? as integer) / cast(? as integer) as "c3", cast(? as integer) % cast(? as integer) as "c4", -cast(? as integer) as "c5" from "users" as "u" limit ?',
+      sql: 'select cast(? as integer) + cast(? as integer) as "c0", cast(? as integer) - cast(? as integer) as "c1", cast(? as integer) * cast(? as integer) as "c2", cast(cast(? as integer) / cast(? as integer) as integer) as "c3", cast(? as integer) % cast(? as integer) as "c4", -cast(? as integer) as "c5" from "users" as "u" limit ?',
       params: [7, 2, 7, 2, 7, 2, 7, 2, 7, 2, 7, 1],
     },
     "arithmetic of typed values nested and beside a column: only bound pairs are cast": {
@@ -499,6 +499,10 @@ export const SQLITE_CASES: DialectTable = {
     "updateAll sets a column times a typed value of another type": {
       sql: 'update "posts" as "p" set "views" = "p"."views" * cast(? as real) where "p"."id" = ?',
       params: [2, 2],
+    },
+    "a division of two integers divides as integers on every database; a float keeps /": {
+      sql: 'select cast("p"."views" / ? as integer) as "c0", cast("p"."author_id" / ? as integer) as "c1", cast("p"."views" / ? as integer) as "c2", cast(("p"."views" + ?) / cast(? as integer) as integer) as "c3", cast("p"."views" / ? as integer) as "c4", "p"."views" / cast(? as real) as "c5" from "posts" as "p" where "p"."id" = ?',
+      params: [2, 2, 2, 1, 2, 2, 2, 2],
     },
     "a CASE or coalesce with no typed value beside a typed value takes its type (review round 1)": {
       sql: 'select "u"."id" as "c0" from "users" as "u" where ? = cast(? as integer) + cast(coalesce(?, ?) as integer) and case when true then cast(? as integer) end + cast(case when true then ? end as integer) = ? and cast(? as integer) = cast(coalesce(?, ?) as integer) and case when true then cast(? as integer) end = cast(case when true then ? end as integer) and cast(? as integer) between cast(case when true then ? end as integer) and cast(case when true then ? end as integer)',

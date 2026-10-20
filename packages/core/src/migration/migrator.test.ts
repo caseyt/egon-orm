@@ -18,11 +18,14 @@ const V1 = 20260101000000;
 const V2 = 20260201000000;
 const V3 = 20260301000000;
 
-/** A reversible migration that creates the table `name`. */
+/** A migration that creates the table `name`, and drops it in `down`. */
 function creates(name: string): Migration {
   return defineMigration({
-    change(m) {
+    up(m) {
       m.createTable(name, (t) => t.id());
+    },
+    down(m) {
+      m.dropTable(name);
     },
   });
 }
@@ -173,6 +176,7 @@ describe("up", () => {
             m.createTable("x", (t) => t.id());
             m.createTable("y", (t) => t.id());
           },
+          down() {},
         }),
       },
     ];
@@ -200,8 +204,11 @@ describe("up", () => {
     const index = (transaction: boolean): Migration =>
       defineMigration({
         transaction,
-        change(m) {
+        up(m) {
           m.createIndex("users", ["email"], { concurrently: true });
+        },
+        down(m) {
+          m.dropIndex("users", ["email"], { concurrently: true });
         },
       });
     const refused = setup([{ version: V1, name: "index_email", migration: index(true) }]);
@@ -214,6 +221,19 @@ describe("up", () => {
     expect(allowed.fake.work()).toEqual([
       'create index concurrently "users_email_index" on "users" ("email")',
     ]);
+    // The same holds for a down() that drops an index concurrently.
+    const refusedDown = setup([{ version: V1, name: "index_email", migration: index(true) }], {
+      applied: [V1],
+    });
+    const downError = await rejection(refusedDown.migrator.down());
+    expect(downError.message).toMatch(/cannot run inside a transaction. Add transaction: false/);
+    expect(refusedDown.fake.work()).toEqual([]);
+    expect(refusedDown.fake.versions()).toEqual([V1]);
+    const allowedDown = setup([{ version: V1, name: "index_email", migration: index(false) }], {
+      applied: [V1],
+    });
+    await allowedDown.migrator.down();
+    expect(allowedDown.fake.work()).toEqual(['drop index concurrently "users_email_index"']);
   });
 
   test("a failed rollback destroys the connection, which releases the lock", async () => {
@@ -244,6 +264,7 @@ describe("up", () => {
           up(m) {
             m.createIndex("users", ["email"], { using: "rtree" });
           },
+          down() {},
         }),
       },
     ];
@@ -264,6 +285,7 @@ describe("up", () => {
           up() {
             throw thrown;
           },
+          down() {},
         }),
       },
     ];
@@ -272,27 +294,32 @@ describe("up", () => {
     expect(error.cause).toBe(thrown);
   });
 
-  test("an async migration is awaited before its statements are written", async () => {
+  test("an async up or down is awaited before its statements are written", async () => {
     const migrations: MigrationSource[] = [
       {
         version: V1,
         name: "later",
         migration: defineMigration({
-          async change(m) {
+          async up(m) {
             await new Promise((resolve) => setTimeout(resolve, 1));
             m.createTable("later", (t) => t.id());
+          },
+          async down(m) {
+            await new Promise((resolve) => setTimeout(resolve, 1));
+            m.dropTable("later");
           },
         }),
       },
     ];
     const { fake, migrator } = setup(migrations);
     await migrator.up();
-    expect(fake.work()).toEqual(['create table "later" ("id" bigserial primary key)']);
+    await migrator.down();
+    expect(fake.work()).toEqual(['create table "later" ("id" bigserial primary key)', 'drop table "later"']);
   });
 });
 
 describe("down", () => {
-  test("rolls back the latest migration by default, running the inverse of change", async () => {
+  test("rolls back the latest migration by default, running its down", async () => {
     const { fake, migrator } = setup(THREE, { applied: [V1, V2, V3] });
     const runs = await migrator.down();
     expect(runs.map((run) => [run.version, run.direction])).toEqual([[V3, "down"]]);
@@ -331,12 +358,26 @@ describe("down", () => {
     expect((await migrator.down({ step: 1 })).map((run) => run.version)).toEqual([V3]);
   });
 
-  test("up without down cannot be rolled back", async () => {
-    const migrations = [{ version: V1, name: "one_way", migration: defineMigration({ up() {} }) }];
+  test("an empty down() runs no statement and removes the version", async () => {
+    const migrations = [
+      {
+        version: V1,
+        name: "backfill",
+        migration: defineMigration({
+          up(m) {
+            m.execute(fragment`update users set role = ${"member"} where role is null`);
+          },
+          down() {
+            // noop
+          },
+        }),
+      },
+    ];
     const { fake, migrator } = setup(migrations, { applied: [V1] });
-    const error = await rejection(migrator.down());
-    expect(error.message).toMatch(/has up\(\) and no down\(\)/);
-    expect(fake.versions()).toEqual([V1]);
+    const runs = await migrator.down();
+    expect(runs.map((run) => [run.version, run.direction, run.statements])).toEqual([[V1, "down", []]]);
+    expect(fake.work()).toEqual([]);
+    expect(fake.versions()).toEqual([]);
   });
 
   test("down() runs what it records", async () => {
@@ -359,28 +400,6 @@ describe("down", () => {
     expect(fake.work()).toEqual(["update users set role = null where role = $1"]);
     expect(fake.statements.find((s) => s.sql.startsWith("update"))?.params).toEqual(["member"]);
   });
-
-  test("a change that cannot be reversed is refused at rollback, and nothing of it runs", async () => {
-    const migrations = [
-      {
-        version: V1,
-        name: "drop_age",
-        migration: defineMigration({
-          change(m) {
-            m.alterTable("users", (t) => t.remove("age"));
-          },
-        }),
-      },
-    ];
-    const { fake, migrator } = setup(migrations);
-    await migrator.up();
-    expect(fake.work()).toEqual(['alter table "users" drop column "age"']);
-    const error = await rejection(migrator.down());
-    expect(error.message).toMatch(
-      /^Migration 20260101000000_drop_age cannot be rolled back: .*remove\("age"\) has no type/,
-    );
-    expect(fake.versions()).toEqual([V1]);
-  });
 });
 
 describe("dry run", () => {
@@ -394,6 +413,7 @@ describe("dry run", () => {
           up(m) {
             m.execute(fragment`update users set role = ${"member"}`);
           },
+          down() {},
         }),
       },
     ];
@@ -573,7 +593,7 @@ describe("a directory", () => {
       expect(await migrator.status()).toEqual([]);
       await writeFile(
         join(directory, "20260101000000_first.mjs"),
-        'export default { [Symbol.for("egon.migration")]: true, change: (m) => m.createTable("t", (t) => t.id()), up: undefined, down: undefined, transaction: true };\n',
+        'export default { [Symbol.for("egon.migration")]: true, up: (m) => m.createTable("t", (t) => t.id()), down: (m) => m.dropTable("t"), transaction: true };\n',
       );
       expect((await migrator.up()).map((run) => run.name)).toEqual(["first"]);
     } finally {

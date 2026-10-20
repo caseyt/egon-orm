@@ -29,7 +29,7 @@ assert.deepEqual(await expectQueries(repo, () => undefined), []);
 await repo.close();
 // The subpath `egon-orm/migration` shares its classes with the main entry (one build, chunks).
 assert.ok(new MigrationError("x") instanceof EgonError);
-assert.equal(defineMigration({ up() {} }).transaction, true);
+assert.equal(defineMigration({ up() {}, down() {} }).transaction, true);
 
 console.log(`esm: egon-orm ${VERSION} (resolved to ${import.meta.resolve("egon-orm")})`);
 console.log(`esm: egon-orm/testing (resolved to ${import.meta.resolve("egon-orm/testing")})`);

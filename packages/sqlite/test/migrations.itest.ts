@@ -50,6 +50,9 @@ describe("migrations without a transaction", () => {
             m.execute(fragment`commit`);
             m.execute(fragment`pragma foreign_keys = on`);
           },
+          down() {
+            // noop: these tests never roll the rebuild back
+          },
         }),
       },
     ];
@@ -125,6 +128,9 @@ describe("migrations without a transaction", () => {
             m.execute(fragment`begin`);
             m.execute(fragment`create table half (id integer primary key)`);
           },
+          down(m) {
+            m.dropTable("half");
+          },
         }),
       },
     ];
@@ -154,8 +160,11 @@ describe("migrations without a transaction", () => {
         version: 20260101000000,
         name: "create_a",
         migration: defineMigration({
-          change(m) {
+          up(m) {
             m.createTable("a", (t) => t.id());
+          },
+          down(m) {
+            m.dropTable("a");
           },
         }),
       },

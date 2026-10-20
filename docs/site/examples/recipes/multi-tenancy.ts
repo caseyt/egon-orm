@@ -34,7 +34,7 @@ const tenantTables = (schema: string) =>
       );
     },
     down(m) {
-      m.dropTable("projects", undefined, { schema });
+      m.dropTable("projects", { schema });
       m.dropSchema(schema);
     },
   });

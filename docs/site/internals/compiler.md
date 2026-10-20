@@ -53,9 +53,14 @@ where "u"."age" >= $1 order by "u"."created_at" desc limit $2
   database nothing to choose an operator by, so each typed one is cast to its type, which
   also types the other. With no type on either side a comparison may only compare text,
   as above, and arithmetic is refused (text has no arithmetic).
-- **In arithmetic, a typed value keeps its type** unless the other operand is a column:
-  `cast($1 as double precision) / (cast($2 as integer) + …)`. Beside a column it is left to
-  the column, `"p"."views" + $1`.
+- **In arithmetic, a typed value keeps its type**:
+  `cast($1 as double precision) / (cast($2 as integer) + …)`, and beside a column whose
+  type has another SQL name in the dialect, `"p"."views" / cast($1 as double precision)`.
+  Beside a column of the same type it is left to the column, `"p"."views" + $1`, and so it
+  is beside a column whose type is not known (of a `subquery` or `cte` source that selects
+  values). The names are the dialect's, so a `bigint` column beside an `integer` value is
+  cast on Postgres and not on MySQL (`signed`) or SQLite (`integer`). A comparison leaves a
+  value beside a column to the column's type.
 - **A `CASE` or `coalesce` made only of bound values and `NULL`s** is read by the database
   as text whatever it holds. Its typed values are cast. With none, it takes the type of a
   typed value on the other side of the operator, or, in a comparison with a column of a

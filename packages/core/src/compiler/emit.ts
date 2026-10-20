@@ -664,19 +664,42 @@ function infix(ctx: Ctx, op: BinaryOp, sql: string, l: string, r: string): strin
 
 /**
  * An operand of arithmetic whose other operand is not a bound value. A typed value is
- * cast to its type unless the other operand is a column: written bare, it would take the
- * type of the other side (`$1 / (cast($2 as integer) + …)` reads a float as an integer).
- * Beside a column it is left to the column, as before (status note 10, Known gaps).
+ * cast to its type: written bare, it would take the type of the other side
+ * (`$1 / (cast($2 as integer) + …)` reads a float as an integer, and `"x"."i" / $1`
+ * divides as integers when `$1` is a float). Beside a column the cast is written only when
+ * the column's type has another SQL name in the dialect, so `"p"."views" + $1` stays as it
+ * is. Beside a column whose type is not known (of a source with no schema) the value is
+ * left bare, as before (status note 10, Known gaps). The plan is built once per query
+ * shape, so this is decided once and cached with it.
  */
 function typedArithmeticValue(ctx: Ctx, frame: Frame, node: ExprNode, other: ExprNode, min: number): string {
   if (
     (node.kind === "param" || node.kind === "namedParam") &&
     node.type !== undefined &&
-    other.kind !== "column"
+    !leftToColumn(ctx, frame, node.type, other)
   ) {
     return `cast(${expr(ctx, frame, node)} as ${typeName(ctx, node.type)})`;
   }
   return operand(ctx, frame, node, min);
+}
+
+/**
+ * Whether a value of `type` beside `other` in arithmetic is left to it: `other` is a
+ * column whose type is not known, or whose type has the same SQL name in the dialect.
+ */
+function leftToColumn(ctx: Ctx, frame: Frame, type: AnyFieldType, other: ExprNode): boolean {
+  if (other.kind !== "column") return false;
+  const column = columnType(frame, other);
+  return column === undefined || nameToCompare(ctx, column) === nameToCompare(ctx, dbTypeOf(type));
+}
+
+/**
+ * The SQL name of a type in the dialect, only to compare two types (see
+ * {@link leftToColumn}); it is never written, so unlike `sqlTypeName` it does not check
+ * or throw: an array type, or a kind the dialect does not name, gives `undefined`.
+ */
+function nameToCompare(ctx: Ctx, db: DbType): string | undefined {
+  return db.kind === "custom" ? db.sql : lookup(ctx.dialect.types, db.kind);
 }
 
 /**

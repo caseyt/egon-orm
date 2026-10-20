@@ -1,16 +1,17 @@
 // Bound values that the SQL gives no type: arithmetic of bound values (typed values are
-// cast; untyped ones may only be text), and a CASE or coalesce of bound values beside an
+// cast; untyped ones may only be text), a typed value beside a column of another type in
+// arithmetic (cast to its own type), and a CASE or coalesce of bound values beside an
 // operand with a type (its typed values are cast; with none, a column on the other side
 // of a comparison types it). The snapshot matrix (`casts.sql.test.ts`) pins the common
 // forms; these tests cover refusals, shared plans and hand-built trees.
 import { Post, User } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
 import type { BinaryOp, ExprNode, QueryAst } from "../contracts/query.js";
-import { caseWhen, coalesce, from, lit, param, subquery, t, val } from "../index.js";
+import { caseWhen, coalesce, defineType, from, lit, param, Schema, subquery, t, val } from "../index.js";
 import { caseNode, fnNode, literalNode, unaryNode } from "../query/ast.js";
 import { bindParams } from "./bind.js";
 import { createCompiler } from "./compiler.js";
-import { postgresDialect } from "./dialect.js";
+import { mysqlDialect, postgresDialect, sqliteDialect } from "./dialect.js";
 import { bareQuery, col, rebuild, selectOne, typeOf, value } from "./sql-fixtures.js";
 
 const users = from(User, "u").ast;
@@ -75,7 +76,7 @@ describe("arithmetic of bound values", () => {
     );
   });
 
-  test("a typed value beside a column is left to the column; beside anything else it keeps its type", () => {
+  test("a typed value beside a column of its own type is left bare; beside anything else it keeps its type", () => {
     expect(compile(selecting(binary("add", col("u", "age"), typed(1)))).sql).toBe(
       'select "u"."age" + $1 as "c0" from "users" as "u"',
     );
@@ -142,6 +143,113 @@ describe("arithmetic of bound values", () => {
     expect(compile(selecting(unaryNode("neg", typedCase))).sql).toBe(
       'select -case when true then cast($1 as integer) else $2 end as "c0" from "users" as "u"',
     );
+  });
+});
+
+describe("a typed value beside a column of another type in arithmetic (owner decision, 2026-10-20)", () => {
+  const float = typeOf(t.float());
+  const floatValue = (v: number): ExprNode => value(v, float);
+
+  test("is cast to its own type, on either side, for every operator", () => {
+    expect(compile(selecting(binary("div", col("u", "age"), floatValue(2)))).sql).toBe(
+      'select "u"."age" / cast($1 as double precision) as "c0" from "users" as "u"',
+    );
+    expect(compile(selecting(binary("div", floatValue(7), col("u", "age")))).sql).toBe(
+      'select cast($1 as double precision) / "u"."age" as "c0" from "users" as "u"',
+    );
+    for (const [op, sign] of [
+      ["add", "+"],
+      ["sub", "-"],
+      ["mul", "*"],
+      ["mod", "%"],
+    ] as const) {
+      expect(compile(selecting(binary(op, col("u", "age"), floatValue(2)))).sql).toContain(
+        `"u"."age" ${sign} cast($1 as double precision)`,
+      );
+    }
+  });
+
+  test("through the builder, in where, select and set, and as a named parameter", () => {
+    const q = from(Post, "p")
+      .where(({ p }) => p.views.div(param("by", t.float())).gt(val(1.4, t.float())))
+      .select(({ p }) => ({
+        half: p.views.mul(val(0.5, t.float())),
+        next: p.views.add(val(1, t.integer())),
+      }));
+    expect(compile(q.ast).sql).toBe(
+      'select "p"."views" * cast($1 as double precision) as "c0", "p"."views" + $2 as "c1" from "posts" as "p" where "p"."views" / cast($3 as double precision) > $4',
+    );
+    const update = from(Post, "p").set(({ p }) => ({ views: p.views.mul(val(2, t.float())) }));
+    expect(createCompiler(postgresDialect).compile(update.ast, "updateAll", undefined).sql).toBe(
+      'update "posts" as "p" set "views" = "p"."views" * cast($1 as double precision)',
+    );
+  });
+
+  test("the types are compared by their SQL name in the dialect", () => {
+    // A bigint column beside an integer value: two names on Postgres, one on MySQL
+    // (`signed`) and SQLite (`integer`).
+    const q = from(Post, "p").select(({ p }) => ({ next: p.authorId.add(val(1, t.integer())) })).ast;
+    const sqlOf = (dialect: Parameters<typeof createCompiler>[0]) =>
+      createCompiler(dialect).compile(q, "all", undefined).sql;
+    expect(sqlOf(postgresDialect)).toBe(
+      'select "p"."author_id" + cast($1 as integer) as "c0" from "posts" as "p"',
+    );
+    expect(sqlOf(mysqlDialect)).toBe("select `p`.`author_id` + ? as `c0` from `posts` as `p`");
+    expect(sqlOf(sqliteDialect)).toBe('select "p"."author_id" + ? as "c0" from "posts" as "p"');
+  });
+
+  test("a column of a custom type: the same custom type is left bare, another is cast", () => {
+    const cents = defineType<number>({
+      name: "cents",
+      db: { kind: "custom", sql: "numeric(10, 2)" },
+      cast: (v) => ({ success: true, data: Number(v) }),
+    });
+    class Price extends Schema("prices", { id: t.integer().primaryKey(), amount: t.type(cents) }) {}
+    const prices = from(Price, "x").ast;
+    const select = (node: ExprNode) => rebuild(prices, { select: selectOne(node) });
+    expect(compile(select(binary("add", col("x", "amount"), value(1, cents)))).sql).toBe(
+      'select "x"."amount" + $1 as "c0" from "prices" as "x"',
+    );
+    expect(compile(select(binary("mul", col("x", "amount"), floatValue(1.5)))).sql).toBe(
+      'select "x"."amount" * cast($1 as double precision) as "c0" from "prices" as "x"',
+    );
+    const rate = defineType<number>({
+      name: "rate",
+      db: { kind: "custom", sql: "numeric(12, 4)" },
+      cast: (v) => ({ success: true, data: Number(v) }),
+    });
+    expect(compile(select(binary("mul", col("x", "amount"), value(1.5, rate)))).sql).toBe(
+      'select "x"."amount" * cast($1 as numeric(12, 4)) as "c0" from "prices" as "x"',
+    );
+  });
+
+  test("beside a column whose type is not known it is left bare, as before", () => {
+    const values = rebuild(bareQuery({ kind: "values", columns: ["a"], rows: [[typed(1)]], alias: "v" }), {
+      select: selectOne(binary("div", col("v", "a"), floatValue(2)), float),
+    });
+    expect(compile(values).sql).toContain('select "v"."a" / $1 as "c0"');
+    // A column node whose column is not its field's gives no type either.
+    expect(compile(selecting(binary("div", col("u", "other", "age"), floatValue(2)))).sql).toBe(
+      'select "u"."other" / $1 as "c0" from "users" as "u"',
+    );
+  });
+
+  test("the decision is part of the plan: another value of the same shape reuses it", () => {
+    const compiler = createCompiler(postgresDialect);
+    const q = (by: number) => from(Post, "p").select(({ p }) => ({ v: p.views.div(val(by, t.float())) })).ast;
+    const first = compiler.compile(q(2), "all", undefined);
+    const second = q(4);
+    expect(compiler.compile(second, "all", undefined)).toBe(first);
+    expect(first.sql).toBe('select "p"."views" / cast($1 as double precision) as "c0" from "posts" as "p"');
+    expect(bindParams(first.slots, second.params)).toEqual([4]);
+    expect(compiler.stats().collisions).toBe(0);
+  });
+
+  test("comparisons are not cast: the column's type parses the value", () => {
+    const q = from(Post, "p")
+      .where(({ p }) => p.views.lt(val(5.5, t.float())))
+      .select(({ p }) => p.id);
+    expect(compile(q.ast).sql).toBe('select "p"."id" as "c0" from "posts" as "p" where "p"."views" < $1');
   });
 });
 

@@ -175,7 +175,12 @@ pass: `val(10, t.integer()).gt(9)` and `val(3, t.integer()).add(1)` work, while
 on the other side of a comparison is enough: `u.age.eq(val(5))` and
 `p.authorId.eq(caseWhen(p.published, 1).else(2))` take the column's type. A column of a
 `subquery` or `cte` source that selects values rather than whole rows does not give a
-type yet: there, type the value. Without a
+type yet: there, type the value. In arithmetic a typed value keeps its own type beside a
+column of another type: `p.views.div(val(2, t.float()))` divides as floats (7 / 2 is 3.5),
+while `p.views.add(1)` and `p.views.add(val(1, t.integer()))` use the column's type. A
+comparison always reads the value as the column's type, so on Postgres compare a fraction
+with an integer column through a cast of the column:
+`p.views.cast(t.float()).lt(val(5.5, t.float()))`. Without a
 type, `val` infers the value's plain TypeScript type (`val(5)` is an `Expr<number>`), so
 `val("b").gt("a")` compiles, and next to an enum column given a list
 (`t.enum(["admin", "member"])`) `val("admin")` is checked against the enum's values.

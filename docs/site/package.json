@@ -11,6 +11,7 @@
     "preview": "vitepress preview"
   },
   "dependencies": {
+    "@egon-orm/cli": "workspace:*",
     "@egon-orm/postgres": "workspace:*",
     "@egon-orm/zod": "workspace:*",
     "arktype": "2.2.8",

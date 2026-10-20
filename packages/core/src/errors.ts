@@ -29,7 +29,8 @@ export type ErrorCode =
   | "cast"
   | "notLoaded"
   | DatabaseErrorCode
-  | "schemaDefinition";
+  | "schemaDefinition"
+  | "migration";
 
 /**
  * The codes of a {@link DatabaseError}.
@@ -424,4 +425,46 @@ export class DatabaseError extends EgonError {
 export class SchemaDefinitionError extends EgonError {
   override readonly name = "SchemaDefinitionError" as const;
   readonly code = "schemaDefinition" as const;
+}
+
+/**
+ * A migration could not be defined, reversed or run: an operation the database lacks, a
+ * `change` that cannot be rolled back, a recorded version whose file is missing, the
+ * migration lock, or a statement that failed (the driver's error is kept as `cause`).
+ *
+ * `version` and `migration` name the migration when the error belongs to one; `sql` is
+ * the statement that failed, without parameter values.
+ *
+ * @example
+ * ```ts
+ * throw new MigrationError(
+ *   'remove("age") cannot be reversed without its type. Write remove("age", "integer"), or give the migration a down().',
+ *   { version: 20261012093000, migration: "drop_age" },
+ * );
+ * ```
+ */
+export class MigrationError extends EgonError {
+  override readonly name = "MigrationError" as const;
+  readonly code = "migration" as const;
+  /** The version of the migration the error belongs to, when there is one. */
+  readonly version: number | undefined;
+  /** The name of that migration: its file name without the version and the extension. */
+  readonly migration: string | undefined;
+  /** The statement that failed, when a statement failed. Parameter values are never attached. */
+  readonly sql: string | undefined;
+
+  constructor(
+    message: string,
+    details: {
+      readonly version?: number;
+      readonly migration?: string;
+      readonly sql?: string;
+      readonly cause?: unknown;
+    } = {},
+  ) {
+    super(message, details.cause);
+    this.version = details.version;
+    this.migration = details.migration;
+    this.sql = details.sql;
+  }
 }

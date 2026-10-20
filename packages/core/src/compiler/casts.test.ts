@@ -264,3 +264,32 @@ describe("a CASE or coalesce with no typed value beside a typed bound value (rev
     expect(compile(q.ast).sql).toContain("where cast($1 as integer) = cast(coalesce($2, $3) as integer)");
   });
 });
+
+describe("a CASE or coalesce with no typed value nested in one that has a typed value (review round 2)", () => {
+  test("a coalesce argument takes the first typed argument's type, in a select", () => {
+    expect(compile(selecting(fnNode("coalesce", [untypedCase(1), typed(5)]))).sql).toBe(
+      'select coalesce(cast(case when true then $1 end as integer), cast($2 as integer)) as "c0" from "users" as "u"',
+    );
+  });
+
+  test("and compared with a column", () => {
+    const right = fnNode("coalesce", [untypedCase(1), typed(5)]);
+    expect(compile(where(binary("eq", col("u", "age"), right))).sql).toContain(
+      'where "u"."age" = coalesce(cast(case when true then $1 end as integer), cast($2 as integer))',
+    );
+  });
+
+  test("a CASE result takes the CASE's first typed value's type", () => {
+    const typedCase = caseNode([{ when: literalNode(true), result: typed(1) }], untypedCase(2));
+    expect(compile(selecting(typedCase)).sql).toBe(
+      'select case when true then cast($1 as integer) else cast(case when true then $2 end as integer) end as "c0" from "users" as "u"',
+    );
+    const nestedCoalesce = caseNode(
+      [{ when: literalNode(true), result: typed(1) }],
+      fnNode("coalesce", [untyped(null), untyped(2)]),
+    );
+    expect(compile(selecting(nestedCoalesce)).sql).toBe(
+      'select case when true then cast($1 as integer) else cast(coalesce($2, $3) as integer) end as "c0" from "users" as "u"',
+    );
+  });
+});

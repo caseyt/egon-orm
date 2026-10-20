@@ -866,8 +866,13 @@ function caseExpr(
 ): string {
   if (node.whens.length === 0) throw new QueryError("A CASE has no WHEN branch.");
   const where = selected === undefined ? undefined : `a result of a CASE in ${selected}`;
+  // A nested CASE or coalesce with no typed value takes the type of this one's first typed
+  // value (see boundOperand), as a coalesce's arguments do.
+  const type = where === undefined ? undefined : firstType(node);
   const result = (value: ExprNode) =>
-    where === undefined ? expr(ctx, frame, value) : selectedValue(ctx, frame, value, where, typedBySibling);
+    where === undefined
+      ? expr(ctx, frame, value)
+      : boundOperand(ctx, frame, value, where, typedBySibling, type);
   let text = "case";
   for (const branch of node.whens) {
     text += ` when ${expr(ctx, frame, branch.when)} then ${result(branch.result)}`;
@@ -904,9 +909,12 @@ function selectedValue(
   if (node.kind === "fn" && node.name === "coalesce" && node.args.length > 0 && node.args.every(noSqlType)) {
     const name = lookup(ctx.dialect.functions, node.name) as string;
     const typed = typedBySibling || !node.args.every(hasNoType);
+    // An argument that is a CASE or coalesce with no typed value takes the type of the
+    // first typed argument: the database would read it as text otherwise.
+    const type = firstType(node);
     let args = "";
     for (let i = 0; i < node.args.length; i++) {
-      args += `${i > 0 ? ", " : ""}${selectedValue(ctx, frame, node.args[i] as ExprNode, `coalesce() in ${where}`, typed)}`;
+      args += `${i > 0 ? ", " : ""}${boundOperand(ctx, frame, node.args[i] as ExprNode, `coalesce() in ${where}`, typed, type)}`;
     }
     return `${name}(${args})`;
   }

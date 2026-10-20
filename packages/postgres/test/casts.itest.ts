@@ -190,6 +190,40 @@ describe("a column compared with a CASE or coalesce of untyped values takes the 
   });
 });
 
+describe("a CASE with no typed value nested in a coalesce that has one (review round 2)", () => {
+  test("in a select", async () => {
+    const [row] = await repo.all(
+      from(User, "u")
+        .where(({ u }) => u.id.eq(1))
+        .select(() => ({
+          fallback: coalesce(caseWhen(lit(false), 1), int(5)),
+          first: coalesce(caseWhen(lit(true), 1), int(5)),
+          nested: caseWhen(lit(false), int(1)).else(coalesce(caseWhen(lit(true), 2), int(3))),
+        })),
+    );
+    expect(row).toEqual({ fallback: 5, first: 1, nested: 2 });
+  });
+
+  test("compared with a column", async () => {
+    const rows = await repo.all(
+      from(User, "u")
+        .where(({ u }) => u.age.eq(coalesce(caseWhen(u.id.eq(1), 34), int(0))))
+        .select(({ u }) => u.email),
+    );
+    expect(rows).toEqual(["ann@example.com"]);
+  });
+
+  test("an untyped CASE nested in a typed CASE, compared with a column", async () => {
+    const rows = await repo.all(
+      from(User, "u")
+        .where(({ u }) => u.age.eq(caseWhen(u.id.eq(1), int(34)).else(caseWhen(lit(true), 15))))
+        .orderBy(({ u }) => u.id)
+        .select(({ u }) => u.email),
+    );
+    expect(rows).toEqual(["ann@example.com", "bo@example.com"]);
+  });
+});
+
 describe("untyped values with widened types", () => {
   test("val('b').gt('a') and val(34).eq(u.age) run", async () => {
     const all = await repo.all(

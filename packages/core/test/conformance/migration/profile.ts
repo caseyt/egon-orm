@@ -32,6 +32,12 @@ export interface MigrationConformanceProfile {
    */
   readonly lockHeld?: ((db: TestDatabase) => Promise<boolean>) | undefined;
   /**
+   * A statement that the database refuses inside a transaction (`vacuum`),
+   * for the case that a `transaction: false` migration runs outside any; where DDL is not
+   * transactional (MySQL), any statement.
+   */
+  readonly outsideTransaction: SqlFragment;
+  /**
    * Whether the suite may create database schemas of its own: false where a schema is a
    * database named server-wide (MySQL), so that two runs on one server would collide.
    */

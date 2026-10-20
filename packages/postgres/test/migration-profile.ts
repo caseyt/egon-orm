@@ -15,6 +15,8 @@ export const POSTGRES_MIGRATION_PROFILE: MigrationConformanceProfile = {
   listColumns: (table) =>
     `select column_name as name from information_schema.columns where table_name = '${table}'`,
   param: (n) => `$${n}`,
+  // Refused inside a transaction.
+  outsideTransaction: fragment`vacuum`,
   lockCount:
     "select count(*)::int as n from pg_locks where locktype = 'advisory' and database = (select oid from pg_database where datname = current_database())",
   ownSchemas: true,

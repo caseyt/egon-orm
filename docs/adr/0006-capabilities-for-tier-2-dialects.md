@@ -53,9 +53,10 @@ Add sixteen boolean fields to `Capabilities`, all required. Postgres sets every 
 | `foreignKeyNames` | a foreign-key violation names its constraint and table | false | true |
 | `longIdentifiers` | identifiers longer than 64 bytes can be used | true | false |
 
-The first nine are checked when a statement is compiled: a `false` flag gives a `QueryError`
-naming the feature and the dialect, and `compiler/capabilities.test.ts` checks each on all
-three dialects.
+The first nine refuse what needs them with a `QueryError` naming the feature and the
+dialect, before anything is sent. Seven are checked when a statement is compiled. Two,
+`readOnlyTransactions` and `deferrableTransactions`, are checked by `begin()`
+(`beginStatements`). `compiler/capabilities.test.ts` checks all nine on all three dialects.
 
 The last seven describe how the database behaves rather than what SQL it takes. Each is
 honoured by the adapter or the repo, and the conformance cases that depend on one skip with

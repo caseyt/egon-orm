@@ -96,7 +96,13 @@ export interface MigrationDialect {
    * for the whole run: its statements take no parameters, `acquire` is retried while the
    * database is busy, `release` commits it, and each migration runs in a savepoint inside it.
    */
-  readonly lock: Readonly<{ kind: "session" | "transaction"; acquire: string; release: string }>;
+  readonly lock: Readonly<{
+    kind: "session" | "transaction";
+    acquire: string;
+    release: string;
+    /** Gives a `transaction` lock up without keeping anything (`rollback`); `undefined` for a session lock. */
+    abandon: string | undefined;
+  }>;
   /**
    * How to read and set the connection's busy timeout, for a `transaction` lock: the runner
    * sets it to 0 while it tries for the lock (and waits between tries itself, so that a
@@ -199,6 +205,7 @@ export const POSTGRES_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
     kind: "session",
     acquire: "select pg_advisory_lock($1, $2)",
     release: "select pg_advisory_unlock($1, $2)",
+    abandon: undefined,
   }),
   busyTimeout: undefined,
   tableExists:
@@ -297,6 +304,7 @@ export const MYSQL_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
     kind: "session",
     acquire: "select get_lock(concat('egon:', sha1(concat(database(), ':', ?, ':', ?))), -1) as locked",
     release: "select release_lock(concat('egon:', sha1(concat(database(), ':', ?, ':', ?)))) as released",
+    abandon: undefined,
   }),
   busyTimeout: undefined,
   tableExists:
@@ -380,7 +388,12 @@ export const SQLITE_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
   // SQLite has no lock outside a transaction: the runner holds a write transaction
   // (`begin immediate`) for the whole run, which another runner on the same file, in this
   // process or another, cannot start until it ends.
-  lock: Object.freeze({ kind: "transaction", acquire: "begin immediate", release: "commit" }),
+  lock: Object.freeze({
+    kind: "transaction",
+    acquire: "begin immediate",
+    release: "commit",
+    abandon: "rollback",
+  }),
   busyTimeout: Object.freeze({
     read: "pragma busy_timeout",
     write: (ms: number) => `pragma busy_timeout = ${Math.max(0, Math.trunc(ms))}`,

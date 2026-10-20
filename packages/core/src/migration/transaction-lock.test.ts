@@ -8,6 +8,7 @@ import type { DriverConnection, DriverCursor, DriverWrapper } from "../adapter/d
 import { SQLITE_CAPABILITIES } from "../compiler/dialect.js";
 import type { RawResult } from "../contracts/adapter.js";
 import { DatabaseError, MigrationError } from "../errors.js";
+import { fragment } from "../query/functions.js";
 import { defineMigration } from "./define.js";
 import type { MigrationSource } from "./loader.js";
 import { createMigrator } from "./migrator.js";
@@ -21,11 +22,14 @@ interface Script {
   timeout?: unknown;
   /** Makes a statement fail. */
   fail?: (sql: string) => Error | undefined;
+  /** How many times another runner's claim is found before it is gone (the tracking table exists). */
+  claims?: number;
 }
 
 function scripted(script: Script = {}) {
   const sent: string[] = [];
   let busy = script.busy ?? 0;
+  let claims = script.claims ?? 0;
   const connection: DriverConnection = {
     async query(sql: string): Promise<RawResult> {
       sent.push(sql);
@@ -33,6 +37,14 @@ function scripted(script: Script = {}) {
       if (failure !== undefined) throw failure;
       if (sql === "pragma busy_timeout") {
         return { rows: [{ timeout: script.timeout ?? 5000 }], rowCount: 1, insertId: undefined };
+      }
+      if (script.claims !== undefined && /^select 1 from pragma_table_(list|info)/.test(sql)) {
+        return { rows: [{ one: 1 }], rowCount: 1, insertId: undefined };
+      }
+      if (sql.startsWith("select 1 from") && sql.includes('where "version"')) {
+        if (claims === 0) return EMPTY;
+        claims--;
+        return { rows: [{ one: 1 }], rowCount: 1, insertId: undefined };
       }
       if (sql === "begin immediate" && busy > 0) {
         busy--;
@@ -85,12 +97,14 @@ describe("a transaction lock", () => {
     const { adapter, sent } = scripted();
     await createMigrator({ adapter, migrations: ONE }).up();
     const lock = sent.indexOf("begin immediate");
-    expect(sent.slice(0, lock + 2)).toEqual([
+    expect(sent.slice(0, lock + 1)).toEqual([
       "pragma busy_timeout",
       "pragma busy_timeout = 0",
       "begin immediate",
-      "pragma busy_timeout = 5000",
     ]);
+    // Then it looks for another runner's claim (none: the tracking table does not exist yet).
+    expect(sent[lock + 1]).toMatch(/^select 1 from pragma_table_list/);
+    expect(sent[lock + 2]).toBe("pragma busy_timeout = 5000");
     expect(sent).toContain('savepoint "egon_migration"');
     expect(sent).toContain('release savepoint "egon_migration"');
     expect(sent).not.toContain("begin");
@@ -132,5 +146,66 @@ describe("a transaction lock", () => {
     await expect(createMigrator({ adapter, migrations: ONE }).up()).rejects.toThrow(MigrationError);
     expect(sent).toContain('rollback to savepoint "egon_migration"');
     expect(sent.at(-1)).toBe("commit");
+  });
+});
+
+describe("a migration without a transaction under a transaction lock", () => {
+  const OUTSIDE: readonly MigrationSource[] = [
+    {
+      version: 20260101000000,
+      name: "vacuum",
+      migration: defineMigration({
+        transaction: false,
+        up(m) {
+          m.execute(fragment`vacuum`);
+        },
+      }),
+    },
+  ];
+
+  test("runs outside the lock: claim, commit, run, lock again, drop the claim, record", async () => {
+    const { adapter, sent } = scripted();
+    await createMigrator({ adapter, migrations: OUTSIDE }).up();
+    const at = sent.indexOf("vacuum");
+    const claim = sent.findIndex((sql) => sql.startsWith("insert into") && sent.indexOf(sql) < at);
+    expect(claim).toBeGreaterThan(-1);
+    expect(sent[claim + 1]).toBe("commit");
+    expect(sent.slice(at + 1).filter((sql) => sql === "begin immediate")).toHaveLength(1);
+    const after = sent.slice(at + 1);
+    expect(after.findIndex((sql) => sql.startsWith("delete from"))).toBeLessThan(
+      after.findIndex((sql) => sql.startsWith("insert into")),
+    );
+    expect(sent).not.toContain('savepoint "egon_migration"');
+    expect(sent.at(-1)).toBe("commit");
+  });
+
+  test("a failure still takes the lock back and drops the claim", async () => {
+    const { adapter, sent } = scripted({
+      fail: (sql) => (sql === "vacuum" ? new Error("disk full") : undefined),
+    });
+    const error = await createMigrator({ adapter, migrations: OUTSIDE })
+      .up()
+      .catch((caught: unknown) => caught);
+    expect((error as Error).message).toMatch(/it ran without a transaction/);
+    const after = sent.slice(sent.indexOf("vacuum") + 1);
+    expect(after).toContain("begin immediate");
+    expect(after.some((sql) => sql.startsWith("delete from"))).toBe(true);
+    expect(after.some((sql) => sql.startsWith("insert into"))).toBe(false);
+  });
+
+  test("another runner that finds a claim gives the lock back and waits until it is gone", async () => {
+    const { adapter, sent } = scripted({ claims: 2 });
+    await createMigrator({ adapter, migrations: ONE }).up();
+    expect(sent.filter((sql) => sql === "begin immediate")).toHaveLength(3);
+    expect(sent.filter((sql) => sql === "rollback")).toHaveLength(2);
+  });
+
+  test("a claim that stays makes it give up after lockTimeoutMs, saying how to clear it", async () => {
+    const { adapter } = scripted({ claims: 1_000 });
+    const error = await createMigrator({ adapter, migrations: ONE, lockTimeoutMs: 60 })
+      .up()
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(MigrationError);
+    expect((error as Error).message).toMatch(/delete the row with version -1/);
   });
 });

@@ -301,6 +301,71 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
         expect(await migrator(adapter(), [], {}).up()).toEqual([]);
       }));
 
+    test("a migration with transaction: false runs outside any transaction", () =>
+      withAdapters("migrate_outside", async (db, adapter) => {
+        const outside: MigrationSource[] = [
+          {
+            version: 20260101000000,
+            name: "outside",
+            migration: defineMigration({
+              transaction: false,
+              up(m) {
+                m.execute(profile.outsideTransaction);
+              },
+            }),
+          },
+        ];
+        expect((await migrator(adapter(), outside).up()).map((run) => run.name)).toEqual(["outside"]);
+        expect(await db.query("select version from schema_migrations")).toHaveLength(1);
+        // Run again: nothing left to do.
+        expect(await migrator(adapter(), outside).up()).toEqual([]);
+      }));
+
+    test("two runners at once apply a migration without a transaction once, 20 times in a row", (context) =>
+      withAdapters("migrate_outside_race", async (db, adapter) => {
+        if (!migrationTable.locks) return context.skip("the migration table of this database has no lock");
+        await db.exec("create table outside_log (round integer not null)");
+        const one = adapter();
+        const two = adapter();
+        for (let i = 0; i < 20; i++) {
+          const migrations: MigrationSource[] = [
+            {
+              version: 20260101000000,
+              name: "before",
+              migration: creates(`outside_${i}_before`),
+            },
+            {
+              version: 20260101000001,
+              name: "logged",
+              migration: defineMigration({
+                transaction: false,
+                up(m) {
+                  m.execute(fragment`insert into outside_log (round) values (${i})`);
+                },
+              }),
+            },
+            {
+              version: 20260101000002,
+              name: "after",
+              migration: creates(`outside_${i}_after`),
+            },
+          ];
+          const table = `outside_${i}_migrations`;
+          const [first, second] = await Promise.all([
+            migrator(one, migrations, { table }).up(),
+            migrator(two, migrations, { table }).up(),
+          ]);
+          expect([...first, ...second].map((run) => run.version).sort()).toEqual([
+            20260101000000, 20260101000001, 20260101000002,
+          ]);
+          expect((await db.query(`select version from ${table}`)).length).toBe(3);
+        }
+        const rounds = (await db.query("select round from outside_log order by round")).map((row) =>
+          Number(row.round),
+        );
+        expect(rounds).toEqual(Array.from({ length: 20 }, (_, i) => i));
+      }));
+
     test("a failing migration is rolled back: nothing of it stays and its version is not recorded", () =>
       withAdapters("migrate_fail", async (db, adapter) => {
         const migrations: MigrationSource[] = [

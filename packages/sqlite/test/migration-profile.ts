@@ -1,4 +1,5 @@
 // The SQLite profile of the migration conformance suite.
+import { fragment } from "egon-orm";
 import type { MigrationConformanceProfile } from "../../core/test/conformance/migration/index.js";
 import { SQLITE_READ_PROFILE } from "./read-profile.js";
 
@@ -16,6 +17,8 @@ export const SQLITE_MIGRATION_PROFILE: MigrationConformanceProfile = {
   listColumns: (table) => `select name from pragma_table_info('${table}')`,
   param: () => "?",
   // The lock is a write transaction, which no SQL lists: another handle tries to take it.
+  // Refused inside a transaction.
+  outsideTransaction: fragment`vacuum`,
   lockCount: undefined,
   lockHeld: async (db) => {
     try {

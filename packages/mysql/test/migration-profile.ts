@@ -17,6 +17,8 @@ export const MYSQL_MIGRATION_PROFILE: MigrationConformanceProfile = {
   listColumns: (table) =>
     `select column_name as name from information_schema.columns where table_schema = database() and table_name = '${table}'`,
   param: () => "?",
+  // MySQL runs no migration in a transaction (DDL commits): any statement does.
+  outsideTransaction: fragment`do 0`,
   lockCount:
     "select count(*) as n from performance_schema.metadata_locks where object_type = 'USER LEVEL LOCK' and object_name like 'egon:%'",
   // A database schema is a database, named server-wide.

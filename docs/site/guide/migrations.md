@@ -141,9 +141,25 @@ Pass `name` to choose your own; then give the same name to the changeset functio
 - **The lock.** The runner holds a lock for the whole run (on Postgres a session-level
   advisory lock keyed by the tracking table, on MySQL `GET_LOCK` with a name derived from
   it), so two deploys that start at once take turns: the second waits, then finds nothing
-  left to do. `lockTimeoutMs` makes it give up instead. SQLite takes no lock: its adapter
-  has one handle and runs one caller at a time, and two processes migrating one file at
-  once are not supported.
+  left to do. `lockTimeoutMs` makes it give up instead.
+- **The lock on SQLite.** SQLite has no lock outside a transaction, so the runner holds a
+  write transaction (`begin immediate`) for the whole run, and each migration is a savepoint
+  inside it. While it runs, every other writer to the file waits until the run ends: another
+  runner, in this process or another, tries again every 25 ms until `lockTimeoutMs`, and
+  other writes to the file fail with a retryable `SQLITE_BUSY` once their `busy_timeout`
+  runs out. Keep migration runs out of busy periods.
+- **`transaction: false` on SQLite.** Some statements cannot run in a transaction at all
+  (`vacuum`), and `pragma foreign_keys = off` is ignored inside one, which the table
+  rebuild needs (copy, drop, rename: the way to change a column on SQLite). Such a migration
+  runs outside the lock:
+  1. the runner records a claim (a row with version `-1` in the tracking table) and commits;
+  2. it runs the migration with no transaction;
+  3. it takes the lock again, removes the claim and records the version.
+
+  Another runner that gets the lock while the claim is there gives it back and waits, so
+  two runners never both run it. If the process dies in step 2, the claim stays: later
+  runs wait for it (with `lockTimeoutMs`, they give up and say so). Check what the migration
+  did, then delete the row with version `-1`.
 - **Tracking.** Applied versions are rows of `schema_migrations (version bigint primary key,
   created_at timestamp(0))`, created by the first `up` or `down` that is not a dry run
   (`status` and dry runs never create it), with `created_at` in UTC.

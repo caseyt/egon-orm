@@ -8,7 +8,8 @@ const fromRoot = (path: string): string => fileURLToPath(new URL(path, import.me
 
 /** Tests run against package sources, so no build is needed before `pnpm test:*`. */
 const alias = {
-  // Before "egon-orm": an alias also matches the specifiers that start with it.
+  // Before "egon-orm": an alias also matches the subpaths of its key, and the first match wins.
+  "egon-orm/migration": fromRoot("./packages/core/src/migration/index.ts"),
   "egon-orm/testing": fromRoot("./packages/core/src/testing.ts"),
   "egon-orm": fromRoot("./packages/core/src/index.ts"),
   "@egon-orm/postgres": fromRoot("./packages/postgres/src/index.ts"),
@@ -125,6 +126,7 @@ export default defineConfig({
         // README §6: CI enforces 95% lines and branches per package.
         "packages/core/src/**": { lines: 95, branches: 95 },
         "packages/postgres/src/**": { lines: 95, branches: 95 },
+        "packages/cli/src/**": { lines: 95, branches: 95 },
       },
     },
   },

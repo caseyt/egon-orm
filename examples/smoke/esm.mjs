@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { postgres, VERSION as postgresVersion } from "@egon-orm/postgres";
 import { VERSION as zodVersion } from "@egon-orm/zod";
-import { createRepo, VERSION } from "egon-orm";
+import { createRepo, EgonError, VERSION } from "egon-orm";
+import { defineMigration, MigrationError } from "egon-orm/migration";
 import { createSandbox, expectQueries } from "egon-orm/testing";
 
 assert.match(VERSION, /^\d+\.\d+\.\d+/);
@@ -15,6 +16,9 @@ const repo = createRepo({ adapter: postgres({ connectionString: "postgres://loca
 assert.equal(typeof (await createSandbox(repo)).begin, "function");
 assert.deepEqual(await expectQueries(repo, () => undefined), []);
 await repo.close();
+// The subpath `egon-orm/migration` shares its classes with the main entry (one build, chunks).
+assert.ok(new MigrationError("x") instanceof EgonError);
+assert.equal(defineMigration({ up() {} }).transaction, true);
 
 console.log(`esm: egon-orm ${VERSION} (resolved to ${import.meta.resolve("egon-orm")})`);
 console.log(`esm: egon-orm/testing (resolved to ${import.meta.resolve("egon-orm/testing")})`);

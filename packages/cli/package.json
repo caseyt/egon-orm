@@ -2,7 +2,7 @@
   "name": "@egon-orm/cli",
   "version": "0.0.0",
   "private": true,
-  "description": "Egon ORM migration runner and generators (placeholder until step 18).",
+  "description": "The egon command for Egon ORM: migrations, migration generators and development databases.",
   "license": "MIT",
   "author": "Casey Tickes",
   "repository": {
@@ -16,14 +16,17 @@
     "orm",
     "typescript",
     "sql",
-    "changeset",
-    "query-builder"
+    "migrations",
+    "cli"
   ],
   "type": "module",
   "sideEffects": false,
   "files": [
     "dist"
   ],
+  "bin": {
+    "egon": "./dist/bin.js"
+  },
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
@@ -43,6 +46,8 @@
     "egon-orm": "workspace:^"
   },
   "devDependencies": {
-    "egon-orm": "workspace:*"
+    "@egon-orm/postgres": "workspace:*",
+    "egon-orm": "workspace:*",
+    "pg": "8.23.1"
   }
 }

@@ -1,8 +1,9 @@
 import { defineConfig } from "tsup";
 
-// Build config is identical across packages on purpose; keep them in sync.
+// Build config is identical across packages on purpose; keep them in sync. The one
+// difference here is the second entry, `dist/bin.js`: the `egon` executable.
 export default defineConfig({
-  entry: ["src/index.ts"],
+  entry: ["src/index.ts", "src/bin.ts"],
   // ESM only (decision D14): no CommonJS build. A CommonJS project loads the package with
   // `require()` of an ES module, which Node supports from 22.12.
   format: ["esm"],

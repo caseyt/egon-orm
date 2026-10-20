@@ -236,9 +236,15 @@ importers:
       '@egon-orm/cli':
         specifier: workspace:*
         version: link:../../packages/cli
+      '@egon-orm/mysql':
+        specifier: workspace:*
+        version: link:../../packages/mysql
       '@egon-orm/postgres':
         specifier: workspace:*
         version: link:../../packages/postgres
+      '@egon-orm/sqlite':
+        specifier: workspace:*
+        version: link:../../packages/sqlite
       '@egon-orm/zod':
         specifier: workspace:*
         version: link:../../packages/zod

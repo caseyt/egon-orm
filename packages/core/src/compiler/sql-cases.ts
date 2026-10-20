@@ -79,6 +79,22 @@ const since = new Date("2026-01-01T00:00:00.000Z");
 const users = from(User, "u");
 const posts = from(Post, "p");
 
+const integer = (n: number) => value(n, typeOf(t.integer()));
+
+/** The body of "a CTE with a fragment body" per dialect: one row, `n`, built from parameter 0. */
+const CTE_BODIES: Readonly<Record<Dialect, FragmentNode>> = {
+  postgres: frag`select generate_series(1, ${integer(3)}) as n`,
+  mysql: frag`select ${integer(3)} as n`,
+  sqlite: frag`select ${integer(3)} as n`,
+};
+
+/** The source of "a fragment as a source" per dialect, over parameters 0 and 1. */
+const SOURCE_FRAGMENTS: Readonly<Record<Dialect, FragmentNode>> = {
+  postgres: frag`generate_series(${integer(1)}, ${integer(3)})`,
+  mysql: frag`(select ${integer(1)} as x union all select ${integer(3)})`,
+  sqlite: frag`(select ${integer(1)} as x union all select ${integer(3)})`,
+};
+
 /** A table hint each dialect accepts; only the Postgres one has a parameter. */
 const TABLE_HINTS: Readonly<Record<Dialect, FragmentNode>> = {
   postgres: frag`tablesample system (${value(50, typeOf(t.integer()))})`,
@@ -1080,23 +1096,30 @@ export const NESTED_CASES: readonly SqlCase[] = withDialects(
       sql: 'with recursive "n" as (select "v"."i" as "i" from (values (cast($1 as integer))) as "v" ("i") union all (select "n"."i" + $2 as "i" from "n" as "n" where "n"."i" < $3)) select sum("n"."i") as "c0" from "n" as "n"',
       params: [1, 1, 5],
     }),
-    queryCase(
+    statementCase(
       "a CTE with a fragment body",
-      rebuild(bareQuery({ kind: "cteSource", name: "series", meta: undefined, alias: "g" }), {
-        ctes: [
-          {
-            kind: "cte",
-            name: "series",
-            query: frag`select ${value(3, typeOf(t.integer()))} as n`,
-            operation: "all",
-            recursive: false,
-            materialized: undefined,
-          },
-        ],
-        select: selectOne(col("g", "n")),
-      }),
+      // The fragment is the database's own SQL: a set-returning function on Postgres, a plain select elsewhere.
+      (compiler) =>
+        compiler.compile(
+          rebuild(bareQuery({ kind: "cteSource", name: "series", meta: undefined, alias: "g" }), {
+            ctes: [
+              {
+                kind: "cte",
+                name: "series",
+                query: CTE_BODIES[compiler.dialect.name],
+                operation: "all",
+                recursive: false,
+                materialized: undefined,
+              },
+            ],
+            select: selectOne(col("g", "n")),
+          }),
+          "all",
+          undefined,
+        ),
+      [3],
       {
-        sql: 'with "series" as (select cast($1 as integer) as n) select "g"."n" as "c0" from "series" as "g"',
+        sql: 'with "series" as (select generate_series(1, cast($1 as integer)) as n) select "g"."n" as "c0" from "series" as "g"',
         params: [3],
       },
     ),
@@ -1210,19 +1233,26 @@ export const NESTED_CASES: readonly SqlCase[] = withDialects(
         params: [1, "one", 2, "two"],
       },
     ),
-    queryCase(
+    statementCase(
       "a fragment as a source",
-      rebuild(
-        bareQuery({
-          kind: "fragmentSource",
-          fragment: frag`(select ${value(1, typeOf(t.integer()))} as x union all select ${value(3, typeOf(t.integer()))})`,
-          columns: ["n"],
-          alias: "g",
-        }),
-        { select: selectOne(col("g", "n")) },
-      ),
+      // A set-returning function on Postgres; a parenthesised select elsewhere.
+      (compiler) =>
+        compiler.compile(
+          rebuild(
+            bareQuery({
+              kind: "fragmentSource",
+              fragment: SOURCE_FRAGMENTS[compiler.dialect.name],
+              columns: ["n"],
+              alias: "g",
+            }),
+            { select: selectOne(col("g", "n")) },
+          ),
+          "all",
+          undefined,
+        ),
+      [1, 3],
       {
-        sql: 'select "g"."n" as "c0" from (select cast($1 as integer) as x union all select cast($2 as integer)) as "g" ("n")',
+        sql: 'select "g"."n" as "c0" from generate_series(cast($1 as integer), cast($2 as integer)) as "g" ("n")',
         params: [1, 3],
       },
     ),

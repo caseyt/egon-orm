@@ -42,6 +42,7 @@ import {
 } from "egon-orm";
 import { createSandbox, type Sandbox } from "egon-orm/testing";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
+import { migrationDialectOf } from "../../../src/migration/dialect.js";
 import {
   Comment,
   createTestDatabase,
@@ -178,6 +179,8 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
 
     afterAll(async () => {
       for (const each of adapters.splice(0)) await each.close();
+      const drop = handle === undefined ? undefined : profile.dropCopies?.(handle.db);
+      if (drop !== undefined) await handle?.db.exec(drop);
       await handle?.drop();
     });
 
@@ -317,7 +320,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       test("a per-call database schema decides where the row goes", async (context) => {
         if (profile.copyTableInto === undefined)
           return context.skip("the profile has no database schemas to copy a table into");
-        await db.exec(profile.copyTableInto("tenant_w", "tags"));
+        await db.exec(profile.copyTableInto("tenant_w", "tags", db));
         const r = await repo();
         const tag = await r.insertOrThrow(change(Tag, { name: "elsewhere" }), { schema: "tenant_w" });
         expect(meta(Tag).rowMeta("loaded", "tenant_w")).toBe(
@@ -328,7 +331,6 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         const renamed = await r.updateOrThrow(change(tag, { name: "moved" }));
         expect((await r.getOrThrow(Tag, renamed.id, { schema: "tenant_w" })).name).toBe("moved");
         await endSandboxes();
-        await db.exec("drop schema tenant_w cascade");
       });
     });
 
@@ -648,8 +650,11 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("an exclusion constraint", async (context) => {
-        if (profile.rangeType === undefined)
-          return context.skip("the database has no range type for an exclusion constraint");
+        // A declared DDL feature: the migration table's `features.exclusionConstraints`.
+        if (!migrationDialectOf(adapter().dialect).features.exclusionConstraints) {
+          expect(profile.rangeType).toBeUndefined();
+          return context.skip("feature exclusionConstraints of the migration table is false");
+        }
         const r = await repo();
         await r.insertOrThrow(change(Booking, { room: 1, during: "[1,5)" }));
         const overlap = cast(Booking, { room: 1, during: "[3,8)" }, ["room", "during"]);
@@ -1087,7 +1092,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       test("a row is looked for in the database schema it was read from", async (context) => {
         if (profile.copyTableInto === undefined)
           return context.skip("the profile has no database schemas to copy a table into");
-        await db.exec(profile.copyTableInto("tenant_u", "tags"));
+        await db.exec(profile.copyTableInto("tenant_u", "tags", db));
         try {
           const r = await repo();
           await r.insertAll(Tag, [{ name: "dup" }, { name: "mine" }], { schema: "tenant_u" });
@@ -1097,7 +1102,6 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
           expect(await r.count(Tag)).toBe(0);
         } finally {
           await endSandboxes();
-          await db.exec("drop schema tenant_u cascade");
         }
       });
     });
@@ -1166,22 +1170,25 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
     // --- budgets ------------------------------------------------------------------------
 
     describe("timeoutMs and signal", () => {
-      test("timeoutMs is one budget for every chunk of an insertAll", async (context) => {
-        if (!adapter().capabilities.cancel) return context.skip("capability cancel is false");
+      test("timeoutMs is one budget for every chunk of an insertAll", async () => {
         const r = await repo();
         const user = await seedUser(r);
-        // A value of 400 bound parameters, so that 200 rows take two statements; the first
-        // and the last row also sleep 0.6 s, so each statement alone fits a 1 s budget.
-        const wide = (sleep: boolean) => {
+        // A value of 400 bound parameters, so that 200 rows take two statements. Where a
+        // running statement can be cancelled, the first and the last row sleep 0.6 s, so each
+        // statement alone fits a 1 s budget and the second is stopped while it runs. Where it
+        // cannot (capability cancel false), the first statement overruns the budget and the
+        // second must be refused before it starts.
+        const cancels = adapter().capabilities.cancel;
+        const wide = (seconds: number) => {
           const one = () => val(1, t.integer());
           let sum = one();
           for (let i = 0; i < 399; i++) sum = sum.add(one());
-          return sleep ? sum.add(profile.sleep(0.6)) : sum;
+          return seconds > 0 ? sum.add(profile.sleep(seconds)) : sum;
         };
         const rows = Array.from({ length: 200 }, (_, i) => ({
           authorId: user.id,
           title: `p${i}`,
-          views: wide(i === 0 || i === 199),
+          views: wide(i === 0 ? (cancels ? 0.6 : 1.2) : i === 199 && cancels ? 0.6 : 0),
         }));
         const started = Date.now();
         const error = await rejection(r.insertAll(Post, rows, { timeoutMs: 1_000 }));

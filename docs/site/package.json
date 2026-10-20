@@ -12,7 +12,9 @@
   },
   "dependencies": {
     "@egon-orm/cli": "workspace:*",
+    "@egon-orm/mysql": "workspace:*",
     "@egon-orm/postgres": "workspace:*",
+    "@egon-orm/sqlite": "workspace:*",
     "@egon-orm/zod": "workspace:*",
     "arktype": "2.2.8",
     "egon-orm": "workspace:*",

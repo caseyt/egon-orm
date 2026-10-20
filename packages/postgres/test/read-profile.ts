@@ -21,6 +21,7 @@ export const POSTGRES_READ_PROFILE: ReadConformanceProfile = {
   columnType: POSTGRES_PROFILE.columnType,
   copyTableInto: (schema, table) =>
     `create schema if not exists ${schema}; create table ${schema}.${table} (like public.${table} including all)`,
+  defaultSchema: () => "public",
   insertSeries: (count) =>
     `insert into stream_rows (id, label) select n, 'row ' || n from generate_series(1, ${count}) as n`,
   insertPairs: (count) =>

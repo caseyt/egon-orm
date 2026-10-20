@@ -56,17 +56,13 @@ event without a listener ends the Node.js process, so add one yourself:
 pnpm add @egon-orm/sqlite better-sqlite3
 ```
 
-```ts
-import { sqlite } from "@egon-orm/sqlite";
-
-const adapter = sqlite({ filename: "app.db", pragmas: { journal_mode: "WAL" } });
-const memory = sqlite({ filename: ":memory:" });
-```
+<<< @/examples/adapters.ts#sqlite
 
 | Option | Default | Effect |
 |---|---|---|
 | `filename` | required | The database file, or `":memory:"` for a database that lives as long as the adapter. |
 | `pragmas` | `{}` | Pragmas run in order when the file is opened (`{ journal_mode: "WAL", busy_timeout: 5000 }`). Names and values must be plain words, numbers or booleans. |
+| `attach` | `{}` | Databases attached when the file is opened, by schema name (`{ audit: "audit.db" }`). |
 | `readonly` | `false` | Opens the file read-only. |
 | `planCacheSize` | `1000` | How many compiled query shapes to keep. |
 
@@ -74,19 +70,26 @@ const memory = sqlite({ filename: ":memory:" });
 adapter says so instead of crashing on an older one. SQLite 3.39 or later (the version
 `better-sqlite3` bundles) is assumed.
 
-- Foreign keys are **on** by default. SQLite itself ships with them off; set
-  `pragmas: { foreign_keys: false }` to get that back.
+- Foreign keys are **on**, whatever the SQLite build's own default is; set
+  `pragmas: { foreign_keys: false }` to turn them off. A pragma given as `undefined` counts
+  as left out.
 - `:memory:` is the fastest way to run a test suite: no file, no server.
 - **One handle, one caller at a time.** The adapter opens one database handle and hands it
   to one caller at a time, in order: a transaction holds it until it ends, and everything
   else waits. Two transactions never interleave, and there are no isolation levels to
   choose (asking for one throws `QueryError`).
+- A transaction starts with a plain (deferred) `begin`: it takes SQLite's write lock at its
+  first write. Another process writing the same file at that moment makes the write fail
+  with a retryable `DatabaseError` (`SQLITE_BUSY`) once `busy_timeout` runs out.
 - Row locks (`lock("update")`) are accepted and not written: with one writer they are
   already satisfied.
-- A statement runs synchronously to its end. `timeoutMs` and `signal` bound the wait for
-  the handle, not the statement.
-- The `schema` option names an attached database (`attach database 'audit.db' as audit`,
-  run on the adapter).
+- A statement runs synchronously to its end and cannot be stopped. `timeoutMs` is still one
+  budget for the whole call: a statement whose budget is spent before it starts is refused
+  with the code `"timeout"`, but one statement that runs past the budget finishes.
+- The `schema` option names an attached database:
+
+  <<< @/examples/adapters.ts#sqlite-attach
+
 - A unique violation is reported by its columns; see
   [Constraint names](/reference/dialect-support#constraint-names).
 
@@ -96,11 +99,7 @@ adapter says so instead of crashing on an older one. SQLite 3.39 or later (the v
 pnpm add @egon-orm/mysql mysql2
 ```
 
-```ts
-import { mysql } from "@egon-orm/mysql";
-
-const adapter = mysql({ connectionString: process.env.DATABASE_URL, pool: { max: 10 } });
-```
+<<< @/examples/adapters.ts#mysql
 
 | Option | Default | Effect |
 |---|---|---|
@@ -110,14 +109,21 @@ const adapter = mysql({ connectionString: process.env.DATABASE_URL, pool: { max:
 
 MySQL 8.0.31 or later and `mysql2` 3.11 or later are supported. There is no time zone
 option: every session is UTC, so a timestamp means the same instant whatever the server's
-or the process's time zone.
+or the process's time zone. A connection whose session cannot be set up is closed instead
+of used.
 
 - **No rows from writes.** `insert` reads the row back by its key: the generated
   auto-increment id, or the key you gave (a client-generated uuid, a composite key).
   `.returning(...)` on bulk writes throws `QueryError`.
 - **Upserts take no target.** `ON DUPLICATE KEY UPDATE` fires on any unique key, so
-  `onConflict.target` throws `QueryError`; leave it out. An upsert that updates an
-  existing row returns that row.
+  `onConflict.target` throws `QueryError`; leave it out. An upsert and the read-back of its
+  row run as one unit. When it meets a row by the key it was given, it returns that row.
+  When it meets a row through another unique column, the row cannot be found by the given
+  key: the upsert is undone and throws `QueryError`, and nothing is written.
+- **Comparisons ignore case and accents.** Every connection uses the collation
+  `utf8mb4_0900_ai_ci`. Under it `like`, `eq` and unique keys treat `"CAFE"`, `"cafe"`
+  and `"café"` as equal (on Postgres `eq` and `like` are exact). Declare a column with a
+  binary or `_as_cs` collation in your DDL where you need exact comparisons.
 - **DDL commits.** Each DDL statement ends the transaction it runs in, so a migration that
   fails midway is left half-applied; see [Migrations](/guide/migrations).
 - A write conflict between serializable transactions is reported as a deadlock
@@ -127,6 +133,10 @@ or the process's time zone.
 - A migration's `text` column is a `varchar(255)` on MySQL, because a MySQL `TEXT` column
   can be neither indexed nor given a default. Declare a long text column with
   `m.custom("body", "text")`.
+- A unique index created without a name is named after its first column (`email`), not
+  `users_email_key`. `uniqueConstraint("email")` matches a violation of it only when the
+  index has the conventional name, as the migrations of this library give it; for one
+  created otherwise, pass its name: `uniqueConstraint("email", { name: "email" })`.
 
 ## How values are stored
 
@@ -138,7 +148,7 @@ the driver differs:
 | `boolean` | `boolean` | `0` / `1` | `tinyint(1)` |
 | `bigint` | `bigint` | integer | `bigint` |
 | `decimal` | `numeric` | text | `decimal` |
-| `uuid` | `uuid` | text | `char(36)` |
+| `uuid` | `uuid` | text, lowercase | `char(36)`, lowercase |
 | `date`, `time` | native | ISO-8601 text | native |
 | `timestamp` | native | ISO-8601 text in UTC, with milliseconds | `datetime(6)`, UTC |
 | `json` | `jsonb` | text | `json` |
@@ -147,9 +157,12 @@ the driver differs:
 
 On SQLite and MySQL an array field is stored as a JSON array and read back as an array;
 the array operators (`has`, `contains`, `in(arrayExpression)`) are refused with
-`QueryError`. On SQLite, integers are read exactly: a `t.bigint()` beyond
-`Number.MAX_SAFE_INTEGER` keeps every digit. A value with no type (`val(new Date())`,
-`val(true)`) is bound as SQLite stores one: timestamp text, `1` / `0`.
+`QueryError`. A uuid is written in lowercase, as Postgres stores one, so its two spellings
+are one key. On SQLite, integers are read exactly: a `t.bigint()` beyond
+`Number.MAX_SAFE_INTEGER` keeps every digit. A decimal is text there, so `orderBy` and
+range comparisons on a decimal column compare text (`"10.5" < "9.1"`); store money as an
+integer number of cents if you sort or compare it. A value with no type
+(`val(new Date())`, `val(true)`) is bound as SQLite stores one: timestamp text, `1` / `0`.
 
 On Postgres:
 

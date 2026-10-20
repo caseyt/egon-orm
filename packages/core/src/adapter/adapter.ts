@@ -287,6 +287,19 @@ function interruption(
   return new DatabaseError(message, { code: kind, sql, cause });
 }
 
+/**
+ * The error of a statement whose `timeoutMs` was spent before it could start (the budget of
+ * the call it belongs to ran out on earlier statements, or it was given 0): it is not sent.
+ * A database whose statements cannot be cancelled once started (SQLite) relies on this check
+ * to keep the budget between statements.
+ */
+function spent(sql: string, timeoutMs: number | undefined): DatabaseError {
+  return new DatabaseError(
+    `The statement was not run: its timeoutMs (${timeoutMs} ms) was spent before it could start.`,
+    { code: "timeout", sql },
+  );
+}
+
 function closedError(sql: string | undefined): DatabaseError {
   return new DatabaseError(
     "This adapter is closed: adapter.close() was called. Create a new adapter to keep using the database.",
@@ -333,6 +346,7 @@ function interruptible<T>(
 ): Promise<T> {
   if (signal === undefined && timeoutMs === undefined) return work();
   if (signal?.aborted === true) return Promise.reject(interruption("aborted", sql, timeoutMs, undefined));
+  if (delayMs !== undefined && delayMs <= 0) return Promise.reject(spent(sql, timeoutMs));
   return new Promise<T>((resolve, reject) => {
     let reason: "aborted" | "timeout" | undefined;
     let cancelled: Promise<unknown> = Promise.resolve();
@@ -777,6 +791,7 @@ class SharedAdapter implements DatabaseAdapter {
     if (signal?.aborted === true) {
       return Promise.reject(interruption("aborted", sql, timeoutMs, undefined, true));
     }
+    if (timeoutMs !== undefined && timeoutMs <= 0) return Promise.reject(spent(sql, timeoutMs));
     return new Promise<DriverConnection>((resolve, reject) => {
       let settled = false;
       const stop = (): void => {

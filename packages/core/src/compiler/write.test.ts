@@ -55,7 +55,7 @@ describe("upserts on MySQL (ON DUPLICATE KEY UPDATE)", () => {
     ).sql;
 
   test("an update reads the excluded row, and sets the generated key with last_insert_id so a no-op reports it", () => {
-    expect(compile({ update: [field("name")] } as OnConflict)).toBe(
+    expect(compile({ target: undefined, update: [field("name")] })).toBe(
       "insert into `tags` (`name`) values (?) as `excluded` on duplicate key update `id` = last_insert_id(`id`), `name` = `excluded`.`name`",
     );
   });

@@ -89,8 +89,21 @@ export interface MigrationDialect {
    * in the byte of a backslash or a quote, escaping by characters is not safe.
    */
   readonly stringLiteral: (value: string) => string;
-  /** The runner's lock: statements taking the two 32-bit keys as `$1`, `$2`. */
-  readonly lock: Readonly<{ acquire: string; release: string }>;
+  /**
+   * The runner's lock. A `session` lock is held by the connection: `acquire` and `release`
+   * take the two 32-bit keys as `$1`, `$2`, and every migration runs in its own transaction
+   * under it. A `transaction` lock (SQLite's `begin immediate`) is a write transaction held
+   * for the whole run: its statements take no parameters, `acquire` is retried while the
+   * database is busy, `release` commits it, and each migration runs in a savepoint inside it.
+   */
+  readonly lock: Readonly<{ kind: "session" | "transaction"; acquire: string; release: string }>;
+  /**
+   * How to read and set the connection's busy timeout, for a `transaction` lock: the runner
+   * sets it to 0 while it tries for the lock (and waits between tries itself, so that a
+   * runner in the same process is never blocked), then puts it back. `undefined` for a
+   * `session` lock.
+   */
+  readonly busyTimeout: Readonly<{ read: string; write: (ms: number) => string }> | undefined;
   /** Selects one row when the table (`$1` database schema or `null`, `$2` name) exists. */
   readonly tableExists: string;
   /** Selects one row when the column (`$1` database schema or `null`, `$2` table, `$3` column) exists. */
@@ -130,9 +143,7 @@ export interface MigrationDialect {
    */
   readonly parenthesizedDefaults: boolean;
   /**
-   * Whether the runner's lock (`lock`) holds off another runner. SQLite has none: its
-   * statements only bind the keys, and a migration's transaction, with its version's row,
-   * is what keeps a second runner from applying it again.
+   * Whether the runner's lock (`lock`) holds off another runner (every table here has one).
    */
   readonly locks: boolean;
 }
@@ -185,9 +196,11 @@ export const POSTGRES_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
   // A session-level advisory lock: held by the connection until released or closed, and
   // outside every transaction, so the migrations' own transactions are not affected.
   lock: Object.freeze({
+    kind: "session",
     acquire: "select pg_advisory_lock($1, $2)",
     release: "select pg_advisory_unlock($1, $2)",
   }),
+  busyTimeout: undefined,
   tableExists:
     "select 1 from information_schema.tables where table_schema = coalesce($1, current_schema()) and table_name = $2",
   columnExists:
@@ -281,9 +294,11 @@ export const MYSQL_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
   // A named lock of the session, per database and tracking table (names are server-wide,
   // and at most 64 characters: hence the hash).
   lock: Object.freeze({
+    kind: "session",
     acquire: "select get_lock(concat('egon:', sha1(concat(database(), ':', ?, ':', ?))), -1) as locked",
     release: "select release_lock(concat('egon:', sha1(concat(database(), ':', ?, ':', ?)))) as released",
   }),
+  busyTimeout: undefined,
   tableExists:
     "select 1 from information_schema.tables where table_schema = coalesce(?, database()) and table_name = ?",
   columnExists:
@@ -362,10 +377,14 @@ export const SQLITE_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
   // A timestamp as the adapter stores one: ISO 8601 text in UTC, with milliseconds.
   now: "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
   stringLiteral: sqliteStringLiteral,
-  // SQLite has no lock to take outside a transaction. Two runners on one file cannot both
-  // apply a migration: each runs in a transaction with its version's row, whose key
-  // refuses the second. The keys are bound and unused.
-  lock: Object.freeze({ acquire: "select ?, ?", release: "select ?, ?" }),
+  // SQLite has no lock outside a transaction: the runner holds a write transaction
+  // (`begin immediate`) for the whole run, which another runner on the same file, in this
+  // process or another, cannot start until it ends.
+  lock: Object.freeze({ kind: "transaction", acquire: "begin immediate", release: "commit" }),
+  busyTimeout: Object.freeze({
+    read: "pragma busy_timeout",
+    write: (ms: number) => `pragma busy_timeout = ${Math.max(0, Math.trunc(ms))}`,
+  }),
   tableExists: "select 1 from pragma_table_list where schema = coalesce(?, 'main') and name = ?",
   columnExists: "select 1 from pragma_table_info where schema = coalesce(?, 'main') and arg = ? and name = ?",
   utcNow: "strftime('%Y-%m-%d %H:%M:%S', 'now')",
@@ -379,7 +398,7 @@ export const SQLITE_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
   serialKey: " autoincrement",
   dropIndexOnTable: false,
   parenthesizedDefaults: false,
-  locks: false,
+  locks: true,
 });
 
 const TABLES: Readonly<Partial<Record<Dialect, MigrationDialect>>> = Object.freeze({

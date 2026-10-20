@@ -7,6 +7,7 @@ describe("resolveOptions", () => {
       filename: ":memory:",
       readonly: false,
       pragmas: ["pragma foreign_keys = ON"],
+      attach: [],
     });
     expect(
       resolveOptions({
@@ -24,6 +25,7 @@ describe("resolveOptions", () => {
         "pragma cache_size = -2000",
         "pragma recursive_triggers = ON",
       ],
+      attach: [],
     });
   });
 
@@ -33,17 +35,34 @@ describe("resolveOptions", () => {
     ]);
   });
 
-  test("an option given as undefined is left out", () => {
+  test("an option given as undefined is left out, foreign_keys included", () => {
     expect(
       resolveOptions({
         filename: "a.db",
         readonly: undefined,
         pragmas: { journal_mode: undefined } as unknown as SqliteOptions["pragmas"],
+        attach: undefined,
         planCacheSize: undefined,
       }),
-    ).toEqual({ filename: "a.db", readonly: false, pragmas: ["pragma foreign_keys = ON"] });
+    ).toEqual({ filename: "a.db", readonly: false, pragmas: ["pragma foreign_keys = ON"], attach: [] });
     expect(resolveOptions({ filename: "a.db", pragmas: undefined }).pragmas).toEqual([
       "pragma foreign_keys = ON",
+    ]);
+    const unset = { foreign_keys: undefined } as unknown as SqliteOptions["pragmas"];
+    expect(resolveOptions({ filename: "a.db", pragmas: unset }).pragmas).toEqual([
+      "pragma foreign_keys = ON",
+    ]);
+  });
+
+  test("attach lists the databases to attach, by schema name, leaving out undefined ones", () => {
+    const attach = {
+      audit: "audit.db",
+      tenant_1: ":memory:",
+      gone: undefined,
+    } as unknown as SqliteOptions["attach"];
+    expect(resolveOptions({ filename: "a.db", attach }).attach).toEqual([
+      ["audit", "audit.db"],
+      ["tenant_1", ":memory:"],
     ]);
   });
 
@@ -67,6 +86,12 @@ describe("resolveOptions", () => {
     [{ filename: "a.db", pragmas: { journal_mode: "'WAL'" } }, /must be a word/],
     [{ filename: "a.db", pragmas: { cache_size: Number.NaN } }, /must be a word/],
     [{ filename: "a.db", pragmas: { cache_size: {} } }, /must be a word/],
+    [{ filename: "a.db", attach: [] }, /attach must be an object/],
+    [{ filename: "a.db", attach: { "a b": "x.db" } }, /is not a plain name/],
+    [{ filename: "a.db", attach: { main: "x.db" } }, /SQLite's own/],
+    [{ filename: "a.db", attach: { TEMP: "x.db" } }, /SQLite's own/],
+    [{ filename: "a.db", attach: { audit: "" } }, /attach\.audit must be a non-empty file name/],
+    [{ filename: "a.db", attach: { audit: 5 } }, /attach\.audit must be/],
   ])("refuses %j", (options, message) => {
     expect(() => resolveOptions(options as unknown as SqliteOptions)).toThrow(TypeError);
     expect(() => resolveOptions(options as unknown as SqliteOptions)).toThrow(message);

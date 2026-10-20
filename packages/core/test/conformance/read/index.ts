@@ -320,6 +320,8 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
     });
 
     afterAll(async () => {
+      const drop = handle === undefined ? undefined : profile.dropCopies?.(handle.db);
+      if (drop !== undefined) await handle?.db.exec(drop);
       await handle?.drop();
     });
 
@@ -386,6 +388,28 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
           return;
         }
         expect((await r.all(nullsFirst)).map((user) => user.id)).toEqual([3, 4, 1, 2]);
+      });
+
+      test("like with an escaped % or _ matches the character itself", async () => {
+        const text = (value: string) => val(value, t.string());
+        const [row] = await repo().all(
+          from(User, "u")
+            .where({ id: 1 })
+            .select(() => ({
+              percent: text("100%").like("100\\%"),
+              notPercent: text("1000").like("100\\%"),
+              underscore: text("1_3").like("1\\_3"),
+              notUnderscore: text("123").like("1\\_3"),
+              wildcard: text("1000").like("100%"),
+            })),
+        );
+        expect(row).toEqual({
+          percent: true,
+          notPercent: false,
+          underscore: true,
+          notUnderscore: false,
+          wildcard: true,
+        });
       });
 
       test("distinct", async () => {
@@ -566,17 +590,16 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
 
       test("a full join makes both sides nullable", async (context) => {
         if (!adapter().capabilities.fullJoin) return context.skip("capability fullJoin is false");
-        const rows = await repo().all(
-          from(Post, "p")
-            .fullJoin(Comment, "c", ({ p, c }) => c.postId.eq(p.id).and(c.authorId.eq(2)))
-            .orderBy(({ p }) => p.id)
-            .select(({ p, c }) => ({ post: p.id, comment: c })),
+        // The order is the database's own: NULLS LAST where the database can say so (where
+        // NULL sorts by default differs: last on Postgres, first on SQLite and MySQL).
+        const joined = from(Post, "p").fullJoin(Comment, "c", ({ p, c }) =>
+          c.postId.eq(p.id).and(c.authorId.eq(2)),
         );
-        // Where NULL sorts in ascending order differs between databases (last on Postgres,
-        // first on SQLite and MySQL); the rows are compared in one order here.
+        const ordered = adapter().capabilities.nullsOrder
+          ? joined.orderBy(({ p, c }) => [p.id.asc().nullsLast(), c.id.asc().nullsLast()])
+          : joined.orderBy(({ p, c }) => [p.id.isNull(), p.id, c.id.isNull(), c.id]);
+        const rows = await repo().all(ordered.select(({ p, c }) => ({ post: p.id, comment: c })));
         const pairs = rows.map((row) => [row.post, row.comment?.id ?? null] as const);
-        const rank = (value: number | null): number => (value === null ? Number.POSITIVE_INFINITY : value);
-        pairs.sort((x, y) => rank(x[0]) - rank(y[0]) || rank(x[1]) - rank(y[1]));
         expect(pairs).toEqual([
           [10, 100],
           [11, null],
@@ -1289,7 +1312,7 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
 
       test("rows read from a schema are stamped with it, and reload reads them there", async (context) => {
         if (copy === undefined) return context.skip("the database has no database schemas");
-        await db.exec(copy("tenant_a", "users"));
+        await db.exec(copy("tenant_a", "users", db));
         const seeding = adapter();
         await insertRows(
           seeding,
@@ -1313,7 +1336,7 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
 
       test("the query's own schema wins over the call's, which wins over the repo's", async (context) => {
         if (copy === undefined) return context.skip("the database has no database schemas");
-        await db.exec(copy("tenant_b", "users"));
+        await db.exec(copy("tenant_b", "users", db));
         const seeding = adapter();
         await insertRows(
           seeding,
@@ -1327,8 +1350,10 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         );
         const r = repo({ schema: "tenant_b" });
         expect(await r.count(User)).toBe(2);
-        expect(await r.count(User, { schema: "public" })).toBe(4);
-        expect(await r.count(from(User, "u").schema("public"), { schema: "tenant_b" })).toBe(4);
+        expect(await r.count(User, { schema: profile.defaultSchema(db) })).toBe(4);
+        expect(await r.count(from(User, "u").schema(profile.defaultSchema(db)), { schema: "tenant_b" })).toBe(
+          4,
+        );
         expect(await r.count(from(User, "u").schema("tenant_b"))).toBe(2);
       });
     });

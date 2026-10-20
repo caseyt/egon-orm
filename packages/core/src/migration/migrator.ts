@@ -188,6 +188,12 @@ export interface Migrator {
   status(): Promise<MigrationStatus[]>;
 }
 
+/** How long a runner waits between tries for a `transaction` lock that another runner holds. */
+const LOCK_RETRY_MS = 25;
+
+/** The savepoint a migration runs in under a `transaction` lock. */
+const MIGRATION_SAVEPOINT = "egon_migration";
+
 const DEFAULT_TABLE = "schema_migrations";
 const DEFAULT_TIMESTAMP = "created_at";
 const OPTION_KEYS = [
@@ -460,7 +466,12 @@ class DatabaseMigrator implements Migrator {
     } finally {
       if (healthy && locked) {
         try {
-          await this.#statement(connection, this.#settings.dialect.lock.release, this.#lockKey, undefined);
+          await this.#statement(
+            connection,
+            this.#settings.dialect.lock.release,
+            this.#lockParams(),
+            undefined,
+          );
         } catch {
           healthy = false;
         }
@@ -475,8 +486,14 @@ class DatabaseMigrator implements Migrator {
     return this.#settings.sources();
   }
 
+  /** The parameters of the lock's statements: the keys of a session lock, none for a transaction lock. */
+  #lockParams(): readonly unknown[] {
+    return this.#settings.dialect.lock.kind === "session" ? this.#lockKey : [];
+  }
+
   async #lock(connection: Connection): Promise<void> {
     const { lockTimeoutMs } = this.#settings;
+    if (this.#settings.dialect.lock.kind === "transaction") return this.#lockWithTransaction(connection);
     try {
       await this.#statement(connection, this.#settings.dialect.lock.acquire, this.#lockKey, lockTimeoutMs);
     } catch (cause) {
@@ -487,6 +504,46 @@ class DatabaseMigrator implements Migrator {
         );
       }
       throw cause;
+    }
+  }
+
+  /**
+   * Takes a `transaction` lock: starts the write transaction, trying again every
+   * {@link LOCK_RETRY_MS} while the database is busy (another runner holds it) until
+   * `lockTimeoutMs`, with the connection's own busy timeout set to 0 meanwhile, so that the
+   * waiting never blocks the process.
+   */
+  async #lockWithTransaction(connection: Connection): Promise<void> {
+    const { lockTimeoutMs, dialect } = this.#settings;
+    const busy = dialect.busyTimeout;
+    let previous: number | undefined;
+    if (busy !== undefined) {
+      const row = (await this.#statement(connection, busy.read, [], undefined)).rows[0];
+      const value = row === undefined ? Number.NaN : Number(Object.values(row)[0]);
+      previous = Number.isSafeInteger(value) ? value : undefined;
+      await this.#statement(connection, busy.write(0), [], undefined);
+    }
+    const deadline = lockTimeoutMs === undefined ? undefined : performance.now() + lockTimeoutMs;
+    try {
+      for (;;) {
+        try {
+          await this.#statement(connection, dialect.lock.acquire, [], undefined);
+          return;
+        } catch (cause) {
+          if (!(cause instanceof DatabaseError && cause.retryable)) throw cause;
+          if (deadline !== undefined && performance.now() >= deadline) {
+            throw new MigrationError(
+              `Gave up waiting for the migration lock after ${lockTimeoutMs} ms: another runner is migrating the same database (tracking table "${this.#settings.table.name}").`,
+              { cause },
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
+        }
+      }
+    } finally {
+      if (busy !== undefined && previous !== undefined) {
+        await this.#statement(connection, busy.write(previous), [], undefined);
+      }
     }
   }
 
@@ -608,8 +665,18 @@ class DatabaseMigrator implements Migrator {
     this.#emit({ kind: "migrating", direction, version: source.version, name: source.name });
     const start = performance.now();
     let current: string | undefined;
+    // Under a transaction lock the run is already one transaction: a migration's own is a
+    // savepoint in it.
+    const nested = this.#settings.dialect.lock.kind === "transaction";
+    const begin = () => (nested ? connection.savepoint(MIGRATION_SAVEPOINT) : connection.begin());
+    const commit = () => (nested ? connection.releaseSavepoint(MIGRATION_SAVEPOINT) : connection.commit());
+    const rollback = async () => {
+      if (!nested) return connection.rollback();
+      await connection.rollbackTo(MIGRATION_SAVEPOINT);
+      await connection.releaseSavepoint(MIGRATION_SAVEPOINT);
+    };
     try {
-      if (transaction) await connection.begin();
+      if (transaction) await begin();
       for (const statement of prepared.statements) {
         current = statement.sql;
         await connection.execute(statement.sql, statement.params, {
@@ -620,12 +687,12 @@ class DatabaseMigrator implements Migrator {
       }
       current = undefined;
       await this.#record(connection, source.version, direction);
-      if (transaction) await connection.commit();
+      if (transaction) await commit();
     } catch (cause) {
       let healthy = true;
       if (transaction) {
         try {
-          await connection.rollback();
+          await rollback();
         } catch {
           healthy = false;
         }

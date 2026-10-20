@@ -39,6 +39,8 @@ export interface CompilerConformanceProfile {
    * database schemas `tenant_1` and `archive`. The suite adds the rows.
    */
   readonly prepare: (db: TestDatabase, connection: Connection) => Promise<void>;
+  /** Removes what `prepare` made outside the test database (MySQL's databases); runs when the suite ends. */
+  readonly cleanup?: ((connection: Connection) => Promise<void>) | undefined;
   /** A timestamp literal of the seed, from an ISO 8601 instant in UTC. */
   readonly timestamp: (iso: string) => string;
   /** Statements that make the next generated id of `users`, `posts`, `tags` and `categories` 101. */
@@ -113,6 +115,7 @@ export function runCompilerConformance(profile: CompilerConformanceProfile): voi
     });
 
     afterAll(async () => {
+      if (connection !== undefined) await profile.cleanup?.(connection);
       await connection?.release();
       await adapter?.close();
       await handle?.drop();

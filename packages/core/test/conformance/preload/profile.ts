@@ -27,7 +27,9 @@ export interface PreloadConformanceProfile {
    */
   readonly schema: string;
   /** DDL creating the database schema `schema` with a copy of the blog table `table`; `undefined` without database schemas. */
-  readonly copyTableInto: ((schema: string, table: string) => string) | undefined;
+  readonly copyTableInto: ((schema: string, table: string, db: TestDatabase) => string) | undefined;
+  /** DDL that drops the database schemas `copyTableInto` made, run when the suite ends. */
+  readonly dropCopies?: ((db: TestDatabase) => string | undefined) | undefined;
   /** A statement (no parameters) that inserts `count` users, ids 1001 to 1000 + count, emails `u<id>@example.com`. */
   readonly insertUsers: (count: number) => string;
   /** A condition, written with the `fragment` tag, that takes `seconds` to evaluate and is true. */

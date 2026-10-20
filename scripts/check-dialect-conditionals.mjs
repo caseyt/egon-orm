@@ -14,6 +14,8 @@ const CHECKED = [
   { dir: "packages/core/src", allowed: ["adapter", "compiler"] },
   { dir: "packages/zod/src", allowed: [] },
   { dir: "packages/cli/src", allowed: [] },
+  // The conformance suites skip by capability, never by a database's name.
+  { dir: "packages/core/test/conformance", allowed: [] },
 ];
 
 const NAMES = "postgres|mysql|sqlite";
@@ -47,12 +49,8 @@ export function findProblems() {
   const problems = [];
   for (const { dir, allowed } of CHECKED) {
     const base = join(root, dir);
-    let files;
-    try {
-      files = [...sourceFiles(base)];
-    } catch {
-      continue;
-    }
+    // A checked tree that is missing (renamed, moved) is an error, not a pass.
+    const files = [...sourceFiles(base)];
     for (const file of files) {
       const first = relative(base, file).split(sep)[0];
       if (allowed.includes(first)) continue;

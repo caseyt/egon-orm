@@ -50,13 +50,13 @@ describe("normalizeSqliteError", () => {
     ).toMatchObject({ type: "unique", constraint: "users_pkey", table: "users", column: "id" });
   });
 
-  test("a unique message it cannot read names nothing", () => {
+  test("a unique index on an expression is reported by its name; a message it cannot read names nothing", () => {
     expect(
       normalizeSqliteError(
-        sqliteError("SQLITE_CONSTRAINT_UNIQUE", "UNIQUE constraint failed: index 'x'"),
+        sqliteError("SQLITE_CONSTRAINT_UNIQUE", "UNIQUE constraint failed: index 'users_lower_email'"),
         "x",
       ),
-    ).toMatchObject({ type: "unique", constraint: undefined, table: undefined, column: undefined });
+    ).toMatchObject({ type: "unique", constraint: "users_lower_email", table: undefined, column: undefined });
     expect(
       normalizeSqliteError(sqliteError("SQLITE_CONSTRAINT_UNIQUE", "something else"), "x"),
     ).toMatchObject({

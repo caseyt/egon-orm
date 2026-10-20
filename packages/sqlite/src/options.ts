@@ -29,6 +29,11 @@ export interface SqliteOptions {
   readonly pragmas?: Readonly<Record<string, PragmaValue>> | undefined;
   /** Opens the file read-only. Default `false`. */
   readonly readonly?: boolean | undefined;
+  /**
+   * Databases attached to the handle when it is opened, by schema name: `{ audit: "audit.db" }`
+   * runs `attach database 'audit.db' as audit`. A query's `schema` option names one of them.
+   */
+  readonly attach?: Readonly<Record<string, string>> | undefined;
   /** How many compiled query shapes the adapter keeps. Default 1,000. */
   readonly planCacheSize?: number | undefined;
 }
@@ -39,9 +44,17 @@ export interface OpenSettings {
   readonly readonly: boolean;
   /** The pragma statements, in order, with `foreign_keys = ON` first unless the options set it. */
   readonly pragmas: readonly string[];
+  /** The databases to attach, as `[schema name, file name]`, in order. */
+  readonly attach: readonly (readonly [string, string])[];
 }
 
-const OPTION_KEYS: ReadonlySet<string> = new Set(["filename", "pragmas", "readonly", "planCacheSize"]);
+const OPTION_KEYS: ReadonlySet<string> = new Set([
+  "filename",
+  "pragmas",
+  "readonly",
+  "attach",
+  "planCacheSize",
+]);
 
 /** A pragma's name: letters and underscores, as SQLite names them. */
 const PRAGMA_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -79,7 +92,8 @@ function pragmaStatement(name: string, value: unknown): string {
 /**
  * Checks the options and makes the settings the driver opens the database with.
  *
- * @throws TypeError for an unknown option, a missing or empty `filename`, or a pragma that
+ * @throws TypeError for an unknown option, a missing or empty `filename`, an attached
+ * database without a plain schema name or a file name, or a pragma that
  * is not a plain name with a plain value.
  */
 export function resolveOptions(options: SqliteOptions | undefined): OpenSettings {
@@ -100,13 +114,33 @@ export function resolveOptions(options: SqliteOptions | undefined): OpenSettings
     fail('pragmas must be an object of pragma names and values, such as { journal_mode: "WAL" }.');
   }
   const pragmas: string[] = [];
-  const entries = given === undefined ? [] : Object.entries(given);
-  // Foreign keys are on unless the options say otherwise (SQLite's own default is off).
+  // A pragma given as undefined is left out, as every option is.
+  const entries = given === undefined ? [] : Object.entries(given).filter(([, value]) => value !== undefined);
+  // Foreign keys are on unless the options set them; SQLite's compile-time default varies
+  // between builds, so the adapter does not leave it to the library.
   if (!entries.some(([name]) => name.toLowerCase() === "foreign_keys"))
     pragmas.push("pragma foreign_keys = ON");
-  for (const [name, value] of entries) {
-    if (value === undefined) continue;
-    pragmas.push(pragmaStatement(name, value));
+  for (const [name, value] of entries) pragmas.push(pragmaStatement(name, value));
+  return { filename, readonly: readonly === true, pragmas, attach: attachments(options.attach) };
+}
+
+/** The `attach` option, checked: plain schema names, non-empty file names. */
+function attachments(given: unknown): readonly (readonly [string, string])[] {
+  if (given === undefined) return [];
+  if (!isPlainObject(given))
+    fail('attach must be an object of schema names and files, such as { audit: "audit.db" }.');
+  const out: (readonly [string, string])[] = [];
+  for (const [name, file] of Object.entries(given)) {
+    if (file === undefined) continue;
+    if (!PRAGMA_NAME.test(name))
+      fail(`the attached schema name ${JSON.stringify(name)} is not a plain name.`);
+    if (name.toLowerCase() === "main" || name.toLowerCase() === "temp") {
+      fail(`the schema name ${name} is SQLite's own: attach under another name.`);
+    }
+    if (typeof file !== "string" || file === "" || file.includes("\u0000")) {
+      fail(`attach.${name} must be a non-empty file name, or ":memory:".`);
+    }
+    out.push([name, file]);
   }
-  return { filename, readonly: readonly === true, pragmas };
+  return out;
 }

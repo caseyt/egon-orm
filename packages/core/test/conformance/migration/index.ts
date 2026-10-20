@@ -277,9 +277,12 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
     test("a lock timeout never leaves the lock held, even when the lock was granted as the time ran out", (context) =>
       withAdapters("migrate_lock_zero", async (db, adapter) => {
         const lockCount = profile.lockCount;
-        if (!migrationTable.locks || lockCount === undefined) {
-          return context.skip("the migration table of this database has no lock");
-        }
+        if (!migrationTable.locks) return context.skip("the migration table of this database has no lock");
+        const held =
+          lockCount !== undefined
+            ? async (on: typeof db) => Number((await on.query(lockCount))[0]?.n) > 0
+            : profile.lockHeld;
+        if (held === undefined) throw new Error("The profile has neither lockCount nor lockHeld.");
         // With lockTimeoutMs: 0 the timer fires while the (uncontended) lock is being granted.
         // One adapter: a connection that went back to its pool still holding the lock would
         // make every later attempt wait, and the check below would see the lock.
@@ -289,12 +292,11 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
             .up()
             .catch(() => undefined);
         }
-        const advisory = async (): Promise<number> => Number((await db.query(lockCount))[0]?.n);
         // A destroyed session ends on the server shortly after the client closes it.
-        for (let wait = 0; wait < 50 && (await advisory()) > 0; wait++) {
+        for (let wait = 0; wait < 50 && (await held(db)); wait++) {
           await new Promise((resolve) => setTimeout(resolve, 20));
         }
-        expect(await advisory()).toBe(0);
+        expect(await held(db)).toBe(false);
         // And a runner without a timeout still gets the lock.
         expect(await migrator(adapter(), [], {}).up()).toEqual([]);
       }));

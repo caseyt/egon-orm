@@ -20,5 +20,6 @@ export const MYSQL_WRITE_PROFILE: WriteConformanceProfile = {
   // MySQL has no range types, and no exclusion constraints.
   rangeType: undefined,
   copyTableInto: MYSQL_READ_PROFILE.copyTableInto,
+  dropCopies: MYSQL_READ_PROFILE.dropCopies,
   sleep: (seconds) => fragment`(select sleep(${val(seconds, t.float())}))`.as<number>(),
 };

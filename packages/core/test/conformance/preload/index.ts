@@ -173,6 +173,8 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
 
     afterAll(async () => {
       for (const each of adapters.splice(0)) await each.close();
+      const drop = handle === undefined ? undefined : profile.dropCopies?.(handle.db);
+      if (drop !== undefined) await handle?.db.exec(drop);
       await handle?.drop();
     });
 
@@ -786,16 +788,16 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
       test("children read from another database schema come from that schema", async (context) => {
         if (profile.copyTableInto === undefined)
           return context.skip("the profile has no database schemas to copy a table into");
-        await db.exec(profile.copyTableInto("archive", "posts"));
-        await db.exec(profile.copyTableInto("archive", "users"));
+        await db.exec(profile.copyTableInto("history", "posts", db));
+        await db.exec(profile.copyTableInto("history", "users", db));
         await db.exec(
-          "insert into archive.users (id, email) values (1, 'old@example.com'); insert into archive.posts (id, author_id, title) values (90, 1, 'Archived')",
+          "insert into history.users (id, email) values (1, 'old@example.com'); insert into history.posts (id, author_id, title) values (90, 1, 'Archived')",
         );
         const { repo, events } = watched();
-        const users = await repo.all(from(User, "u").preload("posts"), { schema: "archive" });
+        const users = await repo.all(from(User, "u").preload("posts"), { schema: "history" });
         expect(users.map((user) => user.posts.map((post) => post.title))).toEqual([["Archived"]]);
         const archived = users[0]?.posts[0] as unknown as { readonly [ROW]: { readonly schema: string } };
-        expect(archived[ROW].schema).toBe("archive");
+        expect(archived[ROW].schema).toBe("history");
         expect(events).toHaveLength(2);
       });
     });
@@ -1055,13 +1057,16 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
       }
     });
 
-    test("timeoutMs is one budget for the query and its preloads", async (context) => {
-      if (!adapter().capabilities.cancel) return context.skip("capability cancel is false");
+    test("timeoutMs is one budget for the query and its preloads", async () => {
+      // Where a running statement can be cancelled, each statement alone fits the budget and
+      // the preload is stopped while it runs. Where it cannot (capability cancel false), the
+      // query overruns the budget, and the preload must be refused before it starts.
+      const cancels = adapter().capabilities.cancel;
       const { repo, events } = watched();
       const error = await repo
         .all(
           from(Profile, "p")
-            .where(() => profile.sleep(0.6))
+            .where(() => profile.sleep(cancels ? 0.6 : 1.2))
             .preload("user", (q) => q.where(() => profile.sleep(0.6))),
           { timeoutMs: 1_000 },
         )
@@ -1069,14 +1074,15 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
       expect(error).toBeInstanceOf(DatabaseError);
       expect((error as DatabaseError).code).toBe("timeout");
       expect((error as Error).message).toContain("timeoutMs (1000 ms)");
+      // The preload is reported either way: stopped while it ran, or refused before it started.
       expect(operations(events)).toEqual(["all profiles", "preload users"]);
     });
 
     test("children of a parent whose class declares a database schema are read with the call's", async (context) => {
       if (profile.copyTableInto === undefined)
         return context.skip("the profile has no database schemas to copy a table into");
-      await db.exec(profile.copyTableInto("auth", "users"));
-      await db.exec(profile.copyTableInto("auth", "posts"));
+      await db.exec(profile.copyTableInto("auth", "users", db));
+      await db.exec(profile.copyTableInto("auth", "posts", db));
       await db.exec(
         "insert into auth.users (id, email) values (1, 'auth@example.com'); insert into auth.posts (id, author_id, title) values (99, 1, 'Decoy')",
       );
@@ -1096,7 +1102,7 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
       expect(again[0]?.posts.map((post) => post.id)).toEqual([10, 11, 12]);
       expect(events).toHaveLength(4);
       // With the query's own schema, the children come from it, and a reload reads there too.
-      await db.exec(profile.copyTableInto("tenant", "posts"));
+      await db.exec(profile.copyTableInto("tenant", "posts", db));
       await db.exec("insert into tenant.posts (id, author_id, title) values (77, 1, 'Tenant post')");
       const [inTenant] = await repo.all(from(AuthUser, "u").schema("tenant").preload("posts"));
       expect(inTenant?.posts.map((post) => post.title)).toEqual(["Tenant post"]);

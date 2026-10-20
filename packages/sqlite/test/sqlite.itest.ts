@@ -7,6 +7,40 @@ import { readFixture, User } from "../../core/test/support/index.js";
 import { sqlite } from "../src/index.js";
 
 describe("sqlite", () => {
+  test('an in-memory database (":memory:") runs statements and transactions on the handle', async () => {
+    const adapter = sqlite({ filename: ":memory:", planCacheSize: 10 });
+    try {
+      await adapter.execute("create table t (id integer primary key, v text not null unique)", []);
+      const connection = await adapter.acquire();
+      try {
+        await connection.begin();
+        await connection.execute("insert into t (v) values (?)", ["a"]);
+        await connection.rollback();
+      } finally {
+        await connection.release();
+      }
+      expect((await adapter.execute("select count(*) as n from t", [])).rows).toEqual([{ n: 0 }]);
+      await adapter.execute("insert into t (v) values (?)", ["a"]);
+      await expect(adapter.execute("insert into t (v) values (?)", ["a"])).rejects.toMatchObject({
+        type: "unique",
+        constraint: "t_v_key",
+      });
+    } finally {
+      await adapter.close();
+    }
+  });
+
+  test("attached databases are opened with the handle and serve the schema option", async () => {
+    const adapter = sqlite({ filename: ":memory:", attach: { audit: ":memory:" } });
+    try {
+      await adapter.execute("create table audit.entries (id integer primary key, what text)", []);
+      await adapter.execute("insert into audit.entries (what) values (?)", ["login"]);
+      expect((await adapter.execute("select what from audit.entries", [])).rows).toEqual([{ what: "login" }]);
+    } finally {
+      await adapter.close();
+    }
+  });
+
   test("two transactions on one adapter run one after the other, never interleaved", async () => {
     const adapter = sqlite({ filename: ":memory:" });
     const repo = createRepo({ adapter });

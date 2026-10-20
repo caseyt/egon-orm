@@ -10,6 +10,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { Capabilities, Dialect } from "egon-orm";
+import { type DdlFeatures, migrationDialectOf } from "../packages/core/src/migration/dialect.js";
 import { MYSQL_CAPABILITIES } from "../packages/mysql/src/dialect.js";
 import { POSTGRES_CAPABILITIES } from "../packages/postgres/src/dialect.js";
 import { SQLITE_CAPABILITIES } from "../packages/sqlite/src/dialect.js";
@@ -323,14 +324,44 @@ capability the database lacks is skipped, and the skip names the capability.
     }
   }
   text += `\n${LISTS}`;
+  text += migrations();
   text += `
 ## Constraint names
 
 SQLite reports a unique violation by its columns, not by an index name. The adapter turns
 that into the default constraint name (\`users_email_key\`, or \`users_pkey\` for the primary
-key), so \`uniqueConstraint("email")\` matches; a custom \`name\` cannot be matched there.
-MySQL names the primary key \`PRIMARY\`; the adapter reports it as \`<table>_pkey\`.
+key), so \`uniqueConstraint("email")\` matches; a custom \`name\` cannot be matched there,
+except for a unique index on an expression, which SQLite reports by its name.
+
+MySQL names the primary key \`PRIMARY\`; the adapter reports it as \`<table>_pkey\`. A unique
+index created without a name is named after its first column (\`email\`), not
+\`users_email_key\`: the migrations of this library always name it, and for one created
+otherwise, pass its name to \`uniqueConstraint(…, { name })\`.
 `;
+  return text;
+}
+
+/** The DDL features of the migration tables, as the runner and the migration builder use them. */
+const DDL_ROWS: readonly { readonly feature: keyof DdlFlags; readonly label: string }[] = [
+  { feature: "schemas", label: "Tables in a database schema (`createSchema`, `schema` option)" },
+  { feature: "extensions", label: "`createExtension`" },
+  { feature: "concurrentIndexes", label: "`concurrently` index builds and drops" },
+  { feature: "partialIndexes", label: "Partial indexes (`where`)" },
+  { feature: "includeColumns", label: "Covering indexes (`include`)" },
+  { feature: "exclusionConstraints", label: "Exclusion constraints" },
+  { feature: "dropCascade", label: "`cascade` on drops" },
+];
+
+type DdlFlags = { [K in keyof DdlFeatures as DdlFeatures[K] extends boolean ? K : never]: boolean };
+
+function migrations(): string {
+  const tables = DIALECTS.map((d) => migrationDialectOf(d.name));
+  let text = `\n## Migrations\n\nFrom the migration table of each dialect (\`features\`). A migration that uses a feature\nthe database lacks throws \`MigrationError\` before anything runs.\n\n| Feature | Feature flag | ${DIALECTS.map((d) => d.title).join(" | ")} |\n|---|---|${DIALECTS.map(() => "---").join("|")}|\n`;
+  for (const row of DDL_ROWS) {
+    text += `| ${row.label} | \`${row.feature}\` | ${tables.map((table) => (table.features[row.feature] ? "yes" : "no")).join(" | ")} |\n`;
+  }
+  text += `| DDL inside a transaction | \`ddlTransactions\` (capability) | ${DIALECTS.map((d) => (d.capabilities.ddlTransactions ? "yes" : "no")).join(" | ")} |\n`;
+  text += `| The runner's lock | \`lock\` | ${tables.map((table) => (table.lock.kind === "session" ? "a lock of the session" : "a write transaction for the whole run")).join(" | ")} |\n`;
   return text;
 }
 

@@ -632,6 +632,28 @@ describe("cancellation", () => {
     expect((error as Error).message).toContain("timeoutMs (5 ms)");
   });
 
+  test("a statement whose budget is already spent is refused before it is sent", async () => {
+    const { adapter, driver } = setup();
+    let sent = 0;
+    driver.connectionSetup = (connection) => {
+      connection.respond = () => {
+        sent++;
+        return Promise.resolve(EMPTY);
+      };
+    };
+    const error = await rejection(adapter.execute("select 1", [], { timeoutMs: 0 }));
+    expect(error).toMatchObject({ code: "timeout", sql: "select 1" });
+    expect((error as Error).message).toContain("was spent before it could start");
+    const connection = await adapter.acquire();
+    await expect(connection.execute("select 2", [], { timeoutMs: 0 })).rejects.toMatchObject({
+      code: "timeout",
+    });
+    // Nothing failed on the connection: it carries on.
+    await connection.execute("select 3", []);
+    await connection.release();
+    expect(sent).toBe(1);
+  });
+
   test("a timeout and an abort together send one cancel request; the first reason wins", async () => {
     const { adapter, driver } = setup();
     const statement = deferred<RawResult>();

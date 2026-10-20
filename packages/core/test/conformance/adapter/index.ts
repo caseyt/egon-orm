@@ -18,6 +18,7 @@ import type {
 import { CastError, ConstraintError, DatabaseError, isEgonError } from "egon-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { IDENTITY } from "../../../src/contracts/type.js";
+import { migrationDialectOf } from "../../../src/migration/dialect.js";
 import { resolveCodec } from "../../../src/types/index.js";
 import { createTestDatabase, type TestDatabase, type TestDatabaseHandle } from "../../support/index.js";
 import type { AdapterConformanceProfile, MakeAdapterOptions } from "./profile.js";
@@ -228,9 +229,15 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
       test.for(kinds)(
         "a %s violation is a ConstraintError naming the constraint, keeping the driver error",
         async (kind, { skip }) => {
-          const violation = profile.violations[kind];
-          if (violation === undefined) return skip("the database has no such constraint");
           const a = adapter();
+          const violation = profile.violations[kind];
+          // Exclusion constraints are a declared DDL feature (the migration table's
+          // `features.exclusionConstraints`); every other kind exists on every database.
+          if (kind === "exclusion" && !migrationDialectOf(a.dialect).features.exclusionConstraints) {
+            expect(violation).toBeUndefined();
+            return skip("feature exclusionConstraints of the migration table is false");
+          }
+          if (violation === undefined) throw new Error(`The profile has no ${kind} violation.`);
           const error = await rejection(a.execute(violation.sql, []));
           expect(error).toBeInstanceOf(ConstraintError);
           expect(error).toMatchObject({

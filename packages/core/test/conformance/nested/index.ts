@@ -715,9 +715,10 @@ export function runNestedConformance(profile: NestedConformanceProfile): void {
         expect(await count(repo, "tags")).toBe(1);
       });
 
-      test("timeoutMs is one budget for every statement of a nested write", async (context) => {
-        const { repo, adapter: made } = watched();
-        if (!made.capabilities.cancel) return context.skip("capability cancel is false");
+      test("timeoutMs is one budget for every statement of a nested write", async () => {
+        // Each 'slow' item takes about 0.3 s (0.6 s where a running statement cannot be
+        // cancelled, so that the budget is spent before the next statement starts).
+        const { repo } = watched();
         const error = await rejection(
           repo.insert(
             change(Order, { customer: "Slow" }).putAssoc("items", [

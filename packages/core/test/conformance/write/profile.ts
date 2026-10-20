@@ -36,7 +36,9 @@ export interface WriteConformanceProfile {
   /** The column type of `bookings.during`, written as `'[1,5)'`; `undefined` when there is none. */
   readonly rangeType: string | undefined;
   /** DDL creating the database schema `schema` with a copy of the blog table `table`; `undefined` without database schemas. */
-  readonly copyTableInto: ((schema: string, table: string) => string) | undefined;
+  readonly copyTableInto: ((schema: string, table: string, db: TestDatabase) => string) | undefined;
+  /** DDL that drops the database schemas `copyTableInto` made, run when the suite ends. */
+  readonly dropCopies?: ((db: TestDatabase) => string | undefined) | undefined;
   /** An integer expression, written with the `fragment` tag, that takes `seconds` to evaluate and is 0. */
   readonly sleep: (seconds: number) => Expr<number>;
 }

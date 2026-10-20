@@ -1,11 +1,13 @@
 // The MySQL profile of the compiler conformance suite. A MySQL database schema is a
-// database: the matrices name `audit`, `tenant_1` and `archive`, so those three are created
-// on the test server when missing and kept (their tables stay empty: every statement that
-// writes to them is rolled back). They are not named like a test database, so the sweep
-// leaves them alone.
+// database, named server-wide: the matrices name `audit`, `tenant_1` and `archive`, which
+// no other suite uses. They are made fresh when the suite starts (dropped first, so a table
+// left by an older fixture is never reused) and dropped when it ends.
 import { mysqlDialect } from "../../core/src/compiler/dialect.js";
 import type { CompilerConformanceProfile } from "../../core/test/conformance/compiler/index.js";
 import { makeMysql } from "./profile.js";
+
+/** The database schemas the SQL matrices name. */
+const SCHEMAS = ["audit", "tenant_1", "archive"];
 
 export const MYSQL_COMPILER_PROFILE: CompilerConformanceProfile = {
   label: "mysql",
@@ -14,10 +16,8 @@ export const MYSQL_COMPILER_PROFILE: CompilerConformanceProfile = {
   makeAdapter: (db) => makeMysql(db, 1),
   async prepare(db, connection) {
     const statements = [
-      "create database if not exists audit",
-      "create database if not exists tenant_1",
-      "create database if not exists archive",
-      "create table if not exists audit.audit_logs (id bigint auto_increment primary key, action text not null, user_id bigint)",
+      ...SCHEMAS.flatMap((schema) => [`drop database if exists ${schema}`, `create database ${schema}`]),
+      "create table audit.audit_logs (id bigint auto_increment primary key, action text not null, user_id bigint)",
       "create table events (name text not null, payload json)",
       `create table categories (
         id bigint auto_increment primary key,
@@ -28,10 +28,13 @@ export const MYSQL_COMPILER_PROFILE: CompilerConformanceProfile = {
     ];
     for (const schema of ["tenant_1", "archive"]) {
       for (const table of ["users", "posts"]) {
-        statements.push(`create table if not exists ${schema}.${table} like \`${db.name}\`.${table}`);
+        statements.push(`create table ${schema}.${table} like \`${db.name}\`.${table}`);
       }
     }
     for (const statement of statements) await connection.execute(statement, []);
+  },
+  async cleanup(connection) {
+    for (const schema of SCHEMAS) await connection.execute(`drop database if exists ${schema}`, []);
   },
   timestamp: (iso) => `'${iso.replace("T", " ").replace("Z", "")}'`,
   restartIds: ["users", "posts", "tags", "categories"].map(

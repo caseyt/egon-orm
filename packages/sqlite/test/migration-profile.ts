@@ -15,7 +15,18 @@ export const SQLITE_MIGRATION_PROFILE: MigrationConformanceProfile = {
   listConstraints: undefined,
   listColumns: (table) => `select name from pragma_table_info('${table}')`,
   param: () => "?",
+  // The lock is a write transaction, which no SQL lists: another handle tries to take it.
   lockCount: undefined,
+  lockHeld: async (db) => {
+    try {
+      await db.query("pragma busy_timeout = 0");
+      await db.query("begin immediate");
+    } catch {
+      return true;
+    }
+    await db.query("rollback");
+    return false;
+  },
   ownSchemas: false,
   exclusion: undefined,
   arrayIndexMethod: undefined,

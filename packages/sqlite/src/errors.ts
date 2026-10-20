@@ -33,6 +33,8 @@ const CONSTRAINT_CODES: ReadonlyMap<string, ConstraintViolationType> = new Map<
 const COLUMNS_FAILED = /constraint failed: (.+)$/;
 /** One `table.column` of such a message. */
 const TABLE_COLUMN = /^([^.]+)\.(.+)$/;
+/** `UNIQUE constraint failed: index 'users_lower_email'`: a unique index on an expression, by its name. */
+const INDEX_FAILED = /constraint failed: index '([^']+)'$/;
 /** A check constraint's name; an unnamed one is reported by its expression instead. */
 const NAME = /^[A-Za-z_][A-Za-z0-9_$]*$/;
 
@@ -70,6 +72,8 @@ function violation(
         error.code === "SQLITE_CONSTRAINT_PRIMARYKEY"
           ? `${table}_pkey`
           : `${table}_${failed.columns.join("_")}_key`;
+    } else if (type === "unique") {
+      constraint = INDEX_FAILED.exec(error.message)?.[1];
     }
   } else if (type === "check") {
     const reported = COLUMNS_FAILED.exec(error.message)?.[1];

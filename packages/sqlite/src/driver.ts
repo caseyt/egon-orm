@@ -269,7 +269,8 @@ export class SqliteDriver implements DriverWrapper {
   }
 
   /**
-   * The open handle, opened (with the settings' pragmas and safe integers) the first time.
+   * The open handle, opened (with the settings' pragmas, its attached databases and safe
+   * integers) the first time.
    *
    * @throws the driver's error when the file cannot be opened or a pragma fails.
    */
@@ -281,6 +282,9 @@ export class SqliteDriver implements DriverWrapper {
       // Every integer is read as a bigint, so that none loses a digit; the codecs convert.
       database.defaultSafeIntegers(true);
       for (const pragma of this.settings.pragmas) database.exec(pragma);
+      // The file name is bound; the schema name was checked to be a plain name.
+      for (const [name, file] of this.settings.attach)
+        database.prepare(`attach database ? as "${name}"`).run(file);
     } catch (error) {
       database.close();
       throw error;

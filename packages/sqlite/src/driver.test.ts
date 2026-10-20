@@ -1,28 +1,125 @@
-// The driver wrapper over an in-memory SQLite database: better-sqlite3 runs in-process, so
-// these tests need no database server.
-import Database from "better-sqlite3";
+// The driver wrapper over a fake better-sqlite3 handle: no database is opened. The same code
+// runs against a real in-memory database in test/driver.itest.ts.
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { checkRuntime, SQLITE_RUNTIME, SqliteDriver, type SqliteRuntime } from "./driver.js";
+import { checkRuntime, SqliteDriver, type SqliteHandle, type SqliteRuntime } from "./driver.js";
 import type { OpenSettings } from "./options.js";
 
 const SETTINGS: OpenSettings = {
-  filename: ":memory:",
+  filename: "fake.db",
   readonly: false,
   pragmas: ["pragma foreign_keys = ON"],
+  attach: [],
 };
+
+type Row = Record<string, unknown>;
+
+/** What a fake statement does: read rows, or write and report changes. */
+interface Script {
+  readonly rows?: (values: unknown[]) => Row[];
+  readonly run?: (values: unknown[]) => { changes: number; lastInsertRowid: number | bigint };
+  readonly fail?: Error;
+}
+
+class FakeStatement {
+  readonly reader: boolean;
+
+  constructor(
+    private readonly script: Script,
+    private readonly bound: unknown[][],
+  ) {
+    this.reader = script.rows !== undefined;
+  }
+
+  all(values: unknown[]): Row[] {
+    this.bound.push(values);
+    if (this.script.fail !== undefined) throw this.script.fail;
+    return this.script.rows?.(values) ?? [];
+  }
+
+  run(values: unknown[]) {
+    this.bound.push(values);
+    if (this.script.fail !== undefined) throw this.script.fail;
+    return this.script.run?.(values) ?? { changes: 0, lastInsertRowid: 0 };
+  }
+
+  iterate(values: unknown[]): IterableIterator<Row> {
+    this.bound.push(values);
+    const rows = this.script.rows?.(values) ?? [];
+    const fail = this.script.fail;
+    let i = 0;
+    const iterator: IterableIterator<Row> = {
+      next: () => {
+        if (fail !== undefined && i === 1) throw fail;
+        if (i < rows.length) return { done: false, value: rows[i++] as Row };
+        return { done: true, value: undefined };
+      },
+      return: () => {
+        returned.count++;
+        return { done: true, value: undefined };
+      },
+      [Symbol.iterator]: () => iterator,
+    };
+    return iterator;
+  }
+}
+
+const returned = { count: 0 };
+
+class FakeHandle {
+  open = true;
+  inTransaction = false;
+  safeIntegers: boolean | undefined = undefined;
+  readonly execs: string[] = [];
+  readonly prepared: string[] = [];
+  readonly bound: unknown[][] = [];
+  scripts = new Map<string, Script>();
+  execFails: Error | undefined = undefined;
+  prepareFails: Error | undefined = undefined;
+  closed = 0;
+
+  defaultSafeIntegers(on: boolean): void {
+    this.safeIntegers = on;
+  }
+
+  exec(sql: string): void {
+    if (this.execFails !== undefined) throw this.execFails;
+    this.execs.push(sql);
+    if (sql === "rollback") this.inTransaction = false;
+  }
+
+  prepare(sql: string): FakeStatement {
+    if (this.prepareFails !== undefined) throw this.prepareFails;
+    this.prepared.push(sql);
+    return new FakeStatement(this.scripts.get(sql) ?? { rows: () => [] }, this.bound);
+  }
+
+  close(): void {
+    this.closed++;
+    this.open = false;
+  }
+}
 
 const drivers: SqliteDriver[] = [];
 
-function makeDriver(settings: OpenSettings = SETTINGS, runtime?: SqliteRuntime) {
+function setup(settings: OpenSettings = SETTINGS) {
+  const handle = new FakeHandle();
+  const opened: OpenSettings[] = [];
+  const runtime: SqliteRuntime = {
+    open: (given) => {
+      opened.push(given);
+      return handle as unknown as SqliteHandle;
+    },
+  };
   const hooks = { connected: vi.fn(), disconnected: vi.fn() };
   const driver = new SqliteDriver(settings, hooks, runtime);
   driver.init();
   drivers.push(driver);
-  return { driver, hooks };
+  return { driver, handle, hooks, opened };
 }
 
 afterEach(async () => {
   for (const driver of drivers.splice(0)) await driver.destroy();
+  returned.count = 0;
 });
 
 describe("checkRuntime", () => {
@@ -30,110 +127,105 @@ describe("checkRuntime", () => {
     expect(() => checkRuntime("13.0.3", "9")).toThrow(/needs Node.js 22.14 or later/);
     expect(() => checkRuntime("13.0.3", undefined)).toThrow(/better-sqlite3@12/);
     expect(() => checkRuntime("13.0.3", "10")).not.toThrow();
-    expect(() => checkRuntime("12.4.1", "9")).not.toThrow();
-  });
-
-  test("the real runtime opens a database", () => {
-    const database = SQLITE_RUNTIME.open(SETTINGS);
-    expect(database.open).toBe(true);
-    database.close();
+    expect(() => checkRuntime("12.11.1", "9")).not.toThrow();
   });
 });
 
-describe("SqliteDriver", () => {
-  test("opens the database on first use, with the pragmas, and reports it once", async () => {
-    const { driver, hooks } = makeDriver({
+describe("opening", () => {
+  test("opens on first use: safe integers, the pragmas, the attached databases, reported once", async () => {
+    const { driver, handle, hooks, opened } = setup({
       ...SETTINGS,
       pragmas: ["pragma foreign_keys = ON", "pragma user_version = 7"],
+      attach: [["audit", "audit.db"]],
     });
-    expect(hooks.connected).not.toHaveBeenCalled();
+    expect(opened).toEqual([]);
+    expect(driver.stats()).toEqual({ size: 0, idle: 0, waiting: 0 });
     const connection = await driver.acquire();
+    expect(handle.safeIntegers).toBe(true);
+    expect(handle.execs).toEqual(["pragma foreign_keys = ON", "pragma user_version = 7"]);
+    expect(handle.prepared).toEqual(['attach database ? as "audit"']);
+    expect(handle.bound).toEqual(["audit.db"]);
     expect(hooks.connected).toHaveBeenCalledTimes(1);
-    expect((await connection.query("pragma user_version", [], undefined)).rows).toEqual([
-      { user_version: 7 },
-    ]);
-    expect((await connection.query("pragma foreign_keys", [], undefined)).rows).toEqual([
-      { foreign_keys: 1 },
-    ]);
     await driver.release(connection, false);
+    await driver.acquire().then((again) => driver.release(again, false));
+    expect(opened).toHaveLength(1);
     await driver.destroy();
+    expect(handle.closed).toBe(1);
     expect(hooks.disconnected).toHaveBeenCalledTimes(1);
     await driver.destroy();
     expect(hooks.disconnected).toHaveBeenCalledTimes(1);
   });
 
-  test("a pragma that fails closes the database and fails the acquire", async () => {
-    const close = vi.fn();
-    const runtime: SqliteRuntime = {
-      open: () => {
-        const database = new Database(":memory:");
-        const real = database.close.bind(database);
-        database.close = () => {
-          close();
-          return real();
-        };
-        return database;
-      },
-    };
-    const { driver, hooks } = makeDriver({ ...SETTINGS, pragmas: ["pragma nonsense("] }, runtime);
-    await expect(driver.acquire()).rejects.toThrow();
-    expect(close).toHaveBeenCalledTimes(1);
+  test("a pragma that fails closes the handle and fails the acquire", async () => {
+    const { driver, handle, hooks } = setup();
+    handle.execFails = new Error("near pragma: syntax error");
+    await expect(driver.acquire()).rejects.toThrow("near pragma");
+    expect(handle.closed).toBe(1);
     expect(hooks.connected).not.toHaveBeenCalled();
   });
 
   test("a file that cannot be opened fails the acquire", async () => {
-    const { driver } = makeDriver({ ...SETTINGS, filename: "/no/such/directory/x.db", readonly: true });
-    await expect(driver.acquire()).rejects.toThrow();
-  });
-
-  test("reads integers as numbers where they fit and as bigints where they do not", async () => {
-    const { driver } = makeDriver();
-    const connection = await driver.acquire();
-    const { rows } = await connection.query(
-      "select 1 as small, 9223372036854775807 as big, -9007199254740992 as below, 1.5 as real, 'x' as text",
-      [],
-      undefined,
+    const driver = new SqliteDriver(
+      SETTINGS,
+      { connected: vi.fn(), disconnected: vi.fn() },
+      {
+        open: () => {
+          throw new Error("unable to open database file");
+        },
+      },
     );
-    expect(rows).toEqual([
-      { small: 1, big: 9_223_372_036_854_775_807n, below: -9_007_199_254_740_992n, real: 1.5, text: "x" },
-    ]);
+    driver.init();
+    await expect(driver.acquire()).rejects.toThrow("unable to open database file");
+  });
+});
+
+describe("statements", () => {
+  test("a read gives its rows, with integers as numbers where they fit", async () => {
+    const { driver, handle } = setup();
+    handle.scripts.set("select", {
+      rows: () => [{ small: 1n, big: 2n ** 60n, low: -(2n ** 60n), text: "x" }],
+    });
+    const connection = await driver.acquire();
+    expect(await connection.query("select", [], undefined)).toEqual({
+      rows: [{ small: 1, big: 2n ** 60n, low: -(2n ** 60n), text: "x" }],
+      rowCount: 1,
+      insertId: undefined,
+    });
     await driver.release(connection, false);
   });
 
-  test("binds booleans as 1 and 0 and dates as timestamp text; leaves other values alone", async () => {
-    const { driver } = makeDriver();
+  test("booleans bind as 1 and 0 and dates as timestamp text; other values as they are", async () => {
+    const { driver, handle } = setup();
     const connection = await driver.acquire();
     const at = new Date("2026-01-02T03:04:05.006Z");
-    const { rows } = await connection.query(
-      "select ? as t, ? as f, ? as d, ? as n",
-      [true, false, at, 3],
-      undefined,
-    );
-    expect(rows).toEqual([{ t: 1, f: 0, d: "2026-01-02T03:04:05.006Z", n: 3 }]);
-    expect((await connection.query("select ? as d", [at], undefined)).rows).toEqual([
-      { d: "2026-01-02T03:04:05.006Z" },
+    await connection.query("select", [true, false, at, 3, "s"], undefined);
+    await connection.query("select", [at], undefined);
+    const plain = [1, "a"];
+    await connection.query("select", plain, undefined);
+    expect(handle.bound).toEqual([
+      [1, 0, "2026-01-02T03:04:05.006Z", 3, "s"],
+      ["2026-01-02T03:04:05.006Z"],
+      plain,
     ]);
+    expect(handle.bound[2]).toBe(plain);
     await driver.release(connection, false);
   });
 
   test("a write reports the rows it changed and the key it inserted, only when it inserted one", async () => {
-    const { driver } = makeDriver();
+    const { driver, handle } = setup();
+    handle.scripts.set("insert small", { run: () => ({ changes: 1, lastInsertRowid: 7n }) });
+    handle.scripts.set("insert big", { run: () => ({ changes: 1, lastInsertRowid: 2n ** 60n }) });
+    handle.scripts.set("insert number", { run: () => ({ changes: 1, lastInsertRowid: 8 }) });
+    handle.scripts.set("update none", { run: () => ({ changes: 0, lastInsertRowid: 7n }) });
     const connection = await driver.acquire();
-    await connection.query("create table t (id integer primary key autoincrement, v text)", [], undefined);
-    expect(await connection.query("insert into t (v) values (?)", ["a"], undefined)).toEqual({
+    expect(await connection.query("insert small", [], undefined)).toEqual({
       rows: [],
       rowCount: 1,
-      insertId: 1,
+      insertId: 7,
     });
-    await connection.query(
-      "update sqlite_sequence set seq = 9223372036854775000 where name = 't'",
-      [],
-      undefined,
-    );
-    expect((await connection.query("insert into t (v) values (?)", ["b"], undefined)).insertId).toBe(
-      9_223_372_036_854_775_001n,
-    );
-    expect(await connection.query("update t set v = ? where id = ?", ["c", 99], undefined)).toEqual({
+    expect((await connection.query("insert big", [], undefined)).insertId).toBe(2n ** 60n);
+    expect((await connection.query("insert number", [], undefined)).insertId).toBe(8);
+    expect(await connection.query("update none", [], undefined)).toEqual({
       rows: [],
       rowCount: 0,
       insertId: undefined,
@@ -141,29 +233,41 @@ describe("SqliteDriver", () => {
     await driver.release(connection, false);
   });
 
-  test("a statement list without parameters runs as a script; with parameters it is refused", async () => {
-    const { driver } = makeDriver();
+  test("a statement list without values runs as a script; with values, or another error, it fails", async () => {
+    const { driver, handle } = setup();
     const connection = await driver.acquire();
-    expect(
-      await connection.query("create table a (x integer); create table b (y integer)", [], undefined),
-    ).toEqual({ rows: [], rowCount: 0, insertId: undefined });
-    await expect(connection.query("select ?; select ?", [1, 2], undefined)).rejects.toThrow(
-      /more than one statement/,
-    );
-    await expect(connection.query("select nonsense from", [], undefined)).rejects.toThrow(/incomplete input/);
+    handle.prepareFails = new RangeError("The supplied SQL string contains more than one statement");
+    expect(await connection.query("a; b", [], undefined)).toEqual({
+      rows: [],
+      rowCount: 0,
+      insertId: undefined,
+    });
+    expect(handle.execs).toContain("a; b");
+    await expect(connection.query("a; b", [1], undefined)).rejects.toThrow(/more than one statement/);
+    handle.prepareFails = new Error("near x: syntax error");
+    await expect(connection.query("x", [], undefined)).rejects.toThrow("syntax error");
+    handle.prepareFails = undefined;
+    handle.scripts.set("boom", { rows: () => [], fail: new Error("constraint failed") });
+    await expect(connection.query("boom", [], undefined)).rejects.toThrow("constraint failed");
     await driver.release(connection, false);
   });
 
-  test("keeps at most 500 prepared statements, dropping the oldest", async () => {
-    const { driver } = makeDriver();
+  test("prepared statements are kept, 500 at most, the oldest dropped first", async () => {
+    const { driver, handle } = setup();
     const connection = await driver.acquire();
-    for (let i = 0; i < 502; i++) await connection.query(`select ${i} as n`, [], undefined);
-    expect((await connection.query("select 0 as n", [], undefined)).rows).toEqual([{ n: 0 }]);
+    await connection.query("select 0", [], undefined);
+    await connection.query("select 0", [], undefined);
+    expect(handle.prepared.filter((sql) => sql === "select 0")).toHaveLength(1);
+    for (let i = 1; i <= 500; i++) await connection.query(`select ${i}`, [], undefined);
+    await connection.query("select 0", [], undefined);
+    expect(handle.prepared.filter((sql) => sql === "select 0")).toHaveLength(2);
     await driver.release(connection, false);
   });
+});
 
-  test("one caller at a time: the next acquire waits for the release, in order", async () => {
-    const { driver } = makeDriver();
+describe("the one handle", () => {
+  test("one caller at a time: acquires wait for the release, in order", async () => {
+    const { driver } = setup();
     const first = await driver.acquire();
     expect(driver.saturated()).toBe(true);
     const order: string[] = [];
@@ -177,91 +281,79 @@ describe("SqliteDriver", () => {
     });
     expect(driver.stats()).toEqual({ size: 1, idle: 0, waiting: 2 });
     await driver.release(first, false);
-    const got = await second;
-    expect(order).toEqual(["second"]);
-    await driver.release(got, false);
+    await driver.release(await second, false);
     await driver.release(await third, false);
     expect(order).toEqual(["second", "third"]);
     expect(driver.saturated()).toBe(false);
     expect(driver.stats()).toEqual({ size: 1, idle: 1, waiting: 0 });
   });
 
-  test("before it is opened, the pool is empty", () => {
-    const { driver } = makeDriver();
-    expect(driver.stats()).toEqual({ size: 0, idle: 0, waiting: 0 });
-  });
-
-  test("reports whether a transaction is open; a destroyed connection's transaction is rolled back", async () => {
-    const { driver } = makeDriver();
+  test("a destroyed connection's open transaction is rolled back instead of the handle closed", async () => {
+    const { driver, handle } = setup();
     const connection = await driver.acquire();
-    await connection.query("create table t (v integer)", [], undefined);
-    await connection.query("begin", [], undefined);
-    await connection.query("insert into t values (1)", [], undefined);
+    handle.inTransaction = true;
     expect(connection.inTransaction()).toBe(true);
+    await expect(connection.cancel()).resolves.toBeUndefined();
     await driver.release(connection, true);
+    expect(handle.execs).toContain("rollback");
+    expect(handle.closed).toBe(0);
+    // Without a transaction there is nothing to roll back.
     const again = await driver.acquire();
-    expect(again.inTransaction()).toBe(false);
-    expect((await again.query("select count(*) as n from t", [], undefined)).rows).toEqual([{ n: 0 }]);
-    await expect(again.cancel()).resolves.toBeUndefined();
     await driver.release(again, true);
+    expect(handle.execs.filter((sql) => sql === "rollback")).toHaveLength(1);
   });
 
-  test("a failed rollback on release is swallowed", async () => {
-    const { driver } = makeDriver();
+  test("a rollback that fails on release is swallowed", async () => {
+    const { driver, handle } = setup();
     const connection = await driver.acquire();
-    await connection.query("begin", [], undefined);
-    const database = driver.handle();
-    const exec = vi.spyOn(database, "exec").mockImplementation(() => {
-      throw new Error("disk I/O error");
-    });
+    handle.inTransaction = true;
+    handle.execFails = new Error("disk I/O error");
     await expect(driver.release(connection, true)).resolves.toBeUndefined();
-    exec.mockRestore();
-    database.exec("rollback");
   });
+});
 
-  test("a cursor reads in batches, converts integers, and ends", async () => {
-    const { driver } = makeDriver();
+describe("cursors", () => {
+  test("read in batches, convert integers, and end", async () => {
+    const { driver, handle } = setup();
+    handle.scripts.set("rows", { rows: () => [{ n: 1n }, { n: 2n }, { n: 3n }] });
     const connection = await driver.acquire();
-    const cursor = await connection.cursor(
-      "with recursive s(n) as (select 1 union all select n + 1 from s where n < 5) select n from s",
-      [],
-    );
+    const cursor = await connection.cursor("rows", [true]);
+    expect(handle.bound).toEqual([[1]]);
     expect(await cursor.read(2)).toEqual([{ n: 1 }, { n: 2 }]);
-    expect(await cursor.read(10)).toEqual([{ n: 3 }, { n: 4 }, { n: 5 }]);
-    expect(await cursor.read(10)).toEqual([]);
+    expect(await cursor.read(5)).toEqual([{ n: 3 }]);
+    expect(await cursor.read(5)).toEqual([]);
     await cursor.close();
+    expect(returned.count).toBe(0);
     await driver.release(connection, false);
   });
 
-  test("a cursor left open is closed on release, so the handle can run the next statement", async () => {
-    const { driver } = makeDriver();
+  test("a cursor left open is closed on release, ending its statement", async () => {
+    const { driver, handle } = setup();
+    handle.scripts.set("rows", { rows: () => [{ n: 1n }, { n: 2n }] });
     const connection = await driver.acquire();
-    const cursor = await connection.cursor("select 1 as n union all select 2", []);
+    const cursor = await connection.cursor("rows", []);
     expect(await cursor.read(1)).toEqual([{ n: 1 }]);
     await driver.release(connection, false);
+    expect(returned.count).toBe(1);
     expect(await cursor.read(1)).toEqual([]);
-    const again = await driver.acquire();
-    expect((await again.query("select 3 as n", [], undefined)).rows).toEqual([{ n: 3 }]);
-    await driver.release(again, false);
   });
 
-  test("a cursor whose statement fails mid-way rejects the read and ends", async () => {
-    const { driver } = makeDriver();
+  test("a statement that fails mid-way rejects the read and ends the cursor", async () => {
+    const { driver, handle } = setup();
+    handle.scripts.set("rows", { rows: () => [{ n: 1n }, { n: 2n }], fail: new Error("integer overflow") });
     const connection = await driver.acquire();
-    const cursor = await connection.cursor(
-      "with recursive s(n) as (select 1 union all select n + 1 from s where n < 3) select case when n = 2 then abs(-9223372036854775807 - 1) else n end as v from s",
-      [],
-    );
-    await expect(cursor.read(10)).rejects.toThrow(/integer overflow/);
-    expect(await cursor.read(10)).toEqual([]);
-    await cursor.close();
+    const cursor = await connection.cursor("rows", []);
+    await expect(cursor.read(5)).rejects.toThrow("integer overflow");
+    expect(await cursor.read(5)).toEqual([]);
     await driver.release(connection, false);
   });
 
-  test("a cursor over a statement that cannot be prepared is refused", async () => {
-    const { driver } = makeDriver();
+  test("a statement that cannot be prepared is refused", async () => {
+    const { driver, handle } = setup();
     const connection = await driver.acquire();
-    await expect(connection.cursor("select from nowhere", [])).rejects.toThrow();
+    handle.prepareFails = new Error("near from: syntax error");
+    await expect(connection.cursor("select from", [])).rejects.toThrow("syntax error");
+    handle.prepareFails = undefined;
     await driver.release(connection, false);
   });
 });

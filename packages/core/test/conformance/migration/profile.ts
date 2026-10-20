@@ -27,6 +27,11 @@ export interface MigrationConformanceProfile {
   /** SQL whose one row's `n` counts the migration locks held in this database; `undefined` without locks. */
   readonly lockCount: string | undefined;
   /**
+   * Whether a migration lock is held on `db`, for a database whose locks SQL cannot count
+   * (`lockCount` undefined): SQLite tries to take the write lock itself.
+   */
+  readonly lockHeld?: ((db: TestDatabase) => Promise<boolean>) | undefined;
+  /**
    * Whether the suite may create database schemas of its own: false where a schema is a
    * database named server-wide (MySQL), so that two runs on one server would collide.
    */

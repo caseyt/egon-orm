@@ -95,9 +95,31 @@ Without the feature:
 needs more parameters than the limit (a very long `in` list, say) is refused with
 `QueryError` before it is sent.
 
+## Migrations
+
+From the migration table of each dialect (`features`). A migration that uses a feature
+the database lacks throws `MigrationError` before anything runs.
+
+| Feature | Feature flag | Postgres | SQLite | MySQL 8 |
+|---|---|---|---|---|
+| Tables in a database schema (`createSchema`, `schema` option) | `schemas` | yes | no | yes |
+| `createExtension` | `extensions` | yes | no | no |
+| `concurrently` index builds and drops | `concurrentIndexes` | yes | no | no |
+| Partial indexes (`where`) | `partialIndexes` | yes | yes | no |
+| Covering indexes (`include`) | `includeColumns` | yes | no | no |
+| Exclusion constraints | `exclusionConstraints` | yes | no | no |
+| `cascade` on drops | `dropCascade` | yes | no | no |
+| DDL inside a transaction | `ddlTransactions` (capability) | yes | yes | no |
+| The runner's lock | `lock` | a lock of the session | a write transaction for the whole run | a lock of the session |
+
 ## Constraint names
 
 SQLite reports a unique violation by its columns, not by an index name. The adapter turns
 that into the default constraint name (`users_email_key`, or `users_pkey` for the primary
-key), so `uniqueConstraint("email")` matches; a custom `name` cannot be matched there.
-MySQL names the primary key `PRIMARY`; the adapter reports it as `<table>_pkey`.
+key), so `uniqueConstraint("email")` matches; a custom `name` cannot be matched there,
+except for a unique index on an expression, which SQLite reports by its name.
+
+MySQL names the primary key `PRIMARY`; the adapter reports it as `<table>_pkey`. A unique
+index created without a name is named after its first column (`email`), not
+`users_email_key`: the migrations of this library always name it, and for one created
+otherwise, pass its name to `uniqueConstraint(…, { name })`.

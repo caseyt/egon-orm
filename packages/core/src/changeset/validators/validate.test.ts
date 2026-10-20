@@ -393,15 +393,18 @@ describe("validate: issue mapping", () => {
     expect(cs.errors[BASE]?.map((error) => error.meta.path)).toEqual([[tag], [3]]);
   });
 
-  test("errors are appended after existing ones, in the validator's issue order", () => {
+  test("errors are appended in the validator's issue order, except on fields that already have one", () => {
     const before = cast(User, { email: "" }, ["email"]).addError("age", "was already wrong");
     const cs = before.validate(() => [
+      { path: "name", message: "first" },
       { path: "age", message: "second" },
       { path: "email", message: "third" },
-      { path: "age", message: "fourth" },
+      { path: "name", message: "fourth" },
     ]);
-    expect(cs.errors.email?.map((e) => e.message)).toEqual(["can't be blank", "third"]);
-    expect(cs.errors.age?.map((e) => e.message)).toEqual(["was already wrong", "second", "fourth"]);
+    expect(cs.errors.email?.map((e) => e.message)).toEqual(["can't be blank"]);
+    expect(cs.errors.age?.map((e) => e.message)).toEqual(["was already wrong"]);
+    // A field without an earlier error keeps every issue this validator reports on it.
+    expect(cs.errors.name?.map((e) => e.message)).toEqual(["first", "fourth"]);
     expect(before.errors.age).toHaveLength(1);
   });
 
@@ -870,5 +873,92 @@ describe("validate: introspection", () => {
   test("a failing validation is recorded too", () => {
     const cs = cast(User, {}, []).validate(() => [{ path: "email", message: "no" }]);
     expect(cs.validations).toHaveLength(1);
+  });
+});
+
+describe("validate: one error per field", () => {
+  class Person extends Schema("people", { id: t.integer().primaryKey(), name: t.string() }) {}
+
+  /** Reports a missing `name`, as Zod's z.string() does for a key that is not there. */
+  const needsName = standard((value) => {
+    const v = value as { name?: unknown };
+    return typeof v.name === "string"
+      ? { value }
+      : { issues: [{ message: "expected string, received undefined", path: ["name"] }] };
+  });
+
+  test("an issue on a field with a cast error is dropped: the field keeps the cast's message", () => {
+    // cast turns "" into null and reports it; the schema then sees no name.
+    const cs = cast(Person, { name: "" }, ["name"]).validate(needsName);
+    expect(cs.errorMessages()).toEqual({ name: ["can't be blank"] });
+    expect(cs.valid).toBe(false);
+
+    const invalid = cast(User, { email: "a@b.c", age: "old" }, ["email", "age"]).validate(() => [
+      { path: "age", message: "must be a whole number" },
+      { path: ["age", "deeper"], message: "is also dropped" },
+    ]);
+    expect(invalid.errorMessages()).toEqual({ age: ["is invalid"] });
+  });
+
+  test("an issue on another field is kept", () => {
+    const cs = cast(User, { email: "", name: "X" }, ["email", "name"]).validate(() => [
+      { path: "email", message: "is dropped" },
+      { path: "name", message: "is too short" },
+    ]);
+    expect(cs.errorMessages()).toEqual({ email: ["can't be blank"], name: ["is too short"] });
+  });
+
+  test("errors from validateRequired, a built-in validation or an earlier validator also stand", () => {
+    const required = cast(User, {}, [])
+      .validateRequired(["email"])
+      .validate(() => [{ path: "email", message: "is dropped" }]);
+    expect(required.errorMessages()).toEqual({ email: ["can't be blank"] });
+
+    const short = cast(User, { name: "X" }, ["name"])
+      .validateLength("name", { min: 2 })
+      .validate(() => [{ path: "name", message: "is dropped" }]);
+    expect(short.errorMessages()).toEqual({ name: ["should be at least 2 character(s)"] });
+
+    const twice = cast(User, { name: "X" }, ["name"])
+      .validate(() => [{ path: "name", message: "first" }])
+      .validate(() => [{ path: "name", message: "is dropped" }]);
+    expect(twice.errorMessages()).toEqual({ name: ["first"] });
+  });
+
+  test("issues on the record as a whole are always kept", () => {
+    const cs = cast(User, {}, [])
+      .validate(() => [{ path: [], message: "first" }])
+      .validate(() => [
+        { path: [], message: "second" },
+        { path: ["notAField"], message: "third" },
+      ]);
+    expect(cs.errorMessages()).toEqual({ [BASE]: ["first", "second", "third"] });
+  });
+
+  test('scope "changed": a changed field that already has an error gets no more; other changed fields do', () => {
+    const cs = cast(ada(), { name: "X", age: "40" }, ["name", "age"])
+      .validateLength("name", { min: 2 })
+      .validate(
+        () => [
+          { path: "name", message: "is dropped" },
+          { path: "age", message: "is kept" },
+          { path: "email", message: "is dropped by the scope" },
+        ],
+        { scope: "changed" },
+      );
+    expect(cs.errorMessages()).toEqual({ name: ["should be at least 2 character(s)"], age: ["is kept"] });
+  });
+
+  test("validateAsync drops them too", async () => {
+    const cs = await cast(Person, { name: "" }, ["name"]).validateAsync(needsName);
+    expect(cs.errorMessages()).toEqual({ name: ["can't be blank"] });
+  });
+
+  test("apply: an output value the type rejects adds no second error to a field that has one", () => {
+    const asNumbers = standard(() => ({ value: { name: 5, email: 6 } }));
+    const cs = cast(User, { name: "X" }, ["name"])
+      .addError("name", "is taken")
+      .validate(asNumbers, { apply: true });
+    expect(cs.errorMessages()).toEqual({ name: ["is taken"], email: ["is invalid"] });
   });
 });

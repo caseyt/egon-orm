@@ -33,7 +33,7 @@ function keyOf(path: ValidationIssue["path"]): string {
   return typeof head === "string" && fieldNames.includes(head) ? head : BASE;
 }
 
-test("a validator only appends errors, in issue order, and never touches the changes", () => {
+test("a validator only appends errors, in issue order, to fields without one, and never touches the changes", () => {
   fc.assert(
     fc.property(params, fc.array(issue, { maxLength: 6 }), fc.boolean(), (input, issues, changedOnly) => {
       const before = cast(User, input, [...permitted]);
@@ -49,6 +49,8 @@ test("a validator only appends errors, in issue order, and never touches the cha
       for (const { path, message } of issues) {
         const key = keyOf(path);
         if (changedOnly && key !== BASE && !Object.hasOwn(before.changes, key)) continue;
+        // A field that already had an error (from cast) keeps only that one.
+        if (key !== BASE && Object.hasOwn(before.errors, key)) continue;
         expected.set(key, [...(expected.get(key) ?? []), message]);
       }
       const actual = new Map(

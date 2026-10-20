@@ -233,6 +233,9 @@ importers:
 
   docs/site:
     dependencies:
+      '@egon-orm/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
       '@egon-orm/postgres':
         specifier: workspace:*
         version: link:../../packages/postgres

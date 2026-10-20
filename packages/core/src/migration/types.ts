@@ -105,7 +105,14 @@ export type ReferenceAction = "cascade" | "restrict" | "setNull" | "setDefault" 
 // Recorded operations (internal)
 // ---------------------------------------------------------------------------
 
-/** A column type with its parameters spelled out. */
+/**
+ * A column type with its parameters spelled out.
+ *
+ * @example
+ * ```ts
+ * const price: TypeSpec = { kind: "decimal", precision: 10, scale: 2, of: undefined, sql: undefined };
+ * ```
+ */
 export interface TypeSpec {
   readonly kind: ColumnKind | "array" | "custom";
   readonly precision: number | undefined;
@@ -114,19 +121,46 @@ export interface TypeSpec {
   readonly sql: string | undefined;
 }
 
-/** A default as recorded: a constant, an expression, or the current time. */
+/**
+ * A default as recorded: a constant, an expression, or the current time.
+ *
+ * @example
+ * ```ts
+ * const member: DefaultSpec = { kind: "value", value: "member" };
+ * ```
+ */
 export type DefaultSpec =
   | { readonly kind: "value"; readonly value: unknown }
   | { readonly kind: "sql"; readonly node: FragmentNode }
   | { readonly kind: "now" };
 
-/** A table, and the database schema it lives in. */
+/**
+ * A table, and the database schema it lives in.
+ *
+ * @example
+ * ```ts
+ * const users: TableRef = { name: "users", schema: "auth" };
+ * ```
+ */
 export interface TableRef {
   readonly name: string;
   readonly schema: string | undefined;
 }
 
-/** A foreign key on one column. */
+/**
+ * A foreign key on one column.
+ *
+ * @example
+ * ```ts
+ * const author: ReferenceSpec = {
+ *   name: "posts_author_id_fkey",
+ *   table: { name: "users", schema: undefined },
+ *   column: "id",
+ *   onDelete: "cascade",
+ *   onUpdate: undefined,
+ * };
+ * ```
+ */
 export interface ReferenceSpec {
   readonly name: string;
   readonly table: TableRef;
@@ -135,7 +169,15 @@ export interface ReferenceSpec {
   readonly onUpdate: ReferenceAction | undefined;
 }
 
-/** One column of a `createTable` or an `add`. The builder fills it in place. */
+/**
+ * One column of a `createTable` or an `add`. The builder fills it in place.
+ *
+ * @example
+ * ```ts
+ * declare const column: ColumnDef;
+ * const required = column.notNull;
+ * ```
+ */
 export interface ColumnDef {
   readonly name: string;
   readonly type: TypeSpec;
@@ -151,7 +193,15 @@ export interface ColumnDef {
   check: { readonly name: string; readonly values: readonly string[] } | undefined;
 }
 
-/** `createTable`. */
+/**
+ * `createTable`.
+ *
+ * @example
+ * ```ts
+ * declare const op: CreateTableOp;
+ * const names = op.columns.map((column) => column.name);
+ * ```
+ */
 export interface CreateTableOp {
   readonly op: "createTable";
   readonly table: TableRef;
@@ -159,7 +209,14 @@ export interface CreateTableOp {
   readonly ifNotExists: boolean;
 }
 
-/** One change of an `alterTable`. */
+/**
+ * One change of an `alterTable`.
+ *
+ * @example
+ * ```ts
+ * const rename: AlterChange = { change: "rename", column: "name", to: "full_name" };
+ * ```
+ */
 export type AlterChange =
   | { readonly change: "add"; readonly column: ColumnDef }
   | {
@@ -174,14 +231,30 @@ export type AlterChange =
   | { readonly change: "remove"; readonly column: string; readonly definition: ColumnDef | undefined }
   | { readonly change: "rename"; readonly column: string; readonly to: string };
 
-/** What a modified column was before, for the reversal. */
+/**
+ * What a modified column was before, for the reversal.
+ *
+ * @example
+ * ```ts
+ * declare const integer: TypeSpec;
+ * const from: ModifyFrom = { type: integer, notNull: undefined, default: undefined };
+ * ```
+ */
 export interface ModifyFrom {
   readonly type: TypeSpec;
   readonly notNull: boolean | undefined;
   readonly default: DefaultSpec | null | undefined;
 }
 
-/** An index, as `createIndex` and `dropIndex` describe it. */
+/**
+ * An index, as `createIndex` and `dropIndex` describe it.
+ *
+ * @example
+ * ```ts
+ * declare const index: IndexDef;
+ * const sql = `drop index "${index.name}"`;
+ * ```
+ */
 export interface IndexDef {
   readonly table: TableRef;
   readonly name: string;
@@ -194,7 +267,15 @@ export interface IndexDef {
   readonly include: readonly string[];
 }
 
-/** A check or exclusion constraint. */
+/**
+ * A check or exclusion constraint.
+ *
+ * @example
+ * ```ts
+ * declare const definition: ConstraintDef;
+ * const isCheck = definition.kind === "check";
+ * ```
+ */
 export interface ConstraintDef {
   readonly kind: "check" | "exclude";
   readonly expression: FragmentNode;
@@ -202,13 +283,29 @@ export interface ConstraintDef {
   readonly using: string | undefined;
 }
 
-/** A statement for `m.execute`: a fragment and the values it binds. */
+/**
+ * A statement for `m.execute`: a fragment and the values it binds.
+ *
+ * @example
+ * ```ts
+ * declare const statement: ExecuteStatement;
+ * const values = statement.params;
+ * ```
+ */
 export interface ExecuteStatement {
   readonly node: FragmentNode;
   readonly params: readonly unknown[];
 }
 
-/** Every operation a migration can record. */
+/**
+ * Every operation a migration can record.
+ *
+ * @example
+ * ```ts
+ * declare const op: Operation;
+ * if (op.op === "createTable") op.columns.length;
+ * ```
+ */
 export type Operation =
   | CreateTableOp
   | {

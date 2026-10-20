@@ -15,6 +15,12 @@ import type { ReferenceAction } from "./types.js";
 /**
  * The DDL features a database may lack. The emitter refuses a feature the table says is
  * missing with `MigrationError`, before anything is sent.
+ *
+ * @example
+ * ```ts
+ * declare const features: DdlFeatures;
+ * if (!features.concurrentIndexes) throw new MigrationError("CREATE INDEX CONCURRENTLY is not supported.");
+ * ```
  */
 export interface DdlFeatures {
   /** `CREATE SCHEMA`, and tables in a database schema. */
@@ -41,6 +47,12 @@ export interface DdlFeatures {
  * Every SQL text in here is fixed program text. The statements that take values (the
  * lock keys, a version, a table name to look up) take them as bound parameters, written
  * with the dialect's placeholders.
+ *
+ * @example
+ * ```ts
+ * declare const dialect: MigrationDialect;
+ * const literal = dialect.stringLiteral("it's"); // "'it''s'" on Postgres
+ * ```
  */
 export interface MigrationDialect {
   readonly name: Dialect;

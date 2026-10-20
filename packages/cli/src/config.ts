@@ -71,7 +71,14 @@ export function defineConfig(config: EgonConfig): EgonConfig {
   return config;
 }
 
-/** The file names the CLI looks for, in order, when no `--config` is given. */
+/**
+ * The file names the CLI looks for, in order, when no `--config` is given.
+ *
+ * @example
+ * ```ts
+ * CONFIG_FILES[0]; // "egon.config.ts"
+ * ```
+ */
 export const CONFIG_FILES: readonly string[] = [
   "egon.config.ts",
   "egon.config.mts",
@@ -79,17 +86,38 @@ export const CONFIG_FILES: readonly string[] = [
   "egon.config.mjs",
 ];
 
-/** A problem the user can fix: printed without a stack, exit code 1. */
+/**
+ * A problem the user can fix: printed without a stack, exit code 1.
+ *
+ * @example
+ * ```ts
+ * throw new CliError("No config file: create egon.config.ts.");
+ * ```
+ */
 export class CliError extends Error {
   override readonly name = "CliError";
 }
 
-/** The explanation for a TypeScript file this process cannot load. */
+/**
+ * The explanation for a TypeScript file this process cannot load.
+ *
+ * @example
+ * ```ts
+ * throw new CliError(typescriptHelp("/app/egon.config.ts"));
+ * ```
+ */
 export function typescriptHelp(file: string): string {
   return `Cannot load the TypeScript file "${file}": this Node has no TypeScript loader. Use Node 22.18 or later (it strips types by itself; on 22.12 to 22.17 pass --experimental-strip-types), or run egon through tsx: node --import tsx node_modules/@egon-orm/cli/dist/bin.js …, or with Bun. Or write the file in JavaScript (egon.config.mjs).`;
 }
 
-/** How a module is imported; replaced in tests. */
+/**
+ * How a module is imported; replaced in tests.
+ *
+ * @example
+ * ```ts
+ * const load: ImportModule = (url) => import(url);
+ * ```
+ */
 export type ImportModule = (url: string) => Promise<Record<string, unknown>>;
 
 const importModule: ImportModule = (url) => import(url) as Promise<Record<string, unknown>>;
@@ -97,6 +125,11 @@ const importModule: ImportModule = (url) => import(url) as Promise<Record<string
 /**
  * Imports a module of the user's: a config file or a schema file. A TypeScript file the
  * process cannot load gets an explanation of what to install.
+ *
+ * @example
+ * ```ts
+ * const module = await importUserModule("/app/src/schemas.ts");
+ * ```
  */
 export async function importUserModule(
   path: string,
@@ -113,7 +146,15 @@ export async function importUserModule(
   }
 }
 
-/** A loaded configuration, and the directory its relative paths are resolved against. */
+/**
+ * A loaded configuration, and the directory its relative paths are resolved against.
+ *
+ * @example
+ * ```ts
+ * declare const loaded: LoadedConfig;
+ * const migrations = resolve(loaded.root, loaded.config.migrations?.directory ?? "migrations");
+ * ```
+ */
 export interface LoadedConfig {
   readonly config: EgonConfig;
   readonly file: string;
@@ -143,6 +184,11 @@ function isAdapter(value: unknown): value is Adapter {
  * {@link CONFIG_FILES} in `cwd`.
  *
  * @throws CliError when there is no config file, or it exports no configuration.
+ *
+ * @example
+ * ```ts
+ * const { config, root } = await loadConfig(process.cwd(), undefined);
+ * ```
  */
 export async function loadConfig(
   cwd: string,

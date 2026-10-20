@@ -147,6 +147,11 @@ function isFragment(value: unknown): boolean {
  * The type spec of `type`.
  *
  * @throws TypeError when it is not a column type.
+ *
+ * @example
+ * ```ts
+ * typeSpec("add()", { kind: "decimal", precision: 10 }).precision; // 10
+ * ```
  */
 export function typeSpec(where: string, type: unknown): TypeSpec {
   if (typeof type === "string") {
@@ -229,6 +234,11 @@ function isJsonValue(value: unknown, depth = 0): boolean {
  * The recorded default of a column of type `type`.
  *
  * @throws TypeError for a value that cannot be written as a SQL constant.
+ *
+ * @example
+ * ```ts
+ * defaultSpec("default()", typeSpec("x", "text"), "member"); // { kind: "value", value: "member" }
+ * ```
  */
 export function defaultSpec(where: string, type: TypeSpec, value: unknown): DefaultSpec {
   if (isFragment(value)) {
@@ -373,7 +383,14 @@ export class ColumnBuilder {
   }
 }
 
-/** Options of {@link ColumnAdder.references}. */
+/**
+ * Options of {@link ColumnAdder.references}.
+ *
+ * @example
+ * ```ts
+ * const options: ReferencesOptions = { type: "uuid", onDelete: "cascade" };
+ * ```
+ */
 export interface ReferencesOptions {
   /** The column's type; `"bigint"` by default (the type `id()` makes). */
   readonly type?: ColumnType;
@@ -387,7 +404,14 @@ export interface ReferencesOptions {
   readonly name?: string;
 }
 
-/** Options of {@link ColumnAdder.timestamps}. */
+/**
+ * Options of {@link ColumnAdder.timestamps}.
+ *
+ * @example
+ * ```ts
+ * const options: TimestampsColumnsOptions = { type: "timestamp", createdAt: "inserted_at" };
+ * ```
+ */
 export interface TimestampsColumnsOptions {
   /** `"timestamptz"` (the default) or `"timestamp"`. */
   readonly type?: "timestamptz" | "timestamp";
@@ -661,7 +685,14 @@ export class ColumnAdder {
  */
 export class TableBuilder extends ColumnAdder {}
 
-/** Options of {@link AlterTableBuilder.modify}. */
+/**
+ * Options of {@link AlterTableBuilder.modify}.
+ *
+ * @example
+ * ```ts
+ * const options: ModifyOptions = { notNull: true, from: { type: "integer", notNull: false } };
+ * ```
+ */
 export interface ModifyOptions {
   /**
    * What the column was before: its type, or `{ type, notNull, default }`. Needed to roll
@@ -676,7 +707,14 @@ export interface ModifyOptions {
   readonly default?: DefaultValue;
 }
 
-/** Options of {@link AlterTableBuilder.remove}: what the column was, for the reversal. */
+/**
+ * Options of {@link AlterTableBuilder.remove}: what the column was, for the reversal.
+ *
+ * @example
+ * ```ts
+ * const options: RemoveOptions = { notNull: true, default: 0 };
+ * ```
+ */
 export interface RemoveOptions {
   readonly notNull?: boolean;
   readonly default?: DefaultValue;
@@ -785,7 +823,14 @@ function modifyFrom(where: string, from: unknown): ModifyFrom {
 // The migration builder
 // ---------------------------------------------------------------------------
 
-/** Options of {@link MigrationBuilder.createTable}. */
+/**
+ * Options of {@link MigrationBuilder.createTable}.
+ *
+ * @example
+ * ```ts
+ * const options: CreateTableOptions = { schema: "audit", primaryKey: false };
+ * ```
+ */
 export interface CreateTableOptions {
   /** The database schema of the table. */
   readonly schema?: string;
@@ -798,7 +843,14 @@ export interface CreateTableOptions {
   readonly ifNotExists?: boolean;
 }
 
-/** Options of {@link MigrationBuilder.dropTable}. */
+/**
+ * Options of {@link MigrationBuilder.dropTable}.
+ *
+ * @example
+ * ```ts
+ * const options: DropTableOptions = { ifExists: true };
+ * ```
+ */
 export interface DropTableOptions {
   readonly schema?: string;
   /** As in {@link CreateTableOptions}, for the definition. */
@@ -808,7 +860,14 @@ export interface DropTableOptions {
   readonly cascade?: boolean;
 }
 
-/** Options of {@link MigrationBuilder.createIndex} and {@link MigrationBuilder.dropIndex}. */
+/**
+ * Options of {@link MigrationBuilder.createIndex} and {@link MigrationBuilder.dropIndex}.
+ *
+ * @example
+ * ```ts
+ * const options: IndexOptions = { unique: true, where: fragment`deleted_at is null`, name: "users_live_email_key" };
+ * ```
+ */
 export interface IndexOptions {
   /** A unique index, named `<table>_<columns>_key` (else `<table>_<columns>_index`). */
   readonly unique?: boolean;
@@ -830,7 +889,14 @@ export interface IndexOptions {
   readonly ifExists?: boolean;
 }
 
-/** Options of {@link MigrationBuilder.createConstraint}: exactly one of `check` and `exclude`. */
+/**
+ * Options of {@link MigrationBuilder.createConstraint}: exactly one of `check` and `exclude`.
+ *
+ * @example
+ * ```ts
+ * const options: ConstraintOptions = { check: fragment`price > 0` };
+ * ```
+ */
 export interface ConstraintOptions {
   /** A check constraint's condition. */
   readonly check?: SqlFragment;
@@ -841,7 +907,14 @@ export interface ConstraintOptions {
   readonly schema?: string;
 }
 
-/** Options of {@link MigrationBuilder.dropConstraint}. */
+/**
+ * Options of {@link MigrationBuilder.dropConstraint}.
+ *
+ * @example
+ * ```ts
+ * const options: DropConstraintOptions = { check: fragment`price > 0`, ifExists: true };
+ * ```
+ */
 export interface DropConstraintOptions extends ConstraintOptions {
   readonly ifExists?: boolean;
 }

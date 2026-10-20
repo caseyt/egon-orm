@@ -361,7 +361,16 @@ async function rollback(args: readonly string[], io: CliIo): Promise<number> {
   });
 }
 
-/** The status table: one line per migration. */
+/**
+ * The status table: one line per migration.
+ *
+ * @example
+ * ```ts
+ * statusTable([{ version: 20261012093000, name: "create_users", state: "up" }]);
+ * // Status  Version         Name
+ * // up      20261012093000  create_users
+ * ```
+ */
 export function statusTable(rows: readonly MigrationStatus[]): string {
   if (rows.length === 0) return "No migrations.\n";
   const lines = [

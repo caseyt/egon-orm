@@ -9,7 +9,14 @@
 import { MigrationError } from "../errors.js";
 import type { AlterChange, CreateTableOp, Operation } from "./types.js";
 
-/** The migration being reversed, for error messages. */
+/**
+ * The migration being reversed, for error messages.
+ *
+ * @example
+ * ```ts
+ * const context: ReverseContext = { version: 20261012093000, migration: "create_users" };
+ * ```
+ */
 export interface ReverseContext {
   readonly version: number;
   readonly migration: string;

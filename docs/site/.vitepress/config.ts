@@ -137,6 +137,10 @@ export default defineConfig({
           ],
         },
         {
+          text: "Changing the database",
+          items: [page("Migrations", "/guide/migrations")],
+        },
+        {
           text: "Examples",
           items: [page("Overview", "/guide/examples")],
         },
@@ -146,6 +150,7 @@ export default defineConfig({
           text: "Reference",
           items: [
             page("Errors", "/reference/errors"),
+            page("CLI", "/reference/cli"),
             page("Dialect support", "/reference/dialect-support"),
             page("Roadmap", "/reference/roadmap"),
           ],

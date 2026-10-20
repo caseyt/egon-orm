@@ -4,7 +4,14 @@
  * @module
  */
 
-/** The commands, each with its help text. */
+/**
+ * The commands, each with its help text.
+ *
+ * @example
+ * ```ts
+ * process.stdout.write(COMMAND_HELP.migrate ?? "");
+ * ```
+ */
 export const COMMAND_HELP: Readonly<Record<string, string>> = Object.freeze({
   "gen migration": `Usage: egon gen migration <name> [options]
 
@@ -68,7 +75,14 @@ Options:
 `,
 });
 
-/** The help of `egon` itself. */
+/**
+ * The help of `egon` itself.
+ *
+ * @example
+ * ```ts
+ * process.stdout.write(MAIN_HELP);
+ * ```
+ */
 export const MAIN_HELP = `Usage: egon <command> [options]
 
 Commands:

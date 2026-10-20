@@ -118,7 +118,14 @@ export function migrationList(list: readonly unknown[]): readonly MigrationSourc
   return sorted(sources);
 }
 
-/** How a module is imported; replaced in tests. */
+/**
+ * How a module is imported; replaced in tests.
+ *
+ * @example
+ * ```ts
+ * const load: ImportModule = (url) => import(url);
+ * ```
+ */
 export type ImportModule = (url: string) => Promise<Record<string, unknown>>;
 
 const importModule: ImportModule = (url) => import(url) as Promise<Record<string, unknown>>;

@@ -1,0 +1,206 @@
+# Migrations
+
+Migrations change the database's structure in versioned, ordered steps. Each one is a
+TypeScript file in a migrations directory, written by hand with a small set of operations,
+and the runner applies the pending ones and records what it applied.
+
+<<< @/examples/migrations.ts#create-users
+
+The file name holds the version and the name: `20261012093000_create_users.ts` is version
+`20261012093000` (a UTC timestamp, `YYYYMMDDHHMMSS`) named `create_users`. `egon gen
+migration create_users` writes such a file for you ([CLI reference](/reference/cli)).
+
+If you come from Prisma Migrate or drizzle-kit: there is no schema diffing. You write the
+change you want, as with Sequelize's or Knex's migrations; the schema classes and the
+migrations are kept in step by you, not inferred from each other.
+
+## Running migrations
+
+From the command line, with the configuration in [`egon.config.ts`](/reference/cli#configuration):
+
+```sh
+egon migrate                 # apply every pending migration
+egon migrate --dry-run       # print the SQL, run nothing
+egon rollback                # roll back the latest one
+egon migrations              # list them: up, down or missing
+```
+
+From code, with `createMigrator` from `egon-orm/migration`:
+
+<<< @/examples/migrations.ts#migrator
+
+The migrator takes the **adapter**, the same one you give `createRepo` (or one of its own).
+
+## Reversible migrations and up/down
+
+A migration is either **reversible**, with `change(m)`, or written in **both directions**,
+with `up(m)` and `down(m)`.
+
+With `change`, the runner rolls the migration back by running the inverse of each
+operation, last first: `createTable` becomes `dropTable`, `rename(a, b)` becomes
+`rename(b, a)`, `add` becomes `remove`, and so on. Some operations do not hold what their
+inverse needs; they are accepted when the migration is applied and refused with
+`MigrationError` **when it is rolled back**, with the fix in the message:
+
+| Operation in `change` | Why it cannot be rolled back | The fix |
+|---|---|---|
+| `t.remove("age")` | the column's type is unknown | `t.remove("age", "integer")` |
+| `t.modify("age", "bigint")` | the previous type is unknown | `t.modify("age", "bigint", { from: "integer" })` (with `notNull` and `default` in `from` when you change them) |
+| `m.execute(sql)` | there is no statement that undoes it | `m.execute(up, down)` |
+| `m.dropTable("users")` | there is no definition to create it from | `m.dropTable("users", (t) => { … })` |
+| `m.dropConstraint(table, name)` | there is no definition | pass `{ check }` or `{ exclude }` |
+| anything with `ifNotExists` / `ifExists`, `cascade`, `dropExtension` | the inverse could destroy something the migration did not create, or cannot restore what it dropped | write `up` and `down` |
+
+Use `up`/`down` for data changes and anything the inverses cannot express:
+
+<<< @/examples/migrations.ts#up-down
+
+A migration with `up` and no `down` cannot be rolled back; trying is a `MigrationError`.
+
+## Operations
+
+| Operation | Options |
+|---|---|
+| `m.createTable(name, (t) => …, options?)` | `schema`, `ifNotExists`, `primaryKey: false` |
+| `m.alterTable(name, (t) => …, options?)` | `schema` |
+| `m.dropTable(name, define?, options?)` | `schema`, `ifExists`, `cascade` |
+| `m.renameTable(from, to, options?)` | `schema` |
+| `m.createIndex(table, columns, options?)` / `m.dropIndex(…)` | `unique`, `name`, `where`, `using`, `include`, `concurrently`, `schema`, `ifNotExists` / `ifExists` |
+| `m.createConstraint(table, name, options)` / `m.dropConstraint(…)` | `check` or `exclude` (a fragment), `using`, `schema`; `ifExists` on drop |
+| `m.execute(up, down?)` | two fragments; their interpolations are bound parameters |
+| `m.createSchema(name)` / `m.dropSchema(name)` | `ifNotExists` / `ifExists`, `cascade` (a database schema) |
+| `m.createExtension(name)` / `m.dropExtension(name)` | `ifNotExists`, `schema` / `ifExists` |
+
+A table must have a primary key: `t.id()`, or `.primaryKey()` on its key columns (several
+make a composite key). Pass `{ primaryKey: false }` for a table that has none on purpose.
+
+Inside `alterTable`, the column methods add columns, and `modify`, `remove` and `rename`
+change existing ones:
+
+<<< @/examples/migrations.ts#alter
+
+### Columns
+
+The column methods are named after the column types (`DbType`): `integer`, `bigint`,
+`float`, `decimal`, `boolean`, `text` (also `string`), `uuid`, `binary`, `date`, `time`,
+`timestamp`, `timestamptz`, `json`, `jsonb`, `array(name, of)` and `custom(name, sql)`.
+`t.add(name, type)` takes any type, such as `{ kind: "decimal", precision: 10, scale: 2 }`.
+
+The helpers:
+
+| Helper | Column |
+|---|---|
+| `t.id()` | `"id" bigserial primary key` (`{ type: "integer" }` for `serial`) |
+| `t.references(column, table, options?)` | a `bigint` (or `type`) with a foreign key to `table` (`column`, `onDelete`, `onUpdate`, `schema`, `name`) |
+| `t.enumText(column, values)` | `text` with a check constraint allowing only `values` |
+| `t.timestamps()` | `created_at` and `updated_at`, `timestamptz not null default now()` |
+
+Each returns a column builder: `.notNull()`, `.nullable()`, `.default(value)`,
+`.primaryKey()`, `.unique()`.
+
+A column default is a constant (a string, number, bigint, boolean, `null`, or for `json` and
+`jsonb` an object or array) or an expression as a fragment, ``.default(fragment`now()`)``.
+DDL takes no bound parameters, so a constant is written into the statement as a SQL literal:
+strings with their quotes doubled (on Postgres as an `E'…'` string with doubled
+backslashes when they hold a backslash), numbers only when finite. Fragments in DDL (a
+default, an index predicate, a constraint) may interpolate identifiers with
+`fragment.ident()`, but not values.
+
+## Index and constraint names
+
+Migrations name what they create the way the changeset constraint functions expect, so a
+database error becomes a changeset error without either side naming anything:
+
+| Created by | Default name | Matched by default by |
+|---|---|---|
+| `m.createIndex(table, cols, { unique: true })`, `.unique()` | `<table>_<columns>_key` | `uniqueConstraint(fields)` |
+| `t.references(column, …)` | `<table>_<column>_fkey` | `foreignKeyConstraint`, `assocConstraint`, `noAssocConstraint` |
+| `t.enumText(column, …)` | `<table>_<column>_check` | `checkConstraint(field, { name })` |
+| `m.createIndex(table, cols)` | `<table>_<columns>_index` | (not a constraint) |
+
+<<< @/examples/migrations.ts#changeset-pairing
+
+A name longer than the database keeps (63 bytes on Postgres) is shortened the way Postgres
+shortens the names it makes itself, and the changeset defaults match the shortened name.
+Pass `name` to choose your own; then give the same name to the changeset function.
+
+<<< @/examples/migrations.ts#indexes
+
+<<< @/examples/migrations.ts#constraints
+
+## How the runner works
+
+- **Order.** Pending migrations run oldest version first. A pending migration older than
+  the latest applied one (merged from another branch) is applied too, with a warning.
+- **Transactions.** Each migration runs in its own transaction where the database has
+  transactional DDL (Postgres does); if it fails, it is rolled back and the run stops. With
+  `transaction: false` it runs without one, and a failure can leave it partly applied.
+- **The lock.** The runner holds a lock for the whole run (on Postgres a session-level
+  advisory lock keyed by the tracking table), so two deploys that start at once take turns:
+  the second waits, then finds nothing left to do. `lockTimeoutMs` makes it give up instead.
+- **Tracking.** Applied versions are rows of `schema_migrations (version bigint primary key,
+  created_at timestamp)`, created on the first run.
+- **Missing files.** A recorded version with no migration file shows as `missing`. Rolling
+  back past it is refused until the file is restored.
+- **Dry run.** `up({ dryRun: true })` and `down({ dryRun: true })` return the SQL of each
+  migration and change nothing, not even the tracking table.
+
+## Zero-downtime changes
+
+- Build indexes on large tables with `concurrently: true`. It cannot run inside a
+  transaction, so the migration needs `transaction: false` (the runner refuses otherwise).
+  Keep such a migration to that one operation: without a transaction, a failure leaves the
+  earlier statements applied.
+- Add a column as nullable (or with a default), backfill it in an `up`/`down` migration,
+  and add `notNull` in a later one.
+- Rename in steps: add the new column, write to both, then drop the old one.
+
+## Running in CI and deploys
+
+Run `egon migrate` before the new code starts. It exits with 0 on success and 1 on a
+failure, prints a line per migration with its duration, and with `--json` prints one JSON
+object instead. Several instances may run it at once; the lock serialises them.
+
+## Loading migration files
+
+Migration files are loaded with `import()`. TypeScript files need a process that can load
+TypeScript: Node 22.18 or later strips types by itself (22.12 to 22.17 with
+`--experimental-strip-types`), or run under tsx (`node --import tsx`) or Bun. Without one,
+the error says what to install. A file exports its migration as the default export (or as
+`migration`).
+
+For bundlers and deployments without a file system, pass the migrations as a list:
+
+<<< @/examples/migrations.ts#in-memory
+
+## Adopting an existing database
+
+To start using migrations on a database that already has its tables, write a first
+migration that describes them (`egon gen migration initial --from-schema src/schemas.ts`
+gives you a start), and record it as applied without running it:
+`insert into schema_migrations (version, created_at) values (<its version>, now())`.
+
+If the database already has a `schema_migrations` table from another tool, with a
+`version bigint` column, the runner reads it as it is. Its versions count as applied; name
+its timestamp column if it is not `created_at`:
+
+<<< @/examples/migrations.ts#adopt
+
+## Scaffolding from a schema
+
+`egon gen migration create_posts --from-schema src/schemas/post.ts` writes a `createTable`
+for the schema classes the file exports, with their column types, nullability, constant
+defaults, primary keys and the foreign keys of their `belongsTo` associations. It is a
+one-time scaffold, not a diff: unique indexes, enum values and defaults the application
+computes are not in a schema, and the file says where to add them.
+
+::: tip Good to know
+- Columns allow `NULL` unless you call `.notNull()`, as in SQL. (Schema fields are the
+  other way round: non-null unless `.nullable()`.)
+- The column method `timestamp` is a timestamp **without** a time zone and `timestamptz` one
+  with it; the schema field `t.timestamp()` is stored as `timestamptz`, and `t.json()` as
+  `jsonb`.
+- Nothing is inferred from your schema classes when migrations run: a migration describes
+  the database, and the schema classes describe your code.
+- Rolling back a `change` migration that created a table drops it, with its rows.
+:::

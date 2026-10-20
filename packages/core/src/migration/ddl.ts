@@ -53,7 +53,19 @@ export interface MigrationStatement {
   readonly slots: readonly ParamSlot[];
 }
 
-/** What the emitter writes with. */
+/**
+ * What the emitter writes with.
+ *
+ * @example
+ * ```ts
+ * declare const adapter: Adapter;
+ * const ctx: DdlContext = {
+ *   syntax: postgresDialect,
+ *   dialect: POSTGRES_MIGRATION_DIALECT,
+ *   compileFragment: (node) => adapter.compileFragment(node),
+ * };
+ * ```
+ */
 export interface DdlContext {
   /** The compiler's SQL table: quoting and type names. */
   readonly syntax: SqlDialect;
@@ -155,7 +167,14 @@ function schemaName(name: string, ctx: DdlContext): string {
   return quoteIdentifier(ctx.syntax, name);
 }
 
-/** A table name, qualified by its database schema when it has one. */
+/**
+ * A table name, qualified by its database schema when it has one.
+ *
+ * @example
+ * ```ts
+ * table({ name: "users", schema: "auth" }, ctx); // '"auth"."users"'
+ * ```
+ */
 export function table(ref: TableRef, ctx: DdlContext): string {
   const name = quoteIdentifier(ctx.syntax, ref.name);
   return ref.schema === undefined ? name : `${schemaName(ref.schema, ctx)}.${name}`;
@@ -180,6 +199,12 @@ function createTable(op: CreateTableOp, ctx: DdlContext): string {
  * The SQL of a column type.
  *
  * @throws MigrationError for a `custom` type that is not a plain type name.
+ *
+ * @example
+ * ```ts
+ * declare const ctx: DdlContext;
+ * typeSql({ kind: "timestamptz", precision: 3, scale: undefined, of: undefined, sql: undefined }, false, ctx); // "timestamptz(3)"
+ * ```
  */
 export function typeSql(type: TypeSpec, serial: boolean, ctx: DdlContext): string {
   switch (type.kind) {

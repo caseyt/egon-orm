@@ -31,6 +31,7 @@ try {
 | `SchemaDefinitionError` | A schema or association is defined incorrectly. | |
 | `RollbackError` | `transactionOrThrow` was rolled back with `tx.rollback(reason)`. | `reason` |
 | `DatabaseError` | The connection or the database failed. | `code`, `retryable` |
+| `MigrationError` | A [migration](/guide/migrations) cannot be rolled back, uses a feature the database lacks, failed, is missing its file, or the migration lock could not be taken. Imported from `egon-orm/migration`. | `version`, `migration`, `sql` |
 
 ## `DatabaseError` codes
 

@@ -83,9 +83,9 @@ Open points for the owner, should option 2 be accepted:
 
 Option 2 as written: the six methods take `execute?: ExecuteOptions` last, and the shared
 adapter passes them on to the `execute` it already used (MySQL's two-statement `BEGIN`
-shares one budget). The open points are built as follows and wait for the owner's
-sign-off. The options and the reasons are in `docs/plan/status/16.md`, "Follow-up: ADR
-0005".
+shares one budget). The open points are built as follows; the owner approved them as
+built on 2026-10-20. The options and the reasons are in `docs/plan/status/16.md`,
+"Follow-up: ADR 0005".
 
 - The `ROLLBACK` (and `ROLLBACK TO`) gets no budget. `BEGIN`, `SAVEPOINT`, `RELEASE` and
   `COMMIT` get what is left of it, including their wait for the connection.

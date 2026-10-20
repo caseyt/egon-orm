@@ -139,12 +139,10 @@ database constraints to watch for. It never touches the database.
 <<< ../../../examples/blog/src/accounts.ts#registration
 
 `cast` keeps only `email`, `name` and `password` from `params`: a request that also sends
-`passwordHash` or `id` has no effect. `validateRequired` reports a missing or blank field
-once, as `can't be blank`. The Zod schema then checks the values that are there, and
-reports every problem at once, each on its field. It is `.partial()` so that a missing
-field is not reported twice: without it, `name: ""` would give both `can't be blank` (the
-empty string becomes `null`, which a non-null field refuses) and Zod's `expected string,
-received undefined`. `uniqueConstraint("email")` tells the repo that a violation of
+`passwordHash` or `id` has no effect. The Zod schema reports every problem at once, each on
+its field, and a field gets one message: `name: ""` is `can't be blank` (`cast` turns the
+empty string into `null`, which a non-null field refuses), and Zod's own complaint about
+the missing value is not added. `uniqueConstraint("email")` tells the repo that a violation of
 `users_email_key` is a form error, not a crash. `pipe` applies a step of your own: here,
 hashing the password once the input is valid.
 

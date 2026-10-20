@@ -25,7 +25,7 @@ export function feed(page: number, perPage = 10) {
       .limit(perPage)
       .offset((page - 1) * perPage)
       .preload("author"), // one more query for every author on the page, not one per post
-  );
+  ); // type: Promise<Loaded<typeof Post, "author">[]>
 }
 // #endregion feed
 

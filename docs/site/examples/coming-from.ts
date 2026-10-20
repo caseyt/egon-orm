@@ -136,7 +136,7 @@ export async function run(): Promise<void> {
       .where({ published: true })
       .orderBy(({ p }) => p.views.desc())
       .limit(10),
-  );
+  ); // type: Post[]
   popular.map((p) => p.title); // => ["Launch", "Notes"]
   // #endregion find-many
 
@@ -147,6 +147,7 @@ export async function run(): Promise<void> {
 
   // #region select
   const emails = await repo.all(from(User, "u").select(({ u }) => ({ id: u.id, email: u.email })));
+  // type: { id: number; email: string }[]
   emails.length; // => 3
   // #endregion select
 
@@ -186,7 +187,7 @@ export async function run(): Promise<void> {
     from(User, "u")
       .preload("posts")
       .orderBy(({ u }) => u.id),
-  );
+  ); // type: Loaded<typeof User, "posts">[]: each user has its posts, as Post[]
   authors[0]?.posts.length; // => 2
 
   const recent = await repo.all(
@@ -205,7 +206,7 @@ export async function run(): Promise<void> {
       .joinAssoc("u", "posts", "p")
       .where(({ p }) => p.published)
       .distinct(),
-  ); // users with at least one published post
+  ); // type: User[]: the users with at least one published post
   writers.length; // => 2
   // #endregion filter-relation
 
@@ -215,7 +216,7 @@ export async function run(): Promise<void> {
       .groupBy(({ p }) => p.authorId)
       .orderBy(({ p }) => p.authorId)
       .select(({ p }) => ({ authorId: p.authorId, posts: count(p.id) })),
-  );
+  ); // type: { authorId: number; posts: number }[]
   perAuthor.length; // => 3
   // #endregion group-by
 

@@ -81,10 +81,9 @@ and methods) unless the query has a `select`.
   (each key field's values go as one array); elsewhere, and for a key column that holds
   arrays or JSON, in statements of at most 1,000 rows. The database matches the keys with
   its own equality (a decimal whose scale changed is still the same key). An array comes
-  back in the same order, with `null` for a row that is gone. The associations the row
-  had loaded are loaded again, by name, at every depth its loaded rows show; a preload
-  callback's filter, order, limit or select is not kept on a row, so it is not applied
-  again (see [Associations](/guide/associations#after-the-fact)).
+  back in the same order, with `null` for a row that is gone. What the row was preloaded
+  with is loaded again, callbacks included (see
+  [Associations](/guide/associations#after-the-fact)).
 - **A key the row cannot hold exactly is not found again**: a JavaScript `Date` holds
   milliseconds, so a row whose timestamp key has microseconds reloads as `null` (and
   `get` with that `Date` finds nothing). Avoid such keys, or reload by another column.

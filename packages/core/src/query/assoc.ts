@@ -453,14 +453,10 @@ export function assoc<S extends AnySchema, const K extends AssocKeys<S>>(
     const fields = route.childFields;
     return base.where((bindings) => {
       const binding = bindings[route.alias] as Readonly<Record<string, AnyExpr>>;
-      const columns = fields.map((field) => binding[field.name] as AnyExpr);
-      if (columns.length === 1) {
-        return (columns[0] as AnyExpr).in(keys.map((key) => key[0]) as never) as AnyExpr;
-      }
-      if (keys.length === 0) return (columns[0] as AnyExpr).in([] as never) as AnyExpr;
-      return or(
-        ...keys.map((key) => and(...(columns.map((column, i) => column.eq(key[i] as never)) as never))),
-      ) as AnyExpr;
+      return keysCondition(
+        fields.map((field) => binding[field.name] as AnyExpr),
+        keys,
+      );
     }) as PreloadQuery<S, K>;
   }
   // Many-to-many and has-through: the target's key is among those the parents reach. (A
@@ -472,7 +468,7 @@ export function assoc<S extends AnySchema, const K extends AssocKeys<S>>(
     );
   }
   const key = targetKey[0] as FieldMeta;
-  const ownerField = route.ownerFields[0] as FieldMeta;
+  const ownerFields = route.ownerFields;
   const reached = (
     from(schema, "owner") as unknown as {
       where(fn: (bindings: Readonly<Record<string, Readonly<Record<string, AnyExpr>>>>) => AnyExpr): {
@@ -488,12 +484,13 @@ export function assoc<S extends AnySchema, const K extends AssocKeys<S>>(
       };
     }
   )
-    .where(
-      (bindings) =>
-        ((bindings.owner as Readonly<Record<string, AnyExpr>>)[ownerField.name] as AnyExpr).in(
-          keys.map((each) => each[0]) as never,
-        ) as AnyExpr,
-    )
+    .where((bindings) => {
+      const owner = bindings.owner as Readonly<Record<string, AnyExpr>>;
+      return keysCondition(
+        ownerFields.map((field) => owner[field.name] as AnyExpr),
+        keys,
+      );
+    })
     .joinAssoc("owner", name, "target")
     .select((bindings) => bindings.target?.[key.name] as AnyExpr);
   return base.where(
@@ -502,6 +499,19 @@ export function assoc<S extends AnySchema, const K extends AssocKeys<S>>(
         reached as never,
       ) as AnyExpr,
   ) as PreloadQuery<S, K>;
+}
+
+/**
+ * `columns` equal to one of the key tuples: `= any(…)` for one column, an `or` of `and`s
+ * for several (every part of the key), `false` for no keys.
+ */
+function keysCondition(columns: readonly AnyExpr[], keys: readonly (readonly unknown[])[]): AnyExpr {
+  if (columns.length === 1 || keys.length === 0) {
+    return (columns[0] as AnyExpr).in(keys.map((key) => key[0]) as never) as AnyExpr;
+  }
+  return or(
+    ...keys.map((key) => and(...(columns.map((column, i) => column.eq(key[i] as never)) as never))),
+  ) as AnyExpr;
 }
 
 /** The distinct, complete key tuples of `rows` over `fields` (a tuple with a `null` part is left out). */
@@ -557,9 +567,10 @@ const PRIMITIVE_KINDS: ReadonlySet<string> = new Set([
 const DATE_KINDS: ReadonlySet<string> = new Set(["date", "timestamp", "timestamptz", "time"]);
 
 /**
- * A map from key tuples to values. A key part of a type whose values are primitives is
- * looked up in a `Map`; a `Date` by its time; any other value (bytes, decimals, custom
- * types) is compared with its type's `equal`, in a list.
+ * A map from key tuples to values. Every key part is looked up in a `Map` under a
+ * canonical primitive: a primitive as it is, a `Date` by its time, a decimal by its
+ * normalised digits (`"1.50"` and `"1.5"` are one key), bytes by their hex string. Only a
+ * value of another kind (a custom type's) is compared with its type's `equal`, in a list.
  *
  * @example
  * ```ts
@@ -607,13 +618,38 @@ function newLevel(): Level {
   return { map: new Map(), others: [] };
 }
 
+const FOUND_NOT: { readonly found: boolean; readonly key: unknown } = { found: false, key: undefined };
+
 function primitiveOf(type: AnyFieldType, value: unknown): { readonly found: boolean; readonly key: unknown } {
   const kind = type.db.kind;
   if (PRIMITIVE_KINDS.has(kind) && typeof value !== "object") return { found: true, key: value };
   if (DATE_KINDS.has(kind) && value instanceof Date) return { found: true, key: value.getTime() };
+  if (kind === "decimal" && typeof value === "string") return { found: true, key: decimalKey(value) };
+  if (kind === "binary" && value instanceof Uint8Array) return { found: true, key: hexOf(value) };
   if (typeof value !== "object" && kind !== "decimal" && kind !== "custom")
     return { found: true, key: value };
-  return { found: false, key: undefined };
+  return FOUND_NOT;
+}
+
+const DECIMAL = /^([+-]?)(\d*)(?:\.(\d*))?$/;
+
+/** The digits of a decimal without leading zeros, trailing fractional zeros or the sign of zero. */
+function decimalKey(value: string): string {
+  const match = DECIMAL.exec(value.trim());
+  if (match === null) return value;
+  // The integer part always matches (`\d*`); the fraction only after a point.
+  const whole = (match[2] as string).replace(/^0+/, "");
+  const fraction = (match[3] ?? "").replace(/0+$/, "");
+  if (whole === "" && fraction === "") return "0";
+  return `${match[1] === "-" ? "-" : ""}${whole === "" ? "0" : whole}${fraction === "" ? "" : `.${fraction}`}`;
+}
+
+const HEX = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));
+
+function hexOf(bytes: Uint8Array): string {
+  let out = "";
+  for (let i = 0; i < bytes.length; i++) out += HEX[bytes[i] as number];
+  return out;
 }
 
 function lookup(level: Level, type: AnyFieldType, value: unknown, create: boolean): unknown {

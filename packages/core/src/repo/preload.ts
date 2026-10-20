@@ -95,20 +95,24 @@ const NONE: readonly never[] = Object.freeze([]);
  * const options: PreloadOptions = { force: true, maxConcurrency: 2 };
  * ```
  */
-export interface PreloadOptions extends ReadOptions {
+export interface PreloadOptions extends Omit<ReadOptions, "schema"> {
   /** Loads the associations again even where a row has them loaded already. Default `false`. */
   readonly force?: boolean | undefined;
 }
 
 /**
- * The option keys of `repo.preload`.
+ * The option keys of `repo.preload`: those of a read, without `schema` (each row says
+ * where it was read), and `force`.
  *
  * @example
  * ```ts
  * checkReadOptions("preload", options, PRELOAD_OPTION_KEYS);
  * ```
  */
-export const PRELOAD_OPTION_KEYS: readonly string[] = Object.freeze([...READ_OPTION_KEYS, "force"]);
+export const PRELOAD_OPTION_KEYS: readonly string[] = Object.freeze([
+  ...READ_OPTION_KEYS.filter((key) => key !== "schema"),
+  "force",
+]);
 
 /**
  * Internal limits of preloading. Not public API; tests lower `chunkKeys` to exercise the
@@ -138,9 +142,17 @@ interface Run {
   readonly deadline: number | undefined;
   /** How many statements may run at once: 1 unless `maxConcurrency` says more and the repo is not on one connection. */
   readonly concurrency: number;
+  /**
+   * The call's own database schema: the root query's `.schema(…)`, else the call's
+   * `schema` option, else the repo's default. Children of parents whose schema class
+   * declares a database schema are read with it (see {@link loadSeparate}).
+   */
+  readonly schema: string | undefined;
   /** The statements running now, and those waiting for a turn. */
   active: number;
   readonly waiting: (() => void)[];
+  /** The first failure of a statement of the run: no statement starts after it. */
+  failure: { readonly error: unknown } | undefined;
 }
 
 /**
@@ -192,6 +204,7 @@ function newRun(
   named: Readonly<Record<string, unknown>> | undefined,
   options: ReadOptions | undefined,
   deadline: number | undefined,
+  schema: string | undefined,
 ): Run {
   return {
     core,
@@ -199,23 +212,43 @@ function newRun(
     options,
     deadline,
     concurrency: concurrencyOf(core, options),
+    schema,
     active: 0,
     waiting: [],
+    failure: undefined,
   };
 }
 
+/**
+ * Waits for a statement's turn. After a statement of the run failed, no other one starts:
+ * a waiting or later statement rejects with that failure (the call has already rejected
+ * with it).
+ */
 async function turn(run: Run): Promise<void> {
+  stopIfFailed(run);
   if (run.active < run.concurrency) {
     run.active++;
     return;
   }
   await new Promise<void>((resolve) => run.waiting.push(resolve));
+  stopIfFailed(run);
   run.active++;
+}
+
+function stopIfFailed(run: Run): void {
+  const failure = run.failure;
+  if (failure !== undefined) throw failure.error;
 }
 
 function done(run: Run): void {
   run.active--;
   run.waiting.shift()?.();
+}
+
+/** Records the run's first failure and wakes every waiting statement, so that none of them starts. */
+function fail(run: Run, error: unknown): void {
+  if (run.failure === undefined) run.failure = { error };
+  for (const wake of run.waiting.splice(0)) wake();
 }
 
 /** Runs sibling tasks one at a time, or concurrently when the run allows it (statements are gated by {@link turn}). */
@@ -289,17 +322,27 @@ async function execute(
     result = await core.executor.execute(plan.sql, values, shaped as ExecuteOptions);
   } catch (error) {
     if (call !== undefined) hub.emit(call, 0, undefined);
-    throw run.deadline === undefined ? error : overBudget(error, run.options);
+    const thrown = run.deadline === undefined ? error : overBudget(error, run.options);
+    fail(run, thrown);
+    throw thrown;
   } finally {
     done(run);
   }
-  if (call === undefined) return decodeRows(result.rows, decoder, constants);
+  if (call === undefined) {
+    try {
+      return decodeRows(result.rows, decoder, constants);
+    } catch (error) {
+      fail(run, error);
+      throw error;
+    }
+  }
   const start = now();
   let rows: unknown[];
   try {
     rows = decodeRows(result.rows, decoder, constants);
   } catch (error) {
     hub.emit(call, now() - start, error);
+    fail(run, error);
     throw error;
   }
   hub.emit(call, now() - start, undefined);
@@ -330,11 +373,36 @@ export async function runPreloads(
 ): Promise<unknown[]> {
   const leaf = plan.output as Extract<OutputPlan, { readonly kind: "row" }>;
   const nodes = context.ast.preloads;
-  const run = newRun(context.core, context.named, context.options, context.deadline);
+  const core = context.core;
+  const run = newRun(
+    core,
+    context.named,
+    context.options,
+    context.deadline,
+    context.ast.schema ?? context.options?.schema ?? core.schema,
+  );
   const merged = hasJoin(nodes) ? dedupe(rows as object[], leaf.meta, nodes, true) : (rows as object[]);
   await loadNodes(run, merged, leaf.meta, nodes);
+  const record: PreloadRecord = { nodes, named: context.named };
+  for (const row of merged) records.set(row, record);
   return merged;
 }
+
+/**
+ * What a row was preloaded with: the preloads (callbacks included) and the named values
+ * of the call, so that `reload` can load the same again.
+ */
+interface PreloadRecord {
+  readonly nodes: readonly PreloadNode[];
+  readonly named: Readonly<Record<string, unknown>> | undefined;
+}
+
+/**
+ * The preloads each loaded row was loaded with: a root row of a query or of
+ * `repo.preload`, and every whole row a preload loaded with preloads below it. One shared
+ * record per call and level; one entry per row.
+ */
+const records = new WeakMap<object, PreloadRecord>();
 
 const checked = new WeakSet<readonly PreloadNode[]>();
 
@@ -358,6 +426,40 @@ export function checkPreloads(schemaMeta: SchemaMeta, nodes: readonly PreloadNod
     checkPreloads(route.targetMeta, node.nested);
   }
   checked.add(nodes);
+}
+
+/**
+ * Refuses a limit or an offset (`repo.first` adds one) on a query with a to-many join
+ * preload: it would count the joined rows, not the parents, and cut a parent's children
+ * short while its type says they are loaded.
+ *
+ * @example
+ * ```ts
+ * checkJoinLimit(query.ast, meta(User), "first");
+ * ```
+ *
+ * @throws QueryError naming the association, with the separate-query form to use instead.
+ */
+export function checkJoinLimit(ast: QueryAst, schemaMeta: SchemaMeta, operation: string): void {
+  if (ast.limit === undefined && ast.offset === undefined) return;
+  const many = toManyJoin(schemaMeta, ast.preloads);
+  if (many === undefined) return;
+  const what = operation === "first" ? "repo.first() (which adds a limit)" : "a limit or an offset";
+  throw new QueryError(
+    `This query preloads "${many}" from a join, and ${what} would count the joined rows, not the parents, cutting their "${many}" short. Preload "${many}" with a separate query instead (preload("${many}"), or a callback with its own per-parent limit), or read the rows with repo.all() and no limit.`,
+  );
+}
+
+/** The name of a to-many association filled from a join, at any depth of join preloads. */
+function toManyJoin(schemaMeta: SchemaMeta, nodes: readonly PreloadNode[]): string | undefined {
+  for (const node of nodes) {
+    if (node.from === undefined) continue;
+    const route = routeOf(schemaMeta, node.assoc);
+    if (route.cardinality === "many") return node.assoc;
+    const below = toManyJoin(route.targetMeta, node.nested);
+    if (below !== undefined) return below;
+  }
+  return undefined;
 }
 
 function hasJoin(nodes: readonly PreloadNode[]): boolean {
@@ -388,7 +490,7 @@ export async function preloadRows(
   if (input === null || input === undefined) return input;
   const single = !Array.isArray(input);
   const rows = checkRows("repo.preload()", schema, single ? [input] : (input as readonly unknown[]));
-  const run = newRun(core, named, options, deadlineOf(options));
+  const run = newRun(core, named, options, deadlineOf(options), core.schema);
   const out = await preloadInto(run, rows, meta(schema), nodes, options?.force === true);
   return single ? out[0] : out;
 }
@@ -415,11 +517,12 @@ export function preloadNodesOf(
 }
 
 /**
- * The second half of `repo.reload`: loads again, on each fresh row, the associations its
- * given row had loaded, by name and at every depth the given rows show (a level whose
- * loaded values were all empty shows no deeper level). A callback's filter, order, limit
- * or select is not kept on a row, so it is not applied again; associations are loaded
- * whole, with their own `where` and `orderBy`.
+ * The second half of `repo.reload`: loads again, on each fresh row, what its given row
+ * was loaded with. A row loaded by a query, by `repo.preload` or by a preload carries a
+ * record of its preloads, callbacks included (and the call's named values), and gets
+ * exactly those again; a join preload is loaded by a separate query. A row without a
+ * record (one a write returned, with its associations kept) is reloaded with what it
+ * shows loaded, by name, to the depth its loaded rows show.
  *
  * @example
  * ```ts
@@ -433,35 +536,98 @@ export async function reloadPreloads(
   options: ReadOptions | undefined,
   deadline: number | undefined,
 ): Promise<unknown[]> {
-  const groups = new Map<SchemaMeta, number[]>();
+  // Rows of one schema reloaded with one record (or, without one, by what they show).
+  interface Group {
+    readonly schemaMeta: SchemaMeta;
+    readonly record: PreloadRecord | undefined;
+    readonly indexes: number[];
+  }
+  const groups = new Map<SchemaMeta, Map<PreloadRecord | undefined, Group>>();
   for (let i = 0; i < given.length; i++) {
     const row = given[i] as object;
-    if (fresh[i] === null || loadedNames(row, schemaMetaOf(row)).length === 0) continue;
+    if (fresh[i] === null) continue;
     const schemaMeta = schemaMetaOf(row);
-    let indexes = groups.get(schemaMeta);
-    if (indexes === undefined) {
-      indexes = [];
-      groups.set(schemaMeta, indexes);
+    const record = records.get(row);
+    if (record === undefined && loadedNames(row, schemaMeta).length === 0) continue;
+    let byRecord = groups.get(schemaMeta);
+    if (byRecord === undefined) {
+      byRecord = new Map();
+      groups.set(schemaMeta, byRecord);
     }
-    indexes.push(i);
+    let group = byRecord.get(record);
+    if (group === undefined) {
+      group = { schemaMeta, record, indexes: [] };
+      byRecord.set(record, group);
+    }
+    group.indexes.push(i);
   }
-  if (groups.size === 0) return fresh;
-  const run = newRun(core, undefined, options, deadline);
-  for (const [schemaMeta, indexes] of groups) {
-    const nodes = inferNodes(
-      schemaMeta,
-      indexes.map((i) => given[i] as object),
-    );
-    const rebuilt = await preloadInto(
-      run,
-      indexes.map((i) => fresh[i] as object),
-      schemaMeta,
-      nodes,
-      true,
-    );
-    for (let j = 0; j < indexes.length; j++) fresh[indexes[j] as number] = rebuilt[j];
+  for (const byRecord of groups.values()) {
+    for (const group of byRecord.values()) {
+      const nodes =
+        group.record === undefined
+          ? inferNodes(
+              group.schemaMeta,
+              group.indexes.map((i) => given[i] as object),
+            )
+          : separately(group.record.nodes);
+      const run = newRun(core, group.record?.named, options, deadline, options?.schema ?? core.schema);
+      const rebuilt = await preloadInto(
+        run,
+        group.indexes.map((i) => fresh[i] as object),
+        group.schemaMeta,
+        nodes,
+        true,
+      );
+      for (let j = 0; j < group.indexes.length; j++) fresh[group.indexes[j] as number] = rebuilt[j];
+    }
   }
   return fresh;
+}
+
+/** `nodes` with every join preload turned into a separate one (a reload has no join to fill it from). */
+function separately(nodes: readonly PreloadNode[]): readonly PreloadNode[] {
+  if (!nodes.some((node) => node.from !== undefined || node.nested.length > 0)) return nodes;
+  return nodes.map((node) =>
+    node.from === undefined && node.nested.length === 0
+      ? node
+      : {
+          kind: "preload",
+          assoc: node.assoc,
+          from: undefined,
+          query: node.query,
+          nested: separately(node.nested),
+        },
+  );
+}
+
+/**
+ * The preloads of a row that had `base` loaded and is now given `added`: an association
+ * in both keeps the earlier one's query (it is kept loaded) with both nested preloads,
+ * unless `replace` (a forced load), which takes the new one.
+ */
+function mergeNodes(
+  base: readonly PreloadNode[],
+  added: readonly PreloadNode[],
+  replace: boolean,
+): readonly PreloadNode[] {
+  if (base.length === 0) return added;
+  const out = base.slice();
+  for (const node of added) {
+    const at = out.findIndex((each) => each.assoc === node.assoc);
+    if (at === -1) out.push(node);
+    else if (replace) out[at] = node;
+    else {
+      const old = out[at] as PreloadNode;
+      out[at] = {
+        kind: "preload",
+        assoc: old.assoc,
+        from: old.from,
+        query: old.query,
+        nested: mergeNodes(old.nested, node.nested, false),
+      };
+    }
+  }
+  return out;
 }
 
 function schemaMetaOf(row: object): SchemaMeta {
@@ -582,6 +748,24 @@ async function preloadInto(
   force: boolean,
 ): Promise<object[]> {
   const out = withSlots(rows, schemaMeta, nodes, force);
+  // Each new row's record: what its given row had, with `nodes` added.
+  const merged = new Map<PreloadRecord, PreloadRecord>();
+  for (let i = 0; i < rows.length; i++) {
+    const before = records.get(rows[i] as object);
+    let record: PreloadRecord | undefined = before === undefined ? undefined : merged.get(before);
+    if (record === undefined) {
+      record = {
+        nodes: mergeNodes(
+          before === undefined ? inferNodes(schemaMeta, [rows[i] as object]) : before.nodes,
+          nodes,
+          force,
+        ),
+        named: before?.named ?? run.named,
+      };
+      if (before !== undefined) merged.set(before, record);
+    }
+    records.set(out[i] as object, record);
+  }
   const tasks: (() => Promise<void>)[] = [];
   for (const node of nodes) {
     const missing: object[] = [];
@@ -638,7 +822,14 @@ async function loadSeparate(
 ): Promise<void> {
   const route = routeOf(schemaMeta, node.assoc);
   const level = levelOf(route, node);
-  // Parents read from different database schemas are loaded from theirs, separately.
+  // A parent whose schema class declares a database schema was read from that one, which
+  // says nothing about where its children are: they are read with the call's schema.
+  if (schemaMeta.schema !== undefined) {
+    await loadGroup(run, parents, route, level, node, run.schema);
+    return;
+  }
+  // Other parents were read where the call put them; their children are read from there,
+  // and parents read from different database schemas separately.
   const bySchema = new Map<string | undefined, object[]>();
   for (const parent of parents) {
     const schema = (parent as { readonly [ROW]: { readonly schema: string | undefined } })[ROW].schema;
@@ -722,6 +913,8 @@ async function loadGroup(
       }
     }
     await loadNodes(run, rows, route.targetMeta, node.nested);
+    const record: PreloadRecord = { nodes: node.nested, named: run.named };
+    for (const row of rows) records.set(row, record);
   }
   attach(parents, route, children, childKeys);
 }
@@ -910,6 +1103,10 @@ function and(expr: ExprNode): BoolNode {
  */
 function keyFilter(route: AssocRoute, keys: readonly (readonly unknown[])[], arrays: boolean): ExprNode {
   const fields = route.ownerFields;
+  // A key value is hidden from logs when the field on either side is redacted.
+  const redact = fields.map(
+    (field, i) => field.redact || (route.childFields?.[i] as FieldMeta | undefined)?.redact === true,
+  );
   if (fields.length === 1) {
     const field = (route.childFields?.[0] ?? fields[0]) as FieldMeta;
     return binaryNode(
@@ -918,7 +1115,7 @@ function keyFilter(route: AssocRoute, keys: readonly (readonly unknown[])[], arr
       listNode(
         keys.map((key) => key[0]),
         field.type,
-        field.redact,
+        redact[0] as boolean,
       ),
     );
   }
@@ -932,7 +1129,7 @@ function keyFilter(route: AssocRoute, keys: readonly (readonly unknown[])[], arr
             paramNode(
               keys.map((key) => key[i]),
               arrayType(field.type),
-              field.redact,
+              redact[i] as boolean,
             ),
           ),
         ),
@@ -942,7 +1139,9 @@ function keyFilter(route: AssocRoute, keys: readonly (readonly unknown[])[], arr
     : {
         kind: "values" as const,
         columns,
-        rows: keys.map((key) => fields.map((field, i) => paramNode(key[i], field.type, field.redact))),
+        rows: keys.map((key) =>
+          fields.map((field, i) => paramNode(key[i], field.type, redact[i] as boolean)),
+        ),
         alias: "$keys",
       };
   const list = rebuild(EMPTY, {
@@ -1209,5 +1408,7 @@ function copyRow(row: object): object {
         )
   ) as Record<string, unknown>;
   for (const field of schemaMeta.fields) if (field.virtual) out[field.name] = copyValue(source[field.name]);
+  const record = records.get(row);
+  if (record !== undefined) records.set(out, record);
   return out;
 }

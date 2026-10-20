@@ -104,7 +104,10 @@ statements, run one after the other.
 - **Composite keys** are matched on every part, as a row of values.
 - Over 10,000 distinct keys, the keys are sent in statements of 10,000 (fewer where the
   database limits the number of parameters).
-- Children are read from the database schema their parents were read from.
+- Children are read from the database schema their parents were read from, unless the
+  parents' schema class declares a database schema of its own: that one says nothing
+  about the children's, which are then read with the call's (the query's `.schema(…)`,
+  else the call's `schema` option, else the repo's default).
 
 ### Callback form
 
@@ -170,6 +173,11 @@ a child first seen first), so the parent schema needs a primary key. Prefer the
 separate-query forms unless you are filtering on the join anyway: two to-many joins
 multiply each other.
 
+A `limit` or `offset` on the query counts the joined rows, not the parents, so it is
+refused (a `QueryError` before anything is sent) on a query with a to-many join preload,
+and so is `repo.first`, which adds a limit. Preload such an association with a separate
+query, whose per-parent limit is its own.
+
 ### After the fact
 
 <<< @/examples/associations.ts#after
@@ -178,15 +186,20 @@ multiply each other.
 specs as a query's `preload`. It returns **new** rows: the inputs are not changed,
 because their type is. An association already loaded on a row is skipped (nested
 preloads still apply to the rows it holds) unless `force: true`. Rows of another schema
-are refused.
+are refused. It takes no `schema` option: each row's associations are read from where
+the row was read.
 
 The schema class comes first because a row's type does not say which class it is an
 instance of, and so which associations it has. The callback runs at once, so its query
 takes values, not named parameters.
 
-`repo.reload` loads again what a row had loaded, by name, at every depth its loaded rows
-show. A callback's filter, order, limit or select is not kept on a row, so it is not
-applied again: reload, then `repo.preload(…, { force: true })` with the callback.
+`repo.reload` loads again what a row was loaded with: a row read by a query, by
+`repo.preload` or by a preload remembers its preloads, callbacks (filter, order, limit,
+select) and named values included, and gets exactly those again, at every depth, also
+below a level that was loaded empty. A join preload is loaded again by a separate query
+(the join's own conditions are not kept). A row that remembers nothing, such as one a
+write returned with its associations kept, is reloaded with the associations it shows,
+by name.
 
 ### The `Loaded` type
 

@@ -52,6 +52,7 @@ import type { AnySchema, FieldMeta, SchemaMeta } from "../contracts/schema.js";
 import { ROW } from "../contracts/schema.js";
 import { MultipleResultsError, NoResultsError, QueryError } from "../errors.js";
 import { isPlainObject } from "../internal/plain-object.js";
+import { schemaOfRow } from "../query/assoc.js";
 import {
   binaryNode,
   caseNode,
@@ -81,7 +82,14 @@ import {
   type RepoQueryEvent,
   type StreamReadOptions,
 } from "./options.js";
-import { checkPreloads, deadlineOf, reloadPreloads, runPreloads, withinBudget } from "./preload.js";
+import {
+  checkJoinLimit,
+  checkPreloads,
+  deadlineOf,
+  reloadPreloads,
+  runPreloads,
+  withinBudget,
+} from "./preload.js";
 
 const now = (): number => performance.now();
 
@@ -478,6 +486,12 @@ export interface AfterDecodeContext {
  * The stage after decoding, for queries that preload associations: it merges the parents
  * of join preloads and runs the queries of separate preloads (`preload.ts`). It is called
  * only when a row of the plan's output carries preloads.
+ *
+ * @example
+ * ```ts
+ * const rows = decodeRows(result.rows, decoder, constants);
+ * const users = await afterDecode(rows, plan, { core, ast, named, options, deadline });
+ * ```
  */
 export function afterDecode(
   rows: unknown[],
@@ -515,8 +529,11 @@ export async function load(
       ? bindParams(plan.slots, ast.params, named)
       : bindDerived(plan, info, ast, named, original ?? namedParamsOf({ ast }));
   const deadline = info.preloads ? deadlineOf(options) : undefined;
-  if (info.preloads)
-    checkPreloads((plan.output as Extract<OutputPlan, { readonly kind: "row" }>).meta, ast.preloads);
+  if (info.preloads) {
+    const rootMeta = (plan.output as Extract<OutputPlan, { readonly kind: "row" }>).meta;
+    checkPreloads(rootMeta, ast.preloads);
+    checkJoinLimit(ast, rootMeta, operation);
+  }
   const decoder = decoderFor(plan, adapter, core.codegen);
   const constants = constantsOf(ast);
   const hub = core.hub;
@@ -1262,12 +1279,6 @@ export async function raw(
 // ---------------------------------------------------------------------------
 // reload
 // ---------------------------------------------------------------------------
-
-/** The schema class of a row: the class its prototype belongs to. */
-function schemaOfRow(row: object): AnySchema | undefined {
-  const owner = (Object.getPrototypeOf(row) as { readonly constructor?: unknown } | null)?.constructor;
-  return isSchema(owner) ? owner : undefined;
-}
 
 /**
  * `repo.reload`: a fresh copy of each row, read where it was read (its `RowMeta.schema`

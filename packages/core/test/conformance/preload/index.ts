@@ -1023,6 +1023,57 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
       expect(operations(events)).toEqual(["all profiles", "preload users"]);
     });
 
+    test("children of a parent whose class declares a database schema are read with the call's", async () => {
+      if (profile.copyTableInto === undefined) return;
+      await db.exec(profile.copyTableInto("auth", "users"));
+      await db.exec(profile.copyTableInto("auth", "posts"));
+      await db.exec(
+        "insert into auth.users (id, email) values (1, 'auth@example.com'); insert into auth.posts (id, author_id, title) values (99, 1, 'Decoy')",
+      );
+      class AuthUser extends Schema(
+        "users",
+        { id: t.bigint({ mode: "number" }).primaryKey(), email: t.string() },
+        { schema: "auth" },
+      ) {
+        static posts = hasMany(() => Post, { foreignKey: "authorId", orderBy: ["id"] });
+      }
+      const { repo, events } = watched();
+      const users = await repo.all(from(AuthUser, "u").preload("posts"));
+      expect(users.map((user) => [user.email, user.posts.map((post) => post.title)])).toEqual([
+        ["auth@example.com", ["Engines", "Notes (draft)", "Loops"]],
+      ]);
+      const again = await repo.preload(AuthUser, await repo.all(AuthUser), "posts", { force: true });
+      expect(again[0]?.posts.map((post) => post.id)).toEqual([10, 11, 12]);
+      expect(events).toHaveLength(4);
+    });
+
+    test("reload loads a level that was loaded empty with what is below it", async () => {
+      const { repo } = watched();
+      const linus = await repo.oneOrThrow(
+        from(User, "u")
+          .where(({ u }) => u.id.eq(3))
+          .preload({ posts: "comments" }),
+      );
+      expect(linus.posts).toEqual([]);
+      await db.exec("insert into posts (id, author_id, title) values (50, 3, 'Kernels')");
+      try {
+        const fresh = await repo.reloadOrThrow(linus);
+        expect(fresh.posts.map((post) => [post.title, post.comments])).toEqual([["Kernels", []]]);
+      } finally {
+        await db.exec("delete from posts where id = 50");
+      }
+    });
+
+    test("repo.first and a limit refuse a to-many join preload, before anything runs", async () => {
+      const { repo, events } = watched();
+      const joined = from(User, "u").joinAssoc("u", "posts", "p").preload({ posts: "p" });
+      await expect(repo.first(joined)).rejects.toThrow(QueryError);
+      await expect(repo.all(joined.limit(2))).rejects.toThrow(
+        'Preload "posts" with a separate query instead',
+      );
+      expect(events).toEqual([]);
+    });
+
     test("Membership rows reach their org by a uuid key", async () => {
       const { repo, events } = watched();
       const memberships = await repo.all(

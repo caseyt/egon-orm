@@ -442,9 +442,9 @@ export interface Repo {
   /**
    * A fresh copy of a row, read again from the table (and database schema) it was read
    * from, or `null` when it is gone. Given an array, the copies in the same order.
-   * The associations the row had loaded are loaded again, by name, at every depth its
-   * loaded rows show; a preload callback's filter, order, limit or select is not kept on
-   * a row, so it is not applied again (use `repo.preload(…, { force: true })` for that).
+   * What the row was preloaded with is loaded again, callbacks and named values
+   * included, at every depth (a join preload by a separate query). A row that remembers
+   * no preloads (one a write returned) is reloaded with the associations it shows.
    *
    * The database matches the keys, with its own equality. Two limits:
    * - a key value the row could not hold exactly no longer equals the stored one, so such
@@ -1073,7 +1073,13 @@ class DatabaseRepo implements Repo {
         `repo.preload() runs its callback at once, so its query takes values, not named parameters (${names.map((name) => `"${name}"`).join(", ")}). Write the values into the query.`,
       );
     }
-    const options = checkReadOptions<PreloadOptions>("preload", args[0], PRELOAD_OPTION_KEYS);
+    const given = args[0];
+    if (typeof given === "object" && given !== null && Object.hasOwn(given, "schema")) {
+      throw new TypeError(
+        "repo.preload() takes no schema option: each row's associations are read from where the row was read (or, for a schema class that declares a database schema, the repo's default).",
+      );
+    }
+    const options = checkReadOptions<PreloadOptions>("preload", given, PRELOAD_OPTION_KEYS);
     if (args.length > 1) {
       throw new TypeError(
         `repo.preload(): it takes its options last, but it was given ${args.length} arguments after the spec.`,

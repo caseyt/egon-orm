@@ -1258,7 +1258,7 @@ describe("more cases", () => {
     expect(events.map((event) => event.operation)).toEqual(["all", "preload"]);
   });
 
-  test("reload: a level loaded as selected values, an empty level, and a budget", async () => {
+  test("reload: what each row was loaded with, callbacks included, under one budget", async () => {
     const { repo, driver } = fake();
     driver.respond = (sql, params) => {
       if (sql.includes('"$keys"')) {
@@ -1284,8 +1284,79 @@ describe("more cases", () => {
     const fresh = (await repo.reload([...shaped, ...linus] as object[], { timeoutMs: 5_000 })) as {
       books: unknown[];
     }[];
-    expect(fresh[0]?.books[0]).toBeInstanceOf(Book);
-    expect(tables(driver)).toEqual(["authors", "bios", "books"]);
+    // The callback's select is applied again.
+    expect(fresh[0]?.books[0]).toEqual({ authorId: 1, title: "Engines" });
+    expect(tables(driver)).toEqual(["authors", "books", "bios"]);
+  });
+
+  test("reload: a level loaded empty is loaded with its nested preloads", async () => {
+    const { repo, driver } = fake();
+    let linusHasABook = false;
+    driver.respond = (sql, params) => {
+      if (sql.includes('"$keys"')) {
+        return (params[0] as number[]).map((id, i) => ({
+          ...raw(Author, DATA.authors?.find((row) => row.id === id) ?? {}),
+          c2: i + 1,
+        }));
+      }
+      if (tableOf(sql) === "authors") return [raw(Author, { id: 3, name: "Linus" })];
+      if (tableOf(sql) === "books")
+        return linusHasABook ? [raw(Book, { id: 40, authorId: 3, title: "New" })] : [];
+      return answer(sql);
+    };
+    const [linus] = await repo.all(
+      from(Author, "a")
+        .where(({ a }) => a.id.eq(3))
+        .preload({ books: "chapters" }),
+    );
+    expect(linus?.books).toEqual([]);
+    linusHasABook = true;
+    const fresh = await repo.reloadOrThrow(linus as Author & { books: (Book & { chapters: Chapter[] })[] });
+    expect(fresh.books[0]?.chapters).toEqual([]);
+    // Reloaded again: the reloaded row carries the record too.
+    const again = await repo.reloadOrThrow(fresh);
+    expect(again.books[0]?.chapters).toEqual([]);
+  });
+
+  test("reload: a row with no record is reloaded with what it shows, as whole rows", async () => {
+    const { repo, driver } = fake();
+    driver.respond = (sql, params) =>
+      sql.includes('"$keys"')
+        ? (params[0] as number[]).map((id, i) => ({
+            ...raw(Author, DATA.authors?.find((row) => row.id === id) ?? {}),
+            c2: i + 1,
+          }))
+        : answer(sql);
+    const authorMeta = meta(Author);
+    // As a write returns a row with its associations kept: no record of how they were loaded.
+    const handMade = authorMeta.createWith(["books"])(
+      [1, "Ada"],
+      [[{ authorId: 1, title: "Engines" }]],
+      authorMeta.rowMeta("loaded", undefined),
+    ) as Author & { books: unknown[] };
+    const fresh = (await repo.reloadOrThrow(handMade)) as { books: unknown[] };
+    expect(fresh.books[0]).toBeInstanceOf(Book);
+    // Loaded rows show what is below them; an empty level shows nothing below it.
+    const [book] = await repo.all(from(Book, "b").preload("chapters"));
+    const bookMeta = meta(Book);
+    const withBook = authorMeta.createWith(["bio", "books"])(
+      [1, "Ada"],
+      [
+        null,
+        [
+          bookMeta.createWith(["chapters"])(
+            [10, 1, "Engines", null],
+            [(book as { chapters: unknown[] }).chapters],
+            bookMeta.rowMeta("loaded", undefined),
+          ),
+        ],
+      ],
+      authorMeta.rowMeta("loaded", undefined),
+    ) as Author & { books: (Book & { chapters: Chapter[] })[] };
+    driver.statements.length = 0;
+    const deeper = await repo.reloadOrThrow(withBook);
+    expect(deeper.books[0]?.chapters).toHaveLength(2);
+    expect(tables(driver)).toEqual(["authors", "bios", "books", "chapters"]);
   });
 
   test("a to-one join child present on the first row and missing on a later one is kept", async () => {
@@ -1334,5 +1405,218 @@ describe("more cases", () => {
     codes.set(["AB", "2026-01-01"], 1);
     expect(codes.get(["ab", "2026-01-01"])).toBe(1);
     expect(codes.get(["ab", "2026-01-02"])).toBeUndefined();
+    const single = new KeyIndex<number>([custom as never]);
+    single.set(["AB"], 1);
+    single.set(["CD"], 2);
+    single.set(["ab"], 3);
+    expect(single.get(["Ab"])).toBe(3);
+    expect(single.get(["cd"])).toBe(2);
+    expect(single.get(["zz"])).toBeUndefined();
+  });
+});
+
+// --- review round 1 -------------------------------------------------------------------
+
+class AuthAuthor extends Schema("authors", { id: t.integer().primaryKey() }, { schema: "auth" }) {
+  static books = hasMany(() => Book, { foreignKey: "authorId" });
+}
+
+class Rack extends Schema("racks", { region: t.string().primaryKey(), code: t.integer().primaryKey() }) {
+  static slots = hasMany(() => Slot, { foreignKey: ["rackRegion", "rackCode"] });
+  static items = hasMany(() => Item, { through: ["slots", "items"] });
+}
+
+class Slot extends Schema("slots", {
+  id: t.integer().primaryKey(),
+  rackRegion: t.string(),
+  rackCode: t.integer(),
+}) {
+  static items = hasMany(() => Item, { foreignKey: "slotId" });
+}
+
+class Item extends Schema("items", { id: t.integer().primaryKey(), slotId: t.integer() }) {}
+
+class Vault extends Schema("vaults", { id: t.integer().primaryKey().redact() }) {
+  static coins = hasMany(() => Coin, { foreignKey: "vaultId" });
+}
+
+class Coin extends Schema("coins", { id: t.integer().primaryKey(), vaultId: t.integer() }) {
+  static vault = belongsTo(() => Vault, { foreignKey: "vaultId" });
+}
+
+class Case extends Schema("cases", { a: t.integer().primaryKey(), b: t.integer().primaryKey().redact() }) {
+  static parts = hasMany(() => Part, { foreignKey: ["caseA", "caseB"] });
+}
+
+class Part extends Schema("parts", {
+  id: t.integer().primaryKey(),
+  caseA: t.integer(),
+  caseB: t.integer(),
+}) {}
+
+class Ledger extends Schema("ledgers", { amount: t.decimal().primaryKey() }) {
+  static entries = hasMany(() => Entry, { foreignKey: "amount" });
+}
+
+class Entry extends Schema("entries", { id: t.integer().primaryKey(), amount: t.decimal() }) {}
+
+describe("review round 1", () => {
+  test("children of a parent whose class declares a database schema are read with the call's", async () => {
+    const { repo, driver } = fake();
+    driver.respond = (sql) => (tableOf(sql) === "authors" ? [{ c0: 1 }] : []);
+    await repo.all(from(AuthAuthor, "a").preload("books"));
+    expect(driver.statements[0]?.sql).toContain('from "auth"."authors"');
+    expect(driver.statements[1]?.sql).toContain('from "books" as "books"');
+    await repo.all(from(AuthAuthor, "a").preload("books"), { schema: "tenant" });
+    expect(driver.statements[3]?.sql).toContain('from "tenant"."books"');
+    await repo.all(from(AuthAuthor, "a").schema("q").preload("books"));
+    expect(driver.statements[5]?.sql).toContain('from "q"."books"');
+    const scoped = fake();
+    const withDefault = createRepo({ adapter: scoped.adapter, schema: "tenant" });
+    scoped.driver.respond = (sql) => (tableOf(sql) === "authors" ? [{ c0: 1 }] : []);
+    const authors = await withDefault.all(from(AuthAuthor, "a"));
+    await withDefault.preload(AuthAuthor, authors, "books");
+    expect(scoped.driver.statements[1]?.sql).toContain('from "tenant"."books"');
+  });
+
+  test("repo.preload refuses a schema option", async () => {
+    const { repo } = fake();
+    await expect(repo.preload(Author, [], "books", { schema: "x" } as never)).rejects.toThrow(
+      "repo.preload() takes no schema option",
+    );
+  });
+
+  test("assoc() through a has-through filters on every part of a composite key", async () => {
+    const { repo, driver } = fake();
+    driver.respond = (sql) => (tableOf(sql) === "racks" ? [{ c0: "n", c1: 1 }] : []);
+    const racks = await repo.all(from(Rack, "r"));
+    driver.statements.length = 0;
+    await repo.all(assoc(Rack, racks, "items"));
+    expect(driver.statements[0]?.sql).toContain('where "owner"."region" = $1 and "owner"."code" = $2');
+    expect(driver.statements[0]?.params).toEqual(["n", 1]);
+  });
+
+  test("KeyIndex: decimals by their normalised digits, bytes by their hex", () => {
+    const decimal = meta(Ledger).fieldsByName.get("amount")?.type as never;
+    const index = new KeyIndex<number>([decimal]);
+    index.set(["1.50"], 1);
+    expect(index.get(["1.5"])).toBe(1);
+    expect(index.get(["01.500"])).toBe(1);
+    expect(index.get(["1.05"])).toBeUndefined();
+    index.set(["-0.0"], 2);
+    expect(index.get(["0"])).toBe(2);
+    expect(index.get([".0"])).toBe(2);
+    index.set(["-2.10"], 3);
+    expect(index.get(["-2.1"])).toBe(3);
+    index.set(["0.50"], 6);
+    expect(index.get([".5"])).toBe(6);
+    index.set(["NaN"], 4);
+    expect(index.get(["NaN"])).toBe(4);
+    const bytes = new KeyIndex<number>([meta(Blob).fieldsByName.get("data")?.type as never]);
+    bytes.set([new Uint8Array([0, 255])], 5);
+    expect(bytes.get([new Uint8Array([0, 255])])).toBe(5);
+    expect(bytes.get([new Uint8Array([255, 0])])).toBeUndefined();
+  });
+
+  test("a rescaled decimal key still finds its children", async () => {
+    const { repo, driver } = fake();
+    driver.respond = (sql) =>
+      tableOf(sql) === "ledgers"
+        ? [{ c0: "1.50" }]
+        : [
+            { c0: 1, c1: "1.5" },
+            { c0: 2, c1: "1.500" },
+          ];
+    const ledgers = await repo.all(from(Ledger, "l").preload("entries"));
+    expect(ledgers[0]?.entries.map((entry) => entry.id)).toEqual([1, 2]);
+  });
+
+  test("a limit, an offset or repo.first with a to-many join preload is refused before anything runs", async () => {
+    const { repo, driver } = fake();
+    const joined = from(Author, "a").leftJoinAssoc("a", "books", "b").preload({ books: "b" });
+    await expect(repo.first(joined)).rejects.toThrow(
+      "repo.first() (which adds a limit) would count the joined rows",
+    );
+    await expect(repo.all(joined.limit(1))).rejects.toThrow('preloads "books" from a join');
+    await expect(repo.all(joined.offset(1))).rejects.toThrow("a limit or an offset");
+    const deep = from(Book, "b")
+      .leftJoinAssoc("b", "author", "a")
+      .leftJoinAssoc("a", "books", "o")
+      .preload({ author: { $from: "a", books: "o" } });
+    await expect(repo.first(deep)).rejects.toThrow('preloads "books" from a join');
+    expect(driver.statements).toEqual([]);
+    // A to-one join preload, and separate preloads, may be limited.
+    driver.respond = () => [];
+    await repo.first(
+      from(Book, "b").leftJoinAssoc("b", "author", "a").preload({ author: "a", labels: true }),
+    );
+    await repo.all(from(Author, "a").preload("books").limit(1));
+    expect(driver.statements).toHaveLength(2);
+  });
+
+  test("a key is redacted when the field on either side is", async () => {
+    const lines: string[] = [];
+    const { adapter, driver } = setup();
+    const repo = createRepo({ adapter, log: { params: true } });
+    repo.on("query", (event) => lines.push(JSON.stringify(event.params)));
+    driver.respond = (sql) =>
+      tableOf(sql) === "vaults"
+        ? [{ c0: 7 }]
+        : tableOf(sql) === "coins"
+          ? [{ c0: 1, c1: 7 }]
+          : tableOf(sql) === "cases"
+            ? [{ c0: 1, c1: 2 }]
+            : [];
+    await repo.all(from(Vault, "v").preload("coins"));
+    await repo.all(from(Coin, "c").preload("vault"));
+    await repo.all(from(Case, "c").preload("parts"));
+    expect(lines).toEqual(["[]", '["**redacted**"]', "[]", '["**redacted**"]', "[]", '[[1],"**redacted**"]']);
+  });
+
+  test("after a statement fails, no waiting statement starts", async () => {
+    const { repo, driver } = fake();
+    driver.delayMs = 20;
+    driver.respond = (sql) => (tableOf(sql) === "bios" ? new Error("down") : answer(sql));
+    await expect(
+      repo.all(from(Author, "a").preload(["bio", "books", "notes"]), { maxConcurrency: 2 }),
+    ).rejects.toThrow("down");
+    // Let anything that would still start reach the driver.
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(tables(driver)).toEqual(["authors", "bios", "books"]);
+  });
+
+  test("a decoding failure stops the run too, with or without listeners", async () => {
+    const failing = defineType<number, unknown>({
+      name: "failing",
+      db: { kind: "integer" },
+      cast: () => ({ success: false }),
+      fromDb: () => {
+        throw new Error("cannot decode");
+      },
+      toDb: (value) => value,
+      equal: Object.is,
+    });
+    class Bad extends Schema("bad", {
+      id: t.integer().primaryKey(),
+      ownerId: t.integer(),
+      v: t.type(failing),
+    }) {}
+    class Holder extends Schema("holders", { id: t.integer().primaryKey() }) {
+      static bad = hasMany(() => Bad, { foreignKey: "ownerId" });
+      static more = hasMany(() => Bad, { foreignKey: "ownerId" });
+      static rest = hasMany(() => Bad, { foreignKey: "ownerId" });
+    }
+    for (const listen of [false, true]) {
+      const { adapter, driver } = setup();
+      const repo = createRepo({ adapter });
+      if (listen) repo.on("query", () => {});
+      driver.delayMs = 10;
+      driver.respond = (sql) => (tableOf(sql) === "holders" ? [{ c0: 1 }] : [{ c0: 1, c1: 1, c2: 5 }]);
+      await expect(
+        repo.all(from(Holder, "h").preload(["bad", "more", "rest"]), { maxConcurrency: 2 }),
+      ).rejects.toThrow("cannot decode");
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      expect(driver.statements).toHaveLength(3);
+    }
   });
 });

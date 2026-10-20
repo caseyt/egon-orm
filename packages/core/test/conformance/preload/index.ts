@@ -974,7 +974,13 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
       expect(await repo.count(from(Post, "p").where(({ p }) => p.id.gte(30)))).toBe(0);
     });
 
-    test("through repo.transaction, preloads run on the transaction's connection and see its writes", async () => {
+    test("through repo.transaction, preloads run on the transaction's connection and see its writes", async ({
+      onTestFinished,
+    }) => {
+      // The transaction commits the posts: remove them again for the tests after this one,
+      // whether this one passes or not (through the helper's connection, which outlives the
+      // adapters the suite closes after each test).
+      onTestFinished(() => db.exec("delete from posts where id >= 40"));
       const { repo, events } = watched();
       const result = await repo.transaction(async (tx) => {
         await tx.raw(
@@ -1003,10 +1009,8 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
         "preload tags",
         "aggregate posts",
       ]);
-      // Committed with the transaction: remove them again for the tests after this one.
-      expect(await repo.deleteAll(from(Post, "p").where(({ p }) => p.id.gte(40)))).toMatchObject({
-        count: 2,
-      });
+      // Committed with the transaction.
+      expect(await repo.count(from(Post, "p").where(({ p }) => p.id.gte(40)))).toBe(2);
     });
 
     test("many parents: the keys are sent in statements of at most chunkKeys", async () => {

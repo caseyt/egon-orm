@@ -266,9 +266,9 @@ export default defineConfig({
       },
     },
     editLink: {
-      pattern: "https://github.com/caseyt/egon-orm/edit/main/docs/site/:path",
+      pattern: "https://github.com/egon-orm/egon-orm/edit/main/docs/site/:path",
       text: "Edit this page on GitHub",
     },
-    socialLinks: [{ icon: "github", link: "https://github.com/caseyt/egon-orm" }],
+    socialLinks: [{ icon: "github", link: "https://github.com/egon-orm/egon-orm" }],
   },
 });

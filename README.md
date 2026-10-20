@@ -1,6 +1,6 @@
 # Egon ORM
 
-[![CI](https://github.com/caseyt/egon-orm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/caseyt/egon-orm/actions/workflows/ci.yml)
+[![CI](https://github.com/egon-orm/egon-orm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/egon-orm/egon-orm/actions/workflows/ci.yml)
 ![Status: under construction](https://img.shields.io/badge/status-under%20construction-orange)
 
 A TypeScript ORM for Postgres, SQLite and MySQL with **schemas**, **changesets**,

@@ -73,25 +73,25 @@ Each compiled plan gets one row decoder (`repo/hydrate.ts`), built from its outp
 - **Hot-path rules.** No `Proxy`, no per-row `defineProperty`, no spread or `delete` of row
   objects, monomorphic shapes, and anything derivable from a schema or a query shape is
   computed once and cached. The full list is in
-  [§7 of the plan](https://github.com/caseyt/egon-orm/blob/main/docs/plan/README.md#7-performance-standards)
-  and in [`CONTRIBUTING.md`](https://github.com/caseyt/egon-orm/blob/main/CONTRIBUTING.md).
+  [§7 of the plan](https://github.com/egon-orm/egon-orm/blob/main/docs/plan/README.md#7-performance-standards)
+  and in [`CONTRIBUTING.md`](https://github.com/egon-orm/egon-orm/blob/main/CONTRIBUTING.md).
 
 ## Decision records
 
 The decisions behind this design are recorded as ADRs in
-[`docs/adr/`](https://github.com/caseyt/egon-orm/tree/main/docs/adr):
+[`docs/adr/`](https://github.com/egon-orm/egon-orm/tree/main/docs/adr):
 
 | ADR | Decision |
 |---|---|
-| [0001](https://github.com/caseyt/egon-orm/blob/main/docs/adr/0001-schema-classes.md) | Schemas are classes, associations `static` members holding functions. |
-| [0002](https://github.com/caseyt/egon-orm/blob/main/docs/adr/0002-kysely-backend.md) | Kysely as a hidden SQL back end (superseded by 0003). |
-| [0003](https://github.com/caseyt/egon-orm/blob/main/docs/adr/0003-own-sql-emitter.md) | Egon emits its own SQL and wraps the drivers directly. |
-| [0004](https://github.com/caseyt/egon-orm/blob/main/docs/adr/0004-validator-non-list-result-throws.md) | A validator function that returns something other than a list throws. |
-| [0005](https://github.com/caseyt/egon-orm/blob/main/docs/adr/0005-transaction-statement-options.md) | Statement options (time limit, telemetry) on the `Connection` transaction methods; the transaction statements are `"transaction"` query events. |
-| [0006](https://github.com/caseyt/egon-orm/blob/main/docs/adr/0006-capabilities-for-tier-2-dialects.md) | Capabilities for the tier 2 dialects. |
+| [0001](https://github.com/egon-orm/egon-orm/blob/main/docs/adr/0001-schema-classes.md) | Schemas are classes, associations `static` members holding functions. |
+| [0002](https://github.com/egon-orm/egon-orm/blob/main/docs/adr/0002-kysely-backend.md) | Kysely as a hidden SQL back end (superseded by 0003). |
+| [0003](https://github.com/egon-orm/egon-orm/blob/main/docs/adr/0003-own-sql-emitter.md) | Egon emits its own SQL and wraps the drivers directly. |
+| [0004](https://github.com/egon-orm/egon-orm/blob/main/docs/adr/0004-validator-non-list-result-throws.md) | A validator function that returns something other than a list throws. |
+| [0005](https://github.com/egon-orm/egon-orm/blob/main/docs/adr/0005-transaction-statement-options.md) | Statement options (time limit, telemetry) on the `Connection` transaction methods; the transaction statements are `"transaction"` query events. |
+| [0006](https://github.com/egon-orm/egon-orm/blob/main/docs/adr/0006-capabilities-for-tier-2-dialects.md) | Capabilities for the tier 2 dialects. |
 
 ## See also
 
 - [How a query becomes SQL](/internals/compiler): the compiler and its plan cache.
 - [Extending Egon](/internals/extending): adding a type, an operator or a dialect.
-- [`CONTRIBUTING.md`](https://github.com/caseyt/egon-orm/blob/main/CONTRIBUTING.md): tooling, tests and the review loop.
+- [`CONTRIBUTING.md`](https://github.com/egon-orm/egon-orm/blob/main/CONTRIBUTING.md): tooling, tests and the review loop.

@@ -6,7 +6,7 @@ post together with its comments, a batch that publishes a post and notifies read
 tests that run each case in a transaction that is rolled back.
 
 The code on this page is the source of a working application,
-[`examples/blog`](https://github.com/caseyt/egon-orm/tree/main/examples/blog) in the
+[`examples/blog`](https://github.com/egon-orm/egon-orm/tree/main/examples/blog) in the
 repository, and its test suite runs in CI. Every block starts with the name of its file.
 You can read the page from top to bottom, or clone the repository and run it (see the
 end).

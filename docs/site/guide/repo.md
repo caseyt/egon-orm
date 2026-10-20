@@ -257,7 +257,8 @@ Bulk writes skip changesets and validation.
   the whole call) and generated values (a UUID per row) to every row. Every row is written
   with the same column list; a field a row leaves out is written as `DEFAULT`, so the
   database default applies. Large inserts are split under the database's parameter limit
-  (65,535 on Postgres) **inside one transaction**: a failure in any chunk inserts nothing.
+  (65,535 on Postgres) **inside one transaction** (a savepoint, when the call is made on a
+  transaction's `tx`): a failure in any chunk inserts nothing.
   It accepts `onConflict` (with `"nothing"`, `count` leaves out the skipped rows) and
   `returning`: `true` returns rows of the schema, a list of fields returns plain objects of
   those fields.

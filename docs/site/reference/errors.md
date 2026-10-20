@@ -29,7 +29,7 @@ try {
 | `CastError` | `cast` is given something that is not an object, or a stored value does not fit its type. | |
 | `NotLoadedError` | `castAssoc` is used on an association that was not preloaded as whole rows. | |
 | `SchemaDefinitionError` | A schema or association is defined incorrectly. | |
-| `RollbackError` | `transactionOrThrow` was rolled back with `tx.rollback(reason)`. | `reason` |
+| `RollbackError` | `transactionOrThrow` ended in a rollback: `tx.rollback(reason)`, a batch step that failed (`reason` is `{ step, error, completed }`), or a statement that failed and was not handled. | `reason` |
 | `DatabaseError` | The connection or the database failed. | `code`, `retryable` |
 
 ## `DatabaseError` codes

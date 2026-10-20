@@ -44,6 +44,8 @@ class Corner extends EmbeddedSchema({ x: t.float(), y: t.float() }) {}
 
 class Margin extends EmbeddedSchema({
   side: t.string(),
+  scan: t.binary().nullable(),
+  notes: t.array(t.string()).nullable(),
   width: t.integer().nullable(),
   corner: t.embedOne(() => Corner).nullable(),
 }) {
@@ -209,6 +211,10 @@ describe("embed fields", () => {
       >();
       // @ts-expect-error not a field of Margin
       s.margin.field("top");
+      // @ts-expect-error bytes are not read by field()
+      s.margin.field("scan");
+      // @ts-expect-error lists are not read by field()
+      s.margin.field("notes");
       // @ts-expect-error a list of embeds has no single field
       s.corners.field("x");
       // @ts-expect-error a text column is not an embed

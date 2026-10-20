@@ -24,7 +24,14 @@ type EmbedInfo<B> = B extends { readonly "~embed"?: infer I }
     : never
   : never;
 
-/** A changeset of `T` of either kind, as a `with` function may return it. */
+/**
+ * A changeset of `T` of either kind, as a `with` function may return it.
+ *
+ * @example
+ * ```ts
+ * const child: AnyChildChangeset<typeof Comment> = Comment.changeset(Comment, { body: "Hi" });
+ * ```
+ */
 export type AnyChildChangeset<T> =
   | Changeset<T & ChangesetSource, true>
   | Changeset<T & ChangesetSource, false>
@@ -86,7 +93,15 @@ export interface LooseNestedOptions {
   readonly required?: boolean;
 }
 
-/** The options argument of a nested cast: optional when the target has a static `changeset`, required (with `with`) otherwise. */
+/**
+ * The options argument of a nested cast: optional when the target has a static
+ * `changeset`, required (with `with`) otherwise; loose when the types do not know the target.
+ *
+ * @example
+ * ```ts
+ * type Args = CastNestedArgs<typeof Comment>; // [options?: CastNestedOptions<typeof Comment>]
+ * ```
+ */
 export type CastNestedArgs<T> = [T] extends [never]
   ? [options?: LooseNestedOptions]
   : T extends AnySchema

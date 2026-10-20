@@ -13,6 +13,7 @@ import type { FieldMeta } from "../../contracts/schema.js";
 import type { StandardSchemaV1Props } from "../../contracts/standard-schema.js";
 import { QueryError } from "../../errors.js";
 import { addValidation, Changeset, fieldsOf, rebuild, valueBefore } from "../changeset.js";
+import { nestedValid } from "../nested/change.js";
 import { isNestedValue } from "../nested/embed.js";
 import { leaves, type Relation, relationOf } from "../nested/relation.js";
 import type { ChangesetSource } from "../types.js";
@@ -600,7 +601,11 @@ function applyIssues<C extends AnyChangeset>(
     }
     if (list !== undefined) changes[key] = list;
   }
-  out = rebuild(out, { changes, valid: false });
+  // Valid again only if nothing is wrong anywhere: a child may have dropped every issue
+  // routed to it (scope "changed").
+  let own = true;
+  for (const key in out.errors) if (hasOwn(out.errors, key)) own = false;
+  out = rebuild(out, { changes, valid: own && nestedValid(changes) });
   return out;
 }
 

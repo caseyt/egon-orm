@@ -70,16 +70,17 @@ function embeddedRow(child: AnyChangeset, state: RowState): object {
   let stamp: unknown;
   for (const field of schemaMeta.persisted) {
     let value: unknown;
+    let made = false;
     if (hasOwn(changes, field.name)) value = embedValue(changes[field.name], state);
-    else if (data !== null) {
-      value = data[field.name];
-      if (field.autogenerate?.on === "insertAndUpdate") value = generated(field, stamp);
-    } else if (field.default === undefined && field.autogenerate !== undefined) {
+    else if (data !== null && field.autogenerate?.on !== "insertAndUpdate") value = data[field.name];
+    else if (data !== null || (field.default === undefined && field.autogenerate !== undefined)) {
       value = generated(field, stamp);
+      made = true;
     } else {
       value = initialValue(field);
     }
-    if (field.autogenerate !== undefined && value instanceof Date) stamp ??= value;
+    // Timestamps generated for one row share the first one made.
+    if (made && value instanceof Date) stamp ??= value;
     values.push(value);
   }
   const out = schemaMeta.create(values, schemaMeta.rowMeta(state, undefined)) as Record<string, unknown>;

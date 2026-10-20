@@ -26,8 +26,9 @@ import type { AnyChangeset } from "./relation.js";
  * await repo.insert(cs);
  * ```
  *
- * @throws QueryError when `parent` is not a row of `schema` with a key, or the association
- * is not a `hasOne` or `hasMany` with a foreign key.
+ * @throws QueryError when `parent` is not a row of `schema` with a key, the association
+ * is not a `hasOne` or `hasMany` with a foreign key, or `values` gives the foreign key
+ * another value.
  */
 export function buildAssoc<S extends AnySchema, const K extends AssocKeys<S>>(
   schema: S,
@@ -65,6 +66,14 @@ export function buildAssoc<S extends AnySchema, const K extends AssocKeys<S>>(
     }
     keys[field] = value;
   });
+  const given = values as Readonly<Record<string, unknown>> | undefined;
+  for (const field of assoc.relatedKey) {
+    if (given !== undefined && Object.hasOwn(given, field) && given[field] !== keys[field]) {
+      throw new QueryError(
+        `buildAssoc(): values sets ${field}, the key that points at the ${ownerMeta.name} row, to another value. Leave it out: buildAssoc sets it.`,
+      );
+    }
+  }
   let changeset = change(target as never, { ...assoc.defaults, ...keys } as never) as AnyChangeset;
   if (values !== undefined) changeset = change(changeset as never, values as never) as AnyChangeset;
   return changeset as unknown as Changeset<Target<S, K>, true>;

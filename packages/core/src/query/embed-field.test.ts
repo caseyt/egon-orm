@@ -17,6 +17,8 @@ class Place extends EmbeddedSchema({
   geo: t.embedOne(() => Geo).nullable(),
   meta: t.json<{ a: number }>().nullable(),
   ghost: t.string().virtual(),
+  photo: t.binary().nullable(),
+  tags: t.array(t.string()),
 }) {}
 
 class Venue extends Schema("venues", {
@@ -87,6 +89,8 @@ describe("field() on an embed", () => {
       expect(() => v.place.field("nope" as never)).toThrow(/no stored field "nope"/);
       expect(() => v.place.field("ghost" as never)).toThrow(/no stored field "ghost"/);
       expect(() => v.place.field(3 as never)).toThrow(/no stored field 3/);
+      expect(() => v.place.field("photo" as never)).toThrow(/bytes, stored as base64 text.*path\("photo"\)/);
+      expect(() => v.place.field("tags" as never)).toThrow(/a list, stored as a JSON array/);
       return v.id.eq(1);
     });
   });

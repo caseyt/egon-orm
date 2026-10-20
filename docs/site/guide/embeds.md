@@ -40,10 +40,18 @@ refuse an embed field and point to them.
 
 Each embedded field is written with its own type, then as JSON: a `timestamp` is stored as
 an ISO string and read back as a `Date`, a `bigint` as a string of digits, bytes as
-base64. When reading, keys that are not fields are ignored and missing keys get the
-field's default (or `null` for a nullable field). A missing key of a field that has
-neither is an error (`CastError`): give the field a default when you add it to an embed
-that already has stored rows.
+base64. A plain object written directly (by `insertAll`, say) is first made an embedded
+row: its missing fields take their defaults and generated values, its values are cast, and
+a key that is not a field is refused (`CastError`).
+
+When reading, keys that are not fields are ignored and missing keys get the field's
+default (or `null` for a nullable field); a stored `null` in a field that is not nullable
+counts as missing. A missing key of a field that has neither, or a stored value of the
+wrong JSON kind (a string where a number is expected), is an error (`CastError`): the
+database does not check what is inside a JSON column. Give a field a default when you add
+it to an embed that already has stored rows.
+
+A `.redact()` field inside an embed hides the whole embed column's value in logs.
 
 The JSON keys are the field names as written: `postCode` is stored as `"postCode"`, not
 `"post_code"`. `.column("pc")` renames one key, and `EmbeddedSchema(fields, { naming: "snake_case" })`
@@ -54,9 +62,11 @@ switches the whole embed to snake_case keys.
 <<< @/examples/embeds.ts#query
 
 `field(name)` is typed from the embed (`Expr<string>` here; nullable when the embed or the
-field is). It reads the field's JSON key, cast to the field's type, and chains into a
-nested embed: `u.card.field("point").field("lat")`. It works on `t.embedOne` fields; for a
-list, or any other JSON, use the general JSON operators `path` and `pathText`; see
+field is). It reads the field's JSON key as text, cast to the field's type where that is
+not text (a number, a boolean, a date or timestamp from its ISO string), and chains into a
+nested embed: `u.card.field("point").field("lat")`. It works on `t.embedOne` fields. Bytes
+(stored as base64) and lists (stored as JSON arrays) are refused, as are lists of embeds and
+other JSON: use the general JSON operators `path` and `pathText` for those; see
 [Expressions](/guide/query-expressions#json).
 
 ## When to use an embed

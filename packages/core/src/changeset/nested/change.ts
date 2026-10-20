@@ -127,8 +127,15 @@ function call(
 // Finishing: replaced rows, no change, validity, required
 // ---------------------------------------------------------------------------
 
-/** Whether every changeset nested in `changes` is valid. */
-function nestedValid(changes: Values): boolean {
+/**
+ * Whether every changeset nested in `changes` is valid.
+ *
+ * @example
+ * ```ts
+ * const valid = noErrors && nestedValid(cs.changes);
+ * ```
+ */
+export function nestedValid(changes: Values): boolean {
   for (const key in changes) {
     if (!hasOwn(changes, key)) continue;
     const value = changes[key];
@@ -194,6 +201,25 @@ function onReplaceError(relation: Relation, fn: string): QueryError {
   );
 }
 
+/**
+ * Refuses `onReplace: "setNull"` on a `hasOne`/`hasMany` whose foreign key cannot hold
+ * `null` (a `belongsTo` keeps the old row as it is).
+ *
+ * @throws QueryError naming the field.
+ */
+function checkSetNull(relation: Relation, fn: string): void {
+  const assoc = relation.assoc;
+  if (assoc === undefined || (assoc.kind !== "hasOne" && assoc.kind !== "hasMany")) return;
+  for (const name of assoc.relatedKey) {
+    const field = relation.targetMeta.fieldsByName.get(name) as FieldMeta;
+    if (!field.nullable) {
+      throw new QueryError(
+        `${fn}("${relation.name}"): onReplace is "setNull", but ${relation.targetMeta.name}.${name} is not nullable. Make it .nullable(), or use onReplace "delete".`,
+      );
+    }
+  }
+}
+
 /** The change that takes `row` out of a to-many relation, by its `onReplace`. */
 function replacement(relation: Relation, row: object, fn: string): AnyChangeset | undefined {
   switch (relation.onReplace) {
@@ -201,14 +227,9 @@ function replacement(relation: Relation, row: object, fn: string): AnyChangeset 
       return undefined;
     case "setNull": {
       const assoc = relation.assoc;
+      checkSetNull(relation, fn);
       let child = change(row as never) as AnyChangeset;
       for (const name of assoc?.relatedKey ?? []) {
-        const field = relation.targetMeta.fieldsByName.get(name) as FieldMeta;
-        if (!field.nullable) {
-          throw new QueryError(
-            `${fn}("${relation.name}"): onReplace is "setNull", but ${relation.targetMeta.name}.${name} is not nullable. Make it .nullable(), or use onReplace "delete".`,
-          );
-        }
         child = child.putChange(name as never, null as never) as AnyChangeset;
       }
       return withAction(child, "update");
@@ -338,8 +359,12 @@ function finishOne(
           );
         }
         break;
+      case "setNull":
+        // Done by the repo when the parent is written; the key must be able to hold null.
+        checkSetNull(relation, fn);
+        break;
       default:
-        // setNull, delete, deleteIfExists: done by the repo when the parent is written.
+        // delete, deleteIfExists: done by the repo when the parent is written.
         break;
     }
   }

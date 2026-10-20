@@ -12,6 +12,7 @@ import {
   type AssocKeys,
   belongsTo,
   buildAssoc,
+  CastError,
   type Changeset,
   ConstraintError,
   cast,
@@ -19,6 +20,7 @@ import {
   createBatch,
   createRepo,
   type DatabaseAdapter,
+  DatabaseError,
   EmbeddedSchema,
   from,
   hasMany,
@@ -682,6 +684,73 @@ export function runNestedConformance(profile: NestedConformanceProfile): void {
       const fresh = await repo.reload(written);
       expect(fresh?.labels.map((label) => label.name)).toEqual(["kept"]);
       expect(fresh?.remarks.map((remark) => remark.body)).toEqual(["new", "after"]);
+    });
+
+    // --- review round 1 ---------------------------------------------------------------
+
+    describe("review round 1", () => {
+      test("a child failing two levels down rolls everything back and comes back in place", async () => {
+        const { repo } = watched();
+        await repo.insertOrThrow(change(Label, { name: "taken" }));
+        const result = await repo.insert(
+          cast(Writer, { email: "deep2@example.com", posts: [{ title: "ok" }, { title: "clash" }] }, [
+            "email",
+          ]).castAssoc("posts", {
+            with: (article, params, index) =>
+              Article.changeset(article, params).putAssoc(
+                "labels",
+                index === 1 ? [Label.changeset(Label, { name: "taken" })] : [],
+              ),
+          }),
+        );
+        expect(failed(result).errorMessages()).toEqual({
+          posts: [{}, { labels: [{ name: ["has already been taken"] }] }],
+        });
+        expect(await count(repo, "users")).toBe(0);
+        expect(await count(repo, "posts")).toBe(0);
+        expect(await count(repo, "tags")).toBe(1);
+      });
+
+      test("timeoutMs is one budget for every statement of a nested write", async () => {
+        const { repo } = watched();
+        const error = await rejection(
+          repo.insert(
+            change(Order, { customer: "Slow" }).putAssoc("items", [
+              { sku: "slow", qty: 1 },
+              { sku: "slow", qty: 1 },
+            ]),
+            { timeoutMs: 450 },
+          ),
+        );
+        expect(error).toBeInstanceOf(DatabaseError);
+        expect((error as DatabaseError).code).toBe("timeout");
+        expect((error as Error).message).toContain("(450 ms)");
+        expect(await count(repo, "orders")).toBe(0);
+      });
+
+      test("a stored embed value of the wrong kind, or null in a required field, is a CastError on read", async () => {
+        const { repo } = watched();
+        await db.exec(`insert into contacts (name, address) values ('Bad', '{"line": 5, "city": "C"}')`);
+        expect(await rejection(repo.all(from(Contact, "c")))).toBeInstanceOf(CastError);
+        await db.exec("delete from contacts");
+        await db.exec(`insert into contacts (name, address) values ('Null', '{"line": null, "city": "C"}')`);
+        expect(await rejection(repo.all(from(Contact, "c")))).toBeInstanceOf(CastError);
+      });
+
+      test("insertAll writes embeds that read back: generated keys filled in, unknown keys refused", async () => {
+        const { repo } = watched();
+        await repo.insertAll(Contact, [{ name: "Bulk", phones: [{ label: "home", digits: "9" } as never] }]);
+        const [stored] = await repo.all(from(Contact, "c"));
+        expect(stored?.phones[0]).toBeInstanceOf(Phone);
+        expect(stored?.phones[0]?.id).toMatch(/^[0-9a-f-]{36}$/);
+        const refused = await rejection(
+          repo.insertAll(Contact, [
+            { name: "Odd", phones: [{ label: "x", digits: "1", extra: 1 } as never] },
+          ]),
+        );
+        expect(refused).toBeInstanceOf(CastError);
+        expect(await count(repo, "contacts")).toBe(1);
+      });
     });
 
     // --- embeds -----------------------------------------------------------------------

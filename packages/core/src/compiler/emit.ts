@@ -54,6 +54,7 @@ import { QueryError } from "../errors.js";
 import { OUTER_REFS } from "../query/advanced/outer-refs.js";
 import { collectParams, IDENTIFIER } from "../query/ast.js";
 import { resolveCodec } from "../types/codec.js";
+import { hidesValues } from "../types/embed.js";
 import {
   LOCK_CLAUSES,
   lookup,
@@ -275,7 +276,13 @@ export function placeholder(ctx: EmitContext, slot: ParamSlot): string {
 export function inlineValue(ctx: EmitContext, type: AnyFieldType | undefined, redact: boolean): string {
   const index = ctx.index;
   ctx.index = index + 1;
-  return placeholder(ctx, { kind: "inline", index, toDb: toDbOf(ctx, type), redact });
+  // An embed holding a redacted field is redacted as a whole value.
+  return placeholder(ctx, {
+    kind: "inline",
+    index,
+    toDb: toDbOf(ctx, type),
+    redact: redact || hidesValues(type),
+  });
 }
 
 /**
@@ -293,7 +300,12 @@ export function namedValue(
   redact: boolean,
 ): string {
   if (typeof name !== "string" || name === "") throw new QueryError("A named parameter has no name.");
-  return placeholder(ctx, { kind: "named", name, toDb: toDbOf(ctx, type), redact });
+  return placeholder(ctx, {
+    kind: "named",
+    name,
+    toDb: toDbOf(ctx, type),
+    redact: redact || hidesValues(type),
+  });
 }
 
 /**

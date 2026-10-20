@@ -13,5 +13,8 @@ export const POSTGRES_NESTED_PROFILE: NestedConformanceProfile = {
       sku text not null, qty integer not null, constraint line_items_qty_check check (qty > 0));
     create table contacts (id bigserial primary key, name text not null, address jsonb,
       phones jsonb not null default '[]', card jsonb);
+    create function line_items_slow() returns trigger language plpgsql as $$
+      begin if new.sku = 'slow' then perform pg_sleep(0.3); end if; return new; end $$;
+    create trigger line_items_slow before insert on line_items for each row execute function line_items_slow();
   `,
 };

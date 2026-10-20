@@ -223,7 +223,15 @@ class Run {
         ? await insertRow(core, schemaMeta, parent, this.parentSettings())
         : await updateRow(core, schemaMeta, before, parent, this.parentSettings(), method);
     if (!own.success) {
-      return failure(rebuild(withAction(changeset, action), { errors: own.error.errors, valid: false }));
+      // The parent's own changes as its write left them (embed children marked can't be
+      // blank, say), with the association changes it was written without.
+      return failure(
+        rebuild(withAction(changeset, action), {
+          changes: { ...changes, ...(own.error.changes as Values) },
+          errors: own.error.errors,
+          valid: false,
+        }),
+      );
     }
     const row = own.data as Record<string, unknown>;
 

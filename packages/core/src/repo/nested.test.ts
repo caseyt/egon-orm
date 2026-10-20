@@ -72,7 +72,7 @@ class FakeDriver implements DriverWrapper {
   }
 }
 
-function setup(schema?: string) {
+function setup(schema?: string, logParams = false) {
   const driver = new FakeDriver();
   const adapter: DatabaseAdapter = createAdapter({
     dialect: "postgres",
@@ -82,7 +82,11 @@ function setup(schema?: string) {
     driverCodecs: {},
     normalizeError: (error) => error,
   });
-  const repo = createRepo(schema === undefined ? { adapter } : { adapter, schema });
+  const repo = createRepo({
+    adapter,
+    ...(schema === undefined ? {} : { schema }),
+    ...(logParams ? { log: { params: true } as const } : {}),
+  });
   const events: RepoQueryEvent[] = [];
   repo.on("query", (event) => events.push(event));
   return { repo, driver, events };
@@ -456,7 +460,7 @@ describe("nested update", () => {
     expect(verbs(driver.statements).at(-1)).toBe("rollback");
   });
 
-  test("many-to-many: new targets are inserted and linked, removed ones unlinked; keys are redacted when a side is", async () => {
+  test("many-to-many: new targets are inserted and linked, removed ones unlinked", async () => {
     const { repo, driver } = setup();
     const old = loaded(Port, { id: 1, name: "Old" });
     const kept = loaded(Port, { id: 2, name: "Kept" });
@@ -667,5 +671,115 @@ describe("nested writes, other paths", () => {
     );
     expect(result.success).toBe(false);
     expect(verbs(driver.statements)).toEqual(["begin", "rollback"]);
+  });
+});
+
+// --- review round 1 ----------------------------------------------------------------------
+
+class Fleet extends Schema("fleets", {
+  id: t.integer().primaryKey().dbGenerated(),
+  name: t.string(),
+  knot: t.embedOne(() => Knot).nullable(),
+}) {
+  static boats = hasMany(() => Boat, { foreignKey: "crewId" });
+}
+
+class Coin extends Schema("coins", { id: t.integer().primaryKey().dbGenerated(), label: t.string() }) {}
+
+class Vault extends Schema("vaults", {
+  id: t.integer().primaryKey().dbGenerated().redact(),
+  name: t.string(),
+}) {
+  static coins = manyToMany(() => Coin, {
+    joinThrough: "vault_coins",
+    joinKeys: { owner: "vault_id", target: "coin_id" },
+    onReplace: "delete",
+  });
+}
+
+class Pass extends Schema("passes", {
+  guildId: t.integer().primaryKey(),
+  sailorId: t.integer().primaryKey(),
+  stamp: t.string(),
+}) {}
+
+class Club extends Schema("clubs", { id: t.integer().primaryKey().dbGenerated(), name: t.string() }) {
+  static members = manyToMany(() => Sailor, {
+    joinThrough: () => Pass,
+    joinKeys: { owner: "guildId", target: "sailorId" },
+  });
+}
+
+class Secret extends EmbeddedSchema({ code: t.string().redact() }) {}
+
+class Locker extends Schema("lockers", {
+  id: t.integer().primaryKey().dbGenerated(),
+  secret: t.embedOne(() => Secret, { onReplace: "update" }).nullable(),
+}) {}
+
+function logged() {
+  const made = setup(undefined, true);
+  return made;
+}
+
+describe("review round 1: repo", () => {
+  test("a parent's own embed errors survive a failed nested write, with its association changes", async () => {
+    const { repo, driver } = setup();
+    const result = await repo.insert(
+      change(Fleet, { name: "F" })
+        .putAssoc("boats", [{ name: "b" }])
+        .putEmbed("knot", {} as never),
+    );
+    if (result.success) throw new Error("expected a failure");
+    expect(result.error.errorMessages()).toEqual({ knot: { name: ["can't be blank"] } });
+    expect(Array.isArray((result.error.changes as Record<string, unknown>).boats)).toBe(true);
+    expect(verbs(driver.statements)).toEqual(["begin", "rollback"]);
+  });
+
+  test("join-row keys are redacted in logs when a key field is", async () => {
+    const { repo, events } = logged();
+    await repo.insertOrThrow(change(Vault, { name: "v" }).putAssoc("coins", [{ label: "c" }]));
+    const link = events.find((event) => event.source === "vault_coins");
+    // As preloads do, a key is redacted when the field on either side is.
+    expect(link?.params).toEqual(["**redacted**", "**redacted**"]);
+    const coin = events.find((event) => event.source === "coins");
+    expect(coin?.params).toEqual(["c"]);
+  });
+
+  test("an embed holding a redacted field is redacted as a whole in logs: insert, update, insertAll", async () => {
+    const { repo, events } = logged();
+    const locker = await repo.insertOrThrow(change(Locker).putEmbed("secret", { code: "SECRET-1" }));
+    await repo.updateOrThrow(change(locker).putEmbed("secret", { code: "SECRET-2" }));
+    await repo.insertAll(Locker, [{ secret: { code: "SECRET-3" } }]);
+    expect(events.map((event) => event.params?.[0])).toEqual([
+      "**redacted**",
+      "**redacted**",
+      "**redacted**",
+    ]);
+    expect(JSON.stringify(events)).not.toContain("SECRET");
+  });
+
+  test("a join row that cannot be written fails the parent with its target in place", async () => {
+    const { repo, driver } = setup();
+    const result = await repo.insert(change(Club, { name: "c" }).putAssoc("members", [{ name: "s" }]));
+    if (result.success) throw new Error("expected a failure");
+    expect(result.error.errorMessages()).toEqual({ members: [{ stamp: ["can't be blank"] }] });
+    expect(verbs(driver.statements).at(-1)).toBe("rollback");
+  });
+
+  test("a change that is not a field or association is refused before the validity check, naming the method", async () => {
+    const { repo } = setup();
+    const crew = change(Crew, { name: "x" }).addError("name", "is bad");
+    const odd = Object.create(Object.getPrototypeOf(crew), Object.getOwnPropertyDescriptors(crew));
+    Object.defineProperty(odd, "changes", { value: { name: "x", nothing: [] } });
+    const error = await rejection(repo.insert(odd));
+    expect((error as Error).message).toMatch(/^repo\.insert\(\): the changeset holds a change of "nothing"/);
+    const row = loaded(Crew, { id: 1, name: "x" });
+    const onRow = change(row).addError("name", "is bad");
+    const odder = Object.create(Object.getPrototypeOf(onRow), Object.getOwnPropertyDescriptors(onRow));
+    Object.defineProperty(odder, "changes", { value: { name: change(Crew) } });
+    expect(((await rejection(repo.update(odder))) as Error).message).toMatch(
+      /^repo\.update\(\): the changeset of Crew/,
+    );
   });
 });

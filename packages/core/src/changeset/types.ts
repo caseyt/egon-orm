@@ -399,11 +399,17 @@ export type ValidationEntry = readonly [field: string, descriptor: Readonly<Reco
 /**
  * The errors of a changeset as `traverseErrors` returns them: for each key, the values
  * the callback made of its errors, or, for a nested changeset, its own tree (a list of
- * trees for a list of changesets).
+ * trees for a list of changesets). A key with errors of its own and children with errors
+ * keeps both: a child's tree gets a `$errors` entry with the key's own errors, and a list
+ * becomes `{ $errors, $items }`, `$items` being the list of children's trees.
  *
  * @example
  * ```ts
  * const tree: ErrorTree<string> = { title: ["can't be blank"], comments: [{}, { body: ["can't be blank"] }] };
+ * const both: ErrorTree<string> = {
+ *   comments: { $errors: ["is invalid"], $items: [{}, { body: ["can't be blank"] }] },
+ *   author: { $errors: ["does not exist"], email: ["can't be blank"] },
+ * };
  * ```
  */
 export interface ErrorTree<T> {

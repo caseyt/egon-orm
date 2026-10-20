@@ -1,11 +1,20 @@
 // Unit tests for the embed type: how embedded rows are written to JSON and read back.
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
+import type { AnySchema } from "../contracts/schema.js";
 import { IDENTITY } from "../contracts/type.js";
 import { CastError } from "../errors.js";
 import { EmbeddedSchema, meta, Schema, stateOf, t } from "../index.js";
 import { defineType } from "./define.js";
-import { dumpEmbedded, embedType, embedTypeInfo, fromBase64, loadEmbedded, toBase64 } from "./embed.js";
+import {
+  dumpEmbedded,
+  embedType,
+  embedTypeInfo,
+  fromBase64,
+  hidesValues,
+  loadEmbedded,
+  toBase64,
+} from "./embed.js";
 
 const upper = defineType<string, string>({
   name: "upper",
@@ -291,3 +300,106 @@ describe("embedType", () => {
     );
   });
 });
+
+// --- review round 1 ----------------------------------------------------------------------
+
+describe("review round 1: embed values", () => {
+  class Tick extends EmbeddedSchema({
+    id: t.uuid().primaryKey().autogenerate(),
+    label: t.string(),
+    n: t.integer().nullable(),
+    on: t.boolean().nullable(),
+    at: t.timestamp().nullable(),
+    ratio: t.float().nullable(),
+  }) {}
+  const tickMeta = meta(Tick);
+  const row = tickMeta.rowMeta("loaded", undefined);
+  const id = "66666666-6666-4666-8666-666666666666";
+
+  test("a stored value of the wrong JSON kind is a CastError naming the key", () => {
+    for (const [key, value] of [
+      ["label", 5],
+      ["n", "seven"],
+      ["on", "yes"],
+      ["ratio", "much"],
+      ["at", true],
+    ] as const) {
+      expect(() => loadEmbedded(tickMeta, { id, label: "l", [key]: value }, row)).toThrow(
+        new RegExp(`"${key}" of the embedded Tick is not`),
+      );
+    }
+    expect(loadEmbedded(tickMeta, { id, label: "l", at: 0, ratio: "Infinity" }, row)).toMatchObject({
+      at: new Date(0),
+      ratio: Number.POSITIVE_INFINITY,
+    });
+  });
+
+  test("a stored null in a field that is not nullable counts as missing", () => {
+    expect(() => loadEmbedded(tickMeta, { id, label: null }, row)).toThrow(/has null for "label"/);
+    expect(loadEmbedded(meta(Sample), { ...minimalSample(), note: null }, row)).toMatchObject({
+      note: "none",
+    });
+  });
+
+  test("a missing generated key says it was written without one", () => {
+    expect(() => loadEmbedded(tickMeta, { label: "l" }, row)).toThrow(
+      /the generated value of id: it was written without one/,
+    );
+  });
+
+  test("a plain object is written as a row: defaults, generated values, cast values; unknown keys refused", () => {
+    const type = embedType("many", () => Tick);
+    const [stored] = type.toDb([{ label: "x", n: "3" }]) as Record<string, unknown>[];
+    expect(stored?.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(stored).toMatchObject({ label: "x", n: 3, on: null });
+    expect(() => type.toDb([{ label: "x", nope: 1 }])).toThrow(/"nope" is not a field/);
+    expect(() => type.toDb([{ label: 3 }])).toThrow(/"label" is invalid/);
+    expect(() => type.toDb([{}])).toThrow(/"label" has no value/);
+    expect(() => type.toDb({})).toThrow(/must be an array/);
+    expect(() => embedType("one", () => Tick).toDb("x")).toThrow(/not an object/);
+    expect(type.equal([{ label: "x", nope: 1 }], [])).toBe(false);
+  });
+
+  test("objects a custom type writes are made JSON at any depth", () => {
+    const stamped = defineType<{ at: Date }, { at: Date; n: bigint }>({
+      name: "stamped",
+      db: { kind: "custom", sql: "jsonb" },
+      cast: (input) => ({ success: true, data: input as { at: Date } }),
+      fromDb: (stored) => ({ at: new Date(String(stored.at)) }),
+      toDb: (value) => ({ at: value.at, n: 2n }),
+    });
+    class Holder extends EmbeddedSchema({ s: t.type(stamped) }) {}
+    expect(dumpEmbedded(meta(Holder), { s: { at: new Date(0) } })).toEqual({
+      s: { at: "1970-01-01T00:00:00.000Z", n: "2" },
+    });
+  });
+
+  test("hidesValues: an embed with a redacted field at any depth", () => {
+    class Secret extends EmbeddedSchema({ pin: t.string().redact() }) {}
+    class Wallet extends EmbeddedSchema({ owner: t.string(), secret: t.embedOne(() => Secret).nullable() }) {}
+    class Plainer extends EmbeddedSchema({ x: t.string() }) {}
+    expect(hidesValues(embedType("one", () => Secret))).toBe(true);
+    expect(hidesValues(embedType("many", () => Wallet))).toBe(true);
+    expect(hidesValues(embedType("one", () => Plainer))).toBe(false);
+    expect(hidesValues(meta(Sample).fieldsByName.get("label")?.type)).toBe(false);
+    expect(hidesValues(undefined)).toBe(false);
+    // An embed that contains itself: the walk stops.
+    let tree: AnySchema = Pin;
+    class Tree extends EmbeddedSchema({ kids: t.embedMany(() => tree) }) {}
+    tree = Tree;
+    expect(hidesValues(embedType("one", () => Tree))).toBe(false);
+  });
+});
+
+function minimalSample(): Record<string, unknown> {
+  return {
+    label: "m",
+    count: 1,
+    big: 1,
+    ok: false,
+    when: "2026-01-01T00:00:00Z",
+    day: "2026-01-01",
+    amount: "0",
+    tags: [],
+  };
+}

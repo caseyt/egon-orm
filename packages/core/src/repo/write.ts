@@ -752,7 +752,7 @@ function changesetMeta(changeset: unknown, method: string): SchemaMeta {
  * written by the nested writes of `nested.ts`, in a transaction. Changes of embed fields
  * are written with the row.
  */
-function hasAssocChanges(changeset: AnyChangeset, schemaMeta: SchemaMeta): boolean {
+function hasAssocChanges(changeset: AnyChangeset, schemaMeta: SchemaMeta, method: string): boolean {
   const changes = changeset.changes as Readonly<Record<string, unknown>>;
   let nested = false;
   for (const key in changes) {
@@ -761,13 +761,13 @@ function hasAssocChanges(changeset: AnyChangeset, schemaMeta: SchemaMeta): boole
     if (field === undefined) {
       if (!schemaMeta.assocs().has(key)) {
         throw new QueryError(
-          `The changeset holds a change of "${key}", which is neither a field nor an association of ${schemaMeta.name}.`,
+          `repo.${method}(): the changeset holds a change of "${key}", which is neither a field nor an association of ${schemaMeta.name}.`,
         );
       }
       nested = true;
     } else if (isNestedValue(changes[key]) && !schemaMeta.embeds.some((embed) => embed.name === key)) {
       throw new QueryError(
-        `The changeset of ${schemaMeta.name} holds a changeset as the change of "${key}", which is not an embed field. Only embed fields and associations hold nested changesets.`,
+        `repo.${method}(): the changeset of ${schemaMeta.name} holds a changeset as the change of "${key}", which is not an embed field. Only embed fields and associations hold nested changesets.`,
       );
     }
   }
@@ -952,14 +952,16 @@ export async function insert(
       `repo.${method}() takes a changeset of a new record (made from the class, cast(${schemaMeta.name}, …)); this one is of a loaded row. Update it with repo.update(), or use repo.insertOrUpdate().`,
     );
   }
+  // Refused before anything else, as an invalid changeset is.
+  const nested = hasAssocChanges(changeset, schemaMeta, method);
   const settings = writeSettings(schemaMeta, method, options, keys);
   if (!changeset.valid) return failure(withAction(changeset, "insert"));
-  if (hasAssocChanges(changeset, schemaMeta)) {
+  if (nested) {
     return writeNested(core, repo, changeset, schemaMeta, settings, "insert", method, false);
   }
   const prepared = runPrepare(changeset, "insert", repo);
   if (!prepared.valid) return failure(prepared);
-  if (hasAssocChanges(prepared, schemaMeta)) {
+  if (hasAssocChanges(prepared, schemaMeta, method)) {
     return writeNested(core, repo, prepared, schemaMeta, settings, "insert", method, true);
   }
   return insertRow(core, schemaMeta, prepared, settings);
@@ -1181,16 +1183,17 @@ export async function update(
   const schemaMeta = changesetMeta(given, method);
   const changeset = given as AnyChangeset;
   const row = loadedRow(changeset, schemaMeta, method);
+  const nested = hasAssocChanges(changeset, schemaMeta, method);
   const settings = writeSettings(schemaMeta, method, options, keys);
   if (!changeset.valid) return failure(withAction(changeset, "update"));
-  if (hasAssocChanges(changeset, schemaMeta)) {
+  if (nested) {
     return writeNested(core, repo, changeset, schemaMeta, settings, "update", method, false) as Promise<
       Result<object, AnyChangeset>
     >;
   }
   const prepared = runPrepare(changeset, "update", repo);
   if (!prepared.valid) return failure(prepared);
-  if (hasAssocChanges(prepared, schemaMeta)) {
+  if (hasAssocChanges(prepared, schemaMeta, method)) {
     return writeNested(core, repo, prepared, schemaMeta, settings, "update", method, true) as Promise<
       Result<object, AnyChangeset>
     >;

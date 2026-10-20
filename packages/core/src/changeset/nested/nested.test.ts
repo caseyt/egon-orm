@@ -4,7 +4,17 @@
 import { describe, expect, test } from "vitest";
 import type { AnySchema, OnReplace, Row } from "../../contracts/schema.js";
 import { NotLoadedError, QueryError } from "../../errors.js";
-import { belongsTo, EmbeddedSchema, hasMany, hasOne, manyToMany, meta, Schema, t } from "../../index.js";
+import {
+  belongsTo,
+  EmbeddedSchema,
+  hasMany,
+  hasOne,
+  manyToMany,
+  meta,
+  Schema,
+  t,
+  timestamps,
+} from "../../index.js";
 import { type Changeset, cast, change, rebuild } from "../changeset.js";
 import { buildAssoc } from "./build.js";
 import { embedChanges, embedValue, missingEmbedded } from "./embed.js";
@@ -408,11 +418,14 @@ describe("castAssoc on a to-one association", () => {
     expect(() => run("error", blue, { colour: "red" })).toThrow(/onReplace is "error"/);
     const invalid = run("invalid", blue, { colour: "red" });
     expect(invalid.errors.cover).toEqual([{ message: "is invalid", validation: "replace", meta: {} }]);
-    for (const mode of ["delete", "deleteIfExists", "setNull"] as const) {
+    for (const mode of ["delete", "deleteIfExists"] as const) {
       const cs = run(mode, blue, { colour: "red" });
-      expect((cs.changes.cover as AnyCs).action).toBe("insert");
+      expect((nestedOf(cs, "cover") as AnyCs).action).toBe("insert");
       expect(cs.valid).toBe(true);
     }
+    // Cover.novelId is not nullable: setNull is refused here, not when the parent is saved.
+    expect(() => run("setNull", blue, { colour: "red" })).toThrow(/Cover\.novelId is not nullable/);
+    expect(() => run("setNull", blue, null)).toThrow(/is not nullable/);
   });
 
   test("onReplace update reuses the child whatever its id", () => {
@@ -838,5 +851,91 @@ describe("embedded rows", () => {
     expect(() => change(loaded(Shelf, { id: 1, room: "r" })).putAssoc("x" as never, null as never)).toThrow(
       /It has none/,
     );
+  });
+});
+
+// --- review round 1 ----------------------------------------------------------------------
+
+describe("review round 1: changesets", () => {
+  test("setNull on a to-many association with a key that cannot be null is refused at cast", () => {
+    class Holder extends Schema("holders", { id: t.integer().primaryKey() }) {
+      static plain = hasMany(() => Plain, { foreignKey: "looseId", onReplace: "setNull" });
+    }
+    const holder = loaded(Holder, { id: 1 }, { plain: [loaded(Plain, { id: 2, looseId: 1, body: "b" })] });
+    expect(() => change(holder).putAssoc("plain", [])).toThrow(/Plain\.looseId is not nullable/);
+  });
+
+  test("a parent whose routed issues were all dropped by its children stays valid", () => {
+    const Book = bookWith("delete");
+    const page = loaded(Page, { id: 1, bookId: 7, text: "same" });
+    const book = loaded(Book, { id: 7, title: "B" }, { pages: [page] });
+    const cs = cast(book, { title: "v2", pages: [{ id: 1, text: "same" }, { text: "new" }] }, ["title"])
+      .castAssoc("pages")
+      .validate(() => [{ path: ["pages", 0, "text"], message: "is dropped" }], { scope: "changed" });
+    expect(cs.errorMessages()).toEqual({});
+    expect(cs.valid).toBe(true);
+    const kept = cast(book, { pages: [{ id: 1, text: "other" }] }, [])
+      .castAssoc("pages")
+      .validate(() => [{ path: ["pages", 0, "text"], message: "is kept" }], { scope: "changed" });
+    expect(kept.valid).toBe(false);
+  });
+
+  test("buildAssoc refuses values that give the foreign key another value", () => {
+    const Book = bookWith("delete");
+    const book = loaded(Book, { id: 7, title: "B" });
+    expect(() => buildAssoc(Book, book, "pages", { bookId: 8, text: "x" })).toThrow(/sets bookId/);
+    expect(buildAssoc(Book, book, "pages", { bookId: 7, text: "x" }).changes).toEqual({
+      bookId: 7,
+      text: "x",
+    });
+  });
+
+  test("an updated embedded item regenerates what is generated on every write, keeps what is generated once", () => {
+    class Entry extends EmbeddedSchema({ note: t.string(), ...timestamps() }) {}
+    class Journal extends Schema("journals", {
+      id: t.integer().primaryKey(),
+      entries: t.embedMany(() => Entry),
+    }) {}
+    const old = new Date("2020-01-01T00:00:00.000Z");
+    const entry = loaded(Entry, { note: "a", createdAt: old, updatedAt: old });
+    const journal = loaded(Journal, { id: 1, entries: [entry] });
+    const cs = change(journal).putEmbed("entries", [change(entry, { note: "b" })]);
+    const [row] = embedValue(cs.changes.entries, "built") as Entry[];
+    expect(row?.createdAt).toEqual(old);
+    expect(row?.updatedAt.getTime()).toBeGreaterThan(old.getTime());
+    const fresh = embedValue(
+      change(Journal).putEmbed("entries", [{ note: "n" }]).changes.entries,
+      "built",
+    ) as Entry[];
+    expect(fresh[0]?.createdAt.getTime()).toBe(fresh[0]?.updatedAt.getTime());
+  });
+});
+
+describe("review round 1: more branches", () => {
+  test("casting an association again with nothing changed removes the earlier change", () => {
+    const Book = bookWith("delete");
+    const page = loaded(Page, { id: 1, bookId: 7, text: "one" });
+    const book = loaded(Book, { id: 7, title: "B" }, { pages: [page] });
+    const first = cast(book, { pages: [{ id: 1, text: "two" }] }, []).castAssoc("pages");
+    expect(Object.keys(first.changes)).toEqual(["pages"]);
+    const again = cast(first, { pages: [{ id: 1, text: "one" }] }, []).castAssoc("pages");
+    expect(again.changes).toEqual({});
+  });
+
+  test("a keyless embedded item is compared with the stored one using the fields' defaults", () => {
+    class Line extends EmbeddedSchema({ text: t.string(), size: t.integer().default(1) }) {
+      static changeset(line: Line | typeof Line, params: unknown) {
+        return cast(line, params, ["text", "size"]);
+      }
+    }
+    class Poster extends Schema("posters", {
+      id: t.integer().primaryKey(),
+      lines: t.embedMany(() => Line),
+    }) {}
+    const poster = loaded(Poster, { id: 1, lines: [loaded(Line, { text: "a", size: 1 })] });
+    expect(cast(poster, { lines: [{ text: "a" }] }, []).castEmbed("lines").changes).toEqual({});
+    expect(
+      Object.keys(cast(poster, { lines: [{ text: "a", size: 2 }] }, []).castEmbed("lines").changes),
+    ).toEqual(["lines"]);
   });
 });

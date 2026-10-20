@@ -410,9 +410,17 @@ type NotJson = string | number | bigint | boolean | Date | Uint8Array;
 /** `this` for `field`: an expression that may hold one embedded row (not a list). */
 type EmbedExpr<T> = [NonNullable<T>] extends [NotJson | readonly unknown[]] ? never : Expr<T, SomeParams>;
 
-/** The field names of the embedded row type `T`: its properties that are not functions. */
+/**
+ * The field names of the embedded row type `T` that `field()` reads: its properties that
+ * are not functions, bytes or lists (those are stored as base64 text and JSON arrays, which
+ * no SQL cast reads back: use `path()`). A getter cannot be told from a field here.
+ */
 type EmbedKey<T> = {
-  [K in keyof NonNullable<T>]-?: NonNullable<T>[K] extends (...args: never[]) => unknown ? never : K;
+  [K in keyof NonNullable<T>]-?: NonNullable<T>[K] extends (...args: never[]) => unknown
+    ? never
+    : NonNullable<NonNullable<T>[K]> extends Uint8Array | readonly unknown[]
+      ? never
+      : K;
 }[keyof NonNullable<T>] &
   string;
 
@@ -1996,6 +2004,11 @@ function embedField(value: AnyExpr, name: unknown): AnyExpr {
     );
   }
   const kind = field.type.db.kind;
+  if (kind === "binary" || kind === "array") {
+    throw new QueryError(
+      `field(): ${embedded.name}.${field.name} is ${kind === "binary" ? "bytes, stored as base64 text" : "a list, stored as a JSON array"}, which field() cannot read as its type. Read it with path("${field.column}") instead.`,
+    );
+  }
   const redact = value.redact || field.redact;
   const json = JSON_KINDS.has(kind) && kind !== "custom";
   const read = jsonPath(

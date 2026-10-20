@@ -201,22 +201,50 @@ function driverValueOf(json: unknown, db: DbType, key: string, schemaMeta: Schem
       return bytes;
     }
     case "float":
-      return typeof json === "string" && (json === "NaN" || json === "Infinity" || json === "-Infinity")
-        ? Number(json)
-        : json;
+      if (typeof json === "number") return json;
+      if (json === "NaN" || json === "Infinity" || json === "-Infinity") return Number(json);
+      throw unreadable("a number", key, schemaMeta);
     case "array": {
       if (!Array.isArray(json)) throw unreadable("a list", key, schemaMeta);
       const of = db.of;
       return json.map((item: unknown) => (item === null ? null : driverValueOf(item, of, key, schemaMeta)));
     }
-    default:
+    default: {
+      const expected = JSON_KINDS[db.kind];
+      if (expected !== undefined && typeof json !== expected) {
+        throw unreadable(expected === "number" ? "a number" : `a ${expected}`, key, schemaMeta);
+      }
       return json;
+    }
   }
 }
+
+/** The JSON type the stored value of a column kind must have; kinds not listed take any JSON value. */
+const JSON_KINDS: Readonly<Record<string, "number" | "string" | "boolean">> = {
+  integer: "number",
+  text: "string",
+  uuid: "string",
+  date: "string",
+  time: "string",
+  decimal: "string",
+  boolean: "boolean",
+};
 
 // ---------------------------------------------------------------------------
 // Dumping and loading one embedded row
 // ---------------------------------------------------------------------------
+
+function missingKey(schemaMeta: SchemaMeta, slot: Slot, isNull: boolean): CastError {
+  const what = `A stored ${schemaMeta.name} has ${isNull ? `null for "${slot.key}"` : `no "${slot.key}"`}`;
+  if (slot.field.autogenerate !== undefined) {
+    return new CastError(
+      `${what}, the generated value of ${slot.field.name}: it was written without one (not through a changeset or insertAll).`,
+    );
+  }
+  return new CastError(
+    `${what}, and the field ${slot.field.name} has no default and is not nullable. Give it a .default(…) (or make it .nullable()) so that rows stored before it existed can be read.`,
+  );
+}
 
 /** The value a field takes when it is missing: its default, else `null` when nullable, else `undefined`. */
 function missingValue(field: FieldMeta): unknown {
@@ -278,13 +306,10 @@ export function loadEmbedded(schemaMeta: SchemaMeta, json: unknown, rowMeta: Row
   for (let i = 0; i < slots.length; i++) {
     const slot = slots[i] as Slot;
     const raw = hasOwn(stored, slot.key) ? stored[slot.key] : undefined;
-    if (raw === undefined) {
+    // A stored null on a field that is not nullable counts as missing.
+    if (raw === undefined || (raw === null && !slot.field.nullable)) {
       const value = missingValue(slot.field);
-      if (value === undefined) {
-        throw new CastError(
-          `A stored ${schemaMeta.name} has no "${slot.key}", and the field ${slot.field.name} has no default and is not nullable. Give it a .default(…) (or make it .nullable()) so that rows stored before it existed can be read.`,
-        );
-      }
+      if (value === undefined) throw missingKey(schemaMeta, slot, raw === null);
       values[i] = value;
       continue;
     }
@@ -299,26 +324,64 @@ export function loadEmbedded(schemaMeta: SchemaMeta, json: unknown, rowMeta: Row
 }
 
 // ---------------------------------------------------------------------------
+// Redaction
+// ---------------------------------------------------------------------------
+
+const hidden = new WeakMap<AnyFieldType, boolean>();
+
+/**
+ * Whether a value of `type` must be redacted in logs because it is an embed whose schema
+ * has a redacted field, at any depth (the column itself need not be redacted). Worked
+ * out once per type, when first asked (the embedded class may be defined later).
+ *
+ * @example
+ * ```ts
+ * hidesValues(meta(User).fieldsByName.get("card").type); // true when Card has a .redact() field
+ * ```
+ */
+export function hidesValues(type: AnyFieldType | undefined): boolean {
+  if (type === undefined) return false;
+  const known = hidden.get(type);
+  if (known !== undefined) return known;
+  const info = infos.get(type);
+  if (info === undefined) return false;
+  // Set first: an embed that contains itself stops here.
+  hidden.set(type, false);
+  const fields = meta(info.schema()).persisted;
+  const answer = fields.some((field) => field.redact || hidesValues(field.type));
+  hidden.set(type, answer);
+  return answer;
+}
+
+// ---------------------------------------------------------------------------
 // The type
 // ---------------------------------------------------------------------------
 
-/** The value of every field of an embedded row, as `cast` makes it from input. */
-function castRow(schema: AnySchema, schemaMeta: SchemaMeta, input: unknown): object | undefined {
-  if (typeof input !== "object" || input === null || Array.isArray(input)) return undefined;
+/**
+ * An embedded row from input: a row of the class as it is, or a plain object whose keys
+ * are fields, each value cast with its field's type; a missing field takes its default or
+ * its generated value (`.autogenerate()`). A string says what is wrong instead.
+ */
+function rowFrom(schema: AnySchema, schemaMeta: SchemaMeta, input: unknown): object | string {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return "it is not an object";
   if (Object.getPrototypeOf(input) === schema.prototype) return input;
-  if (!isPlainObject(input)) return undefined;
+  if (!isPlainObject(input)) return "it is not a plain object";
   const given = input as Readonly<Record<string, unknown>>;
-  for (const key of Object.keys(given)) if (!schemaMeta.fieldsByName.has(key)) return undefined;
+  for (const key of Object.keys(given)) {
+    if (!schemaMeta.fieldsByName.has(key)) return `"${key}" is not a field`;
+  }
   const values: unknown[] = [];
   for (const field of schemaMeta.persisted) {
     let value = given[field.name];
-    if (value === undefined) value = missingValue(field);
-    else if (value !== null) {
+    if (value === undefined) {
+      value = missingValue(field);
+      if (value === undefined && field.autogenerate !== undefined) value = field.autogenerate.fn();
+    } else if (value !== null) {
       const result = field.type.cast(value);
-      if (!result.success) return undefined;
+      if (!result.success) return `"${field.name}" is invalid`;
       value = result.data;
     }
-    if (value === undefined || (value === null && !field.nullable)) return undefined;
+    if (value === undefined || (value === null && !field.nullable)) return `"${field.name}" has no value`;
     values.push(value);
   }
   return schemaMeta.create(values, schemaMeta.rowMeta("built", undefined));
@@ -329,8 +392,10 @@ function castRow(schema: AnySchema, schemaMeta: SchemaMeta, input: unknown): obj
  * use it. Its driver value is the JSON document (an object, or an array of them).
  *
  * - `cast` accepts rows of the embedded schema, and plain objects whose keys are its
- *   fields, each value cast with its field's type (a list of them for `"many"`).
- * - `toDb` writes each row as a JSON object ({@link dumpEmbedded}); `fromDb` builds rows
+ *   fields, each value cast with its field's type, missing ones taking their defaults and
+ *   generated values (a list of them for `"many"`).
+ * - `toDb` writes each row as a JSON object ({@link dumpEmbedded}), a plain object made a
+ *   row as `cast` makes it first (`CastError` when it cannot be); `fromDb` builds rows
  *   from one ({@link loadEmbedded}). A driver that hands JSON over as text is parsed.
  * - Two values are equal when their stored forms are.
  *
@@ -348,10 +413,18 @@ export function embedType(
   const schemaMeta = (): SchemaMeta => meta(schema());
   const loaded = (): RowMeta => schemaMeta().rowMeta("loaded", undefined);
   const parse = (value: unknown): unknown => (typeof value === "string" ? JSON.parse(value) : value);
+  // A plain object is made a row first (defaults, generated values, cast fields), so that
+  // what is written can be read back; one that cannot be is refused.
+  const dumpOne = (value: unknown, target: SchemaMeta): Record<string, unknown> => {
+    const row = rowFrom(schema(), target, value);
+    if (typeof row === "string") throw new CastError(`A ${target.name} cannot be written: ${row}.`);
+    return dumpEmbedded(target, row);
+  };
   const dump = (value: unknown): unknown => {
     const target = schemaMeta();
-    if (cardinality === "one") return dumpEmbedded(target, value as object);
-    return (value as readonly unknown[]).map((row) => dumpEmbedded(target, row as object));
+    if (cardinality === "one") return dumpOne(value, target);
+    if (!Array.isArray(value)) throw new CastError(`A list of ${target.name} must be an array.`);
+    return value.map((row) => dumpOne(row, target));
   };
   const type: FieldType<unknown, unknown> = Object.freeze({
     name: cardinality === "one" ? "embedOne" : "embedMany",
@@ -361,14 +434,14 @@ export function embedType(
         const target = schemaMeta();
         const model = schema();
         if (cardinality === "one") {
-          const row = castRow(model, target, input);
-          return row === undefined ? INVALID : { success: true, data: row };
+          const row = rowFrom(model, target, input);
+          return typeof row === "string" ? INVALID : { success: true, data: row };
         }
         if (!Array.isArray(input)) return INVALID;
         const rows: object[] = [];
         for (const item of input) {
-          const row = castRow(model, target, item);
-          if (row === undefined) return INVALID;
+          const row = rowFrom(model, target, item);
+          if (typeof row === "string") return INVALID;
           rows.push(row);
         }
         return { success: true, data: rows };
@@ -387,7 +460,12 @@ export function embedType(
     },
     toDb: dump,
     equal(a: unknown, b: unknown): boolean {
-      return a === b || deepEqual(dump(a), dump(b));
+      if (a === b) return true;
+      try {
+        return deepEqual(dump(a), dump(b));
+      } catch {
+        return false;
+      }
     },
   });
   infos.set(type, Object.freeze({ cardinality, schema, onReplace }));

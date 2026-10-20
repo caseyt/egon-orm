@@ -17,7 +17,8 @@ export interface NestedConformanceProfile {
    * - `orders (id <generated key>, customer text not null)`;
    * - `line_items (id <generated key>, order_id bigint not null` referencing `orders`
    *   `on delete cascade, sku text not null, qty integer not null)` with the check
-   *   constraint `line_items_qty_check` (`qty > 0`);
+   *   constraint `line_items_qty_check` (`qty > 0`), and a trigger that makes an insert of
+   *   a row whose `sku` is `'slow'` take 0.3 seconds;
    * - `contacts (id <generated key>, name text not null, address <json>, phones <json>
    *   not null default '[]', card <json>)`.
    */

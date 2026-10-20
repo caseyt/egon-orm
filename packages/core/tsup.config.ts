@@ -6,8 +6,12 @@ import { defineConfig } from "tsup";
 // (`"!dist/internal.*"` in package.json). It exists so that benchmarks, which run inside
 // the workspace, can measure the built internal utilities
 // (benchmarks/micro/internal.bench.ts) instead of the sources.
+//
+// The third entry is the public subpath `egon-orm/migration` (step 18). The entries share
+// their modules through chunks (`splitting: true`), so that `egon-orm` and
+// `egon-orm/migration` have one copy of every class (the errors, `Expr`) between them.
 export default defineConfig({
-  entry: { index: "src/index.ts", internal: "src/internal/index.ts" },
+  entry: { index: "src/index.ts", migration: "src/migration/index.ts", internal: "src/internal/index.ts" },
   // ESM only (decision D14): no CommonJS build. A CommonJS project loads the package with
   // `require()` of an ES module, which Node supports from 22.12.
   format: ["esm"],
@@ -20,6 +24,6 @@ export default defineConfig({
   dts: { compilerOptions: { ignoreDeprecations: "6.0" } },
   sourcemap: true,
   clean: true,
-  splitting: false,
+  splitting: true,
   treeshake: true,
 });

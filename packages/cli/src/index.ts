@@ -1,13 +1,9 @@
 /**
- * The version of the `@egon-orm/cli` package.
+ * `@egon-orm/cli`: the `egon` command (migrations, generators, development databases)
+ * and the helper that types its configuration file.
  *
- * Placeholder export from step 01 (foundation); the public API arrives in later steps.
- *
- * @example
- * ```ts
- * import { VERSION } from "@egon-orm/cli";
- *
- * console.log(VERSION); // "0.0.0"
- * ```
+ * @module
  */
-export const VERSION: string = "0.0.0";
+export { type CliIo, run } from "./cli.js";
+export { defineConfig, type EgonConfig, type MigrationsConfig } from "./config.js";
+export { VERSION } from "./version.js";

@@ -8,11 +8,15 @@
 const assert = require("node:assert/strict");
 const { VERSION: postgresVersion } = require("@egon-orm/postgres");
 const { VERSION: zodVersion } = require("@egon-orm/zod");
-const { VERSION, QueryError, isEgonError, success } = require("egon-orm");
+const { VERSION, QueryError, EgonError, isEgonError, success } = require("egon-orm");
+const { MigrationError } = require("egon-orm/migration");
 
 assert.match(VERSION, /^\d+\.\d+\.\d+/);
 assert.equal(postgresVersion, VERSION);
 assert.equal(zodVersion, VERSION);
+
+// The subpath `egon-orm/migration` loads the same way and shares the main entry's classes.
+assert.ok(new MigrationError("x") instanceof EgonError);
 
 // What was loaded is the one ES module build, not a CommonJS copy of it.
 const resolved = require.resolve("egon-orm");

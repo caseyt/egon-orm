@@ -224,6 +224,24 @@ describe("a CASE with no typed value nested in a coalesce that has one (review r
   });
 });
 
+describe("a NULL result before a typed one in a selected CASE (review round 3)", () => {
+  test("takes the type of the result beside it", async () => {
+    const rows = await repo.all(
+      from(User, "u")
+        .orderBy(({ u }) => u.id)
+        .select(({ u }) => ({
+          age: caseWhen(u.age.gt(20), val(null)).else(u.age),
+          typed: caseWhen(u.id.eq(1), val(null)).else(val(3, t.integer())),
+          plain: caseWhen(u.id.eq(1), null).else(val(3, t.integer())),
+        })),
+    );
+    expect(rows).toEqual([
+      { age: null, typed: null, plain: null },
+      { age: 15, typed: 3, plain: 3 },
+    ]);
+  });
+});
+
 describe("untyped values with widened types", () => {
   test("val('b').gt('a') and val(34).eq(u.age) run", async () => {
     const all = await repo.all(

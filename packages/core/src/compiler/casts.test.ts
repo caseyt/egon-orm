@@ -293,3 +293,42 @@ describe("a CASE or coalesce with no typed value nested in one that has a typed 
     );
   });
 });
+
+describe("a NULL or untyped value beside a CASE result with a type (review round 3)", () => {
+  test("a NULL before a typed value is left to it", () => {
+    const nullFirst = caseNode([{ when: literalNode(true), result: untyped(null) }], typed(3));
+    expect(compile(selecting(nullFirst)).sql).toBe(
+      'select case when true then $1 else cast($2 as integer) end as "c0" from "users" as "u"',
+    );
+    const literalFirst = caseNode([{ when: literalNode(true), result: literalNode(null) }], typed(3));
+    expect(compile(selecting(literalFirst)).sql).toBe(
+      'select case when true then null else cast($1 as integer) end as "c0" from "users" as "u"',
+    );
+  });
+
+  test("a NULL before a column is left to it", () => {
+    const nullFirst = caseNode([{ when: literalNode(true), result: untyped(null) }], col("u", "age"));
+    expect(compile(selecting(nullFirst)).sql).toBe(
+      'select case when true then $1 else "u"."age" end as "c0" from "users" as "u"',
+    );
+  });
+
+  test("through the builder, the three forms", () => {
+    const users = from(User, "u");
+    const q = users.select(({ u }) => ({
+      a: caseWhen(lit(true), val(null)).else(val(3, t.integer())),
+      b: caseWhen(lit(true), null).else(val(3, t.integer())),
+      c: caseWhen(u.age.gt(1), val(null)).else(u.age),
+    }));
+    expect(compile(q.ast).sql).toBe(
+      'select case when true then $1 else cast($2 as integer) end as "c0", case when true then $3 else cast($4 as integer) end as "c1", case when "u"."age" > $5 then $6 else "u"."age" end as "c2" from "users" as "u"',
+    );
+  });
+
+  test("a nested CASE with no typed value takes a column result's type", () => {
+    const nested = caseNode([{ when: literalNode(true), result: untypedCase(1) }], col("u", "age"));
+    expect(compile(selecting(nested)).sql).toBe(
+      'select case when true then cast(case when true then $1 end as integer) else "u"."age" end as "c0" from "users" as "u"',
+    );
+  });
+});

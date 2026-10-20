@@ -165,7 +165,9 @@ it yourself:
 In a `select`, a value with no type is read back as text, so only a string or `null` may
 go without one: `val(5)`, `val(true)` and `caseWhen(c, 1)` in a `select` do not compile
 (and throw `QueryError` if the types are bypassed). Give the value a type,
-`val(5, t.integer())`, or give the `CASE` a typed first branch.
+`val(5, t.integer())`, or give the `CASE` a typed first branch: the plain values of later
+branches then take its type. A `null` branch needs no type wherever it is, since a typed
+branch or a column beside it types it: `caseWhen(u.age.gt(20), null).else(u.age)`.
 
 Outside a `select` the same rule holds wherever both sides of an operator are values you
 pass: `val(10, t.integer()).gt(9)` and `val(3, t.integer()).add(1)` work, while

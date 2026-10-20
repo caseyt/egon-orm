@@ -523,10 +523,15 @@ function custom(ctx: Ctx, frame: Frame, node: never): string {
 }
 
 function typeName(ctx: Ctx, type: AnyFieldType): string {
+  return sqlTypeName(ctx.dialect, dbTypeOf(type));
+}
+
+/** The database type of a field type, checked: a hand-built tree may hold anything. */
+function dbTypeOf(type: AnyFieldType): DbType {
   if (typeof type !== "object" || type === null || typeof type.db !== "object" || type.db === null) {
     throw new QueryError("A cast has no column type to cast to.");
   }
-  return sqlTypeName(ctx.dialect, type.db);
+  return type.db;
 }
 
 function unary(ctx: Ctx, frame: Frame, op: UnaryOp, inner: ExprNode): string {
@@ -641,21 +646,23 @@ function boundOperand(
   node: ExprNode,
   where: string,
   typed: boolean,
-  type: AnyFieldType | undefined,
+  type: DbType | undefined,
 ): string {
   if (type !== undefined && isBoundCompound(node) && hasNoType(node)) {
-    return `cast(${expr(ctx, frame, node)} as ${typeName(ctx, type)})`;
+    return `cast(${expr(ctx, frame, node)} as ${sqlTypeName(ctx.dialect, type)})`;
   }
   return selectedValue(ctx, frame, node, where, typed);
 }
 
 /**
- * The type of the first typed value in `node`, a node for which {@link noSqlType} holds:
- * a typed parameter or list, or one among the results of a `CASE` or the arguments of a
- * `coalesce`. `undefined` when it has none.
+ * The database type of the first typed value in `node`: a typed parameter or list, or one
+ * among the results of a `CASE` or the arguments of a `coalesce`, at any depth.
+ * `undefined` when it has none.
  */
-function firstType(node: ExprNode): AnyFieldType | undefined {
-  if (node.kind === "param" || node.kind === "namedParam" || node.kind === "list") return node.type;
+function firstType(node: ExprNode): DbType | undefined {
+  if (node.kind === "param" || node.kind === "namedParam" || node.kind === "list") {
+    return node.type === undefined ? undefined : dbTypeOf(node.type);
+  }
   if (node.kind === "case") {
     for (const branch of node.whens) {
       const type = firstType(branch.result);
@@ -663,7 +670,7 @@ function firstType(node: ExprNode): AnyFieldType | undefined {
     }
     return node.else === undefined ? undefined : firstType(node.else);
   }
-  if (node.kind === "fn") {
+  if (node.kind === "fn" && node.name === "coalesce") {
     for (const arg of node.args) {
       const type = firstType(arg);
       if (type !== undefined) return type;
@@ -683,7 +690,7 @@ function inExpr(ctx: Ctx, frame: Frame, positive: boolean, left: ExprNode, right
       ctx.index += valuesIn(left) + 1;
       return positive ? "false" : "true";
     }
-    const subject = boundOperand(ctx, frame, left, where, typed, firstType(left) ?? right.type);
+    const subject = boundOperand(ctx, frame, left, where, typed, firstType(left) ?? firstType(right));
     if (ctx.dialect.capabilities.arrayParams) {
       const list = listValue(ctx, right, textWhere);
       return positive ? `${subject} = any(${list})` : `${subject} <> all(${list})`;
@@ -866,13 +873,25 @@ function caseExpr(
 ): string {
   if (node.whens.length === 0) throw new QueryError("A CASE has no WHEN branch.");
   const where = selected === undefined ? undefined : `a result of a CASE in ${selected}`;
-  // A nested CASE or coalesce with no typed value takes the type of this one's first typed
-  // value (see boundOperand), as a coalesce's arguments do.
-  const type = where === undefined ? undefined : firstType(node);
+  // A result with a SQL type (a column, an expression, a typed value) types the others, as
+  // a coalesce's arguments do: a bare value or NULL beside it is left to it, and a nested
+  // CASE or coalesce with no typed value is cast to the first typed value's type, or else to
+  // a column result's (see boundOperand).
+  let typed = typedBySibling;
+  let type: DbType | undefined;
+  if (where !== undefined) {
+    type = firstType(node);
+    for (const branch of node.whens) {
+      if (!noSqlType(branch.result) || !hasNoType(branch.result)) typed = true;
+      if (type === undefined) type = columnType(frame, branch.result);
+    }
+    if (node.else !== undefined) {
+      if (!noSqlType(node.else) || !hasNoType(node.else)) typed = true;
+      if (type === undefined) type = columnType(frame, node.else);
+    }
+  }
   const result = (value: ExprNode) =>
-    where === undefined
-      ? expr(ctx, frame, value)
-      : boundOperand(ctx, frame, value, where, typedBySibling, type);
+    where === undefined ? expr(ctx, frame, value) : boundOperand(ctx, frame, value, where, typed, type);
   let text = "case";
   for (const branch of node.whens) {
     text += ` when ${expr(ctx, frame, branch.when)} then ${result(branch.result)}`;

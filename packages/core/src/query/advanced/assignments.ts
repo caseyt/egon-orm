@@ -77,6 +77,20 @@ function boundLeaves(node: ExprNode, out: BoundLeaf[]): BoundLeaf[] | undefined 
 }
 
 /**
+ * Whether a value written to a column must be cast to the column's field type: a `CASE`
+ * or a `coalesce` made only of bound values and `NULL`s (see {@link typedForField}). Also
+ * used by `repo.insertAll` for its cells, where the target column is the type context too.
+ *
+ * @example
+ * ```ts
+ * needsFieldType(coalesce(val(null), val("x")).node); // true
+ * ```
+ */
+export function needsFieldType(node: ExprNode): boolean {
+  return (node.kind === "case" || node.kind === "fn") && boundLeaves(node, []) !== undefined;
+}
+
+/**
  * A value assigned by `set`, cast to the field's type when it is a `CASE` or a `coalesce`
  * made only of bound values and `NULL`s, typed or not (owner decision, option A; review
  * round 4). Option A refuses a value only where nothing gives it a SQL type; in `set` the
@@ -88,7 +102,7 @@ function boundLeaves(node: ExprNode, out: BoundLeaf[]): BoundLeaf[] | undefined 
  */
 function typedForField(operand: AnyExpr, type: AnyFieldType): AnyExpr {
   const node = operand.node;
-  if ((node.kind !== "case" && node.kind !== "fn") || boundLeaves(node, []) === undefined) return operand;
+  if (!needsFieldType(node)) return operand;
   return new Expr(
     castNode(node, type),
     type,

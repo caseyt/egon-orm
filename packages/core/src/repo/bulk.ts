@@ -27,19 +27,19 @@ import { bindParams } from "../compiler/bind.js";
 import { insertChunks } from "../compiler/write.js";
 import type {
   CompiledQuery,
-  Connection,
   Executor,
   InsertCell,
   InsertSource,
   OnConflict,
   RawResult,
 } from "../contracts/adapter.js";
-import type { ExprNode, NamedParamNode, QueryAst } from "../contracts/query.js";
+import type { ExprNode, NamedParamNode, QueryAst, SelectNode, SelectShape } from "../contracts/query.js";
 import type { AnySchema, FieldMeta, FieldNames, InsertShape, SchemaMeta } from "../contracts/schema.js";
-import { DatabaseError, QueryError } from "../errors.js";
+import { QueryError } from "../errors.js";
 import { isPlainObject } from "../internal/plain-object.js";
+import { needsFieldType } from "../query/advanced/assignments.js";
 import { PreparedQuery } from "../query/advanced/prepare.js";
-import { collectParams } from "../query/ast.js";
+import { castNode, collectParams, shapeOf } from "../query/ast.js";
 import type { Expr, SomeParams } from "../query/expr.js";
 import { isExpr } from "../query/expr.js";
 import { isSchema } from "../schema/guards.js";
@@ -54,6 +54,7 @@ import {
 } from "./options.js";
 import { inputOf, type ReadCore } from "./read.js";
 import {
+  acquireWithin,
   conflictOption,
   deadlineOf,
   type OnConflictOption,
@@ -65,7 +66,6 @@ import {
 
 const NONE: readonly never[] = Object.freeze([]);
 const hasOwn = Object.hasOwn;
-const now = (): number => performance.now();
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,9 +73,10 @@ const now = (): number => performance.now();
 
 /**
  * One row of `insertAll`: the fields a new record needs (as `InsertShape` has them), each
- * given as a value or an expression of that type. A subquery is an expression too:
- * `scalar(query)`, typed `T | null` like every scalar subquery (the database refuses a
- * `NULL` in a column that takes none).
+ * given as a value or an expression of exactly that type. A subquery is an expression
+ * too: `scalar(query)` is typed `T | null`, so a non-nullable field takes it only when the
+ * caller says it cannot be null, `scalar(query).as<T>()`, or gives a fallback,
+ * `coalesce(scalar(query), value)`.
  *
  * @example
  * ```ts
@@ -83,7 +84,7 @@ const now = (): number => performance.now();
  * ```
  */
 export type InsertAllRow<S extends AnySchema> = {
-  [K in keyof InsertShape<S>]: InsertShape<S>[K] | Expr<InsertShape<S>[K] | null, SomeParams>;
+  [K in keyof InsertShape<S>]: InsertShape<S>[K] | Expr<InsertShape<S>[K], SomeParams>;
 };
 
 /** A query given where a value goes. */
@@ -135,77 +136,6 @@ export const INSERT_ALL_OPTION_KEYS: readonly string[] = Object.freeze([
 // ---------------------------------------------------------------------------
 // Transactions and budgets
 // ---------------------------------------------------------------------------
-
-/**
- * A connection from the pool within the call's budget: the wait counts against
- * `timeoutMs`, and the call's signal stops it. A connection that arrives after the call
- * gave up is returned to the pool.
- *
- * @throws DatabaseError with the code `"timeout"` or `"aborted"`.
- */
-async function acquireWithin(
-  core: ReadCore,
-  options: ReadOptions | undefined,
-  deadline: number | undefined,
-): Promise<Connection> {
-  const signal = options?.signal;
-  if (signal?.aborted === true) {
-    throw new DatabaseError("The write was not run: its AbortSignal had fired.", { code: "aborted" });
-  }
-  const pending = core.adapter.acquire();
-  if (signal === undefined && deadline === undefined) return pending;
-  return new Promise<Connection>((resolve, reject) => {
-    let settled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const done = (): void => {
-      settled = true;
-      if (timer !== undefined) clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-    };
-    const giveUp = (error: DatabaseError): void => {
-      if (settled) return;
-      done();
-      reject(error);
-    };
-    const onAbort = (): void =>
-      giveUp(
-        new DatabaseError(
-          "The write was not run: its AbortSignal fired while it waited for a free connection.",
-          {
-            code: "aborted",
-          },
-        ),
-      );
-    if (deadline !== undefined) {
-      timer = setTimeout(
-        () =>
-          giveUp(
-            new DatabaseError(
-              `The write was not run: it waited longer than its timeoutMs (${options?.timeoutMs} ms) for a free connection.`,
-              { code: "timeout" },
-            ),
-          ),
-        Math.max(0, deadline - now()),
-      );
-    }
-    signal?.addEventListener("abort", onAbort, { once: true });
-    pending.then(
-      (connection) => {
-        if (settled) {
-          void connection.release();
-          return;
-        }
-        done();
-        resolve(connection);
-      },
-      (error: unknown) => {
-        if (settled) return;
-        done();
-        reject(error);
-      },
-    );
-  });
-}
 
 /**
  * Runs `work` on one executor inside a transaction: the call's own (begin, commit,
@@ -287,34 +217,43 @@ function isQueryLike(value: unknown): value is QueryLikeValue {
 }
 
 /**
- * The cell for one given value, appending what it binds to `values`; returns how many
- * placeholders it takes. A plain value is bound with the column's type; so is an
- * expression that is just an untyped value (`val(x)`), since the column types it.
+ * Appends the cell for one value of `field` to `cells` and what it binds to `values`;
+ * returns how many placeholders it takes. The target column is the type context (option
+ * A): a plain value, and an expression that is just an untyped value (`val(x)`), are bound
+ * with the field's type; a `CASE` or `coalesce` of bound values and `NULL`s is cast to it,
+ * as `set` does.
  */
-function cellOf(
+function pushCell(
   value: unknown,
+  field: FieldMeta,
+  cells: InsertCell[],
   values: unknown[],
   names: NamedParamNode[],
-): { readonly cell: InsertCell; readonly params: number } {
+): number {
   if (isExpr(value)) {
     const node = value.node as ExprNode;
     if (node.kind === "param" && node.type === undefined) {
+      cells.push(VALUE_CELL);
       values.push(node.value);
-      return { cell: VALUE_CELL, params: 1 };
+      return 1;
     }
     if (node.kind === "namedParam") {
       names.push(node);
-      return { cell: { kind: "placeholder", name: node.name }, params: 1 };
+      cells.push({ kind: "placeholder", name: node.name });
+      return 1;
     }
-    return { cell: { kind: "expr", expr: node }, params: bindExpr(node, values, names) };
+    const typed = needsFieldType(node) ? castNode(node, field.type) : node;
+    cells.push({ kind: "expr", expr: typed });
+    return bindExpr(typed, values, names);
   }
   if (isQueryLike(value)) {
     throw new QueryError(
       "repo.insertAll(): a row holds a query as a value. A subquery that selects one value is written scalar(query), which also types it.",
     );
   }
+  cells.push(VALUE_CELL);
   values.push(value);
-  return { cell: VALUE_CELL, params: 1 };
+  return 1;
 }
 
 /** Appends an expression cell's values; returns how many placeholders it may take (lists counted whole). */
@@ -477,7 +416,7 @@ export async function insertAll(
           `repo.insertAll(): row ${r} gives a value for ${schemaMeta.name}.${field.name}, which the database owns (writable: "never").`,
         );
       }
-      used[persisted.indexOf(field)] = true;
+      used[table.positions.get(field) as number] = true;
     }
   }
   const columns: FieldMeta[] = [];
@@ -513,10 +452,8 @@ export async function insertAll(
         plain = false;
         continue;
       }
-      const cell = cellOf(value, values, names);
-      if (cell.cell !== VALUE_CELL) plain = false;
-      cells.push(cell.cell);
-      params += cell.params;
+      params += pushCell(value, field, cells, values, names);
+      if (cells[cells.length - 1] !== VALUE_CELL) plain = false;
     }
     prepared.push({ cells, values, params });
   }
@@ -582,6 +519,43 @@ function generate(shares: readonly number[], field: FieldMeta, index: number, st
   return stamps[share];
 }
 
+/** The typed copies of source queries, per query AST: a query is rewritten once. */
+const typedSources = new WeakMap<QueryAst, QueryAst>();
+
+/**
+ * The source query of `INSERT … SELECT` with each selected `CASE` or `coalesce` of bound
+ * values and `NULL`s cast to its target field's type (option A, as for the cells of
+ * `insertAll` and for `set`); the query itself when none needs it. The copy has its
+ * `params`, `listLengths` and `shape` recomputed, as the AST contract asks of hand-built
+ * queries.
+ */
+function typedSelect(
+  ast: QueryAst,
+  shape: Extract<SelectShape, { readonly kind: "object" }>,
+  columns: readonly FieldMeta[],
+): QueryAst {
+  if (!shape.values.some((value) => value.kind === "expr" && needsFieldType(value.expr))) return ast;
+  const cached = typedSources.get(ast);
+  if (cached !== undefined) return cached;
+  const values: SelectShape[] = shape.values.map((value, i) => {
+    if (value.kind !== "expr" || !needsFieldType(value.expr)) return value;
+    const type = (columns[i] as FieldMeta).type;
+    return { kind: "expr", expr: castNode(value.expr, type), type };
+  });
+  const select: SelectNode = {
+    kind: "select",
+    shape: { kind: "object", keys: shape.keys, values },
+    constants: (ast.select as SelectNode).constants,
+  };
+  const draft: QueryAst = { ...ast, select, params: NONE, listLengths: NONE, shape: 0 };
+  const params: unknown[] = [];
+  const lists: number[] = [];
+  collectParams(draft, params, lists);
+  const typed: QueryAst = { ...draft, params, listLengths: lists, shape: shapeOf(draft) };
+  typedSources.set(ast, typed);
+  return typed;
+}
+
 /** `INSERT INTO table (fields of the select) SELECT …`. */
 async function insertFromQuery(
   core: ReadCore,
@@ -616,13 +590,14 @@ async function insertFromQuery(
     }
     return field;
   });
+  const source = typedSelect(ast, shape, columns);
   const plan = core.adapter.compileInsert(
     schemaMeta,
     columns,
-    { source: { kind: "query", query: ast }, returning, onConflict: settings.onConflict },
+    { source: { kind: "query", query: source }, returning, onConflict: settings.onConflict },
     databaseSchema,
   );
-  const values: unknown[] = [...ast.params, ...settings.conflictParams];
+  const values: unknown[] = [...source.params, ...settings.conflictParams];
   const bound = bindParams(plan.slots, values, settings.placeholders);
   const done = await runWrite(
     core,

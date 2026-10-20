@@ -11,8 +11,10 @@
 import {
   type AnyFieldType,
   ConstraintError,
+  caseWhen,
   cast,
   change,
+  coalesce,
   createRepo,
   type DatabaseAdapter,
   DatabaseError,
@@ -769,7 +771,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
                 from(User, "u")
                   .where({ email: "ada@example.com" })
                   .select(({ u }) => u.id),
-              ),
+              ).as<number>(),
               title: "by subquery",
               publishedAt: param("when", t.timestamp()),
             },
@@ -895,17 +897,124 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
           r,
         );
         expect(free.valid).toBe(true);
-        const own = await cast(ada, { email: "ada@example.com", name: "x" }, [
-          "email",
-          "name",
-        ]).validateUniqueAsync("email", r);
+        // The stored row now has name "x"; the loaded copy does not, so name is a change.
+        // The query then matches ada's own row, which the key exclusion must leave out.
+        await r.updateAll(from(User, "u").where({ id: ada.id }).set({ name: "x" }));
+        const own = await change(ada, { name: "x" }).validateUniqueAsync(["email", "name"], r);
         expect(own.valid).toBe(true);
+        // Another row with the same values is found.
+        const other = await change(User, { email: "ada@example.com", name: "x" }).validateUniqueAsync(
+          ["email", "name"],
+          r,
+        );
+        expect(other.valid).toBe(false);
+      });
+
+      test("a row is looked for in the database schema it was read from", async () => {
+        if (profile.copyTableInto === undefined) return;
+        await db.exec(profile.copyTableInto("tenant_u", "tags"));
+        try {
+          const r = repo();
+          await r.insertAll(Tag, [{ name: "dup" }, { name: "mine" }], { schema: "tenant_u" });
+          const mine = await r.getByOrThrow(Tag, { name: "mine" }, { schema: "tenant_u" });
+          const checked = await change(mine, { name: "dup" }).validateUniqueAsync("name", r);
+          expect(checked.valid).toBe(false);
+          expect(await r.count(Tag)).toBe(0);
+        } finally {
+          await db.exec("drop schema tenant_u cascade");
+        }
+      });
+    });
+
+    // --- option A in insertAll ---------------------------------------------------------
+
+    describe("insertAll values typed by their column", () => {
+      const uuid = "0190d8a0-0000-7000-8000-0000000000ab";
+      const other = "0190d8a0-0000-7000-8000-0000000000ac";
+      test("a CASE or coalesce of bound values goes into a uuid column", async () => {
+        const r = repo();
+        await r.insertAll(Org, [
+          { id: caseWhen(val(true), uuid).else(null).as<string>(), name: "case" },
+          { id: coalesce(val(null as string | null), val(other)).as<string>(), name: "coalesce" },
+        ]);
+        expect((await r.getOrThrow(Org, uuid)).name).toBe("case");
+        expect((await r.getOrThrow(Org, other)).name).toBe("coalesce");
+      });
+
+      test("and so in the select of INSERT … SELECT", async () => {
+        const r = repo();
+        await r.insertAll(Tag, [{ name: "from tag" }]);
+        const { count } = await r.insertAll(
+          Org,
+          from(Tag, "g").select(({ g }) => ({
+            id: coalesce(val(null as string | null), val(uuid)),
+            name: g.name,
+          })),
+        );
+        expect(count).toBe(1);
+        expect((await r.getOrThrow(Org, uuid)).name).toBe("from tag");
+      });
+    });
+
+    // --- shortened constraint names ------------------------------------------------------
+
+    describe("a default constraint name the database shortened", () => {
+      class Wide extends Schema("ver_table_with_a_very_long_name_for_tests", {
+        id: t.integer().primaryKey(),
+        someExtremelyLongColumnNameNumberOne: t.string(),
+        anotherColumnNameThatIsLong: t.string(),
+      }) {}
+
+      test("still matches the declaration made with the default name", async () => {
+        await db.exec(
+          "create table if not exists ver_table_with_a_very_long_name_for_tests (id integer primary key, some_extremely_long_column_name_number_one text not null, another_column_name_that_is_long text not null, unique (some_extremely_long_column_name_number_one, another_column_name_that_is_long))",
+        );
+        const r = repo();
+        const values = { someExtremelyLongColumnNameNumberOne: "a", anotherColumnNameThatIsLong: "b" };
+        await r.insertOrThrow(change(Wide, { id: 1, ...values }));
+        const result = await r.insert(
+          change(Wide, { id: 2, ...values }).uniqueConstraint([
+            "someExtremelyLongColumnNameNumberOne",
+            "anotherColumnNameThatIsLong",
+          ]),
+        );
+        if (result.success) fail("expected a failure");
+        expect(result.error.errorMessages()).toEqual({
+          someExtremelyLongColumnNameNumberOne: ["has already been taken"],
+        });
       });
     });
 
     // --- budgets ------------------------------------------------------------------------
 
     describe("timeoutMs and signal", () => {
+      test("timeoutMs is one budget for every chunk of an insertAll", async () => {
+        const r = repo();
+        const user = await seedUser(r);
+        // A value of 400 bound parameters, so that 200 rows take two statements; the first
+        // and the last row also sleep 0.6 s, so each statement alone fits a 1 s budget.
+        const wide = (sleep: boolean) => {
+          // Cast in the fragment: arithmetic on bound values needs a type the database sees.
+          const one = () => fragment`${1}::integer`.as<number>();
+          let sum = one();
+          for (let i = 0; i < 399; i++) sum = sum.add(one());
+          return sleep
+            ? sum.add(fragment`(select 0 from pg_sleep(${val(0.6, t.float())}))`.as<number>())
+            : sum;
+        };
+        const rows = Array.from({ length: 200 }, (_, i) => ({
+          authorId: user.id,
+          title: `p${i}`,
+          views: wide(i === 0 || i === 199),
+        }));
+        const started = Date.now();
+        const error = await rejection(r.insertAll(Post, rows, { timeoutMs: 1_000 }));
+        expect((error as Error).message, String((error as Error).message)).toContain("timeoutMs (1000 ms)");
+        expect((error as DatabaseError).code).toBe("timeout");
+        expect(Date.now() - started).toBeLessThan(5_000);
+        expect(await r.count(Post)).toBe(0);
+      });
+
       test("an aborted signal stops a write", async () => {
         const r = repo();
         const controller = new AbortController();

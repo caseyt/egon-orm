@@ -261,10 +261,15 @@ Bulk writes skip changesets and validation.
   It accepts `onConflict` (with `"nothing"`, `count` leaves out the skipped rows) and
   `returning`: `true` returns rows of the schema, a list of fields returns plain objects of
   those fields.
-- A field's value may be an expression, a subquery written `scalar(query)`, or a named
-  parameter `param(name, type)` whose value the `placeholders` option gives once for every
-  row. A query in place of `rows` is `INSERT ... SELECT`: its select's keys are the fields
-  to fill.
+- A field's value may be an expression of the field's type, a subquery written
+  `scalar(query)`, or a named parameter `param(name, type)` whose value the `placeholders`
+  option gives once for every row. A scalar subquery is typed `T | null`, so for a field
+  that is not nullable say it cannot be null, `scalar(query).as<number>()`, or give a
+  fallback, `coalesce(scalar(query), 0)`. A query in place of `rows` is
+  `INSERT ... SELECT`: its select's keys are the fields to fill.
+- The target column gives a value its type, as in `set`: a plain value and `val(x)` are
+  bound with the field's type, and a `caseWhen` or `coalesce` made only of values and
+  `null` is cast to it, in the rows and in the select of `INSERT ... SELECT`.
 
 <<< @/examples/repo-write.ts#bulk-values
 

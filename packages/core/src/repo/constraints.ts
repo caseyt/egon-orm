@@ -54,8 +54,90 @@ export function nameMatches(declared: Pick<Constraint, "name" | "match">, report
   }
 }
 
+// ---------------------------------------------------------------------------
+// Names the database shortened
+// ---------------------------------------------------------------------------
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+/** `text` cut to at most `bytes` bytes of UTF-8, never inside a character. */
+export function clipBytes(text: string, bytes: number): string {
+  const encoded = encoder.encode(text);
+  if (encoded.length <= bytes) return text;
+  let end = Math.max(0, bytes);
+  while (end > 0 && ((encoded[end] as number) & 0xc0) === 0x80) end--;
+  return decoder.decode(encoded.subarray(0, end));
+}
+
+/**
+ * The name Postgres gives a constraint from a table name, a column part and a label
+ * (`users`, `org_id_slug`, `key`) when the whole is longer than `maxBytes`: it shortens
+ * whichever of the two parts is longer, a byte at a time, until `<table>_<columns>_<label>`
+ * fits, then cuts each part at a character boundary.
+ *
+ * @example
+ * ```ts
+ * shortenedName("a".repeat(40), "b".repeat(40), "key", 63); // 29 a's, "_", 29 b's, "_key"
+ * ```
+ */
+export function shortenedName(table: string, columns: string, label: string, maxBytes: number): string {
+  let tableBytes = encoder.encode(table).length;
+  let columnBytes = encoder.encode(columns).length;
+  const available = maxBytes - (label.length + 1) - 1;
+  while (tableBytes + columnBytes > available) {
+    if (tableBytes > columnBytes) tableBytes--;
+    else columnBytes--;
+  }
+  return `${clipBytes(table, tableBytes)}_${clipBytes(columns, columnBytes)}_${label}`;
+}
+
+/** The suffix of each declared type's default name; a check constraint has none. */
+const LABELS: Readonly<Record<ConstraintType, string | undefined>> = {
+  unique: "key",
+  foreignKey: "fkey",
+  noAssoc: "fkey",
+  exclusion: "excl",
+  check: undefined,
+};
+
+/**
+ * Where names are shortened: the dialect's identifier limit in bytes (`undefined` when it
+ * shortens none), and the tables a default name may start with (the changeset's own, and
+ * the table the database reported, which is the child's for a `noAssoc` violation).
+ */
+export interface NameLimits {
+  readonly maxBytes: number | undefined;
+  readonly tables: readonly (string | null | undefined)[];
+}
+
+/**
+ * The names a declaration with `match: "exact"` stands for: its own and, when that is
+ * longer than the dialect keeps, the name cut to the limit and, for a default name
+ * (`<table>_<columns>_<label>`), the name the database makes of it.
+ */
+function exactNames(declared: Constraint, limits: NameLimits | undefined): readonly string[] {
+  const maxBytes = limits?.maxBytes;
+  const name = declared.name;
+  if (maxBytes === undefined || encoder.encode(name).length <= maxBytes) return [name];
+  const names = [name, clipBytes(name, maxBytes)];
+  const label = LABELS[declared.type];
+  if (label === undefined) return names;
+  for (const table of limits?.tables ?? []) {
+    if (typeof table !== "string") continue;
+    const head = `${table}_`;
+    const tail = `_${label}`;
+    if (name.startsWith(head) && name.endsWith(tail) && name.length > head.length + tail.length) {
+      names.push(shortenedName(table, name.slice(head.length, name.length - tail.length), label, maxBytes));
+    }
+  }
+  return names;
+}
+
 /**
  * The first declaration of `constraints` that matches the violation, or `undefined`.
+ * With `limits`, a declaration whose (default) name is longer than the dialect keeps also
+ * matches the shortened name the database reports.
  *
  * @example
  * ```ts
@@ -65,12 +147,20 @@ export function nameMatches(declared: Pick<Constraint, "name" | "match">, report
 export function findConstraint(
   constraints: readonly Constraint[],
   violation: ConstraintError,
+  limits?: NameLimits,
 ): Constraint | undefined {
   const reported = violation.constraint;
   if (reported === undefined) return undefined;
   const types = MATCHING_TYPES[violation.type] ?? [];
   for (const declared of constraints) {
-    if (types.includes(declared.type) && nameMatches(declared, reported)) return declared;
+    if (!types.includes(declared.type)) continue;
+    if (
+      declared.match === "exact"
+        ? exactNames(declared, limits).includes(reported)
+        : nameMatches(declared, reported)
+    ) {
+      return declared;
+    }
   }
   return undefined;
 }
@@ -110,8 +200,13 @@ export function handleViolation<C extends AnyChangeset>(
   changeset: C,
   violation: ConstraintError,
   action: Action,
+  maxBytes?: number,
 ): C {
-  const declared = findConstraint(changeset.constraints, violation);
+  const table = changeset.model === null ? undefined : meta(changeset.model).source;
+  const declared = findConstraint(changeset.constraints, violation, {
+    maxBytes,
+    tables: [table, violation.table],
+  });
   if (declared === undefined) throw unhandledViolation(changeset, violation, action);
   return withErrors(withAction(changeset, action), declared.field, [constraintError(declared)]);
 }
@@ -147,7 +242,8 @@ function actionPhrase(action: Action): string {
  */
 function fieldsSpelling(schemaMeta: SchemaMeta, joined: string): readonly string[] | undefined {
   const search = (position: number): string[] | undefined => {
-    if (position === joined.length) return [];
+    // Reached only after a trailing "_": an empty column name, so not a spelling.
+    if (position === joined.length) return undefined;
     for (const field of schemaMeta.persisted) {
       const column = field.column;
       if (!joined.startsWith(column, position)) continue;

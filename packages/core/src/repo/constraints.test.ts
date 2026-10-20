@@ -6,10 +6,12 @@ import type { Constraint } from "../contracts/changeset.js";
 import { ConstraintError, type ConstraintViolationType } from "../errors.js";
 import { change, hasMany, Schema, t } from "../index.js";
 import {
+  clipBytes,
   constraintError,
   findConstraint,
   handleViolation,
   nameMatches,
+  shortenedName,
   unhandledViolation,
 } from "./constraints.js";
 
@@ -90,6 +92,81 @@ describe("matching", () => {
   });
 });
 
+describe("names the database shortened", () => {
+  test("Postgres's shortening: the longer part loses a byte at a time, then each is cut at a character", () => {
+    expect(shortenedName("a".repeat(40), "b".repeat(40), "key", 63)).toBe(
+      `${"a".repeat(29)}_${"b".repeat(29)}_key`,
+    );
+    expect(shortenedName("t".repeat(10), "c".repeat(80), "fkey", 63)).toBe(
+      `${"t".repeat(10)}_${"c".repeat(47)}_fkey`,
+    );
+    expect(clipBytes("ééé", 5)).toBe("éé");
+    expect(clipBytes("ééé", 6)).toBe("ééé");
+    expect(clipBytes("abc", 0)).toBe("");
+  });
+
+  test("a default name longer than the limit matches the shortened name reported", () => {
+    class Wide extends Schema("ver_table_with_a_very_long_name_for_tests", {
+      id: t.integer().primaryKey(),
+      someExtremelyLongColumnNameNumberOne: t.string(),
+      anotherColumnNameThatIsLong: t.string(),
+    }) {}
+    const cs = change(Wide, {}).uniqueConstraint([
+      "someExtremelyLongColumnNameNumberOne",
+      "anotherColumnNameThatIsLong",
+    ]);
+    const full = (cs.constraints[0] as Constraint).name;
+    expect(full.length).toBeGreaterThan(63);
+    const reported = shortenedName(
+      "ver_table_with_a_very_long_name_for_tests",
+      "some_extremely_long_column_name_number_one_another_column_name_that_is_long",
+      "key",
+      63,
+    );
+    expect(handleViolation(cs, violation("unique", reported), "insert", 63).valid).toBe(false);
+    // Without the dialect's limit, the full name alone is compared.
+    expect(() => handleViolation(cs, violation("unique", reported), "insert")).toThrow(ConstraintError);
+    // A long name given explicitly is cut to the limit.
+    const named = change(Wide, {}).uniqueConstraint("anotherColumnNameThatIsLong", { name: "x".repeat(70) });
+    expect(handleViolation(named, violation("unique", "x".repeat(63)), "insert", 63).valid).toBe(false);
+    // A check constraint has no default name to shorten.
+    const checked = change(Wide, {}).checkConstraint("id", { name: "c".repeat(70) });
+    expect(handleViolation(checked, violation("check", "c".repeat(63)), "insert", 63).valid).toBe(false);
+    // A name within the limit is compared as it is.
+    expect(
+      findConstraint([declared("unique", "short")], violation("unique", "short"), {
+        maxBytes: 63,
+        tables: [],
+      }),
+    ).toBeDefined();
+  });
+
+  test("a noAssoc default name starts with the child's table, which the database reports", () => {
+    const long = "c".repeat(60);
+    const cs = change(User, {});
+    const constraint: Constraint = {
+      type: "noAssoc",
+      name: `${long}_author_id_fkey`,
+      match: "exact",
+      field: "posts",
+      message: "m",
+    };
+    const reported = shortenedName(long, "author_id", "fkey", 63);
+    expect(
+      findConstraint([constraint], violation("foreignKey", reported), {
+        maxBytes: 63,
+        tables: [cs.model === null ? null : "users", long],
+      }),
+    ).toBe(constraint);
+    expect(
+      findConstraint([constraint], violation("foreignKey", reported), {
+        maxBytes: 63,
+        tables: ["users", undefined],
+      }),
+    ).toBeUndefined();
+  });
+});
+
 describe("the message of an unhandled violation", () => {
   const cs = change(User, { email: "a" });
 
@@ -146,6 +223,34 @@ describe("the message of an unhandled violation", () => {
     expect(
       unhandledViolation(project, violation("unique", "projects_org_slug_name_key"), "insert").message,
     ).toContain('.uniqueConstraint(["org", "slugName"])');
+  });
+
+  test("columns are split only at an underscore, and every split is tried", () => {
+    class Split extends Schema("s", {
+      id: t.integer().primaryKey(),
+      ab: t.string(),
+      abcD: t.string(),
+      a: t.string(),
+      aB: t.string(),
+      c: t.string(),
+    }) {}
+    const split = change(Split, {});
+    // "ab" is a prefix of "abc_d" but not at an underscore.
+    expect(unhandledViolation(split, violation("unique", "s_abc_d_key"), "insert").message).toContain(
+      '.uniqueConstraint("abcD")\n',
+    );
+    // "a" then "b_c" fails; "a_b" then "c" spells it.
+    expect(unhandledViolation(split, violation("unique", "s_a_b_c_key"), "insert").message).toContain(
+      '.uniqueConstraint(["aB", "c"])\n',
+    );
+    // "ab" then "c" would spell "abxc" if any character could separate them: only "_" does.
+    expect(unhandledViolation(split, violation("unique", "s_abxc_key"), "insert").message).toContain(
+      '"<field>"',
+    );
+    // A trailing underscore leaves an empty column: not a default name.
+    expect(unhandledViolation(split, violation("unique", "s_ab__key"), "insert").message).toContain(
+      '"<field>"',
+    );
   });
 
   test("foreign keys: the field's default name, another name, a composite one", () => {

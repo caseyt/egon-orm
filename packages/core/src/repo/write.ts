@@ -35,6 +35,8 @@
  *
  * @module
  */
+
+import { sqlDialectOf } from "../adapter/compiler.js";
 import {
   Changeset,
   change,
@@ -44,7 +46,14 @@ import {
   withRepo,
 } from "../changeset/changeset.js";
 import { bindParams } from "../compiler/bind.js";
-import type { CompiledQuery, ExecuteOptions, Executor, OnConflict, RawResult } from "../contracts/adapter.js";
+import type {
+  CompiledQuery,
+  Connection,
+  ExecuteOptions,
+  Executor,
+  OnConflict,
+  RawResult,
+} from "../contracts/adapter.js";
 import type { Action, ChangesetError } from "../contracts/changeset.js";
 import type { ExprNode } from "../contracts/query.js";
 import { type Failure, failure, type Result, type Success, success } from "../contracts/result.js";
@@ -58,6 +67,7 @@ import {
 } from "../contracts/schema.js";
 import {
   ConstraintError,
+  DatabaseError,
   InvalidChangesetError,
   isEgonError,
   QueryError,
@@ -498,7 +508,7 @@ export async function runWrite<T, E>(
     result = await executor.execute(plan.sql, values, shaped as ExecuteOptions);
   } catch (error) {
     if (call !== undefined) hub.emit(call, 0, undefined);
-    throw error;
+    throw deadline === undefined ? error : overBudget(error, options);
   }
   if (call === undefined) return finish(result, plan, core, extra);
   const start = now();
@@ -511,6 +521,89 @@ export async function runWrite<T, E>(
   }
   hub.emit(call, now() - start, undefined);
   return value;
+}
+
+/**
+ * A timeout of one statement of a call that runs several, said with the call's budget:
+ * the statement was given only what was left of it. Other errors are returned unchanged.
+ */
+export function overBudget(error: unknown, options: ReadOptions | undefined): unknown {
+  if (!(error instanceof DatabaseError) || error.code !== "timeout") return error;
+  return new DatabaseError(
+    `The call ran longer than its timeoutMs (${options?.timeoutMs} ms), which covers every statement it runs, so this statement was stopped.`,
+    { code: "timeout", ...(error.sql === undefined ? {} : { sql: error.sql }), cause: error },
+  );
+}
+
+/**
+ * A connection from the pool within the call's budget: the wait counts against
+ * `timeoutMs`, and the call's signal stops it. A connection that arrives after the call
+ * gave up is returned to the pool.
+ *
+ * @throws DatabaseError with the code `"timeout"` or `"aborted"`.
+ */
+export async function acquireWithin(
+  core: ReadCore,
+  options: ReadOptions | undefined,
+  deadline: number | undefined,
+): Promise<Connection> {
+  const signal = options?.signal;
+  if (signal?.aborted === true) {
+    throw new DatabaseError("The write was not run: its AbortSignal had fired.", { code: "aborted" });
+  }
+  const pending = core.adapter.acquire();
+  if (signal === undefined && deadline === undefined) return pending;
+  return new Promise<Connection>((resolve, reject) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const done = (): void => {
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const giveUp = (error: DatabaseError): void => {
+      if (settled) return;
+      done();
+      reject(error);
+    };
+    const onAbort = (): void =>
+      giveUp(
+        new DatabaseError(
+          "The write was not run: its AbortSignal fired while it waited for a free connection.",
+          {
+            code: "aborted",
+          },
+        ),
+      );
+    if (deadline !== undefined) {
+      timer = setTimeout(
+        () =>
+          giveUp(
+            new DatabaseError(
+              `The write was not run: it waited longer than its timeoutMs (${options?.timeoutMs} ms) for a free connection.`,
+              { code: "timeout" },
+            ),
+          ),
+        Math.max(0, deadline - now()),
+      );
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+    pending.then(
+      (connection) => {
+        if (settled) {
+          void connection.release();
+          return;
+        }
+        done();
+        resolve(connection);
+      },
+      (error: unknown) => {
+        if (settled) return;
+        done();
+        reject(error);
+      },
+    );
+  });
 }
 
 /** What a row-level write's statement returned. */
@@ -549,6 +642,8 @@ interface WriteTable {
   readonly shares: readonly number[];
   /** Whether a field is generated on update (`autogenerate` on insert and update). */
   readonly onUpdate: readonly boolean[];
+  /** Each persisted field's index in `persisted`, looked up per key instead of searched. */
+  readonly positions: ReadonlyMap<FieldMeta, number>;
 }
 
 const tables = new WeakMap<SchemaMeta, WriteTable>();
@@ -593,6 +688,7 @@ export function writeTable(schemaMeta: SchemaMeta): WriteTable {
     updateBack: persisted.filter((field) => !field.primaryKey && owned(field)),
     shares,
     onUpdate,
+    positions: new Map(persisted.map((field, i) => [field, i])),
   };
   tables.set(schemaMeta, table);
   return table;
@@ -806,6 +902,11 @@ function staleOutcome(
   throw new StaleEntryError({ action, schema: schemaMeta.name });
 }
 
+/** The adapter's dialect's identifier limit in bytes, for matching shortened constraint names. */
+function identifierLimit(core: ReadCore): number | undefined {
+  return sqlDialectOf(core.adapter.dialect)?.identifierMaxBytes;
+}
+
 function isConstraintError(error: unknown): error is ConstraintError {
   return error instanceof ConstraintError || isEgonError(error, "constraint");
 }
@@ -920,7 +1021,8 @@ export async function insert(
       );
     }
   } catch (error) {
-    if (isConstraintError(error)) return failure(handleViolation(prepared, error, "insert"));
+    if (isConstraintError(error))
+      return failure(handleViolation(prepared, error, "insert", identifierLimit(core)));
     throw error;
   }
   if (result.rowCount === 0) {
@@ -980,7 +1082,8 @@ async function insertThenRead(
   written: readonly unknown[],
 ): Promise<[Written, Readonly<Record<string, unknown>> | undefined]> {
   const deadline = deadlineOf(settings.options);
-  const connection = core.executor === core.adapter ? await core.adapter.acquire() : undefined;
+  const connection =
+    core.executor === core.adapter ? await acquireWithin(core, settings.options, deadline) : undefined;
   const executor: Executor = connection ?? core.executor;
   try {
     const result = await runWrite(
@@ -1002,7 +1105,7 @@ async function insertThenRead(
       key[field.name] =
         generated !== undefined && hasOwn(generated, field.name)
           ? generated[field.name]
-          : written[schemaMeta.persisted.indexOf(field)];
+          : written[writeTable(schemaMeta).positions.get(field) as number];
     }
     let query = from(model, "t").where(key as never);
     if (plan.schema !== undefined) query = query.schema(plan.schema);
@@ -1056,21 +1159,16 @@ export async function update(
   const values: unknown[] = [];
   const written: unknown[] = new Array(persisted.length);
   const isSet: boolean[] = new Array(persisted.length).fill(false);
-  let missing: FieldMeta[] | undefined;
+  // A change never holds null for a non-nullable field: the changeset reports that itself.
   for (let i = 0; i < persisted.length; i++) {
     const field = persisted[i] as FieldMeta;
     if (field.writable !== "always" || !hasOwn(changes, field.name)) continue;
     const value = changes[field.name];
-    if (value === null && !field.nullable) {
-      missing = added(missing, field);
-      continue;
-    }
     written[i] = value;
     isSet[i] = true;
     set.push(field);
     values.push(value);
   }
-  if (missing !== undefined) return failure(blank(prepared, missing));
   if (set.length > 0 || settings.force) {
     const generated: unknown[] = [];
     for (let i = 0; i < persisted.length; i++) {
@@ -1123,7 +1221,8 @@ export async function update(
       undefined,
     );
   } catch (error) {
-    if (isConstraintError(error)) return failure(handleViolation(prepared, error, "update"));
+    if (isConstraintError(error))
+      return failure(handleViolation(prepared, error, "update", identifierLimit(core)));
     throw error;
   }
   if (result.rowCount === 0) {
@@ -1240,7 +1339,8 @@ export async function remove(
       undefined,
     );
   } catch (error) {
-    if (isConstraintError(error)) return failure(handleViolation(prepared, error, "delete"));
+    if (isConstraintError(error))
+      return failure(handleViolation(prepared, error, "delete", identifierLimit(core)));
     throw error;
   }
   if (result.rowCount === 0) {
@@ -1362,7 +1462,10 @@ export async function validateUnique(
     }
     return allOf(same);
   };
-  const query = from(model, "t").where(where as never);
+  let query = from(model, "t").where(where as never);
+  // A loaded row is looked for where it was read, as its update would be written.
+  const rowSchema = data !== null && isRow(data) ? data[ROW].schema : undefined;
+  if (rowSchema !== undefined) query = query.schema(rowSchema);
   if (!(await repo.exists(query))) return changeset;
   const key = options?.errorKey ?? (fields[0] as string);
   const errorMeta = { fields: [...fields] };

@@ -3,7 +3,19 @@
 // `onConflict: "nothing"`, insertAll rows and `returning` are typed.
 import { Post, Tag, User } from "@egon-orm/test-support";
 import { describe, expectTypeOf, test } from "vitest";
-import { type Changeset, cast, change, from, now, param, type Repo, scalar, t } from "../index.js";
+import {
+  type Changeset,
+  cast,
+  change,
+  coalesce,
+  from,
+  now,
+  param,
+  type Repo,
+  scalar,
+  t,
+  val,
+} from "../index.js";
 
 declare const repo: Repo;
 declare const user: User;
@@ -81,10 +93,23 @@ describe("insertAll", () => {
     const none = await repo.insertAll(Post, [
       { authorId: 1, title: "a" },
       { authorId: 1, title: "b", publishedAt: now() },
-      { authorId: scalar(from(User, "u").select(({ u }) => u.id)), title: "c" },
+      { authorId: scalar(from(User, "u").select(({ u }) => u.id)).as<number>(), title: "c" },
+      { authorId: coalesce(scalar(from(User, "u").select(({ u }) => u.id)), 1), title: "d" },
       { authorId: 1, title: "d", publishedAt: param("when", t.timestamp()) },
     ]);
     expectTypeOf(none.rows).toEqualTypeOf<null>();
+    // @ts-expect-error a scalar subquery may be null: say it is not, or give a fallback
+    void repo.insertAll(Post, [{ authorId: scalar(from(User, "u").select(({ u }) => u.id)), title: "x" }]);
+    // @ts-expect-error a nullable expression for a non-nullable field
+    void repo.insertAll(Post, [{ authorId: 1, title: val(null as string | null, t.string().nullable()) }]);
+    void repo.insertAll(Post, [
+      // @ts-expect-error a nullable column for a non-nullable field
+      { authorId: 1, title: scalar(from(User, "u").select(({ u }) => u.name)).as<string | null>() },
+    ]);
+    // A nullable field takes them.
+    void repo.insertAll(Post, [
+      { authorId: 1, title: "x", body: scalar(from(User, "u").select(({ u }) => u.name)) },
+    ]);
     // @ts-expect-error title is required
     void repo.insertAll(Post, [{ authorId: 1 }]);
     // @ts-expect-error a number is not a title

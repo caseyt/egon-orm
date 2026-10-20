@@ -123,7 +123,7 @@ export async function bulk() {
         from(User, "u")
           .where({ email: person.email })
           .select(({ u }) => u.id),
-      ),
+      ).as<number>(), // the caller says it is not null
       title: `Welcome, ${person.email}`,
       publishedAt: param("launch", t.timestamp()),
     })),

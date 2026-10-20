@@ -55,6 +55,15 @@ Prisma generates. Drizzle names unique constraints `users_email_unique`, and a u
 A `checkConstraint` always needs a `name`. `match: "suffix"` or `"prefix"` compares only the
 end or the start of the reported name, for names generated per partition or tenant.
 
+### Long names
+
+Postgres keeps at most 63 bytes of a name. When a default name is longer, it shortens it
+by trimming the table part and the column part (whichever is longer, a byte at a time)
+until `<table>_<columns>_<suffix>` fits. A declaration made with the default name matches
+that shortened name too, and a long name passed with `{ name }` matches its first 63 bytes.
+A name the database made otherwise (Postgres adds a number when the shortened name is
+taken) is not predicted: pass the name it reports with `{ name }`.
+
 ## When a constraint was not declared
 
 The repo throws a `ConstraintError` whose message says what to add:
@@ -84,7 +93,9 @@ sending SQL; see [Required fields](/guide/changesets#required-fields).
 `validateUniqueAsync(fields, repo)` queries for another row with the same values (not the
 changeset's own row) and adds `has already been taken` (`validation: "uniqueAsync"`)
 before the write is attempted. It runs only when one of the fields changed, all of them
-have a value and none has an error already. It cannot replace the constraint, because
+have a value and none has an error already. A changeset of a loaded row is checked in the
+database schema the row was read from, where its update will be written. It cannot
+replace the constraint, because
 another request can insert between the check and the write. Declare both.
 
 <<< @/examples/repo-write.ts#early-feedback

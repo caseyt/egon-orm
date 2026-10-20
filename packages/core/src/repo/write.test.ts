@@ -16,8 +16,10 @@ import {
   StaleEntryError,
 } from "../errors.js";
 import {
+  caseWhen,
   cast,
   change,
+  coalesce,
   defineType,
   fragment,
   from,
@@ -29,7 +31,9 @@ import {
   t,
   val,
 } from "../index.js";
+import { insertAll } from "./bulk.js";
 import type { RepoQueryEvent } from "./options.js";
+import { QueryHub, ReadCore } from "./read.js";
 import { createRepo, type Repo } from "./repo.js";
 
 // --- a driver without a database ---------------------------------------------------
@@ -50,6 +54,8 @@ interface Statement {
 class FakeDriver implements DriverWrapper {
   readonly statements: Statement[] = [];
   respond: Responder = () => ({});
+  /** How long each statement takes, in milliseconds. */
+  delay: (sql: string) => number = () => 0;
   acquired = 0;
   released = 0;
   destroyed = 0;
@@ -64,6 +70,8 @@ class FakeDriver implements DriverWrapper {
     return {
       async query(sql, params): Promise<RawResult> {
         driver.statements.push({ sql, params });
+        const ms = driver.delay(sql);
+        if (ms > 0) await new Promise((resolve) => setTimeout(resolve, ms));
         const answer = driver.respond(sql, params);
         if (answer instanceof Error) throw answer;
         const rows = answer.rows ?? [];
@@ -933,7 +941,7 @@ describe("insertAll", () => {
             from(User, "u")
               .select(({ u }) => u.id)
               .limit(1),
-          ),
+          ).as<number>(),
           title: "b",
         },
         { authorId: 1, title: fragment`concat(${"x"}, ${"y"})` as never },
@@ -1107,5 +1115,141 @@ describe("updateAll and deleteAll", () => {
     expect(await rejection(r.updateAll(Post))).toBeInstanceOf(QueryError);
     expect(await rejection(r.updateAll(from(Post, "p")))).toBeInstanceOf(QueryError);
     expect(env.statements).toEqual([]);
+  });
+});
+
+// --- review round 1 -------------------------------------------------------------------
+
+const ORG = "0190d8a0-0000-7000-8000-00000000000a";
+
+describe("the target column types a cell (option A)", () => {
+  test("a CASE or coalesce of bound values is cast to the field's type; other expressions are not", async () => {
+    const env = setup(() => ({ rowCount: 2 }));
+    await env.repo.insertAll(Membership, [
+      { orgId: caseWhen(val(true), ORG).else(null).as<string>(), userId: 1 },
+      {
+        orgId: coalesce(val(null as string | null), val(ORG)).as<string>(),
+        userId: fragment`${2}::bigint`.as<number>(),
+      },
+    ]);
+    const sql = env.statements[0]?.sql as string;
+    expect(sql).toContain("cast(case when");
+    expect(sql).toContain("as uuid)");
+    expect(sql).toContain("cast(coalesce(");
+    expect(sql).not.toContain("cast($");
+  });
+
+  test("so is such a value in the select of INSERT … SELECT", async () => {
+    const env = setup(() => ({ rowCount: 1 }));
+    const source = from(User, "u").select(({ u }) => ({
+      orgId: coalesce(val(null as string | null), val(ORG)),
+      userId: u.id,
+    }));
+    await env.repo.insertAll(Membership, source);
+    await env.repo.insertAll(Membership, source);
+    expect(env.statements[0]?.sql).toContain("select cast(coalesce(");
+    expect(env.statements[0]?.sql).toContain(" as uuid) as ");
+    expect(env.statements[1]?.sql).toBe(env.statements[0]?.sql);
+    // A select that needs no cast is sent as it is.
+    await env.repo.insertAll(
+      Membership,
+      from(User, "u").select(({ u }) => ({ orgId: val(ORG, t.uuid()), userId: u.id })),
+    );
+    expect(env.statements[2]?.sql).not.toContain("coalesce");
+  });
+});
+
+describe("timeoutMs is one budget for the whole call", () => {
+  test("statements after the first get what is left, and the error says the call's budget", async () => {
+    const small: Capabilities = { ...POSTGRES_CAPABILITIES, maxParams: 1 };
+    const env = setup(() => ({ rowCount: 1 }), small);
+    env.driver.delay = (sql) => (sql.startsWith("insert") ? 70 : 0);
+    const rows = [{ name: "a" }, { name: "b" }];
+    const started = performance.now();
+    const error = await rejection(env.repo.insertAll(Tag, rows, { timeoutMs: 100 }));
+    expect((error as DatabaseError).code).toBe("timeout");
+    expect((error as Error).message).toContain("timeoutMs (100 ms)");
+    expect((error as Error).cause).toBeInstanceOf(DatabaseError);
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(env.statements.map((s) => s.sql.split(" ")[0])).toEqual(["begin", "insert", "insert", "rollback"]);
+    // Each statement alone fits the budget: a fresh budget per statement would succeed.
+    expect((await env.repo.insertAll(Tag, rows, { timeoutMs: 1_000 })).count).toBe(2);
+    // Errors that are not timeouts pass unchanged.
+    env.driver.delay = () => 0;
+    const failure = new DatabaseError("no", { code: "connection" });
+    env.driver.respond = (sql) => (sql.startsWith("insert") ? failure : { rowCount: 1 });
+    expect(await rejection(env.repo.insertAll(Tag, rows, { timeoutMs: 1_000 }))).toBe(failure);
+  });
+
+  test("the no-RETURNING insert waits for its connection within the budget", async () => {
+    const env = setup(() => ({ rowCount: 1, insertId: 1 }), { ...POSTGRES_CAPABILITIES, returning: false });
+    let open: () => void = () => undefined;
+    env.driver.gate = new Promise((resolve) => {
+      open = resolve;
+    });
+    const error = await rejection(
+      env.repo.insert(change(Tag, { name: "a" }), { returning: true, timeoutMs: 5 }),
+    );
+    expect((error as DatabaseError).code).toBe("timeout");
+    open();
+  });
+});
+
+describe("behaviours pinned in review round 1", () => {
+  test("update returns the failure when a prepare function makes the changeset invalid", async () => {
+    const env = setup(() => ({ rowCount: 1 }));
+    const user = await loadedUser(env.repo, env.driver);
+    const result = await env.repo.update(
+      change(user, { name: "x" }).prepareChanges((cs) => cs.addError("name", "no")),
+    );
+    if (result.success) throw new Error("expected a failure");
+    expect(result.error.action).toBe("update");
+    expect(env.statements).toEqual([]);
+  });
+
+  test("insert reports a function default that gives null for a non-nullable field", async () => {
+    class Coded extends Schema("coded", {
+      id: t.integer().primaryKey().dbGenerated(),
+      code: t.string().default((() => null) as unknown as () => string),
+    }) {}
+    const env = setup();
+    const result = await env.repo.insert(change(Coded, {}));
+    if (result.success) throw new Error("expected a failure");
+    expect(result.error.errorMessages()).toEqual({ code: ["can't be blank"] });
+    expect(env.statements).toEqual([]);
+  });
+
+  test("insertAll sends a fragment target's values with every chunk", async () => {
+    const small: Capabilities = { ...POSTGRES_CAPABILITIES, maxParams: 3 };
+    const env = setup(() => ({ rowCount: 1 }), small);
+    await env.repo.insertAll(Tag, [{ name: "a" }, { name: "b" }, { name: "c" }], {
+      onConflict: { target: fragment`(lower(${"x"}))`, update: ["name"] },
+    });
+    const inserts = env.statements.filter((s) => s.sql.startsWith("insert"));
+    expect(inserts.length).toBeGreaterThan(1);
+    for (const each of inserts) expect(each.params.at(-1)).toBe("x");
+  });
+
+  test("insertAll joins the transaction of a repo that runs on one connection", async () => {
+    const small: Capabilities = { ...POSTGRES_CAPABILITIES, maxParams: 1 };
+    const env = setup(() => ({ rowCount: 1 }), small);
+    const connection = await env.adapter.acquire();
+    const core = new ReadCore(env.adapter, connection, undefined, true, new QueryHub(env.adapter, false));
+    const done = await insertAll(core, Tag, [{ name: "a" }, { name: "b" }], undefined);
+    expect(done.count).toBe(2);
+    expect(env.statements.map((s) => s.sql.split(" ")[0])).toEqual(["insert", "insert"]);
+    expect(env.driver.acquired).toBe(1);
+    await connection.release();
+  });
+
+  test("delete and validateUniqueAsync go where the row was read", async () => {
+    const env = setup(() => ({ rows: [{ c0: 3, c1: "t" }], rowCount: 1 }));
+    const tag = await env.repo.getOrThrow(Tag, 3, { schema: "tenant" });
+    env.statements.splice(0);
+    await env.repo.deleteOrThrow(tag);
+    expect(env.statements[0]?.sql).toBe('delete from "tenant"."tags" where "id" = $1');
+    env.driver.respond = () => ({ rows: [] });
+    await change(tag, { name: "u" }).validateUniqueAsync("name", env.repo);
+    expect(env.statements[1]?.sql).toContain('from "tenant"."tags" as "t"');
   });
 });

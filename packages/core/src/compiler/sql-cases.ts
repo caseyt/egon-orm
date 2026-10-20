@@ -1093,7 +1093,7 @@ export const NESTED_CASES: readonly SqlCase[] = withDialects(
       },
     ),
     queryCase("a recursive CTE", recursiveTree, {
-      sql: 'with recursive "n" as (select "v"."i" as "i" from (values (cast($1 as integer))) as "v" ("i") union all (select "n"."i" + $2 as "i" from "n" as "n" where "n"."i" < $3)) select sum("n"."i") as "c0" from "n" as "n"',
+      sql: 'with recursive "n" as (select "v"."i" as "i" from (values (cast($1 as integer))) as "v" ("i") union all (select "n"."i" + cast($2 as integer) as "i" from "n" as "n" where "n"."i" < $3)) select sum("n"."i") as "c0" from "n" as "n"',
       params: [1, 1, 5],
     }),
     statementCase(
@@ -1824,6 +1824,41 @@ export const CAST_CASES: readonly SqlCase[] = withDialects(
         sql: 'select cast($1 as double precision) / (cast($2 as integer) + cast($3 as integer)) as "c0", cast($4 as bigint) + (cast($5 as integer) + cast($6 as integer)) as "c1" from "users" as "u" limit $7',
         params: [7.5, 2, 1, 2 ** 40, 1, 1, 1],
       },
+    ),
+    queryCase(
+      "a typed value beside a column of another type in arithmetic is cast, on either side",
+      posts
+        .where(({ p }) => p.id.eq(2))
+        .select(({ p }) => ({
+          half: p.views.div(val(2, t.float())),
+          share: val(6, t.float()).div(p.views),
+          same: p.views.add(int(1)),
+          key: p.authorId.add(int(1)),
+        })),
+      {
+        sql: 'select "p"."views" / cast($1 as double precision) as "c0", cast($2 as double precision) / "p"."views" as "c1", "p"."views" + $3 as "c2", "p"."author_id" + cast($4 as integer) as "c3" from "posts" as "p" where "p"."id" = $5',
+        params: [2, 6, 1, 1, 2],
+      },
+    ),
+    queryCase(
+      "a typed value of another type beside a column in where, as a named parameter",
+      posts
+        .where(({ p }) => p.views.div(param("by", t.float())).eq(val(1.5, t.float())))
+        .select(({ p }) => p.id),
+      {
+        sql: 'select "p"."id" as "c0" from "posts" as "p" where "p"."views" / cast($1 as double precision) = $2',
+        params: [2, 1.5],
+      },
+      { named: { by: 2 } },
+    ),
+    queryCase(
+      "updateAll sets a column times a typed value of another type",
+      posts.where(({ p }) => p.id.eq(2)).set(({ p }) => ({ views: p.views.mul(val(2, t.float())) })),
+      {
+        sql: 'update "posts" as "p" set "views" = "p"."views" * cast($1 as double precision) where "p"."id" = $2',
+        params: [2, 2],
+      },
+      { operation: "updateAll" },
     ),
     queryCase(
       "a CASE or coalesce with no typed value beside a typed value takes its type (review round 1)",

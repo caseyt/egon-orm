@@ -2,8 +2,8 @@
 // `#region` is included in the page by name; everything outside a region is the
 // scaffolding that makes the regions compile.
 //
-// A migration file exports its migration as the default export (the template of
-// `egon gen migration` does); this file holds several, so they are named here.
+// A migration file exports its migration as the default export (as the file that
+// `egon migrate create` writes does); this file holds several, so they are named here.
 import { postgres } from "@egon-orm/postgres";
 import { cast, type createRepo, fragment, Schema, t } from "egon-orm";
 import { createMigrator, defineMigration, type MigrationEvent } from "egon-orm/migration";

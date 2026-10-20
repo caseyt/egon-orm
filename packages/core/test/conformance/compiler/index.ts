@@ -6,7 +6,7 @@
 // whose expected output for the dialect is a refusal are compiled, not run: the snapshot
 // tests check their QueryError.
 import type { Connection, DatabaseAdapter } from "egon-orm";
-import { cte, from, rowNumber, subquery } from "egon-orm";
+import { cte, from, param, rowNumber, subquery, t, val } from "egon-orm";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { MYSQL, POSTGRES, SQLITE } from "../../../src/compiler/advanced/advanced-cases.js";
 import { ADVANCED_QUERIES, Category } from "../../../src/compiler/advanced/advanced-queries.js";
@@ -218,6 +218,24 @@ export function runCompilerConformance(profile: CompilerConformanceProfile): voi
         .orderBy(({ t }) => t.id)
         .select(({ t }) => t.name);
       expect((await rows(tree)).map((row) => row.c0)).toEqual(["root", "child a", "child b", "grandchild"]);
+    });
+
+    test("a typed value beside a column of another type in arithmetic keeps its type", async () => {
+      // Post 4 has 7 views: an integer column beside float values.
+      const selected = from(Post, "p")
+        .where(({ p }) => p.id.eq(4))
+        .select(({ p }) => ({
+          half: p.views.div(val(2, t.float())),
+          share: val(14, t.float()).div(p.views),
+          plus: p.views.add(val(0.5, t.float())),
+          named: p.views.div(param("by", t.float())),
+        }));
+      const [row] = await rows(selected, { by: 4 });
+      expect([row?.c0, row?.c1, row?.c2, row?.c3].map(Number)).toEqual([3.5, 2, 7.5, 1.75]);
+      const filtered = from(Post, "p")
+        .where(({ p }) => p.views.div(val(2, t.float())).eq(val(3.5, t.float())))
+        .select(({ p }) => p.id);
+      expect((await rows(filtered)).map((r) => Number(r.c0))).toEqual([4]);
     });
 
     test("the plan cache shared by every statement above saw no collision", () => {

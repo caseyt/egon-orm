@@ -633,6 +633,68 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
       });
     });
 
+    describe("arithmetic of mixed numeric types is read as the wider operand's type", () => {
+      // Post 10: 120 views (integer), author 1 (bigint({ mode: "number" })).
+      test("each pairing, its value and its JavaScript type", async () => {
+        const [row] = await repo().all(
+          from(Post, "p")
+            .where({ id: 10 })
+            .select(({ p }) => ({
+              half: p.views.div(val(16, t.float())),
+              share: val(240, t.float()).div(p.views),
+              wide: p.views.add(val(1, t.bigint({ mode: "number" }))),
+              key: p.authorId.add(val(1, t.integer())),
+              keyHalf: p.authorId.div(val(2, t.float())),
+              columns: p.views.add(p.authorId),
+              named: p.views.mul(param("rate", t.float())),
+              remainder: p.views.mod(val(7, t.integer())),
+            })),
+          { rate: 0.25 },
+        );
+        expect(row).toEqual({
+          half: 7.5,
+          share: 2,
+          wide: 121,
+          key: 2,
+          keyHalf: 0.5,
+          columns: 121,
+          named: 30,
+          remainder: 1,
+        });
+        for (const value of Object.values(row ?? {})) expect(typeof value).toBe("number");
+      });
+
+      test("in where", async () => {
+        const ids = await repo().all(
+          from(Post, "p")
+            .where(({ p }) => p.views.div(val(16, t.float())).eq(val(7.5, t.float())))
+            .select(({ p }) => p.id),
+        );
+        expect(ids).toEqual([10]);
+      });
+
+      test("a value of a custom type is left to the column, as before (MySQL's CAST would refuse its name)", async () => {
+        const cents = defineType<number>({
+          name: "cents",
+          db: { kind: "custom", sql: "numeric(10, 2)" },
+          cast: (v) => ({ success: true, data: Number(v) }),
+        });
+        const q = from(Post, "p")
+          .where({ id: 10 })
+          .select(({ p }) => p.views.mul(val(2, t.type(cents))));
+        expect(repo().toSql(q).sql).not.toContain("cast(");
+        expect((await repo().all(q)).map(Number)).toEqual([240]);
+        // The guide's workaround for a fraction: give the value a built-in type.
+        const [half] = await repo().all(
+          from(Post, "p")
+            .where({ id: 10 })
+            .select(({ p }) => p.views.div(val(16, t.float()))),
+        );
+        expect(half).toBe(7.5);
+        expect(typeof half).toBe("number");
+      });
+    });
+
     describe("logical types read back through real columns", () => {
       const cases = ROUND_TRIP_CASES.filter((each) => profile.columnType(each.type) !== undefined);
       test.for(cases.map((each, index) => ({ ...each, index })))(

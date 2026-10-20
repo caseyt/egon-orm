@@ -1,10 +1,9 @@
 // The egon commands run in process against the fake Postgres of the core migration tests:
 // their output (log lines, tables, dry runs, JSON), warnings, failures and what they send.
 // The same commands run through the built binary against real Postgres in test/cli.itest.ts.
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Post, User } from "@egon-orm/test-support";
 import { DatabaseError, fragment } from "egon-orm";
 import { defineMigration, type MigrationSource } from "egon-orm/migration";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
@@ -52,7 +51,6 @@ interface Setup {
 declare global {
   // The config module of each test reads its configuration from here.
   var egonTestConfig: (() => unknown) | undefined;
-  var egonTestSchemas: Record<string, unknown> | undefined;
 }
 
 let cwd: string;
@@ -67,7 +65,6 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   globalThis.egonTestConfig = undefined;
-  globalThis.egonTestSchemas = undefined;
   await rm(cwd, { recursive: true, force: true });
 });
 
@@ -356,45 +353,28 @@ describe("egon db", () => {
   });
 });
 
-describe("egon gen migration --from-schema", () => {
-  async function schemaFile(exports: Record<string, unknown>): Promise<string> {
-    globalThis.egonTestSchemas = exports;
-    const names = Object.keys(exports);
+describe("egon migrate create, then egon migrate", () => {
+  test("the created file is a migration the runner applies", async () => {
+    const main = fakeDatabase();
+    globalThis.egonTestConfig = () => ({ adapter: main.newAdapter(), migrations: { directory: "db" } });
+    const created = await egon(["migrate", "create", "create_things"]);
+    expect(created).toEqual({
+      code: 0,
+      stdout: `Created ${join("db", "20261012093000_create_things.ts")}\n`,
+      stderr: "",
+    });
+    const file = join(cwd, "db", "20261012093000_create_things.ts");
+    const source = await readFile(file, "utf8");
     await writeFile(
-      join(cwd, "schemas.mjs"),
-      `const all = globalThis.egonTestSchemas;\n${names.map((name) => `export const ${name} = all.${name};`).join("\n")}\n`,
-    );
-    return "schemas.mjs";
-  }
-
-  test("a file with one schema class needs no --export, and the notes are printed", async () => {
-    configure();
-    const file = await schemaFile({ User, helper: 1 });
-    const result = await egon(["gen", "migration", "create_users", "--from-schema", file]);
-    expect(result.code).toBe(0);
-    expect(result.stdout).toMatchInlineSnapshot(`
-      "Created migrations/20261012093000_create_users.ts
-      This is a one-time scaffold from the schema, not a diff: check it before running it. Unique indexes are not part of a schema; add them by hand.
-      note: users.role is an enum; to check its values in the database, use t.enumText("role", [/* its values */]).
-      "
-    `);
-  });
-
-  test("a file with several needs --export", async () => {
-    configure();
-    const file = await schemaFile({ User, Post });
-    const result = await egon(["gen", "migration", "create_both", "--from-schema", file]);
-    expect(result.code).toBe(1);
-    expect(result.stderr).toMatch(/exports 2 schema classes \(User, Post\): choose with --export User,Post/);
-    const chosen = await egon([
-      "gen",
-      "migration",
-      "create_both",
-      "--from-schema",
       file,
-      "--export",
-      "Post, User",
-    ]);
-    expect(chosen.code).toBe(0);
+      source.replace("change(m) {\n", 'change(m) {\n    m.createTable("things", (t) => t.id());\n'),
+    );
+    const dry = await egon(["migrate", "--dry-run"]);
+    expect(dry.code).toBe(0);
+    expect(dry.stdout).toMatch(/^-- 20261012093000 create_things \(up\)\ncreate table "things" \(/);
+    const migrated = await egon(["migrate"]);
+    expect(lines(migrated.stdout)).toBe(
+      "== 20261012093000 create_things: migrating\n== 20261012093000 create_things: migrated (… ms)\nApplied 1 migration.\n",
+    );
   });
 });

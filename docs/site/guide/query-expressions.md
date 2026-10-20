@@ -180,6 +180,23 @@ type, `val` infers the value's plain TypeScript type (`val(5)` is an `Expr<numbe
 `val("b").gt("a")` compiles, and next to an enum column given a list
 (`t.enum(["admin", "member"])`) `val("admin")` is checked against the enum's values.
 
+In arithmetic a typed value keeps its own type, and the result is read as the wider of the
+two operands' types, in the order integer < bigint < decimal < float:
+`p.views.div(val(2, t.float()))` divides as floats (7 / 2 is 3.5), and
+`p.views.add(p.authorId)` (an integer and a `bigint({ mode: "number" })`) is read as that
+bigint. A plain value (`p.views.add(1)`) or a value of the column's own type takes the
+column's type. Two cases keep the left operand's type and leave the value to the column:
+`mod`, and a type made with `defineType`, which has no place in the order. For a value of
+such a type, give the value a built-in type instead: `p.views.div(val(2, t.float()))`
+rather than `p.views.div(val(2, t.type(Cents)))`. Postgres has no `%` for floats: `mod`
+with a float column, or with a fraction beside an integer column, is refused there;
+integer and `numeric` operands work.
+
+A comparison always reads the value as the column's type. On Postgres, a fraction compared
+with an integer column is refused (`p.views.lt(val(7.5, t.float()))`); cast the column,
+`p.views.cast(t.float()).lt(val(7.5, t.float()))`, or, since the cast keeps an index on the
+column from being used, compare with the integer it means, `p.views.lt(val(8, t.integer()))`.
+
 A type is always a field type, `t.integer()`, the same one you use in a schema. `cast`
 keeps the operand's `null`: `u.age.cast(t.string())` is `string | null` because `age` is
 nullable.
@@ -211,7 +228,9 @@ See [Queries](/guide/queries#named-parameters) for passing the values.
 ## Result types
 
 - Comparisons and predicates are `boolean`.
-- Arithmetic keeps the operand's type, and is nullable when an operand is.
+- Arithmetic is read as the wider operand's type (integer < bigint < decimal < float; `mod`
+  and types made with `defineType` keep the left operand's), and is nullable when an
+  operand is.
 - `count` is a `number`; `sum`, `avg`, `min` and `max` are nullable.
 - `coalesce` is nullable only when its last argument is.
 - A selected expression is read back with its type: `u.createdAt` as a `Date`,

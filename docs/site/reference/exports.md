@@ -389,12 +389,14 @@ Guide: [The package](/guide/).
 | [`DownOptions`](/api/reference/egon-orm/migration/interfaces/DownOptions) | interface | Options of `Migrator.down`. |
 | [`DropConstraintOptions`](/api/reference/egon-orm/migration/interfaces/DropConstraintOptions) | interface | Options of `MigrationBuilder.dropConstraint`. |
 | [`dropDatabase`](/api/reference/egon-orm/migration/functions/dropDatabase) | function | Runs `DROP DATABASE [IF EXISTS] name` through `adapter`, which must be connected to another database of the same server. |
+| [`DropIndexOptions`](/api/reference/egon-orm/migration/interfaces/DropIndexOptions) | interface | Options of `MigrationBuilder.dropIndex`. |
 | [`DropTableOptions`](/api/reference/egon-orm/migration/interfaces/DropTableOptions) | interface | Options of `MigrationBuilder.dropTable`. |
-| [`IndexOptions`](/api/reference/egon-orm/migration/interfaces/IndexOptions) | interface | Options of `MigrationBuilder.createIndex` and `MigrationBuilder.dropIndex`. |
+| [`IndexOptions`](/api/reference/egon-orm/migration/interfaces/IndexOptions) | interface | Options of `MigrationBuilder.createIndex`. |
 | [`JsonValue`](/api/reference/egon-orm/migration/type-aliases/JsonValue) | type | A JSON value, for the default of a `json` or `jsonb` column. |
 | [`Migration`](/api/reference/egon-orm/migration/interfaces/Migration) | interface | A migration, as `defineMigration` returns it. |
-| [`MigrationBuilder`](/api/reference/egon-orm/migration/interfaces/MigrationBuilder) | class, as a type | The `m` a migration's `change`, `up` and `down` receive. |
-| [`MigrationError`](/api/reference/egon-orm/migration/classes/MigrationError) | class | A migration could not be defined, reversed or run. |
+| [`MigrationBuilder`](/api/reference/egon-orm/migration/interfaces/MigrationBuilder) | class, as a type | The `m` a migration's `up` and `down` receive. |
+| [`MigrationDefinition`](/api/reference/egon-orm/migration/interfaces/MigrationDefinition) | interface | What a migration is written as. |
+| [`MigrationError`](/api/reference/egon-orm/migration/classes/MigrationError) | class | A migration could not be defined, loaded or run. |
 | [`MigrationEvent`](/api/reference/egon-orm/migration/type-aliases/MigrationEvent) | type | What the runner reports while it works. |
 | [`MigrationRun`](/api/reference/egon-orm/migration/interfaces/MigrationRun) | interface | One migration that was run (or, in a dry run, would be). |
 | [`MigrationSource`](/api/reference/egon-orm/migration/interfaces/MigrationSource) | interface | One migration with its version and name. |
@@ -405,12 +407,9 @@ Guide: [The package](/guide/).
 | [`parseMigrationFileName`](/api/reference/egon-orm/migration/functions/parseMigrationFileName) | function | Parses a migration file name. |
 | [`ReferenceAction`](/api/reference/egon-orm/migration/type-aliases/ReferenceAction) | type | What a foreign key does when the row it points at is deleted or its key is updated. |
 | [`ReferencesOptions`](/api/reference/egon-orm/migration/interfaces/ReferencesOptions) | interface | Options of `ColumnAdder.references`. |
-| [`RemoveOptions`](/api/reference/egon-orm/migration/interfaces/RemoveOptions) | interface | Options of `AlterTableBuilder.remove`. |
-| [`ReversibleMigration`](/api/reference/egon-orm/migration/interfaces/ReversibleMigration) | interface | A reversible migration. |
 | [`SqlFragment`](/api/reference/egon-orm/migration/type-aliases/SqlFragment) | type | SQL written by the program, as a `fragment` template. |
 | [`TableBuilder`](/api/reference/egon-orm/migration/interfaces/TableBuilder) | class, as a type | The `t` of `m.createTable(name, (t) => …)`. |
 | [`TimestampsColumnsOptions`](/api/reference/egon-orm/migration/interfaces/TimestampsColumnsOptions) | interface | Options of `ColumnAdder.timestamps`. |
-| [`UpDownMigration`](/api/reference/egon-orm/migration/interfaces/UpDownMigration) | interface | A migration written in both directions. |
 | [`UpOptions`](/api/reference/egon-orm/migration/interfaces/UpOptions) | interface | Options of `Migrator.up`. |
 
 ## `@egon-orm/postgres`

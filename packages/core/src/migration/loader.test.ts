@@ -2,41 +2,73 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { isEgonError, MigrationError } from "../errors.js";
 import { defineMigration, isMigration } from "./define.js";
 import { checkVersion, loadMigrations, migrationList, parseMigrationFileName } from "./loader.js";
 
-const noop = defineMigration({ up() {} });
+const noop = defineMigration({ up() {}, down() {} });
+
+function thrown(run: () => unknown): unknown {
+  try {
+    run();
+  } catch (error) {
+    return error;
+  }
+  throw new Error("expected a throw");
+}
 
 describe("defineMigration", () => {
-  test("change, or up with or without down; transaction defaults to true", () => {
-    const reversible = defineMigration({ change() {} });
-    expect(isMigration(reversible)).toBe(true);
-    expect(reversible.transaction).toBe(true);
-    expect(reversible.up).toBeUndefined();
-    const twoWay = defineMigration({ up() {}, down() {}, transaction: false });
-    expect(twoWay.transaction).toBe(false);
-    expect(typeof twoWay.down).toBe("function");
-    expect(Object.isFrozen(twoWay)).toBe(true);
+  test("takes up and down; transaction defaults to true", () => {
+    const migration = defineMigration({ up() {}, down() {} });
+    expect(isMigration(migration)).toBe(true);
+    expect(migration.transaction).toBe(true);
+    expect(typeof migration.up).toBe("function");
+    expect(typeof migration.down).toBe("function");
+    expect(Object.keys(migration)).toEqual(["up", "down", "transaction"]);
+    const outside = defineMigration({ up() {}, down() {}, transaction: false });
+    expect(outside.transaction).toBe(false);
+    expect(Object.isFrozen(outside)).toBe(true);
+  });
+
+  test.each<[string, unknown, string]>([
+    ["up alone", { up() {} }, "defineMigration() was given no down()."],
+    ["down alone", { down() {} }, "defineMigration() was given no up()."],
+    ["an empty object", {}, "defineMigration() was given no up() and no down()."],
+    ["an undefined down", { up() {}, down: undefined }, "defineMigration() was given no down()."],
+  ])("refuses %s with a MigrationError that names the missing function", (_name, definition, start) => {
+    const error = thrown(() => defineMigration(definition as never));
+    expect(error).toBeInstanceOf(MigrationError);
+    expect((error as Error).message).toBe(
+      `${start} A migration has both up(m) and down(m); when there is nothing to undo, write down() {} with a // noop comment.`,
+    );
+  });
+
+  test("change() is refused, with the way to write it as up and down", () => {
+    const alone = thrown(() => defineMigration({ change() {} } as never));
+    expect(alone).toBeInstanceOf(MigrationError);
+    expect((alone as Error).message).toBe(
+      "defineMigration() was given no up() and no down(). change() is not supported: write the change in up(m) and what undoes it in down(m).",
+    );
+    const beside = thrown(() => defineMigration({ change() {}, up() {}, down() {} } as never));
+    expect(beside).toBeInstanceOf(TypeError);
+    expect((beside as Error).message).toMatch(/unknown key "change".*change\(\) is not supported/);
   });
 
   test.each<[string, unknown]>([
     ["nothing", undefined],
     ["a function", () => {}],
-    ["an empty object", {}],
-    ["change and up", { change() {}, up() {} }],
-    ["change and down", { change() {}, down() {} }],
-    ["down alone", { down() {} }],
-    ["an unknown key", { change() {}, lock: true }],
-    ["a change that is not a function", { change: "create table" }],
-    ["a transaction that is not a boolean", { up() {}, transaction: "no" }],
-  ])("refuses %s", (_name, definition) => {
+    ["an unknown key", { up() {}, down() {}, lock: true }],
+    ["an up that is not a function", { up: "create table", down() {} }],
+    ["a down that is not a function", { up() {}, down: "drop table" }],
+    ["a transaction that is not a boolean", { up() {}, down() {}, transaction: "no" }],
+  ])("refuses %s with a TypeError", (_name, definition) => {
     expect(() => defineMigration(definition as never)).toThrow(TypeError);
   });
 
   test("isMigration recognises only what defineMigration made", () => {
-    expect(isMigration({ change() {}, transaction: true })).toBe(false);
+    expect(isMigration({ up() {}, down() {}, transaction: true })).toBe(false);
     expect(isMigration(null)).toBe(false);
     expect(isMigration("x")).toBe(false);
   });
@@ -100,9 +132,23 @@ describe("an in-memory list", () => {
       TypeError,
     );
     expect(() => migrationList([{ version: "1", name: "a", migration: noop }])).toThrow(TypeError);
-    expect(() => migrationList([{ version: 1, name: "a", migration: { up() {} } }])).toThrow(TypeError);
+    expect(() => migrationList([{ version: 1, name: "a", migration: { up() {}, down() {} } }])).toThrow(
+      TypeError,
+    );
     expect(() => migrationList([null])).toThrow(TypeError);
     expect(() => migrationList("x" as never)).toThrow(TypeError);
+  });
+
+  test("refuses a migration without up or down that defineMigration did not make, naming it", () => {
+    // As made by another copy of the package, or forged: the mark without the functions.
+    const forged = { [Symbol.for("egon.migration")]: true, up() {}, down: undefined, transaction: true };
+    const error = thrown(() =>
+      migrationList([{ version: 20260101000000, name: "add_age", migration: forged }]),
+    );
+    expect(error).toBeInstanceOf(MigrationError);
+    expect((error as MigrationError).message).toMatch(/^The migration "add_age" has no down\(\)\./);
+    expect((error as MigrationError).version).toBe(20260101000000);
+    expect((error as MigrationError).migration).toBe("add_age");
   });
 });
 
@@ -112,7 +158,7 @@ describe("a directory", () => {
   beforeAll(async () => {
     directory = await mkdtemp(join(tmpdir(), "egon-migrations-"));
     const body = (exportAs: string): string =>
-      `const migration = { [Symbol.for("egon.migration")]: true, change: () => {}, up: undefined, down: undefined, transaction: true };\n${exportAs}\n`;
+      `const migration = { [Symbol.for("egon.migration")]: true, up: () => {}, down: () => {}, transaction: true };\n${exportAs}\n`;
     await writeFile(join(directory, "20260201000000_second.mjs"), body("export default migration;"));
     await writeFile(join(directory, "20260101000000_first.mjs"), body("export { migration };"));
     await writeFile(join(directory, "README.md"), "not a migration");
@@ -133,11 +179,55 @@ describe("a directory", () => {
   });
 
   test("a file that exports no migration is refused", async () => {
-    const error = await loadMigrations(directory, async () => ({ default: { change() {} } })).catch(
+    const error = await loadMigrations(directory, async () => ({ default: { up() {}, down() {} } })).catch(
       (e: unknown) => e,
     );
     expect(error).toBeInstanceOf(MigrationError);
     expect((error as MigrationError).message).toMatch(/exports no migration/);
+    expect((error as MigrationError).version).toBe(20260101000000);
+  });
+
+  test("a file whose defineMigration() has no down is refused, naming the file and the function", async () => {
+    const error = await loadMigrations(directory, async () => ({
+      default: defineMigration({ up() {} } as never),
+    })).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(MigrationError);
+    const message = (error as MigrationError).message;
+    expect(message).toMatch(/^Cannot load the migration file ".*20260101000000_first\.mjs": /);
+    expect(message).toMatch(
+      /defineMigration\(\) was given no down\(\)\. .*down\(\) \{\} with a \/\/ noop comment/,
+    );
+    expect((error as MigrationError).version).toBe(20260101000000);
+    expect((error as MigrationError).migration).toBe("first");
+    expect((error as Error).cause).toBeInstanceOf(MigrationError);
+  });
+
+  test("a real file without up is refused when it is imported, naming the file", async () => {
+    const own = await mkdtemp(join(tmpdir(), "egon-migrations-noup-"));
+    try {
+      const define = pathToFileURL(join(import.meta.dirname, "define.ts")).href;
+      await writeFile(
+        join(own, "20260301000000_no_up.mts"),
+        `import { defineMigration } from ${JSON.stringify(define)};\nexport default defineMigration({ down() {} });\n`,
+      );
+      const error = await loadMigrations(own).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(MigrationError);
+      expect((error as Error).message).toMatch(
+        /^Cannot load the migration file ".*20260301000000_no_up\.mts": defineMigration\(\) was given no up\(\)\./,
+      );
+      expect((error as MigrationError).version).toBe(20260301000000);
+    } finally {
+      await rm(own, { recursive: true, force: true });
+    }
+  });
+
+  test("a file exporting a migration without down that defineMigration did not make is refused", async () => {
+    const forged = { [Symbol.for("egon.migration")]: true, change() {}, up: undefined, down: undefined };
+    const error = await loadMigrations(directory, async () => ({ default: forged })).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(MigrationError);
+    expect((error as Error).message).toMatch(
+      /^The migration file ".*20260101000000_first\.mjs" has no up\(\) and no down\(\)\. change\(\) is not supported/,
+    );
     expect((error as MigrationError).version).toBe(20260101000000);
   });
 

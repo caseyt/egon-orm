@@ -91,8 +91,11 @@ const ONE: readonly MigrationSource[] = [
     version: 20260101000000,
     name: "create_a",
     migration: defineMigration({
-      change(m) {
+      up(m) {
         m.createTable("a", (t) => t.id());
+      },
+      down(m) {
+        m.dropTable("a");
       },
     }),
   },
@@ -165,6 +168,7 @@ describe("a migration without a transaction under a transaction lock", () => {
         up(m) {
           m.execute(fragment`vacuum`);
         },
+        down() {},
       }),
     },
   ];

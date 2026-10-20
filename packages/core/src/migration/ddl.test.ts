@@ -144,8 +144,8 @@ describe("dropTable, renameTable", () => {
     expect(
       sqlOf((m) => {
         m.dropTable("users");
-        m.dropTable("users", undefined, { ifExists: true, schema: "auth" });
-        m.dropTable("users", undefined, { cascade: true });
+        m.dropTable("users", { ifExists: true, schema: "auth" });
+        m.dropTable("users", { cascade: true });
         m.renameTable("people", "users");
         m.renameTable("people", "users", { schema: "auth" });
       }),
@@ -169,12 +169,8 @@ describe("alterTable", () => {
           t.text("nickname");
           t.references("org_id", "orgs", { onDelete: "setNull" });
           t.add("score", { kind: "decimal", precision: 5 });
-          t.modify("age", "bigint", { from: "integer" });
-          t.modify("name", "text", {
-            notNull: true,
-            default: "anonymous",
-            from: { type: "text", notNull: false, default: null },
-          });
+          t.modify("age", "bigint");
+          t.modify("name", "text", { notNull: true, default: "anonymous" });
           t.modify("bio", "text", { notNull: false, default: null });
           t.remove("legacy");
           t.rename("name", "full_name");
@@ -337,8 +333,8 @@ describe("features a dialect lacks are refused with MigrationError", () => {
     ["CREATE EXTENSION", { extensions: false }, (m) => m.createExtension("citext")],
     ["DROP EXTENSION", { extensions: false }, (m) => m.dropExtension("citext")],
     ["A database schema", { schemas: false }, (m) => m.createSchema("audit")],
-    ["A database schema", { schemas: false }, (m) => m.dropTable("t", undefined, { schema: "audit" })],
-    ["DROP … CASCADE", { dropCascade: false }, (m) => m.dropTable("t", undefined, { cascade: true })],
+    ["A database schema", { schemas: false }, (m) => m.dropTable("t", { schema: "audit" })],
+    ["DROP … CASCADE", { dropCascade: false }, (m) => m.dropTable("t", { cascade: true })],
   ];
   test.each(cases)("%s", (feature, features, record) => {
     const error = thrown(() => sqlOf(record, without(features)));

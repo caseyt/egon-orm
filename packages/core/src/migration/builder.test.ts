@@ -258,21 +258,15 @@ describe("arguments refused when recorded", () => {
     ],
     ["an alterTable that changes nothing", (m) => m.alterTable("t", () => {})],
     ["an alterTable without a function", (m) => loose(m).alterTable?.("t")],
-    [
-      "remove options without a type",
-      (m) => m.alterTable("t", (t) => t.remove("a", undefined, { notNull: true })),
-    ],
+    ["remove of an empty name", (m) => m.alterTable("t", (t) => t.remove(""))],
     [
       "modify with a bad notNull",
       (m) => m.alterTable("t", (t) => t.modify("a", "text", { notNull: 1 } as never)),
     ],
+    ["modify to an unknown type", (m) => m.alterTable("t", (t) => t.modify("a", "varchar" as never))],
     [
-      "modify from an unknown type",
-      (m) => m.alterTable("t", (t) => t.modify("a", "text", { from: "varchar" } as never)),
-    ],
-    [
-      "modify from with an unknown key",
-      (m) => m.alterTable("t", (t) => t.modify("a", "text", { from: { type: "text", size: 1 } } as never)),
+      "modify with from, which it no longer takes",
+      (m) => m.alterTable("t", (t) => t.modify("a", "bigint", { from: "integer" } as never)),
     ],
     ["rename to nothing", (m) => m.alterTable("t", (t) => t.rename("a", ""))],
     ["an index without columns", (m) => m.createIndex("t", [])],
@@ -280,15 +274,26 @@ describe("arguments refused when recorded", () => {
     ["an expression index without a name", (m) => m.createIndex("t", [fragment`lower(a)`])],
     ["an index column that is not a name or fragment", (m) => m.createIndex("t", [1 as never])],
     ["include that is not an array", (m) => m.createIndex("t", ["a"], { include: "b" as never })],
-    ["ifExists on createIndex", (m) => m.createIndex("t", ["a"], { ifExists: true })],
-    ["ifNotExists on dropIndex", (m) => m.dropIndex("t", ["a"], { ifNotExists: true })],
+    ["ifExists on createIndex", (m) => m.createIndex("t", ["a"], { ifExists: true } as never)],
+    ["ifNotExists on dropIndex", (m) => m.dropIndex("t", ["a"], { ifNotExists: true } as never)],
+    ["where on dropIndex", (m) => m.dropIndex("t", ["a"], { where: fragment`a > 0` } as never)],
+    ["using on dropIndex", (m) => m.dropIndex("t", ["a"], { using: "gin" } as never)],
+    ["include on dropIndex", (m) => m.dropIndex("t", ["a"], { include: ["b"] } as never)],
+    ["a dropIndex without columns", (m) => m.dropIndex("t", [])],
+    ["an expression dropIndex without a name", (m) => m.dropIndex("t", [fragment`lower(a)`])],
     ["a constraint with neither check nor exclude", (m) => m.createConstraint("t", "c", {})],
     [
       "a constraint with both",
       (m) => m.createConstraint("t", "c", { check: fragment`a`, exclude: fragment`a with =` }),
     ],
     ["using on a check", (m) => m.createConstraint("t", "c", { check: fragment`a`, using: "gist" })],
-    ["using without exclude", (m) => m.dropConstraint("t", "c", { using: "gist" })],
+    ["using without exclude", (m) => m.createConstraint("t", "c", { using: "gist" })],
+    ["check on dropConstraint", (m) => m.dropConstraint("t", "c", { check: fragment`a` } as never)],
+    ["using on dropConstraint", (m) => m.dropConstraint("t", "c", { using: "gist" } as never)],
+    [
+      "an exclusion constraint that binds a value",
+      (m) => m.createConstraint("t", "c", { exclude: fragment`a with ${"="}` }),
+    ],
     ["a check that is not a fragment", (m) => m.createConstraint("t", "c", { check: "a > 0" as never })],
     ["execute of a string", (m) => m.execute("drop table users" as never)],
     [
@@ -300,7 +305,9 @@ describe("arguments refused when recorded", () => {
     ["an extension without a name", (m) => m.createExtension("")],
     ["dropExtension with a bad option", (m) => m.dropExtension("e", { cascade: true } as never)],
     ["renameTable to nothing", (m) => m.renameTable("a", "")],
-    ["dropTable with a bad option", (m) => m.dropTable("a", undefined, { force: true } as never)],
+    ["dropTable with a bad option", (m) => m.dropTable("a", { force: true } as never)],
+    ["dropTable with primaryKey", (m) => m.dropTable("a", { primaryKey: false } as never)],
+    ["dropTable with a definition", (m) => loose(m).dropTable?.("a", () => {})],
     [
       "decimal with a bad option",
       (m) => m.createTable("t", (t) => t.decimal("d", { size: 3 } as never).primaryKey()),
@@ -315,39 +322,64 @@ describe("arguments refused when recorded", () => {
 });
 
 describe("what is recorded", () => {
-  test("dropTable keeps the definition it is given, and the key rule applies to it", () => {
-    const [op] = record((m) => m.dropTable("logs", (t) => t.text("line"), { primaryKey: false }));
-    expect(op).toMatchObject({
+  test("dropTable records the table and its flags", () => {
+    const [plain, flagged] = record((m) => {
+      m.dropTable("logs");
+      m.dropTable("logs", { schema: "audit", ifExists: true, cascade: true });
+    });
+    expect(plain).toEqual({
       op: "dropTable",
+      table: { name: "logs", schema: undefined },
       ifExists: false,
       cascade: false,
-      definition: { op: "createTable" },
     });
-    expect(() => record((m) => m.dropTable("logs", (t) => t.text("line")))).toThrow(/no primary key/);
-  });
-
-  test("remove keeps the type and options it is given", () => {
-    const [op] = record((m) =>
-      m.alterTable("t", (t) => t.remove("n", "integer", { notNull: true, default: 3 })),
-    );
-    expect(op?.op === "alterTable" && op.changes[0]).toMatchObject({
-      change: "remove",
-      column: "n",
-      definition: { name: "n", notNull: true, default: { kind: "value", value: 3 } },
+    expect(flagged).toEqual({
+      op: "dropTable",
+      table: { name: "logs", schema: "audit" },
+      ifExists: true,
+      cascade: true,
     });
   });
 
-  test("modify keeps what it changes and what it changes from", () => {
+  test("remove records the column only", () => {
+    const [op] = record((m) => m.alterTable("t", (t) => t.remove("n")));
+    expect(op?.op === "alterTable" && op.changes).toEqual([{ change: "remove", column: "n" }]);
+  });
+
+  test("modify records what it changes", () => {
     const [op] = record((m) =>
       m.alterTable("t", (t) => {
         t.modify("a", "bigint");
-        t.modify("b", "text", { default: null, from: { type: "text", default: "x" } });
+        t.modify("b", "text", { notNull: true, default: null });
       }),
     );
     expect(op?.op === "alterTable" && op.changes).toMatchObject([
-      { change: "modify", column: "a", notNull: undefined, default: undefined, from: undefined },
-      { change: "modify", column: "b", default: null, from: { default: { kind: "value", value: "x" } } },
+      { change: "modify", column: "a", notNull: undefined, default: undefined },
+      { change: "modify", column: "b", notNull: true, default: null },
     ]);
+  });
+
+  test("dropIndex records the name the matching createIndex gives, and its flags", () => {
+    const [created, dropped, named] = record((m) => {
+      m.createIndex("users", ["email"], { unique: true });
+      m.dropIndex("users", ["email"], { unique: true, concurrently: true, ifExists: true });
+      m.dropIndex("users", [fragment`lower(email)`], { name: "users_lower_email_index", schema: "auth" });
+    });
+    expect(created?.op === "createIndex" && created.index.name).toBe("users_email_key");
+    expect(dropped).toEqual({
+      op: "dropIndex",
+      table: { name: "users", schema: undefined },
+      name: "users_email_key",
+      concurrently: true,
+      ifExists: true,
+    });
+    expect(named).toEqual({
+      op: "dropIndex",
+      table: { name: "users", schema: "auth" },
+      name: "users_lower_email_index",
+      concurrently: false,
+      ifExists: false,
+    });
   });
 
   test("an exclusion constraint uses gist unless told otherwise", () => {
@@ -355,15 +387,18 @@ describe("what is recorded", () => {
     expect(op?.op === "createConstraint" && op.definition.using).toBe("gist");
   });
 
-  test("dropConstraint without a definition records none", () => {
-    const [op] = record((m) => m.dropConstraint("t", "c"));
-    expect(op).toMatchObject({ op: "dropConstraint", definition: undefined });
+  test("dropConstraint records the table, the name and ifExists", () => {
+    const [op] = record((m) => m.dropConstraint("t", "c", { schema: "s", ifExists: true }));
+    expect(op).toEqual({
+      op: "dropConstraint",
+      table: { name: "t", schema: "s" },
+      name: "c",
+      ifExists: true,
+    });
   });
 
-  test("execute keeps both statements and their values", () => {
-    const [op] = record((m) =>
-      m.execute(fragment`insert into t values (${1})`, fragment`delete from t where a = ${1}`),
-    );
-    expect(op?.op === "execute" && [op.up.params, op.down?.params]).toEqual([[1], [1]]);
+  test("execute keeps its statement and values", () => {
+    const [op] = record((m) => m.execute(fragment`insert into t values (${1})`));
+    expect(op?.op === "execute" && op.statement.params).toEqual([1]);
   });
 });

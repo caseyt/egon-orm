@@ -26,7 +26,7 @@ where `instanceof` would not:
 | `SchemaDefinitionError` | `"schemaDefinition"` | A schema, type or association is defined incorrectly, or a schema's constructor is called. | | The message names the schema, the field and the fix. |
 | `RollbackError` | `"rollback"` | `transactionOrThrow` ended in a rollback: `tx.rollback(reason)`, a batch step that failed (`reason` is `{ step, error, completed }`), or a statement that failed and was not handled. | `reason` | Use `transaction` to get the rollback as a result. |
 | `DatabaseError` | see below | The connection or the database failed. | `retryable`, `sql` | Depends on the code. |
-| `MigrationError` | `"migration"` | A [migration](/guide/migrations) cannot be rolled back, uses a feature the database lacks, failed, is missing its file, or the migration lock could not be taken. Imported from `egon-orm/migration`. | `version`, `migration`, `sql` | The message says which migration and why. |
+| `MigrationError` | `"migration"` | A [migration](/guide/migrations) has no `up` or no `down`, uses a feature the database lacks, failed, is missing its file, or the migration lock could not be taken. Imported from `egon-orm/migration`. | `version`, `migration`, `sql` | The message says which migration and why. |
 
 ## `DatabaseError` codes
 

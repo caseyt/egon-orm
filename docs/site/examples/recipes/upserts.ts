@@ -4,6 +4,7 @@
 // #region setup
 import { postgres } from "@egon-orm/postgres";
 import { change, createRepo, from, Schema, t, timestamps } from "egon-orm";
+import { createMigrator, defineMigration } from "egon-orm/migration";
 
 const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATABASE_URL }) });
 
@@ -19,17 +20,33 @@ class DailyView extends Schema("daily_views", {
   views: t.integer(),
 }) {}
 
-// The tables, in SQL. A project creates them with a migration.
-const TABLES = `
-  create table settings (key text primary key, value jsonb not null,
-    created_at timestamptz not null, updated_at timestamptz not null);
-  create table daily_views (page_id integer, day date, views integer not null, primary key (page_id, day));
-`;
+// The tables, created by a migration.
+const tables = defineMigration({
+  up(m) {
+    m.createTable("settings", (table) => {
+      table.text("key").notNull().primaryKey();
+      table.jsonb("value").notNull();
+      table.timestamps();
+    });
+    m.createTable("daily_views", (table) => {
+      table.integer("page_id").notNull().primaryKey(); // a composite key: page and day
+      table.date("day").notNull().primaryKey();
+      table.integer("views").notNull();
+    });
+  },
+  down(m) {
+    m.dropTable("daily_views");
+    m.dropTable("settings");
+  },
+});
 
 /** Creates the tables, in the database that DATABASE_URL names. */
 export async function createTables(): Promise<void> {
   const admin = postgres({ connectionString: process.env.DATABASE_URL });
-  await admin.execute(TABLES, []);
+  await createMigrator({
+    adapter: admin,
+    migrations: [{ version: 1, name: "tables", migration: tables }],
+  }).up();
   await admin.close();
 }
 // #endregion setup

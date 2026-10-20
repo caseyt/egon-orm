@@ -4,6 +4,7 @@
 // #region setup
 import { postgres } from "@egon-orm/postgres";
 import { createRepo, from, Schema, t, tuple } from "egon-orm";
+import { createMigrator, defineMigration } from "egon-orm/migration";
 
 class Post extends Schema("posts", {
   id: t.integer().primaryKey().dbGenerated(),
@@ -13,16 +14,29 @@ class Post extends Schema("posts", {
 
 const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATABASE_URL }) });
 
-// The tables, in SQL. A project creates them with a migration.
-const TABLES = `
-  create table posts (id serial primary key, title text not null, created_at timestamptz not null);
-  create index posts_created_at_id_index on posts (created_at desc, id desc);
-`;
+// The tables, created by a migration.
+const tables = defineMigration({
+  up(m) {
+    m.createTable("posts", (table) => {
+      table.id("id", { type: "integer" });
+      table.text("title").notNull();
+      table.timestamptz("created_at").notNull();
+    });
+    // The order of the pages; Postgres reads it backwards for created_at desc, id desc.
+    m.createIndex("posts", ["created_at", "id"]);
+  },
+  down(m) {
+    m.dropTable("posts");
+  },
+});
 
 /** Creates the tables, in the database that DATABASE_URL names. */
 export async function createTables(): Promise<void> {
   const admin = postgres({ connectionString: process.env.DATABASE_URL });
-  await admin.execute(TABLES, []);
+  await createMigrator({
+    adapter: admin,
+    migrations: [{ version: 1, name: "tables", migration: tables }],
+  }).up();
   await admin.close();
 }
 // #endregion setup

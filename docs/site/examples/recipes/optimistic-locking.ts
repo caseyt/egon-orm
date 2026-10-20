@@ -4,18 +4,31 @@
 // #region setup
 import { postgres } from "@egon-orm/postgres";
 import { cast, createRepo, Schema, StaleEntryError, t } from "egon-orm";
+import { createMigrator, defineMigration } from "egon-orm/migration";
 
 const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATABASE_URL }) });
 
-// The tables, in SQL. A project creates them with a migration.
-const TABLES = `
-  create table pages (id serial primary key, body text not null, lock_version integer not null default 1);
-`;
+// The tables, created by a migration.
+const tables = defineMigration({
+  up(m) {
+    m.createTable("pages", (table) => {
+      table.id("id", { type: "integer" });
+      table.text("body").notNull();
+      table.integer("lock_version").notNull().default(1);
+    });
+  },
+  down(m) {
+    m.dropTable("pages");
+  },
+});
 
 /** Creates the tables, in the database that DATABASE_URL names. */
 export async function createTables(): Promise<void> {
   const admin = postgres({ connectionString: process.env.DATABASE_URL });
-  await admin.execute(TABLES, []);
+  await createMigrator({
+    adapter: admin,
+    migrations: [{ version: 1, name: "tables", migration: tables }],
+  }).up();
   await admin.close();
 }
 // #endregion setup

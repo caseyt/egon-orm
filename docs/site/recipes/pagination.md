@@ -31,7 +31,7 @@ It reads only the page, whatever its depth, and is stable while rows are added.
   compares them as a row: `(created_at, id) < ($1, $2)`.
 - Order by a unique combination: `createdAt` alone may repeat, so `id` breaks ties.
 - The `where` and the `orderBy` use the same columns in the same direction. An index on
-  `(created_at desc, id desc)` serves both.
+  `(created_at, id)` serves both: Postgres reads it backwards for a descending order.
 - To send the cursor to a client, encode it (for example as base64 JSON) and decode it into
   a `Date` and a number again on the next request.
 

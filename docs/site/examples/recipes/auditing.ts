@@ -4,6 +4,7 @@
 // #region setup
 import { postgres } from "@egon-orm/postgres";
 import { type Changeset, cast, change, createBatch, createRepo, from, Schema, t, timestamps } from "egon-orm";
+import { createMigrator, defineMigration } from "egon-orm/migration";
 
 const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATABASE_URL }) });
 
@@ -17,18 +18,37 @@ class Account extends Schema("accounts", {
   }
 }
 
-// The tables, in SQL. A project creates them with a migration.
-const TABLES = `
-  create table accounts (id serial primary key, email text not null, plan text not null default 'free');
-  create table audit_entries (id serial primary key, actor_id integer not null, action text not null,
-    table_name text not null, row_id integer not null, changes jsonb not null,
-    created_at timestamptz not null, updated_at timestamptz not null);
-`;
+// The tables, created by a migration.
+const tables = defineMigration({
+  up(m) {
+    m.createTable("accounts", (table) => {
+      table.id("id", { type: "integer" });
+      table.text("email").notNull();
+      table.text("plan").notNull().default("free");
+    });
+    m.createTable("audit_entries", (table) => {
+      table.id("id", { type: "integer" });
+      table.integer("actor_id").notNull();
+      table.text("action").notNull();
+      table.text("table_name").notNull();
+      table.integer("row_id").notNull();
+      table.jsonb("changes").notNull();
+      table.timestamps();
+    });
+  },
+  down(m) {
+    m.dropTable("audit_entries");
+    m.dropTable("accounts");
+  },
+});
 
 /** Creates the tables, in the database that DATABASE_URL names. */
 export async function createTables(): Promise<void> {
   const admin = postgres({ connectionString: process.env.DATABASE_URL });
-  await admin.execute(TABLES, []);
+  await createMigrator({
+    adapter: admin,
+    migrations: [{ version: 1, name: "tables", migration: tables }],
+  }).up();
   await admin.close();
 }
 // #endregion setup

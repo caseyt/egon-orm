@@ -3,21 +3,34 @@
 // name; the rest makes it compile and run (docs:integration checks the `// =>` comments).
 // #region setup
 import { postgres } from "@egon-orm/postgres";
-import { change, createRepo, from, type QueryWith, Schema, t } from "egon-orm";
+import { change, createRepo, fragment, from, type QueryWith, Schema, t } from "egon-orm";
+import { createMigrator, defineMigration } from "egon-orm/migration";
 
 const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATABASE_URL }) });
 
-// The tables, in SQL. A project creates them with a migration.
-const TABLES = `
-  create table posts (id serial primary key, title text not null, deleted_at timestamptz);
-  -- a unique title among the posts that are not deleted
-  create unique index posts_title_key on posts (title) where deleted_at is null;
-`;
+// The tables, created by a migration.
+const tables = defineMigration({
+  up(m) {
+    m.createTable("posts", (table) => {
+      table.id("id", { type: "integer" });
+      table.text("title").notNull();
+      table.timestamptz("deleted_at");
+    });
+    // A unique title among the posts that are not deleted.
+    m.createIndex("posts", ["title"], { unique: true, where: fragment`deleted_at is null` });
+  },
+  down(m) {
+    m.dropTable("posts");
+  },
+});
 
 /** Creates the tables, in the database that DATABASE_URL names. */
 export async function createTables(): Promise<void> {
   const admin = postgres({ connectionString: process.env.DATABASE_URL });
-  await admin.execute(TABLES, []);
+  await createMigrator({
+    adapter: admin,
+    migrations: [{ version: 1, name: "tables", migration: tables }],
+  }).up();
   await admin.close();
 }
 // #endregion setup

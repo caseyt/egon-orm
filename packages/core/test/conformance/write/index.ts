@@ -6,8 +6,11 @@
 // insertAll (one row, ragged rows, ten thousand rows in chunks, from a query), updateAll
 // with set and returning, deleteAll with a join, and validateUniqueAsync.
 //
-// One database per run of the suite, over the blog fixture plus the profile's tables; every
-// table is emptied before each test.
+// One database per run of the suite, over the blog fixture plus the profile's tables. Each
+// repo a test makes runs in a sandbox (step 16): a transaction that is rolled back after the
+// test, so nothing is committed and there is nothing to empty. The one test that needs two
+// connections to see each other's commits runs outside a sandbox and empties the tables
+// after itself.
 import {
   type AnyFieldType,
   ConstraintError,
@@ -37,7 +40,8 @@ import {
   t,
   val,
 } from "egon-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { createSandbox, type Sandbox } from "egon-orm/testing";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import {
   Comment,
   createTestDatabase,
@@ -117,13 +121,27 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       return made;
     }
 
-    function repo(options: Partial<RepoOptions> = {}): Repo {
+    const sandboxes: Sandbox[] = [];
+
+    /** A repo whose statements commit: for the tests that need other connections to see them. */
+    function committing(options: Partial<RepoOptions> = {}): Repo {
       return createRepo({ adapter: options.adapter ?? adapter(), ...options });
     }
 
-    /** A repo and the events of every statement it runs. */
-    function watched(options: Partial<RepoOptions> = {}): { repo: Repo; events: RepoQueryEvent[] } {
-      const made = repo(options);
+    /** A repo in a sandbox of its own, rolled back after the test. */
+    async function repo(options: Partial<RepoOptions> = {}): Promise<Repo> {
+      const made = committing(options);
+      const sandbox = await createSandbox(made);
+      await sandbox.begin();
+      sandboxes.push(sandbox);
+      return made;
+    }
+
+    /** A sandboxed repo and the events of every statement it runs. */
+    async function watched(
+      options: Partial<RepoOptions> = {},
+    ): Promise<{ repo: Repo; events: RepoQueryEvent[] }> {
+      const made = await repo(options);
       const events: RepoQueryEvent[] = [];
       made.on("query", (event) => events.push(event));
       return { repo: made, events };
@@ -148,9 +166,14 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       await db.exec(`create table everything (id integer primary key, ${columns.join(", ")})`);
     });
 
-    beforeEach(async () => {
+    /** Rolls back the test's sandboxes; before DDL on the helper's connection, which their locks would block. */
+    async function endSandboxes(): Promise<void> {
+      for (const each of sandboxes.splice(0)) await each.rollback();
+    }
+
+    afterEach(async () => {
+      await endSandboxes();
       for (const each of adapters.splice(0)) await each.close();
-      await truncateAll(db);
     });
 
     afterAll(async () => {
@@ -170,7 +193,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
 
     describe("insert", () => {
       test("writes the changes, the defaults and the timestamps, and returns the generated key", async () => {
-        const { repo: r, events } = watched();
+        const { repo: r, events } = await watched();
         const result = await r.insert(
           cast(User, { email: "ada@example.com", name: null, password: "correct horse" }, [
             "email",
@@ -200,7 +223,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("an invalid changeset and a missing required field send nothing", async () => {
-        const { repo: r, events } = watched();
+        const { repo: r, events } = await watched();
         const invalid = await r.insert(cast(User, { email: "" }, ["email"]).validateRequired(["email"]));
         expect(invalid.success).toBe(false);
         if (!invalid.success) expect(invalid.error.action).toBe("insert");
@@ -212,7 +235,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("every type is written and read back", async () => {
-        const r = repo();
+        const r = await repo();
         const longest = Math.max(...typeCases.map((each) => each.values.length));
         for (let row = 0; row < longest; row++) {
           const values: Record<string, unknown> = { id: row + 1 };
@@ -237,14 +260,14 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("a uuid key is generated, and so are the timestamps", async () => {
-        const r = repo();
+        const r = await repo();
         const org = await r.insertOrThrow(change(Org, { name: "Acme" }));
         expect(org.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
         expect((await r.getOrThrow(Org, org.id)).name).toBe("Acme");
       });
 
       test("values the database fills are read back, with returning for the ones the schema cannot know", async () => {
-        const r = repo();
+        const r = await repo();
         const plain = await r.insertOrThrow(change(Stamp, { label: "a" }));
         expect(plain.code).toBe("db-code");
         expect(plain.madeAt).toBeInstanceOf(Date);
@@ -261,7 +284,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("null is written as NULL, and an explicit null overrides a default", async () => {
-        const r = repo();
+        const r = await repo();
         const user = await seedUser(r);
         const post = await r.insertOrThrow(change(Post, { authorId: user.id, title: "t", views: null }));
         expect(post.views).toBeNull();
@@ -269,7 +292,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("prepareChanges functions run before the write, with the repo and action set", async () => {
-        const r = repo();
+        const r = await repo();
         let seen: unknown;
         const user = await r.insertOrThrow(
           cast(User, { email: "ada@example.com" }, ["email"]).prepareChanges((cs) => {
@@ -285,7 +308,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       test("a per-call database schema decides where the row goes", async () => {
         if (profile.copyTableInto === undefined) return;
         await db.exec(profile.copyTableInto("tenant_w", "tags"));
-        const r = repo();
+        const r = await repo();
         const tag = await r.insertOrThrow(change(Tag, { name: "elsewhere" }), { schema: "tenant_w" });
         expect(meta(Tag).rowMeta("loaded", "tenant_w")).toBe(
           (tag as unknown as Record<symbol, unknown>)[ROW_KEY],
@@ -294,6 +317,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         expect(await r.count(Tag, { schema: "tenant_w" })).toBe(1);
         const renamed = await r.updateOrThrow(change(tag, { name: "moved" }));
         expect((await r.getOrThrow(Tag, renamed.id, { schema: "tenant_w" })).name).toBe("moved");
+        await endSandboxes();
         await db.exec("drop schema tenant_w cascade");
       });
     });
@@ -302,7 +326,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
 
     describe("update", () => {
       test("with no change it sends nothing and returns the row", async () => {
-        const { repo: r, events } = watched();
+        const { repo: r, events } = await watched();
         const user = await seedUser(r);
         events.splice(0);
         const result = await r.update(cast(user, { email: user.email }, ["email"]));
@@ -311,7 +335,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("writes only the changed columns, and moves updatedAt", async () => {
-        const { repo: r, events } = watched();
+        const { repo: r, events } = await watched();
         const user = await seedUser(r, "ada@example.com", { name: "Ada", age: 36 });
         events.splice(0);
         const updated = ok(await r.update(cast(user, { name: "Ada L." }, ["name", "age"])));
@@ -330,7 +354,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("force runs the update without changes", async () => {
-        const { repo: r, events } = watched();
+        const { repo: r, events } = await watched();
         const user = await seedUser(r);
         events.splice(0);
         const forced = ok(await r.update(change(user), { force: true }));
@@ -339,7 +363,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("a row deleted meanwhile is stale: thrown, allowed, or reported", async () => {
-        const r = repo();
+        const r = await repo();
         const user = await seedUser(r);
         await r.deleteAll(from(User, "u"));
         const thrown = await rejection(r.update(change(user, { name: "x" })));
@@ -352,7 +376,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("an optimistic lock detects a concurrent update", async () => {
-        const r = repo();
+        const r = await repo();
         const created = await seedUser(r);
         const mine = await r.getOrThrow(User, created.id);
         const theirs = await r.getOrThrow(User, created.id);
@@ -379,9 +403,12 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         expect(stored.lockVersion).toBe(2);
       });
 
-      test("concurrent updates through two adapters: one lock wins", async () => {
-        const left = repo();
-        const right = repo({ adapter: adapter() });
+      test("concurrent updates through two adapters: one lock wins", async ({ onTestFinished }) => {
+        // Two connections that see each other's commits: no sandbox; the tables are
+        // emptied afterwards instead.
+        onTestFinished(() => truncateAll(db).then(() => undefined));
+        const left = committing();
+        const right = committing({ adapter: adapter() });
         const created = await seedUser(left);
         const a = await left.getOrThrow(User, created.id);
         const b = await right.getOrThrow(User, created.id);
@@ -398,7 +425,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("updateOrThrow throws InvalidChangesetError for an invalid changeset", async () => {
-        const r = repo();
+        const r = await repo();
         const user = await seedUser(r);
         const error = await rejection(
           r.updateOrThrow(cast(user, { email: "" }, ["email"]).validateRequired(["email"])),
@@ -412,7 +439,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
 
     describe("delete", () => {
       test("deletes by key and returns the row in the deleted state", async () => {
-        const { repo: r, events } = watched();
+        const { repo: r, events } = await watched();
         const user = await seedUser(r);
         events.splice(0);
         const deleted = ok(await r.delete(user));
@@ -427,7 +454,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
 
     describe("insertOrUpdate", () => {
       test("inserts a new record and updates a loaded row, without asking the database first", async () => {
-        const { repo: r, events } = watched();
+        const { repo: r, events } = await watched();
         const created = ok(await r.insertOrUpdate(cast(User, { email: "ada@example.com" }, ["email"])));
         const renamed = await r.insertOrUpdateOrThrow(cast(created, { name: "Ada" }, ["name"]));
         expect(renamed.id).toBe(created.id);
@@ -438,7 +465,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
 
     describe("telemetry", () => {
       test("a redacted field's value is never in an event's parameters", async () => {
-        const r = repo({ log: { params: true } });
+        const r = await repo({ log: { params: true } });
         const events: RepoQueryEvent[] = [];
         r.on("query", (event) => events.push(event));
         const user = await r.insertOrThrow(
@@ -459,7 +486,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
 
     describe("constraints", () => {
       test("a declared unique constraint is a failure on the field", async () => {
-        const r = repo();
+        const r = await repo();
         await seedUser(r);
         const result = await r.insert(
           cast(User, { email: "ada@example.com" }, ["email"]).uniqueConstraint("email"),
@@ -476,7 +503,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("an undeclared unique constraint throws with the call to add", async () => {
-        const r = repo();
+        const r = await repo();
         await seedUser(r);
         const error = await rejection(r.insert(cast(User, { email: "ada@example.com" }, ["email"])));
         expect(error).toBeInstanceOf(ConstraintError);
@@ -492,7 +519,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("an undeclared unique constraint on update says so", async () => {
-        const r = repo();
+        const r = await repo();
         await seedUser(r, "ada@example.com");
         const grace = await seedUser(r, "grace@example.com");
         const error = await rejection(r.update(cast(grace, { email: "ada@example.com" }, ["email"])));
@@ -506,7 +533,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("a constraint matched by suffix or prefix, with its own message and key", async () => {
-        const r = repo();
+        const r = await repo();
         await seedUser(r);
         const suffix = await r.insert(
           cast(User, { email: "ada@example.com" }, ["email"]).uniqueConstraint("email", {
@@ -537,7 +564,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("a foreign key: declared on the field, on the association, and not at all", async () => {
-        const r = repo();
+        const r = await repo();
         const missing = cast(Post, { authorId: 999, title: "Orphan" }, ["authorId", "title"]);
         const onField = await r.insert(missing.foreignKeyConstraint("authorId"));
         if (onField.success) fail("expected a failure");
@@ -556,7 +583,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("deleting a parent that still has children: noAssocConstraint, or the message", async () => {
-        const r = repo();
+        const r = await repo();
         const user = await seedUser(r);
         await seedPost(r, user.id);
         const handled = await r.delete(change(user).noAssocConstraint("posts"));
@@ -575,7 +602,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("a check constraint", async () => {
-        const r = repo();
+        const r = await repo();
         const thin = cast(Book, { title: "Empty", pages: 0 }, ["title", "pages"]);
         const handled = await r.insert(
           thin.checkConstraint("pages", { name: "books_pages_check", message: "must be positive" }),
@@ -593,7 +620,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
 
       test("an exclusion constraint", async () => {
         if (profile.rangeType === undefined) return;
-        const r = repo();
+        const r = await repo();
         await r.insertOrThrow(change(Booking, { room: 1, during: "[1,5)" }));
         const overlap = cast(Booking, { room: 1, during: "[3,8)" }, ["room", "during"]);
         const handled = await r.insert(overlap.exclusionConstraint("during"));
@@ -610,7 +637,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("only one constraint error is reported per attempt", async () => {
-        const r = repo();
+        const r = await repo();
         await seedUser(r);
         const result = await r.insert(
           cast(Post, { authorId: 999, title: "x" }, ["authorId", "title"])
@@ -626,7 +653,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
 
     describe("onConflict", () => {
       test('"nothing" inserts nothing on a conflict and returns null', async () => {
-        const r = repo();
+        const r = await repo();
         await seedUser(r, "ada@example.com", { name: "Ada" });
         const result = await r.insert(
           cast(User, { email: "ada@example.com", name: "Other" }, ["email", "name"]),
@@ -646,7 +673,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("update all, a list of fields, or all except some, on a field target", async () => {
-        const r = repo();
+        const r = await repo();
         const ada = await seedUser(r, "ada@example.com", { name: "Ada", age: 36 });
         const all = await r.insertOrThrow(change(User, { email: "ada@example.com", name: "All", age: 1 }), {
           onConflict: { target: ["email"], update: "all" },
@@ -674,7 +701,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("a constraint target and a fragment target", async () => {
-        const r = repo();
+        const r = await repo();
         await seedUser(r, "ada@example.com", { name: "Ada" });
         const named = await r.insertOrThrow(change(User, { email: "ada@example.com", name: "Named" }), {
           onConflict: { target: { constraint: "users_email_key" }, update: ["name"] },
@@ -691,7 +718,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("an update without a target is refused before anything is sent", async () => {
-        const { repo: r, events } = watched();
+        const { repo: r, events } = await watched();
         const error = await rejection(
           r.insert(change(User, { email: "ada@example.com" }), { onConflict: { update: "all" } }),
         );
@@ -704,7 +731,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
 
     describe("insertAll", () => {
       test("one row, with defaults and timestamps, and its rows back", async () => {
-        const { repo: r, events } = watched();
+        const { repo: r, events } = await watched();
         const { count, rows } = await r.insertAll(User, [{ email: "ada@example.com" }], { returning: true });
         expect(count).toBe(1);
         expect(events.map((event) => event.operation)).toEqual(["insertAll"]);
@@ -718,7 +745,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("without returning, rows is null; with a list, plain objects of those fields", async () => {
-        const r = repo();
+        const r = await repo();
         expect(await r.insertAll(Tag, [{ name: "a" }, { name: "b" }])).toEqual({ count: 2, rows: null });
         const listed = await r.insertAll(Tag, [{ name: "c" }], { returning: ["name"] });
         expect(listed).toEqual({ count: 1, rows: [{ name: "c" }] });
@@ -726,7 +753,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("ragged rows share one column list; a field left out gets the database default", async () => {
-        const r = repo();
+        const r = await repo();
         const user = await seedUser(r);
         const { rows } = await r.insertAll(
           Post,
@@ -741,7 +768,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("ten thousand rows go in chunks under the parameter limit, in one transaction", async () => {
-        const { repo: r, events } = watched();
+        const { repo: r, events } = await watched();
         const people = Array.from({ length: 10_000 }, (_, i) => ({
           email: `user${i}@example.com`,
           age: i % 90,
@@ -760,7 +787,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("values may be expressions, subqueries and placeholders", async () => {
-        const r = repo();
+        const r = await repo();
         const user = await seedUser(r);
         const when = new Date("2026-05-01T12:00:00.000Z");
         const { rows } = await r.insertAll(
@@ -785,14 +812,14 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("onConflict nothing counts only the rows inserted", async () => {
-        const r = repo();
+        const r = await repo();
         await r.insertAll(Tag, [{ name: "a" }]);
         const { count } = await r.insertAll(Tag, [{ name: "a" }, { name: "b" }], { onConflict: "nothing" });
         expect(count).toBe(1);
       });
 
       test("from a query: INSERT … SELECT", async () => {
-        const r = repo();
+        const r = await repo();
         await r.insertAll(Tag, [{ name: "one" }, { name: "two" }]);
         const user = await seedUser(r);
         const { count, rows } = await r.insertAll(
@@ -822,7 +849,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
 
     describe("updateAll", () => {
       test("set literals, arithmetic and array changes, with returning", async () => {
-        const r = repo();
+        const r = await repo();
         const user = await seedUser(r);
         await seedPost(r, user.id, "a", { views: 1, tagList: ["x", "y"] });
         await seedPost(r, user.id, "b", { views: 5, tagList: ["y"] });
@@ -847,14 +874,14 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("a query without set is refused", async () => {
-        const r = repo();
+        const r = await repo();
         expect(await rejection(r.updateAll(from(Post, "p")))).toBeInstanceOf(QueryError);
       });
     });
 
     describe("deleteAll", () => {
       test("with a join, and unfiltered", async () => {
-        const { repo: r, events } = watched();
+        const { repo: r, events } = await watched();
         const ada = await seedUser(r, "ada@example.com");
         const grace = await seedUser(r, "grace@example.com");
         const post = await seedPost(r, ada.id);
@@ -882,7 +909,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
 
     describe("validateUniqueAsync", () => {
       test("adds has already been taken for another row with the value, not for the row itself", async () => {
-        const r = repo();
+        const r = await repo();
         const ada = await seedUser(r, "ada@example.com");
         const taken = await cast(User, { email: "ada@example.com" }, ["email"]).validateUniqueAsync(
           "email",
@@ -914,13 +941,14 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         if (profile.copyTableInto === undefined) return;
         await db.exec(profile.copyTableInto("tenant_u", "tags"));
         try {
-          const r = repo();
+          const r = await repo();
           await r.insertAll(Tag, [{ name: "dup" }, { name: "mine" }], { schema: "tenant_u" });
           const mine = await r.getByOrThrow(Tag, { name: "mine" }, { schema: "tenant_u" });
           const checked = await change(mine, { name: "dup" }).validateUniqueAsync("name", r);
           expect(checked.valid).toBe(false);
           expect(await r.count(Tag)).toBe(0);
         } finally {
+          await endSandboxes();
           await db.exec("drop schema tenant_u cascade");
         }
       });
@@ -932,7 +960,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       const uuid = "0190d8a0-0000-7000-8000-0000000000ab";
       const other = "0190d8a0-0000-7000-8000-0000000000ac";
       test("a CASE or coalesce of bound values goes into a uuid column", async () => {
-        const r = repo();
+        const r = await repo();
         await r.insertAll(Org, [
           { id: caseWhen(val(true), uuid).else(null).as<string>(), name: "case" },
           { id: coalesce(val(null as string | null), val(other)).as<string>(), name: "coalesce" },
@@ -942,7 +970,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("and so in the select of INSERT … SELECT", async () => {
-        const r = repo();
+        const r = await repo();
         await r.insertAll(Tag, [{ name: "from tag" }]);
         const { count } = await r.insertAll(
           Org,
@@ -969,7 +997,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         await db.exec(
           "create table if not exists ver_table_with_a_very_long_name_for_tests (id integer primary key, some_extremely_long_column_name_number_one text not null, another_column_name_that_is_long text not null, unique (some_extremely_long_column_name_number_one, another_column_name_that_is_long))",
         );
-        const r = repo();
+        const r = await repo();
         const values = { someExtremelyLongColumnNameNumberOne: "a", anotherColumnNameThatIsLong: "b" };
         await r.insertOrThrow(change(Wide, { id: 1, ...values }));
         const result = await r.insert(
@@ -989,7 +1017,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
 
     describe("timeoutMs and signal", () => {
       test("timeoutMs is one budget for every chunk of an insertAll", async () => {
-        const r = repo();
+        const r = await repo();
         const user = await seedUser(r);
         // A value of 400 bound parameters, so that 200 rows take two statements; the first
         // and the last row also sleep 0.6 s, so each statement alone fits a 1 s budget.
@@ -1017,7 +1045,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       });
 
       test("an aborted signal stops a write", async () => {
-        const r = repo();
+        const r = await repo();
         const controller = new AbortController();
         controller.abort();
         const error = await rejection(

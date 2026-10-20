@@ -38,7 +38,7 @@ type Empty = Record<never, never>;
 type Simplify<T> = { [K in keyof T]: T[K] };
 
 /** `R` with the result `T` of step `N` added. */
-type With<R, N extends string, T> = Simplify<R & { readonly [K in N]: T }>;
+type With<R, N extends string, T> = Simplify<R & { [K in N]: T }>;
 
 /**
  * A step name, refused at compile time when the batch already has a step of that name

@@ -339,8 +339,39 @@ export class Session {
     params: readonly unknown[],
     options: ExecuteOptions | undefined,
   ): Promise<RawResult> {
-    if (!this.busy) return this.#send(sql, params, options);
-    return this.#wait(level, sql, params, options, undefined) as Promise<RawResult>;
+    if (this.busy) return this.#wait(level, sql, params, options, undefined) as Promise<RawResult>;
+    // Refused here rather than by the adapter: a statement that was never sent must not
+    // count as one that failed in the transaction.
+    if (options?.signal?.aborted === true) return Promise.reject(abortedBeforeRun(sql));
+    return this.#send(sql, params, options);
+  }
+
+  /**
+   * Runs one statement in a savepoint of its own (`egon_statement`), released when it
+   * succeeds and rolled back to when it fails, so that its failure undoes only itself and
+   * the transaction stays usable: how the sandbox runs the statements made on its own
+   * level, which outside the sandbox would each run alone.
+   */
+  isolated(sql: string, params: readonly unknown[], options: ExecuteOptions | undefined): Promise<RawResult> {
+    if (options?.signal?.aborted === true) return Promise.reject(abortedBeforeRun(sql));
+    const connection = this.connection;
+    return this.control(async () => {
+      await connection.savepoint(STATEMENT_SAVEPOINT);
+      let result: RawResult;
+      try {
+        result = await connection.execute(sql, params, options);
+      } catch (error) {
+        try {
+          await connection.rollbackTo(STATEMENT_SAVEPOINT);
+        } catch (lost) {
+          if (this.broken === NONE) this.broken = lost;
+          attachSuppressed(error, lost);
+        }
+        throw error;
+      }
+      await connection.releaseSavepoint(STATEMENT_SAVEPOINT);
+      return result;
+    });
   }
 
   /** Runs `work` (transaction statements) when the connection is free; nothing else runs meanwhile. */
@@ -393,10 +424,11 @@ export class Session {
   ): Promise<unknown> {
     return new Promise<unknown>((resolve, reject) => {
       const entry = new Waiting(level, sql, params, options, work, now(), resolve, reject);
+      // `stop()` removes the listener and the timer once the entry runs or gives up, so
+      // neither fires for an entry that is done.
       const signal = options?.signal;
       if (signal !== undefined) {
         entry.onAbort = () => {
-          if (entry.done) return;
           entry.stop();
           reject(
             new DatabaseError(
@@ -410,7 +442,6 @@ export class Session {
       const timeoutMs = options?.timeoutMs;
       if (timeoutMs !== undefined) {
         entry.timer = setTimeout(() => {
-          if (entry.done) return;
           entry.stop();
           reject(waitedTooLong(sql, timeoutMs));
         }, timeoutMs);
@@ -445,17 +476,19 @@ export class Session {
         options = { ...options, timeoutMs: left };
       }
       if (options?.signal?.aborted === true) {
-        entry.reject(
-          new DatabaseError("The statement was not run: its AbortSignal had fired.", {
-            code: "aborted",
-            sql: entry.sql,
-          }),
-        );
+        entry.reject(abortedBeforeRun(entry.sql));
         continue;
       }
       this.#send(entry.sql, entry.params, options).then(entry.resolve, entry.reject);
     }
   }
+}
+
+/** The name of the savepoint the sandbox runs each of its own statements in. */
+const STATEMENT_SAVEPOINT = "egon_statement";
+
+function abortedBeforeRun(sql: string): DatabaseError {
+  return new DatabaseError("The statement was not run: its AbortSignal had fired.", { code: "aborted", sql });
 }
 
 function waitedTooLong(sql: string, timeoutMs: number): DatabaseError {
@@ -514,6 +547,9 @@ export class Level implements Executor {
     if (this.state !== "open") return completedError(this);
     if (this.rollbackReason !== NONE) return rolledBackError();
     if (this.child !== undefined && this.kind !== "sandbox") return childOpenError();
+    // The budget is spent (its timer has not fired yet): that, not what it caused, is the reason.
+    if (this.deadline !== undefined && now() >= this.deadline)
+      return transactionTimeout(this, undefined, undefined);
     return this.sessionRefusal();
   }
 
@@ -535,6 +571,9 @@ export class Level implements Executor {
   execute(sql: string, params: readonly unknown[], options?: ExecuteOptions): Promise<RawResult> {
     const refused = this.refusal();
     if (refused !== undefined) return Promise.reject(refused);
+    // Outside the sandbox, each of these statements would run alone: a failure would undo
+    // only itself. A savepoint per statement keeps it so inside the sandbox's transaction.
+    if (this.kind === "sandbox") return this.session.isolated(sql, params, options);
     if (this.deadline === undefined) return this.session.execute(this, sql, params, options);
     return this.#withinDeadline(sql, params, options, this.deadline);
   }
@@ -545,10 +584,10 @@ export class Level implements Executor {
     options: ExecuteOptions | undefined,
     deadline: number,
   ): Promise<RawResult> {
-    const left = deadline - now();
+    // Positive: `refusal()` has just checked that the deadline is still ahead.
+    const left = Math.max(0, deadline - now());
     const own = options?.timeoutMs;
     if (own !== undefined && own <= left) return this.session.execute(this, sql, params, options);
-    if (left <= 0) throw transactionTimeout(this, sql, undefined);
     try {
       return await this.session.execute(this, sql, params, { ...options, timeoutMs: left });
     } catch (error) {
@@ -840,7 +879,13 @@ async function finish(level: Level, ended: Outcome): Promise<Ended> {
       level.discard = true;
       return rollbackOf(level);
     });
-    if (action === "rollback" && level.kind === "savepoint") session.failure = NONE;
+    if (level.kind !== "savepoint") {
+      // The transaction is over: the connection starts afresh (a checkout keeps using it).
+      session.failure = NONE;
+      session.broken = NONE;
+    } else if (action === "rollback") {
+      session.failure = NONE;
+    }
   } catch (error) {
     endError = error;
   }
@@ -946,7 +991,7 @@ async function runSavepoint(
     session,
     parent,
     "savepoint",
-    parent.kind === "checkout" ? 0 : parent.depth + 1,
+    parent.depth + 1,
     ownFirst ? own : inherited,
     ownFirst ? timeoutMs : parent.timeoutMs,
   );
@@ -969,7 +1014,7 @@ async function runSavepoint(
       ),
     );
   } finally {
-    if (parent.child === level) parent.child = undefined;
+    parent.child = undefined;
     parent.nextTurn();
   }
 }
@@ -1193,7 +1238,7 @@ export async function checkout(scope: Scope, repo: Repo, fn: unknown): Promise<u
     // Statements it issued and did not await still run before the connection goes back.
     await session.control(async () => undefined);
     level.state = "ended";
-    await connection.release();
+    await giveBack(session);
   }
 }
 

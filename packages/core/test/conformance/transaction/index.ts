@@ -17,8 +17,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   Batch,
-  ConstraintError,
   type Changeset,
+  ConstraintError,
   cast,
   change,
   createBatch,
@@ -121,7 +121,10 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
 
     function repo(options: Partial<RepoOptions> & Partial<MakeTransactionAdapterOptions> = {}): Repo {
       const { poolMax, ...rest } = options;
-      return createRepo({ adapter: rest.adapter ?? adapter(poolMax === undefined ? {} : { poolMax }), ...rest });
+      return createRepo({
+        adapter: rest.adapter ?? adapter(poolMax === undefined ? {} : { poolMax }),
+        ...rest,
+      });
     }
 
     /** Connections checked out of an adapter's pool. */
@@ -208,9 +211,9 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
 
       test("transactionOrThrow returns the value, and a rollback throws RollbackError with the reason", async () => {
         const r = repo();
-        expect(await r.transactionOrThrow(async (tx) => (await tx.insertOrThrow(change(Tag, { name: "a" }))).name)).toBe(
-          "a",
-        );
+        expect(
+          await r.transactionOrThrow(async (tx) => (await tx.insertOrThrow(change(Tag, { name: "a" }))).name),
+        ).toBe("a");
         const error = await rejection(
           r.transactionOrThrow(async (tx) => {
             await tx.insertOrThrow(change(Tag, { name: "b" }));
@@ -321,8 +324,14 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
       test("isolation, readOnly and retries cannot be given to a nested transaction", async () => {
         const r = repo();
         await r.transaction(async (tx) => {
-          for (const options of [{ isolation: "serializable" as const }, { readOnly: true }, { retries: 1 }]) {
-            expect(await rejection(tx.transaction(async () => undefined, options))).toBeInstanceOf(QueryError);
+          for (const options of [
+            { isolation: "serializable" as const },
+            { readOnly: true },
+            { retries: 1 },
+          ]) {
+            expect(await rejection(tx.transaction(async () => undefined, options))).toBeInstanceOf(
+              QueryError,
+            );
           }
         });
       });
@@ -345,9 +354,12 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
       test("the isolation level and read-only mode are those asked for", async () => {
         const r = repo();
         for (const isolation of ["read committed", "repeatable read", "serializable"] as const) {
-          const result = await r.transactionOrThrow(async (tx) => (await tx.raw(profile.isolationLevel)).rows[0]?.level, {
-            isolation,
-          });
+          const result = await r.transactionOrThrow(
+            async (tx) => (await tx.raw(profile.isolationLevel)).rows[0]?.level,
+            {
+              isolation,
+            },
+          );
           expect(result).toBe(isolation);
         }
         const error = await rejection(
@@ -467,7 +479,9 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
         expect(error).toBeInstanceOf(QueryError);
         expect((error as QueryError).message).toContain("transaction already completed");
         expect(() => (leaked as Repo).rollback("late")).toThrow(QueryError);
-        expect(await rejection((leaked as Repo).transaction(async () => undefined))).toBeInstanceOf(QueryError);
+        expect(await rejection((leaked as Repo).transaction(async () => undefined))).toBeInstanceOf(
+          QueryError,
+        );
       });
 
       test("calls issued together on tx run one at a time, in the order they were issued", async () => {
@@ -569,7 +583,9 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
             tx.rollback("no");
           });
           expect(inner.success).toBe(false);
-          expect(await c.transactionOrThrow(async (tx) => tx.inTransaction, { isolation: "serializable" })).toBe(true);
+          expect(
+            await c.transactionOrThrow(async (tx) => tx.inTransaction, { isolation: "serializable" }),
+          ).toBe(true);
         });
         expect(await committedTags()).toEqual(["no transaction"]);
       });
@@ -586,7 +602,10 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
             Array.from({ length: 30 }, (_, i) => ({ name: `s${i}` })),
           );
           const names: string[] = [];
-          for await (const tag of tx.stream(from(Tag, "t").orderBy(({ t }) => t.id), { batchSize: 7 })) {
+          for await (const tag of tx.stream(
+            from(Tag, "t").orderBy(({ t }) => t.id),
+            { batchSize: 7 },
+          )) {
             names.push(tag.name ?? "");
           }
           expect(names).toHaveLength(30);
@@ -618,7 +637,9 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
         createBatch()
           .insert("user", newUser(email))
           .insert("profile", ({ user }) => change(Profile, { userId: user.id, bio: "hello" }))
-          .run("greeting", async (tx, { user }) => success(`welcome ${user.email} (${await tx.count(User)})`));
+          .run("greeting", async (tx, { user }) =>
+            success(`welcome ${user.email} (${await tx.count(User)})`),
+          );
 
       test("runs every step in one transaction and returns each result under its name", async () => {
         const r = repo();
@@ -690,7 +711,9 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
         const statements: string[] = [];
         made.on("query", (event) => statements.push(event.sql));
         const invalid = cast(User, {}, ["email"]).validateRequired(["email"]);
-        const batch = createBatch().insert("tag", change(Tag, { name: "never" })).insert("user", invalid);
+        const batch = createBatch()
+          .insert("tag", change(Tag, { name: "never" }))
+          .insert("user", invalid);
         const queries = await expectQueries(r, async () => {
           const result = await r.transaction(batch);
           if (result.success) fail("expected the batch to fail");
@@ -707,7 +730,9 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
           .merge(({ first }) =>
             createBatch()
               .insert("second", change(Tag, { name: `after ${first.name}` }))
-              .run("check", async (tx) => (await tx.count(Tag)) === 2 ? success(true) : failure("not seen")),
+              .run("check", async (tx) =>
+                (await tx.count(Tag)) === 2 ? success(true) : failure("not seen"),
+              ),
           );
         expect(Batch.toList(batch).map((each) => each.operation)).toEqual(["insert", "merge"]);
         const result = await r.transactionOrThrow(batch);
@@ -773,10 +798,13 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
           });
           expect(rolled.success).toBe(false);
           // Options only a real transaction takes are accepted and left out.
-          const committed = await app.transaction(async (tx) => tx.insertOrThrow(change(Tag, { name: "released" })), {
-            isolation: "serializable",
-            retries: 2,
-          });
+          const committed = await app.transaction(
+            async (tx) => tx.insertOrThrow(change(Tag, { name: "released" })),
+            {
+              isolation: "serializable",
+              retries: 2,
+            },
+          );
           expect(committed.success).toBe(true);
           const names = (await app.all(from(Tag, "t").orderBy(({ t }) => t.id))).map((tag) => tag.name);
           expect(names).toEqual(["kept in the sandbox", "released"]);
@@ -784,6 +812,24 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
           await sandbox.rollback();
         }
         expect(await committedTags()).toEqual([]);
+      });
+
+      test("a write the database refuses in the sandbox undoes only itself, as it would outside the sandbox", async () => {
+        const app = repo();
+        const sandbox = await createSandbox(app);
+        await sandbox.begin();
+        try {
+          await app.insertOrThrow(newUser("ada@example.com"));
+          const again = await app.insert(newUser("ada@example.com"));
+          expect(again.success).toBe(false);
+          // The sandbox's transaction is still usable: the test carries on.
+          expect(await app.count(User)).toBe(1);
+          await app.insertOrThrow(newUser("grace@example.com"));
+          expect(await app.count(User)).toBe(2);
+        } finally {
+          await sandbox.rollback();
+        }
+        expect(await db.query("select email from users")).toEqual([]);
       });
 
       test("two sandboxes over two repos do not see each other's writes", async () => {
@@ -832,37 +878,35 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
         }
       });
 
-      test(
-        "two test files, each in its own sandbox, write the same unique email at the same time",
-        { timeout: 120_000 },
-        async () => {
-          const scratch = mkdtempSync(join(tmpdir(), "egon-sandbox-pair-"));
-          const reportPath = join(scratch, "report.json");
-          let report: PairReport | undefined;
-          let outcome: { code: number | null; stdout: string; stderr: string };
-          try {
-            outcome = await runSandboxPair(reportPath, {
-              [SANDBOX_PROFILE_ENV]: JSON.stringify(profile.module),
-              [SANDBOX_DB_ENV]: JSON.stringify({ name: db.name, settings: db.settings }),
-              [SANDBOX_TOKEN_ENV]: randomBytes(6).toString("hex"),
-            });
-            if (existsSync(reportPath)) report = JSON.parse(readFileSync(reportPath, "utf8")) as PairReport;
-          } finally {
-            rmSync(scratch, { recursive: true, force: true });
-          }
-          const explain = `${outcome.stdout}\n${outcome.stderr}\n${JSON.stringify(report?.testResults ?? [], null, 2)}`;
-          expect(outcome.code, explain).toBe(0);
-          expect(report?.numPassedTests, explain).toBe(2);
-          expect(
-            (report?.testResults ?? []).map((file) => [file.name.split("/").at(-1), file.status]).sort(),
-          ).toEqual([
-            ["sandbox-a.pair.ts", "passed"],
-            ["sandbox-b.pair.ts", "passed"],
-          ]);
-          // Neither file committed anything.
-          expect(await db.query("select email from users")).toEqual([]);
-        },
-      );
+      test("two test files, each in its own sandbox, write the same unique email at the same time", {
+        timeout: 120_000,
+      }, async () => {
+        const scratch = mkdtempSync(join(tmpdir(), "egon-sandbox-pair-"));
+        const reportPath = join(scratch, "report.json");
+        let report: PairReport | undefined;
+        let outcome: { code: number | null; stdout: string; stderr: string };
+        try {
+          outcome = await runSandboxPair(reportPath, {
+            [SANDBOX_PROFILE_ENV]: JSON.stringify(profile.module),
+            [SANDBOX_DB_ENV]: JSON.stringify({ name: db.name, settings: db.settings }),
+            [SANDBOX_TOKEN_ENV]: randomBytes(6).toString("hex"),
+          });
+          if (existsSync(reportPath)) report = JSON.parse(readFileSync(reportPath, "utf8")) as PairReport;
+        } finally {
+          rmSync(scratch, { recursive: true, force: true });
+        }
+        const explain = `${outcome.stdout}\n${outcome.stderr}\n${JSON.stringify(report?.testResults ?? [], null, 2)}`;
+        expect(outcome.code, explain).toBe(0);
+        expect(report?.numPassedTests, explain).toBe(2);
+        expect(
+          (report?.testResults ?? []).map((file) => [file.name.split("/").at(-1), file.status]).sort(),
+        ).toEqual([
+          ["sandbox-a.pair.ts", "passed"],
+          ["sandbox-b.pair.ts", "passed"],
+        ]);
+        // Neither file committed anything.
+        expect(await db.query("select email from users")).toEqual([]);
+      });
     });
   });
 }

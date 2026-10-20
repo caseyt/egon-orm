@@ -240,6 +240,15 @@ describe("a NULL result before a typed one in a selected CASE (review round 3)",
       { age: 15, typed: 3, plain: 3 },
     ]);
   });
+
+  test("a nested CASE of NULLs takes a column result's type (review round 4)", async () => {
+    const rows = await repo.all(
+      from(User, "u")
+        .orderBy(({ u }) => u.id)
+        .select(({ u }) => caseWhen(u.age.gt(20), u.age).else(caseWhen(lit(true), null))),
+    );
+    expect(rows).toEqual([34, null]);
+  });
 });
 
 describe("untyped values with widened types", () => {

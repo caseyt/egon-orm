@@ -294,7 +294,7 @@ describe("arguments refused when recorded", () => {
       "an exclusion constraint that binds a value",
       (m) => m.createConstraint("t", "c", { exclude: fragment`a with ${"="}` }),
     ],
-    ["a check that is not a fragment",(m) => m.createConstraint("t", "c", { check: "a > 0" as never })],
+    ["a check that is not a fragment", (m) => m.createConstraint("t", "c", { check: "a > 0" as never })],
     ["execute of a string", (m) => m.execute("drop table users" as never)],
     [
       "execute of an expression that is not a fragment",

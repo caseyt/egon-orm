@@ -12,15 +12,15 @@ import { createMigrator, defineMigration, type MigrationEvent } from "egon-orm/m
 // migrations/20261012093000_create_users.ts
 export const createUsers = defineMigration({
   up(m) {
-    m.createTable("users", (t) => {
-      t.id(); //                                       "id" bigserial primary key
-      t.text("email").notNull();
-      t.text("name"); //                               columns allow null unless notNull()
-      t.integer("age");
-      t.enumText("role", ["admin", "member"]).notNull().default("member"); // text + check
-      t.jsonb("settings");
-      t.references("org_id", "orgs", { type: "uuid", onDelete: "cascade" });
-      t.timestamps(); //                               created_at, updated_at
+    m.createTable("users", (table) => {
+      table.id(); //                                       "id" bigserial primary key
+      table.text("email").notNull();
+      table.text("name"); //                               columns allow null unless notNull()
+      table.integer("age");
+      table.enumText("role", ["admin", "member"]).notNull().default("member"); // text + check
+      table.jsonb("settings");
+      table.references("org_id", "orgs", { type: "uuid", onDelete: "cascade" });
+      table.timestamps(); //                               created_at, updated_at
     });
     m.createIndex("users", ["email"], { unique: true }); // users_email_key
   },
@@ -45,19 +45,19 @@ export const backfillRoles = defineMigration({
 // #region alter
 export const profileFields = defineMigration({
   up(m) {
-    m.alterTable("users", (t) => {
-      t.text("nickname"); //                  add
-      t.modify("age", "bigint"); //           change the type
-      t.remove("legacy_flag"); //             drop
-      t.rename("name", "full_name");
+    m.alterTable("users", (table) => {
+      table.text("nickname"); //                  add
+      table.modify("age", "bigint"); //           change the type
+      table.remove("legacy_flag"); //             drop
+      table.rename("name", "full_name");
     });
   },
   down(m) {
-    m.alterTable("users", (t) => {
-      t.rename("full_name", "name");
-      t.boolean("legacy_flag"); //            down says what the dropped column was
-      t.modify("age", "integer");
-      t.remove("nickname");
+    m.alterTable("users", (table) => {
+      table.rename("full_name", "name");
+      table.boolean("legacy_flag"); //            down says what the dropped column was
+      table.modify("age", "integer");
+      table.remove("nickname");
     });
   },
 });

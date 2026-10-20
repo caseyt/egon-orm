@@ -51,16 +51,19 @@ and the missing function. Nothing runs then: not `egon migrate`, `egon rollback`
 migrations`.
 
 `down` lists the undoing operations in the reverse order of `up`: drop what `up` created,
-and recreate what it dropped. `m.dropTable`, `t.remove` and `m.dropConstraint` take only
+and recreate what it dropped. `m.dropTable`, `table.remove` and `m.dropConstraint` take only
 names. So to bring back what `up` removed, `down` defines it again: the column's type, the
 table's columns or the constraint's check.
 
 ## Operations
 
+The `createTable` and `alterTable` callbacks receive a table builder. These pages call it
+`table` rather than `t`, so it does not shadow the `t` imported from `egon-orm`.
+
 | Operation | Options |
 |---|---|
-| `m.createTable(name, (t) => …, options?)` | `schema`, `ifNotExists`, `primaryKey: false` |
-| `m.alterTable(name, (t) => …, options?)` | `schema` |
+| `m.createTable(name, (table) => …, options?)` | `schema`, `ifNotExists`, `primaryKey: false` |
+| `m.alterTable(name, (table) => …, options?)` | `schema` |
 | `m.dropTable(name, options?)` | `schema`, `ifExists`, `cascade` |
 | `m.renameTable(from, to, options?)` | `schema` |
 | `m.createIndex(table, columns, options?)` | `unique`, `name`, `where`, `using`, `include`, `concurrently`, `schema`, `ifNotExists` |
@@ -71,7 +74,7 @@ table's columns or the constraint's check.
 | `m.createSchema(name)` / `m.dropSchema(name)` | `ifNotExists` / `ifExists`, `cascade` (a database schema) |
 | `m.createExtension(name)` / `m.dropExtension(name)` | `ifNotExists`, `schema` / `ifExists` |
 
-A table must have a primary key: `t.id()`, or `.primaryKey()` on its key columns (several
+A table must have a primary key: `table.id()`, or `.primaryKey()` on its key columns (several
 make a composite key). Pass `{ primaryKey: false }` for a table that has none on purpose.
 
 Inside `alterTable`, the column methods add columns, and `modify(name, type, { notNull,
@@ -84,16 +87,16 @@ default })`, `remove(name)` and `rename(from, to)` change existing ones:
 The column methods are named after the column types (`DbType`): `integer`, `bigint`,
 `float`, `decimal`, `boolean`, `text` (also `string`), `uuid`, `binary`, `date`, `time`,
 `timestamp`, `timestamptz`, `json`, `jsonb`, `array(name, of)` and `custom(name, sql)`.
-`t.add(name, type)` takes any type, such as `{ kind: "decimal", precision: 10, scale: 2 }`.
+`table.add(name, type)` takes any type, such as `{ kind: "decimal", precision: 10, scale: 2 }`.
 
 The helpers:
 
 | Helper | Column |
 |---|---|
-| `t.id()` | `"id" bigserial primary key` (`{ type: "integer" }` for `serial`) |
-| `t.references(column, table, options?)` | a `bigint` (or `type`) with a foreign key to `table` (`column`, `onDelete`, `onUpdate`, `schema`, `name`) |
-| `t.enumText(column, values)` | `text` with a check constraint allowing only `values` |
-| `t.timestamps()` | `created_at` and `updated_at`, `timestamptz not null default now()` |
+| `table.id()` | `"id" bigserial primary key`; `table.id("id", { type: "integer" })` for `serial` (the first argument is the column name) |
+| `table.references(column, target, options?)` | a `bigint` (or `type`) with a foreign key to the table `target` (`column`, `onDelete`, `onUpdate`, `schema`, `name`) |
+| `table.enumText(column, values)` | `text` with a check constraint allowing only `values` |
+| `table.timestamps()` | `created_at` and `updated_at`, `timestamptz not null default now()` |
 
 Each returns a column builder: `.notNull()`, `.nullable()`, `.default(value)`,
 `.primaryKey()`, `.unique()`.
@@ -114,8 +117,8 @@ database error becomes a changeset error without either side naming anything:
 | Created by | Default name | Matched by default by |
 |---|---|---|
 | `m.createIndex(table, cols, { unique: true })`, `.unique()` | `<table>_<columns>_key` | `uniqueConstraint(fields)` |
-| `t.references(column, …)` | `<table>_<column>_fkey` | `foreignKeyConstraint`, `assocConstraint`, `noAssocConstraint` |
-| `t.enumText(column, …)` | `<table>_<column>_check` | `checkConstraint(field, { name })` |
+| `table.references(column, …)` | `<table>_<column>_fkey` | `foreignKeyConstraint`, `assocConstraint`, `noAssocConstraint` |
+| `table.enumText(column, …)` | `<table>_<column>_check` | `checkConstraint(field, { name })` |
 | `m.createIndex(table, cols)` | `<table>_<columns>_index` | (not a constraint) |
 
 <<< @/examples/migrations.ts#changeset-pairing

@@ -1,7 +1,7 @@
 /**
  * The vocabulary of migrations: column types, defaults, reference actions, and the
  * operations a migration records. The operations are plain data; `ddl.ts` writes their
- * SQL and `reverse.ts` derives their inverses.
+ * SQL.
  *
  * @module
  */
@@ -226,28 +226,12 @@ export type AlterChange =
       readonly notNull: boolean | undefined;
       /** `null` drops the default; `undefined` leaves it. */
       readonly default: DefaultSpec | null | undefined;
-      readonly from: ModifyFrom | undefined;
     }
-  | { readonly change: "remove"; readonly column: string; readonly definition: ColumnDef | undefined }
+  | { readonly change: "remove"; readonly column: string }
   | { readonly change: "rename"; readonly column: string; readonly to: string };
 
 /**
- * What a modified column was before, for the reversal.
- *
- * @example
- * ```ts
- * declare const integer: TypeSpec;
- * const from: ModifyFrom = { type: integer, notNull: undefined, default: undefined };
- * ```
- */
-export interface ModifyFrom {
-  readonly type: TypeSpec;
-  readonly notNull: boolean | undefined;
-  readonly default: DefaultSpec | null | undefined;
-}
-
-/**
- * An index, as `createIndex` and `dropIndex` describe it.
+ * An index, as `createIndex` describes it.
  *
  * @example
  * ```ts
@@ -311,14 +295,19 @@ export type Operation =
   | {
       readonly op: "dropTable";
       readonly table: TableRef;
-      readonly definition: CreateTableOp | undefined;
       readonly ifExists: boolean;
       readonly cascade: boolean;
     }
   | { readonly op: "alterTable"; readonly table: TableRef; readonly changes: readonly AlterChange[] }
   | { readonly op: "renameTable"; readonly table: TableRef; readonly to: string }
   | { readonly op: "createIndex"; readonly index: IndexDef; readonly ifNotExists: boolean }
-  | { readonly op: "dropIndex"; readonly index: IndexDef; readonly ifExists: boolean }
+  | {
+      readonly op: "dropIndex";
+      readonly table: TableRef;
+      readonly name: string;
+      readonly concurrently: boolean;
+      readonly ifExists: boolean;
+    }
   | {
       readonly op: "createConstraint";
       readonly table: TableRef;
@@ -329,10 +318,9 @@ export type Operation =
       readonly op: "dropConstraint";
       readonly table: TableRef;
       readonly name: string;
-      readonly definition: ConstraintDef | undefined;
       readonly ifExists: boolean;
     }
-  | { readonly op: "execute"; readonly up: ExecuteStatement; readonly down: ExecuteStatement | undefined }
+  | { readonly op: "execute"; readonly statement: ExecuteStatement }
   | { readonly op: "createSchema"; readonly name: string; readonly ifNotExists: boolean }
   | {
       readonly op: "dropSchema";

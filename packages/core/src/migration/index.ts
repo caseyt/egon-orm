@@ -1,5 +1,5 @@
 /**
- * `egon-orm/migration`: hand-written, versioned, reversible migrations and their runner.
+ * `egon-orm/migration`: hand-written, versioned migrations (`up` and `down`) and their runner.
  *
  * @example
  * ```ts
@@ -18,18 +18,18 @@ export type {
   ConstraintOptions,
   CreateTableOptions,
   DropConstraintOptions,
+  DropIndexOptions,
   DropTableOptions,
   IdOptions,
   IndexOptions,
   MigrationBuilder,
   ModifyOptions,
   ReferencesOptions,
-  RemoveOptions,
   TableBuilder,
   TimestampsColumnsOptions,
 } from "./builder.js";
 export { createDatabase, dropDatabase } from "./database.js";
-export type { Migration, ReversibleMigration, UpDownMigration } from "./define.js";
+export type { Migration, MigrationDefinition } from "./define.js";
 export { defineMigration } from "./define.js";
 export type { MigrationSource } from "./loader.js";
 export { parseMigrationFileName } from "./loader.js";

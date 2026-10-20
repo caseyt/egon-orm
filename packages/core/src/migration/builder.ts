@@ -1,7 +1,7 @@
 /**
- * The object a migration's `change`, `up` and `down` receive (`m`), and the table and
- * column builders its callbacks receive (`t`). They only record: every call appends an
- * {@link Operation}, which the runner turns into SQL (`ddl.ts`) or reverses (`reverse.ts`).
+ * The object a migration's `up` and `down` receive (`m`), and the table and column
+ * builders its callbacks receive (`t`). They only record: every call appends an
+ * {@link Operation}, which the runner turns into SQL (`ddl.ts`).
  * Arguments are checked when they are recorded, so a mistake fails at the line that made
  * it.
  *
@@ -22,7 +22,6 @@ import type {
   DefaultValue,
   ExecuteStatement,
   IndexDef,
-  ModifyFrom,
   Operation,
   ReferenceAction,
   SqlFragment,
@@ -734,33 +733,13 @@ export class TableBuilder extends ColumnAdder {}
  *
  * @example
  * ```ts
- * const options: ModifyOptions = { notNull: true, from: { type: "integer", notNull: false } };
+ * const options: ModifyOptions = { notNull: true, default: 0 };
  * ```
  */
 export interface ModifyOptions {
-  /**
-   * What the column was before: its type, or `{ type, notNull, default }`. Needed to roll
-   * the change back; without it a `change` migration cannot be reversed.
-   */
-  readonly from?:
-    | ColumnType
-    | { readonly type: ColumnType; readonly notNull?: boolean; readonly default?: DefaultValue };
   /** `true` sets `NOT NULL`, `false` drops it; leave it out to keep it as it is. */
   readonly notNull?: boolean;
   /** A new default; `null` drops the default; leave it out to keep it. */
-  readonly default?: DefaultValue;
-}
-
-/**
- * Options of {@link AlterTableBuilder.remove}: what the column was, for the reversal.
- *
- * @example
- * ```ts
- * const options: RemoveOptions = { notNull: true, default: 0 };
- * ```
- */
-export interface RemoveOptions {
-  readonly notNull?: boolean;
   readonly default?: DefaultValue;
 }
 
@@ -772,8 +751,8 @@ export interface RemoveOptions {
  * ```ts
  * m.alterTable("users", (t) => {
  *   t.text("nickname");
- *   t.modify("age", "bigint", { from: "integer" });
- *   t.remove("legacy_flag", "boolean");
+ *   t.modify("age", "bigint");
+ *   t.remove("legacy_flag");
  *   t.rename("name", "full_name");
  * });
  * ```
@@ -794,7 +773,7 @@ export class AlterTableBuilder extends ColumnAdder {
    */
   modify(name: string, type: ColumnType, options?: ModifyOptions): void {
     const where = `${this.context.where}: modify("${String(name)}")`;
-    const checked = checkOptions(where, options, ["from", "notNull", "default"]);
+    const checked = checkOptions(where, options, ["notNull", "default"]);
     const column = checkName(where, "column name", name);
     const spec = typeSpec(where, type);
     const notNull = checked.notNull === undefined ? undefined : optionalBoolean(where, checked, "notNull");
@@ -805,30 +784,17 @@ export class AlterTableBuilder extends ColumnAdder {
       type: spec,
       notNull,
       default: def,
-      from: checked.from === undefined ? undefined : modifyFrom(where, checked.from),
     });
   }
 
   /**
-   * Drops a column. Give its type (and options) so that a `change` migration can add it
-   * back on rollback.
+   * Drops a column.
    *
-   * @throws TypeError when an argument is not valid.
+   * @throws TypeError when the name is not valid.
    */
-  remove(name: string, type?: ColumnType, options?: RemoveOptions): void {
+  remove(name: string): void {
     const where = `${this.context.where}: remove("${String(name)}")`;
-    const column = checkName(where, "column name", name);
-    if (type === undefined) {
-      if (options !== undefined) throw new TypeError(`${where}: options need the column's type.`);
-      this.#changes.push({ change: "remove", column, definition: undefined });
-      return;
-    }
-    const checked = checkOptions(where, options, ["notNull", "default"]);
-    const definition = newColumn(column, typeSpec(where, type), false);
-    definition.notNull = optionalBoolean(where, checked, "notNull");
-    if (checked.default !== undefined)
-      definition.default = defaultSpec(where, definition.type, checked.default);
-    this.#changes.push({ change: "remove", column, definition });
+    this.#changes.push({ change: "remove", column: checkName(where, "column name", name) });
   }
 
   /**
@@ -848,19 +814,6 @@ export class AlterTableBuilder extends ColumnAdder {
 
 function nullableDefault(where: string, type: TypeSpec, value: unknown): DefaultSpec | null {
   return value === null ? null : defaultSpec(where, type, value);
-}
-
-function modifyFrom(where: string, from: unknown): ModifyFrom {
-  if (isPlainObject(from) && "type" in from) {
-    const checked = checkOptions(`${where} from`, from, ["type", "notNull", "default"]);
-    const type = typeSpec(where, checked.type);
-    return {
-      type,
-      notNull: checked.notNull === undefined ? undefined : optionalBoolean(where, checked, "notNull"),
-      default: checked.default === undefined ? undefined : nullableDefault(where, type, checked.default),
-    };
-  }
-  return { type: typeSpec(where, from), notNull: undefined, default: undefined };
 }
 
 // ---------------------------------------------------------------------------
@@ -883,7 +836,7 @@ export interface CreateTableOptions {
    * (`t.id()`, or `.primaryKey()` on its key columns).
    */
   readonly primaryKey?: false;
-  /** `CREATE TABLE IF NOT EXISTS`. Such a table cannot be rolled back by a `change` migration. */
+  /** `CREATE TABLE IF NOT EXISTS`. */
   readonly ifNotExists?: boolean;
 }
 
@@ -897,15 +850,13 @@ export interface CreateTableOptions {
  */
 export interface DropTableOptions {
   readonly schema?: string;
-  /** As in {@link CreateTableOptions}, for the definition. */
-  readonly primaryKey?: false;
   readonly ifExists?: boolean;
-  /** `DROP TABLE … CASCADE`: also drops what depends on the table. Cannot be rolled back. */
+  /** `DROP TABLE … CASCADE`: also drops what depends on the table. */
   readonly cascade?: boolean;
 }
 
 /**
- * Options of {@link MigrationBuilder.createIndex} and {@link MigrationBuilder.dropIndex}.
+ * Options of {@link MigrationBuilder.createIndex}.
  *
  * @example
  * ```ts
@@ -921,15 +872,35 @@ export interface IndexOptions {
   readonly where?: SqlFragment;
   /** The index method: `"btree"`, `"gin"`, `"gist"`, … */
   readonly using?: string;
-  /** Builds (or drops) the index without locking out writes. Needs `transaction: false`. */
+  /** Builds the index without locking out writes. Needs `transaction: false`. */
   readonly concurrently?: boolean;
   /** Columns stored in the index but not part of its key. */
   readonly include?: readonly string[];
   /** The database schema of the table. */
   readonly schema?: string;
-  /** `createIndex` only: `IF NOT EXISTS`. Such an index cannot be rolled back by a `change` migration. */
+  /** `CREATE INDEX IF NOT EXISTS`. */
   readonly ifNotExists?: boolean;
-  /** `dropIndex` only: `IF EXISTS`. */
+}
+
+/**
+ * Options of {@link MigrationBuilder.dropIndex}: what names the index (`unique` and `name`,
+ * as in the {@link MigrationBuilder.createIndex} it undoes), and how it is dropped.
+ *
+ * @example
+ * ```ts
+ * const options: DropIndexOptions = { unique: true, ifExists: true };
+ * ```
+ */
+export interface DropIndexOptions {
+  /** The index is unique, so its default name is `<table>_<columns>_key`. */
+  readonly unique?: boolean;
+  /** The index's name, instead of the default. Required when a column is an expression. */
+  readonly name?: string;
+  /** Drops the index without locking out writes. Needs `transaction: false`. */
+  readonly concurrently?: boolean;
+  /** The database schema of the table. */
+  readonly schema?: string;
+  /** `DROP INDEX IF EXISTS`. */
   readonly ifExists?: boolean;
 }
 
@@ -956,33 +927,32 @@ export interface ConstraintOptions {
  *
  * @example
  * ```ts
- * const options: DropConstraintOptions = { check: fragment`price > 0`, ifExists: true };
+ * const options: DropConstraintOptions = { ifExists: true };
  * ```
  */
-export interface DropConstraintOptions extends ConstraintOptions {
+export interface DropConstraintOptions {
+  readonly schema?: string;
   readonly ifExists?: boolean;
 }
 
 /**
- * The `m` a migration's `change`, `up` and `down` receive. Each method records one
- * operation; nothing runs until the runner executes the migration.
- *
- * In `change`, every operation must be reversible (the runner rolls it back by running
- * the inverses in reverse order). An operation that lacks what its inverse needs is
- * accepted when recorded and refused with `MigrationError` when it is rolled back, with
- * the fix in the message.
+ * The `m` a migration's `up` and `down` receive. Each method records one operation;
+ * nothing runs until the runner executes the migration.
  *
  * @example
  * ```ts
  * import { defineMigration } from "egon-orm/migration";
  *
  * export const migration = defineMigration({
- *   change(m) {
+ *   up(m) {
  *     m.createTable("users", (t) => {
  *       t.id();
  *       t.text("email").notNull();
  *     });
  *     m.createIndex("users", ["email"], { unique: true });
+ *   },
+ *   down(m) {
+ *     m.dropTable("users");
  *   },
  * });
  * ```
@@ -1018,21 +988,16 @@ export class MigrationBuilder {
   }
 
   /**
-   * `DROP TABLE`. Pass the table's definition as `define` so that a `change` migration
-   * can create it again on rollback.
+   * `DROP TABLE`.
    *
    * @throws TypeError when an argument is not valid.
    */
-  dropTable(name: string, define?: (t: TableBuilder) => void, options?: DropTableOptions): void {
+  dropTable(name: string, options?: DropTableOptions): void {
     const where = `dropTable("${String(name)}")`;
-    const checked = checkOptions(where, options, ["schema", "primaryKey", "ifExists", "cascade"]);
-    const table = this.#ref(where, name, checked);
-    const definition =
-      define === undefined ? undefined : { ...this.#table(where, name, define, checked), ifNotExists: false };
+    const checked = checkOptions(where, options, ["schema", "ifExists", "cascade"]);
     this.#operations.push({
       op: "dropTable",
-      table,
-      definition,
+      table: this.#ref(where, name, checked),
       ifExists: optionalBoolean(where, checked, "ifExists"),
       cascade: optionalBoolean(where, checked, "cascade"),
     });
@@ -1100,26 +1065,20 @@ export class MigrationBuilder {
   }
 
   /**
-   * `DROP INDEX`. Takes the same arguments as the {@link MigrationBuilder.createIndex} it
-   * undoes, which name the index and let a `change` migration create it again.
+   * `DROP INDEX`. The table, the columns and the `unique` and `name` options name the index
+   * as they do in the {@link MigrationBuilder.createIndex} it undoes.
    *
    * @throws TypeError when an argument is not valid.
    */
-  dropIndex(table: string, columns: readonly (string | SqlFragment)[], options?: IndexOptions): void {
+  dropIndex(table: string, columns: readonly (string | SqlFragment)[], options?: DropIndexOptions): void {
     const where = `dropIndex("${String(table)}")`;
-    const checked = checkOptions(where, options, [
-      "unique",
-      "name",
-      "where",
-      "using",
-      "concurrently",
-      "include",
-      "schema",
-      "ifExists",
-    ]);
+    const checked = checkOptions(where, options, ["unique", "name", "concurrently", "schema", "ifExists"]);
+    const ref = this.#ref(where, table, checked);
     this.#operations.push({
       op: "dropIndex",
-      index: this.#index(where, table, columns, checked),
+      table: ref,
+      name: this.#indexName(where, ref, this.#indexColumns(where, columns), checked),
+      concurrently: optionalBoolean(where, checked, "concurrently"),
       ifExists: optionalBoolean(where, checked, "ifExists"),
     });
   }
@@ -1134,8 +1093,6 @@ export class MigrationBuilder {
     const where = `createConstraint("${String(table)}", "${String(name)}")`;
     const checked = checkOptions(where, options, ["check", "exclude", "using", "schema"]);
     const definition = constraintDef(where, checked);
-    if (definition === undefined)
-      throw new TypeError(`${where}: give exactly one of { check } and { exclude }.`);
     this.#operations.push({
       op: "createConstraint",
       table: this.#ref(where, table, checked),
@@ -1145,26 +1102,24 @@ export class MigrationBuilder {
   }
 
   /**
-   * Drops a constraint. Give its definition (`check` or `exclude`) so that a `change`
-   * migration can add it back on rollback.
+   * Drops a constraint.
    *
    * @throws TypeError when an argument is not valid.
    */
   dropConstraint(table: string, name: string, options?: DropConstraintOptions): void {
     const where = `dropConstraint("${String(table)}", "${String(name)}")`;
-    const checked = checkOptions(where, options, ["check", "exclude", "using", "schema", "ifExists"]);
+    const checked = checkOptions(where, options, ["schema", "ifExists"]);
     this.#operations.push({
       op: "dropConstraint",
       table: this.#ref(where, table, checked),
       name: checkName(where, "constraint name", name),
-      definition: constraintDef(where, checked),
       ifExists: optionalBoolean(where, checked, "ifExists"),
     });
   }
 
   /**
-   * Runs SQL written as a fragment; its interpolations are bound parameters. Give `down`
-   * as well so that a `change` migration can roll it back.
+   * Runs SQL written as a fragment; its interpolations are bound parameters. What undoes
+   * it goes in the migration's `down`.
    *
    * @example
    * ```ts
@@ -1173,12 +1128,8 @@ export class MigrationBuilder {
    *
    * @throws TypeError when an argument is not a fragment.
    */
-  execute(up: SqlFragment, down?: SqlFragment): void {
-    this.#operations.push({
-      op: "execute",
-      up: statement("execute()", up),
-      down: down === undefined ? undefined : statement("execute()", down),
-    });
+  execute(sql: SqlFragment): void {
+    this.#operations.push({ op: "execute", statement: statement("execute()", sql) });
   }
 
   /**
@@ -1281,13 +1232,12 @@ export class MigrationBuilder {
     return { op: "createTable", table, columns };
   }
 
-  #index(where: string, table: unknown, columns: unknown, options: Record<string, unknown>): IndexDef {
-    const ref = this.#ref(where, table, options);
+  /** An index's columns: names, or expressions as fragments. */
+  #indexColumns(where: string, columns: unknown): (string | FragmentNode)[] {
     if (!Array.isArray(columns) || columns.length === 0) {
       throw new TypeError(`${where}: the columns must be a non-empty array of column names or fragments.`);
     }
     const nodes: (string | FragmentNode)[] = [];
-    let expressions = false;
     for (const column of columns as readonly unknown[]) {
       if (typeof column === "string") {
         nodes.push(checkName(where, "column name", column));
@@ -1295,15 +1245,32 @@ export class MigrationBuilder {
         const { node, params } = fragmentOf(where, "an index column", column);
         if (params.length > 0) throw boundInDdl(where, "an index expression");
         nodes.push(node);
-        expressions = true;
       }
     }
+    return nodes;
+  }
+
+  /** An index's name: the option `name`, or the default from the table and the columns. */
+  #indexName(
+    where: string,
+    table: TableRef,
+    columns: readonly (string | FragmentNode)[],
+    options: Record<string, unknown>,
+  ): string {
     const unique = optionalBoolean(where, options, "unique");
-    let name = optionalName(where, options, "name");
-    if (name === undefined) {
-      if (expressions) throw new TypeError(`${where}: an index on an expression needs { name }.`);
-      name = defaultName(ref.name, nodes as string[], unique ? "key" : "index", this.#maxBytes);
+    const name = optionalName(where, options, "name");
+    if (name !== undefined) return name;
+    if (columns.some((column) => typeof column !== "string")) {
+      throw new TypeError(`${where}: an index on an expression needs { name }.`);
     }
+    return defaultName(table.name, columns as string[], unique ? "key" : "index", this.#maxBytes);
+  }
+
+  #index(where: string, table: unknown, columns: unknown, options: Record<string, unknown>): IndexDef {
+    const ref = this.#ref(where, table, options);
+    const nodes = this.#indexColumns(where, columns);
+    const unique = optionalBoolean(where, options, "unique");
+    const name = this.#indexName(where, ref, nodes, options);
     let predicate: FragmentNode | undefined;
     if (options.where !== undefined) {
       const { node, params } = fragmentOf(where, "the option where", options.where);
@@ -1327,15 +1294,10 @@ export class MigrationBuilder {
   }
 }
 
-function constraintDef(where: string, options: Record<string, unknown>): ConstraintDef | undefined {
+function constraintDef(where: string, options: Record<string, unknown>): ConstraintDef {
   const { check, exclude } = options;
-  if (check !== undefined && exclude !== undefined) {
+  if ((check === undefined) === (exclude === undefined)) {
     throw new TypeError(`${where}: give exactly one of { check } and { exclude }.`);
-  }
-  if (check === undefined && exclude === undefined) {
-    if (options.using !== undefined)
-      throw new TypeError(`${where}: the option "using" belongs to { exclude }.`);
-    return undefined;
   }
   const kind = check === undefined ? "exclude" : "check";
   if (kind === "check" && options.using !== undefined) {

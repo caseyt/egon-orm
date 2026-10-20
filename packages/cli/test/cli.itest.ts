@@ -88,7 +88,7 @@ export default defineConfig({
 `;
 }
 
-/** What the test writes into the created migration's change(m) { … }. */
+/** What the test writes into the created migration's up(m) { … }, in place of its comment. */
 const LIBRARY = `    m.createTable("authors", (t) => {
       t.id();
       t.text("email").notNull();
@@ -102,6 +102,12 @@ const LIBRARY = `    m.createTable("authors", (t) => {
       t.integer("pages").notNull().default(100);
     });
     m.createIndex("authors", ["email"], { unique: true });
+`;
+
+/** What the test writes into the created migration's down(m) { … }: the undoing of LIBRARY. */
+const UNDO_LIBRARY = `    m.dropIndex("authors", ["email"], { unique: true });
+    m.dropTable("books");
+    m.dropTable("authors");
 `;
 
 beforeAll(async () => {
@@ -153,7 +159,7 @@ describe("egon, the built binary", () => {
     const path = join(project, "migrations", file as string);
     const source = await readFile(path, "utf8");
     expect(source).toBe(
-      'import { defineMigration } from "egon-orm/migration";\n\nexport default defineMigration({\n  change(m) {\n  },\n});\n',
+      'import { defineMigration } from "egon-orm/migration";\n\nexport default defineMigration({\n  up(m) {\n    // the change\n  },\n  down(m) {\n    // undo it, or leave a // noop comment\n  },\n});\n',
     );
     // --json and --dir: one object naming the file, written elsewhere.
     const asJson = await egon(["migrate", "create", "create_other", "--dir", "drafts", "--json"]);
@@ -165,7 +171,12 @@ describe("egon, the built binary", () => {
     expect(await readdir(join(project, "drafts"))).toEqual([basename(report.path)]);
     expect(basename(report.path)).toMatch(/^\d{14}_create_other\.ts$/);
     expect(await readdir(join(project, "migrations"))).toEqual([file]);
-    await writeFile(path, source.replace("  change(m) {\n", `  change(m) {\n${LIBRARY}`));
+    const filled = source
+      .replace("    // the change\n", LIBRARY)
+      .replace("    // undo it, or leave a // noop comment\n", UNDO_LIBRARY);
+    expect(filled).toContain(LIBRARY);
+    expect(filled).toContain(UNDO_LIBRARY);
+    await writeFile(path, filled);
 
     const dry = await egon(["migrate", "--dry-run"]);
     expect(dry.code).toBe(0);
@@ -193,7 +204,9 @@ describe("egon, the built binary", () => {
     expect((await egon(["migrate"])).stdout).toBe("Nothing to migrate: every migration is applied.\n");
 
     const dryBack = await egon(["rollback", "--dry-run"]);
-    expect(dryBack.stdout).toContain('drop index "authors_email_key";');
+    expect(dryBack.stdout).toMatch(
+      /^-- \d{14} create_library \(down\)\ndrop index "authors_email_key";\ndrop table "books";\ndrop table "authors";\n/,
+    );
     expect(await tables()).toEqual(["authors", "books", "schema_migrations"]);
 
     const back = JSON.parse((await egon(["rollback", "--json"])).stdout) as {
@@ -222,6 +235,9 @@ export default defineMigration({
     m.createTable("half_done", (t) => t.id());
     m.execute(fragment\`select 1 / 0\`);
   },
+  down(m) {
+    m.dropTable("half_done");
+  },
 });
 `,
     );
@@ -243,6 +259,33 @@ export default defineMigration({
     } finally {
       await rm(file);
       await egon(["rollback", "--all"]);
+    }
+  });
+
+  test("a migration file without down() is refused when it is loaded, naming the file; nothing runs", async () => {
+    const file = join(project, "migrations", "29990101000000_one_way.ts");
+    await writeFile(
+      file,
+      `import { defineMigration } from "egon-orm/migration";
+
+export default defineMigration({
+  up(m) {
+    m.createTable("one_way", (t) => t.id());
+  },
+} as never);
+`,
+    );
+    try {
+      for (const args of [["migrate"], ["migrations"], ["rollback"]]) {
+        const refused = await egon(args);
+        expect(refused.code).toBe(1);
+        expect(refused.stderr).toMatch(
+          /^error: Cannot load the migration file ".*29990101000000_one_way\.ts": defineMigration\(\) was given no down\(\)\. A migration has both up\(m\) and down\(m\); when there is nothing to undo, write down\(\) \{\} with a \/\/ noop comment\.\n$/,
+        );
+      }
+      expect(await tables()).not.toContain("one_way");
+    } finally {
+      await rm(file);
     }
   });
 

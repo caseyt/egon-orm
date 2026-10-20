@@ -116,22 +116,16 @@ export function emitOperation(op: Operation, ctx: DdlContext): MigrationStatemen
     case "createIndex":
       return [ddl(createIndex(op.index, op.ifNotExists, ctx))];
     case "dropIndex": {
-      const index = op.index;
-      if (index.concurrently && !ctx.dialect.features.concurrentIndexes) {
+      if (op.concurrently && !ctx.dialect.features.concurrentIndexes) {
         throw unsupported(ctx, "DROP INDEX CONCURRENTLY");
       }
       if (op.ifExists && !ctx.dialect.features.indexIfExists) throw unsupported(ctx, "DROP INDEX IF EXISTS");
       // MySQL names the table an index belongs to; the others name the index alone.
-      if (ctx.dialect.dropIndexOnTable)
-        return [ddl(`drop index ${q(index.name)} on ${table(index.table, ctx)}`)];
+      if (ctx.dialect.dropIndexOnTable) return [ddl(`drop index ${q(op.name)} on ${table(op.table, ctx)}`)];
       const name =
-        index.table.schema === undefined
-          ? q(index.name)
-          : `${schemaName(index.table.schema, ctx)}.${q(index.name)}`;
+        op.table.schema === undefined ? q(op.name) : `${schemaName(op.table.schema, ctx)}.${q(op.name)}`;
       return [
-        ddl(
-          `drop index ${index.concurrently ? "concurrently " : ""}${op.ifExists ? "if exists " : ""}${name}`,
-        ),
+        ddl(`drop index ${op.concurrently ? "concurrently " : ""}${op.ifExists ? "if exists " : ""}${name}`),
       ];
     }
     case "createConstraint":
@@ -152,7 +146,7 @@ export function emitOperation(op: Operation, ctx: DdlContext): MigrationStatemen
         ),
       ];
     case "execute":
-      return [execute(op.up, ctx)];
+      return [execute(op.statement, ctx)];
     case "createSchema":
       return [ddl(`create schema ${op.ifNotExists ? "if not exists " : ""}${schemaName(op.name, ctx)}`)];
     case "dropSchema":

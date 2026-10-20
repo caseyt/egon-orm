@@ -20,8 +20,11 @@ const V3 = 20260301000000;
 
 function creates(table: string) {
   return defineMigration({
-    change(m) {
+    up(m) {
       m.createTable(table, (t) => t.id());
+    },
+    down(m) {
+      m.dropTable(table);
     },
   });
 }
@@ -354,7 +357,7 @@ describe("egon db", () => {
 });
 
 describe("egon migrate create, then egon migrate", () => {
-  test("the created file is a migration the runner applies", async () => {
+  test("the created file, filled in, is a migration the runner applies and rolls back", async () => {
     const main = fakeDatabase();
     globalThis.egonTestConfig = () => ({ adapter: main.newAdapter(), migrations: { directory: "db" } });
     const created = await egon(["migrate", "create", "create_things"]);
@@ -365,10 +368,11 @@ describe("egon migrate create, then egon migrate", () => {
     });
     const file = join(cwd, "db", "20261012093000_create_things.ts");
     const source = await readFile(file, "utf8");
-    await writeFile(
-      file,
-      source.replace("change(m) {\n", 'change(m) {\n    m.createTable("things", (t) => t.id());\n'),
-    );
+    const filled = source
+      .replace("    // the change\n", '    m.createTable("things", (t) => t.id());\n')
+      .replace("    // undo it, or leave a // noop comment\n", '    m.dropTable("things");\n');
+    expect(filled).not.toBe(source);
+    await writeFile(file, filled);
     const dry = await egon(["migrate", "--dry-run"]);
     expect(dry.code).toBe(0);
     expect(dry.stdout).toMatch(/^-- 20261012093000 create_things \(up\)\ncreate table "things" \(/);
@@ -376,5 +380,24 @@ describe("egon migrate create, then egon migrate", () => {
     expect(lines(migrated.stdout)).toBe(
       "== 20261012093000 create_things: migrating\n== 20261012093000 create_things: migrated (… ms)\nApplied 1 migration.\n",
     );
+    expect((await egon(["rollback"])).code).toBe(0);
+    expect(main.work()).toEqual([
+      'create table "things" ("id" bigserial primary key)',
+      'drop table "things"',
+    ]);
+  });
+
+  test("the created file as it is loads, applies and rolls back, running nothing", async () => {
+    const main = fakeDatabase();
+    globalThis.egonTestConfig = () => ({ adapter: main.newAdapter(), migrations: { directory: "db" } });
+    expect((await egon(["migrate", "create", "empty"])).code).toBe(0);
+    const migrated = await egon(["migrate"]);
+    expect(migrated.code).toBe(0);
+    expect(migrated.stdout).toMatch(/Applied 1 migration\.\n$/);
+    const rolledBack = await egon(["rollback"]);
+    expect(rolledBack.code).toBe(0);
+    expect(rolledBack.stdout).toMatch(/Rolled back 1 migration\.\n$/);
+    expect(main.work()).toEqual([]);
+    expect(main.versions()).toEqual([]);
   });
 });

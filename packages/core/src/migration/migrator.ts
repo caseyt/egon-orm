@@ -15,7 +15,6 @@ import { type DdlContext, emitOperation, type MigrationStatement, table as table
 import { type MigrationDialect, migrationDialectOf } from "./dialect.js";
 import { checkVersion, loadMigrations, type MigrationSource, migrationList } from "./loader.js";
 import { lockKeys } from "./lock.js";
-import { reverseOperations } from "./reverse.js";
 import type { Operation } from "./types.js";
 
 /**
@@ -184,10 +183,11 @@ export interface Migrator {
    */
   up(options?: UpOptions): Promise<MigrationRun[]>;
   /**
-   * Rolls back applied migrations, newest first, and returns what ran.
+   * Rolls back applied migrations, newest first, by running each one's `down`, and
+   * returns what ran.
    *
-   * @throws MigrationError as `up` does; also when a migration in the range cannot be
-   * reversed, or is recorded but missing (a missing migration blocks rolling back past it).
+   * @throws MigrationError as `up` does; also when a migration in the range is recorded
+   * but missing (a missing migration blocks rolling back past it).
    */
   down(options?: DownOptions): Promise<MigrationRun[]>;
   /** Every known and every recorded migration, by version. */
@@ -723,23 +723,8 @@ class DatabaseMigrator implements Migrator {
     const context = { version: source.version, migration: source.name };
     try {
       const builder = new MigrationBuilder(this.#settings.syntax.identifierMaxBytes);
-      let operations: readonly Operation[];
-      if (migration.change !== undefined) {
-        await migration.change(builder);
-        operations = direction === "up" ? builder.operations : reverseOperations(builder.operations, context);
-      } else if (direction === "up") {
-        await (migration.up as (m: MigrationBuilder) => void | Promise<void>)(builder);
-        operations = builder.operations;
-      } else {
-        if (migration.down === undefined) {
-          throw new MigrationError(
-            `Migration ${source.version}_${source.name} cannot be rolled back: it has up() and no down(). Add a down() that undoes it.`,
-            context,
-          );
-        }
-        await migration.down(builder);
-        operations = builder.operations;
-      }
+      await (direction === "up" ? migration.up(builder) : migration.down(builder));
+      const operations = builder.operations;
       const statements: MigrationStatement[] = [];
       for (const op of operations) statements.push(...emitOperation(op, this.#ddl));
       return { operations, statements };
@@ -897,7 +882,7 @@ function dryRunOf(where: string, value: unknown): boolean {
 }
 
 function isConcurrent(op: Operation): boolean {
-  return (op.op === "createIndex" || op.op === "dropIndex") && op.index.concurrently;
+  return (op.op === "createIndex" && op.index.concurrently) || (op.op === "dropIndex" && op.concurrently);
 }
 
 function report(

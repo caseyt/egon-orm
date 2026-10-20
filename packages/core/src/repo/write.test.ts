@@ -955,7 +955,7 @@ describe("insertAll", () => {
     expect(inserts[0]?.sql).toContain("$1, $2");
   });
 
-  test("placeholders bind a value once per statement, and are checked", async () => {
+  test("placeholders: a value given once, sent with each row that uses it, and checked", async () => {
     const env = setup(() => ({ rowCount: 2 }));
     const when = new Date("2026-01-01T00:00:00.000Z");
     await env.repo.insertAll(
@@ -1251,5 +1251,45 @@ describe("behaviours pinned in review round 1", () => {
     env.driver.respond = () => ({ rows: [] });
     await change(tag, { name: "u" }).validateUniqueAsync("name", env.repo);
     expect(env.statements[1]?.sql).toContain('from "tenant"."tags" as "t"');
+  });
+});
+
+// --- review round 2 -------------------------------------------------------------------
+
+describe("insertAll cells, pinned in review round 2", () => {
+  test("a named parameter inside an expression cell is a placeholder the option fills", async () => {
+    const env = setup(() => ({ rowCount: 1 }));
+    await env.repo.insertAll(
+      Post,
+      [{ authorId: 1, title: "a", views: coalesce(param("q", t.integer()), val(0, t.integer())) }],
+      { placeholders: { q: 5 } },
+    );
+    expect(env.statements[0]?.params).toContain(5);
+  });
+
+  test("a list counts its length where the dialect expands lists, one where it binds an array", async () => {
+    class Flag extends Schema("flags", { id: t.integer().primaryKey().dbGenerated(), on: t.boolean() }) {}
+    const rows = Array.from({ length: 4 }, () => ({ on: val(2, t.integer()).in([1, 2, 3]) }));
+    // Expanded: 1 + 3 placeholders a row, so 2 rows fit in 8.
+    const expanded = setup(() => ({ rowCount: 1 }), {
+      ...POSTGRES_CAPABILITIES,
+      maxParams: 8,
+      arrayParams: false,
+    });
+    await expanded.repo.insertAll(Flag, rows);
+    const inserts = expanded.statements.filter((s) => s.sql.startsWith("insert"));
+    expect(inserts.map((s) => s.params.length)).toEqual([8, 8]);
+    // As arrays: 2 placeholders a row, so all 4 rows fit in 8.
+    const arrays = setup(() => ({ rowCount: 4 }), { ...POSTGRES_CAPABILITIES, maxParams: 8 });
+    await arrays.repo.insertAll(Flag, rows);
+    expect(arrays.statements.filter((s) => s.sql.startsWith("insert")).map((s) => s.params.length)).toEqual([
+      8,
+    ]);
+  });
+
+  test("a row key holding undefined is left out, as if absent", async () => {
+    const env = setup(() => ({ rowCount: 1 }));
+    await env.repo.insertAll(Tag, [{ name: "a", id: undefined } as never]);
+    expect(env.statements[0]?.sql).toBe('insert into "tags" ("name") values ($1)');
   });
 });

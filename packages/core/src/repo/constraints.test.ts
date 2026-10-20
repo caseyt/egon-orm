@@ -100,6 +100,10 @@ describe("names the database shortened", () => {
     expect(shortenedName("t".repeat(10), "c".repeat(80), "fkey", 63)).toBe(
       `${"t".repeat(10)}_${"c".repeat(47)}_fkey`,
     );
+    // An odd split: on a tie the column part loses the byte (Postgres's own result).
+    expect(shortenedName("a".repeat(40), "b".repeat(40), "fkey", 63)).toBe(
+      `${"a".repeat(29)}_${"b".repeat(28)}_fkey`,
+    );
     expect(clipBytes("ééé", 5)).toBe("éé");
     expect(clipBytes("ééé", 6)).toBe("ééé");
     expect(clipBytes("abc", 0)).toBe("");

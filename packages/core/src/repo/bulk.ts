@@ -99,7 +99,8 @@ interface QueryLikeValue {
  *   field names returns plain objects of those fields. Without it, `rows` is `null`.
  * - `onConflict`: as for `repo.insert`. With `"nothing"`, `count` leaves the skipped rows out.
  * - `placeholders`: the values of the named parameters (`param("now", t.timestamp())`)
- *   used in the rows or in the source query, each bound once per statement.
+ *   used in the rows or in the source query: each value is given once here, and sent with
+ *   every row (or cell) that uses it.
  *
  * @example
  * ```ts
@@ -229,6 +230,7 @@ function pushCell(
   cells: InsertCell[],
   values: unknown[],
   names: NamedParamNode[],
+  expandLists: boolean,
 ): number {
   if (isExpr(value)) {
     const node = value.node as ExprNode;
@@ -244,7 +246,7 @@ function pushCell(
     }
     const typed = needsFieldType(node) ? castNode(node, field.type) : node;
     cells.push({ kind: "expr", expr: typed });
-    return bindExpr(typed, values, names);
+    return bindExpr(typed, values, names, expandLists);
   }
   if (isQueryLike(value)) {
     throw new QueryError(
@@ -256,8 +258,12 @@ function pushCell(
   return 1;
 }
 
-/** Appends an expression cell's values; returns how many placeholders it may take (lists counted whole). */
-function bindExpr(node: ExprNode, values: unknown[], names: NamedParamNode[]): number {
+/**
+ * Appends an expression cell's values; returns how many placeholders it takes: one per value
+ * and per named parameter, and a list counts its length on a dialect that expands lists
+ * (`IN (?, ?, ?)`), one where it is bound as an array.
+ */
+function bindExpr(node: ExprNode, values: unknown[], names: NamedParamNode[], expandLists: boolean): number {
   const own: unknown[] = [];
   const lists: number[] = [];
   const named: NamedParamNode[] = [];
@@ -265,7 +271,7 @@ function bindExpr(node: ExprNode, values: unknown[], names: NamedParamNode[]): n
   for (const value of own) values.push(value);
   for (const each of named) names.push(each);
   let params = own.length + named.length;
-  for (const length of lists) params += Math.max(0, length - 1);
+  if (expandLists) for (const length of lists) params += Math.max(0, length - 1);
   return params;
 }
 
@@ -430,6 +436,7 @@ export async function insertAll(
   }
 
   // The cells of every row, with its values; one instant for every timestamp of the call.
+  const expandLists = !core.adapter.capabilities.arrayParams;
   const stamps: unknown[] = [];
   const names: NamedParamNode[] = [];
   const prepared: PreparedRow[] = [];
@@ -452,7 +459,7 @@ export async function insertAll(
         plain = false;
         continue;
       }
-      params += pushCell(value, field, cells, values, names);
+      params += pushCell(value, field, cells, values, names, expandLists);
       if (cells[cells.length - 1] !== VALUE_CELL) plain = false;
     }
     prepared.push({ cells, values, params });

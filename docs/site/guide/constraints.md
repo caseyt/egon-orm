@@ -64,6 +64,11 @@ that shortened name too, and a long name passed with `{ name }` matches its firs
 A name the database made otherwise (Postgres adds a number when the shortened name is
 taken) is not predicted: pass the name it reports with `{ name }`.
 
+Shortening drops the end of the column part, so different declarations can shorten to
+the same name: a declaration of one long column can match a two-column constraint whose
+shortened name starts the same way. The first matching declaration wins, so name long
+constraints explicitly with `{ name }`.
+
 ## When a constraint was not declared
 
 The repo throws a `ConstraintError` whose message says what to add:

@@ -35,6 +35,7 @@ test("the public entry point exports exactly these values", () => {
     "assoc",
     "avg",
     "belongsTo",
+    "buildAssoc",
     "caseWhen",
     "cast",
     "change",

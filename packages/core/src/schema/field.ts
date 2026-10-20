@@ -19,6 +19,7 @@ import type {
 import { META } from "../contracts/schema.js";
 import type { AnyFieldType, FieldType } from "../contracts/type.js";
 import { SchemaDefinitionError } from "../errors.js";
+import { embedType } from "../types/embed.js";
 import type { DecimalOptions, EnumMapping, TimestampOptions } from "../types/index.js";
 import {
   arrayType,
@@ -61,6 +62,32 @@ export type EmbedOnReplace = "error" | "invalid" | "update" | "delete";
 export interface EmbedOptions {
   /** Defaults to `"error"`. `"update"` is for `embedOne` only. */
   readonly onReplace?: EmbedOnReplace;
+}
+
+/**
+ * The builder of an embed field, as the types see it: a {@link FieldBuilder} that also
+ * records the embedded schema class `E` and whether the field holds one row or a list
+ * (`M`), through every modifier that applies to an embed. Changesets read it to type
+ * `castEmbed`, `putEmbed` and the nested changes of the field. At run time it is an
+ * ordinary builder; `"~embed"` exists only in the type system.
+ *
+ * @example
+ * ```ts
+ * const address: EmbedFieldBuilder<typeof Address, "one", Address | null> = t.embedOne(() => Address).nullable();
+ * ```
+ */
+export interface EmbedFieldBuilder<
+  E extends AnySchema,
+  M extends "one" | "many",
+  T,
+  F extends FieldFlags = DefaultFieldFlags,
+> extends FieldBuilder<T, F> {
+  readonly "~embed"?: { readonly schema: E; readonly cardinality: M };
+  nullable(): EmbedFieldBuilder<E, M, T | null, WithFlag<F, "nullable">>;
+  default(value: T | (() => T)): EmbedFieldBuilder<E, M, T, WithFlag<F, "defaulted">>;
+  column(name: string): EmbedFieldBuilder<E, M, T, F>;
+  redact(): EmbedFieldBuilder<E, M, T, F>;
+  writable(mode: Writable): EmbedFieldBuilder<E, M, T, F>;
 }
 
 /** What an embed builder knows beyond a plain field. */
@@ -280,7 +307,7 @@ function embed(
     );
   }
   return {
-    ...pristine(jsonType()),
+    ...pristine(embedType(factory === "embedOne" ? "one" : "many", schema, onReplace)),
     embed: Object.freeze({ cardinality: factory === "embedOne" ? "one" : "many", schema, onReplace }),
   };
 }
@@ -341,12 +368,12 @@ export interface FieldTypes {
   /** A type of your own, made with `defineType`. */
   type<TApp, TDb>(type: FieldType<TApp, TDb>): FieldBuilder<TApp>;
   /** One embedded object, stored in a JSON column. */
-  embedOne<S extends AnySchema>(schema: () => S, options?: EmbedOptions): FieldBuilder<Row<S>>;
+  embedOne<S extends AnySchema>(schema: () => S, options?: EmbedOptions): EmbedFieldBuilder<S, "one", Row<S>>;
   /** A list of embedded objects, stored in a JSON column. A new record starts with an empty list. */
   embedMany<S extends AnySchema>(
     schema: () => S,
     options?: EmbedOptions,
-  ): FieldBuilder<Row<S>[], WithFlag<DefaultFieldFlags, "defaulted">>;
+  ): EmbedFieldBuilder<S, "many", Row<S>[], WithFlag<DefaultFieldFlags, "defaulted">>;
 }
 
 /**

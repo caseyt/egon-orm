@@ -50,6 +50,7 @@ import {
   type TestDatabase,
   type TestDatabaseHandle,
   User,
+  UserSettings,
 } from "../../support/index.js";
 import { ROUND_TRIP_CASES } from "../adapter/values.js";
 import type { MakeReadAdapterOptions, ReadConformanceProfile } from "./profile.js";
@@ -247,6 +248,8 @@ async function insertRows(
 function fieldsOf(row: unknown): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(row as object)) out[key] = (row as Record<string, unknown>)[key];
+  // An embed reads back as a row of its embedded class (step 15): compared by its fields.
+  if (out.settings instanceof UserSettings) out.settings = Object.fromEntries(Object.entries(out.settings));
   return out;
 }
 
@@ -434,7 +437,10 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         expect(rows).toEqual([
           {
             pair: [1, "ada@example.com"],
-            nested: { role: "admin", settings: { theme: "dark", emailNotifications: false } },
+            nested: {
+              role: "admin",
+              settings: expect.objectContaining({ theme: "dark", emailNotifications: false }),
+            },
             kind: "person",
             count: 2,
           },
@@ -633,7 +639,8 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
 
       test("an embedded schema's column reads back as its object", async () => {
         const ada = await repo().getOrThrow(User, 1);
-        expect(ada.settings).toEqual({ theme: "dark", emailNotifications: false });
+        expect(ada.settings).toBeInstanceOf(UserSettings);
+        expect(ada.settings).toMatchObject({ theme: "dark", emailNotifications: false });
       });
     });
 

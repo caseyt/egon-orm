@@ -45,6 +45,7 @@ import {
   withErrors,
   withRepo,
 } from "../changeset/changeset.js";
+import { embedChanges, isNestedValue, missingEmbedded } from "../changeset/nested/embed.js";
 import { bindParams } from "../compiler/bind.js";
 import type {
   CompiledQuery,
@@ -82,6 +83,7 @@ import { isRow } from "../schema/guards.js";
 import { meta } from "../schema/schema.js";
 import { handleViolation } from "./constraints.js";
 import { decoderFor } from "./hydrate.js";
+import { writeNested } from "./nested.js";
 import { checkReadOptions, READ_OPTION_KEYS, type ReadOptions, type RepoOperation } from "./options.js";
 import { keepPreloads } from "./preload.js";
 import { Call, isFragment, load, ReadCore } from "./read.js";
@@ -249,7 +251,7 @@ export const INSERT_OR_UPDATE_OPTION_KEYS: readonly string[] = Object.freeze([
 ]);
 
 /** Everything a write reads from its options, checked. */
-interface WriteSettings {
+export interface WriteSettings {
   readonly options: ReadOptions | undefined;
   readonly returning: readonly FieldMeta[] | true | undefined;
   readonly onConflict: OnConflict | undefined;
@@ -746,30 +748,38 @@ function changesetMeta(changeset: unknown, method: string): SchemaMeta {
 }
 
 /**
- * Refuses a changeset that carries changes of associations or nested changesets: those
- * are written by nested writes, which this version does not have.
- *
- * @throws QueryError when there are such changes.
+ * Whether a changeset holds changes of associations (keys that are not fields): those are
+ * written by the nested writes of `nested.ts`, in a transaction. Changes of embed fields
+ * are written with the row.
  */
-function checkNested(changeset: AnyChangeset, schemaMeta: SchemaMeta, method: string): void {
+function hasAssocChanges(changeset: AnyChangeset, schemaMeta: SchemaMeta, method: string): boolean {
   const changes = changeset.changes as Readonly<Record<string, unknown>>;
+  let nested = false;
   for (const key in changes) {
     if (!hasOwn(changes, key)) continue;
-    const value = changes[key];
-    const nested =
-      !schemaMeta.fieldsByName.has(key) ||
-      value instanceof Changeset ||
-      (Array.isArray(value) && value.some((item) => item instanceof Changeset));
-    if (nested) {
+    const field = schemaMeta.fieldsByName.get(key);
+    if (field === undefined) {
+      if (!schemaMeta.assocs().has(key)) {
+        throw new QueryError(
+          `repo.${method}(): the changeset holds a change of "${key}", which is neither a field nor an association of ${schemaMeta.name}.`,
+        );
+      }
+      nested = true;
+    } else if (isNestedValue(changes[key]) && !schemaMeta.embeds.some((embed) => embed.name === key)) {
       throw new QueryError(
-        `repo.${method}(): the changeset holds a change of "${key}", which is ${schemaMeta.fieldsByName.has(key) ? "a nested changeset" : "not a field (an association)"}: nested changes are not supported yet. Write the associated rows with their own changesets.`,
+        `repo.${method}(): the changeset of ${schemaMeta.name} holds a changeset as the change of "${key}", which is not an embed field. Only embed fields and associations hold nested changesets.`,
       );
     }
   }
+  return nested;
 }
 
 /** The loaded row of an update or delete, with a primary key that has values. */
-function loadedRow(changeset: AnyChangeset, schemaMeta: SchemaMeta, method: string): Record<string, unknown> {
+export function loadedRow(
+  changeset: AnyChangeset,
+  schemaMeta: SchemaMeta,
+  method: string,
+): Record<string, unknown> {
   const data = changeset.data;
   if (data === null) {
     throw new QueryError(
@@ -804,7 +814,7 @@ function loadedRow(changeset: AnyChangeset, schemaMeta: SchemaMeta, method: stri
  *
  * @throws TypeError when a function does not return a changeset.
  */
-function runPrepare(changeset: AnyChangeset, action: Action, repo: unknown): AnyChangeset {
+export function runPrepare(changeset: AnyChangeset, action: Action, repo: unknown): AnyChangeset {
   let current = withAction(changeset, action);
   const functions = current.prepare;
   if (functions.length === 0) return current;
@@ -942,16 +952,42 @@ export async function insert(
       `repo.${method}() takes a changeset of a new record (made from the class, cast(${schemaMeta.name}, …)); this one is of a loaded row. Update it with repo.update(), or use repo.insertOrUpdate().`,
     );
   }
-  checkNested(changeset, schemaMeta, method);
+  // Refused before anything else, as an invalid changeset is.
+  const nested = hasAssocChanges(changeset, schemaMeta, method);
   const settings = writeSettings(schemaMeta, method, options, keys);
   if (!changeset.valid) return failure(withAction(changeset, "insert"));
+  if (nested) {
+    return writeNested(core, repo, changeset, schemaMeta, settings, "insert", method, false);
+  }
   const prepared = runPrepare(changeset, "insert", repo);
   if (!prepared.valid) return failure(prepared);
-  checkNested(prepared, schemaMeta, method);
+  if (hasAssocChanges(prepared, schemaMeta, method)) {
+    return writeNested(core, repo, prepared, schemaMeta, settings, "insert", method, true);
+  }
+  return insertRow(core, schemaMeta, prepared, settings);
+}
 
+/**
+ * The row of an insert, after the checks and the prepare functions: the values, the
+ * required-field check, the statement and the row built from it. The nested writes call
+ * it for a parent whose association changes they have taken out.
+ *
+ * @throws QueryError, ConstraintError, DatabaseError as {@link insert} does.
+ */
+export async function insertRow(
+  core: ReadCore,
+  schemaMeta: SchemaMeta,
+  prepared: AnyChangeset,
+  settings: WriteSettings,
+): Promise<Result<object | null, AnyChangeset>> {
+  const blankEmbeds = schemaMeta.embeds.length === 0 ? undefined : missingEmbedded(prepared);
+  if (blankEmbeds !== undefined) return failure(blankEmbeds as AnyChangeset);
   const table = writeTable(schemaMeta);
   const persisted = schemaMeta.persisted;
-  const changes = prepared.changes as Readonly<Record<string, unknown>>;
+  const changes =
+    schemaMeta.embeds.length === 0
+      ? (prepared.changes as Readonly<Record<string, unknown>>)
+      : embedChanges(prepared, "loaded");
   const written: unknown[] = new Array(persisted.length);
   const columns: FieldMeta[] = [];
   const values: unknown[] = [];
@@ -1016,7 +1052,7 @@ export async function insert(
     } else {
       [result, reread] = await insertThenRead(
         core,
-        changeset.model as AnySchema,
+        prepared.model as AnySchema,
         schemaMeta,
         plan,
         bound,
@@ -1147,14 +1183,45 @@ export async function update(
   const schemaMeta = changesetMeta(given, method);
   const changeset = given as AnyChangeset;
   const row = loadedRow(changeset, schemaMeta, method);
-  checkNested(changeset, schemaMeta, method);
+  const nested = hasAssocChanges(changeset, schemaMeta, method);
   const settings = writeSettings(schemaMeta, method, options, keys);
   if (!changeset.valid) return failure(withAction(changeset, "update"));
+  if (nested) {
+    return writeNested(core, repo, changeset, schemaMeta, settings, "update", method, false) as Promise<
+      Result<object, AnyChangeset>
+    >;
+  }
   const prepared = runPrepare(changeset, "update", repo);
   if (!prepared.valid) return failure(prepared);
-  checkNested(prepared, schemaMeta, method);
-  const changes = prepared.changes as Readonly<Record<string, unknown>>;
-  if (!settings.force && Object.keys(changes).length === 0) return success(row);
+  if (hasAssocChanges(prepared, schemaMeta, method)) {
+    return writeNested(core, repo, prepared, schemaMeta, settings, "update", method, true) as Promise<
+      Result<object, AnyChangeset>
+    >;
+  }
+  return updateRow(core, schemaMeta, row, prepared, settings, method);
+}
+
+/**
+ * The statement of an update, after the checks and the prepare functions; the nested
+ * writes call it for a parent whose association changes they have taken out.
+ *
+ * @throws QueryError, StaleEntryError, ConstraintError, DatabaseError as {@link update} does.
+ */
+export async function updateRow(
+  core: ReadCore,
+  schemaMeta: SchemaMeta,
+  row: Record<string, unknown>,
+  prepared: AnyChangeset,
+  settings: WriteSettings,
+  method: string,
+): Promise<Result<object, AnyChangeset>> {
+  if (!settings.force && Object.keys(prepared.changes).length === 0) return success(row);
+  const blankEmbeds = schemaMeta.embeds.length === 0 ? undefined : missingEmbedded(prepared);
+  if (blankEmbeds !== undefined) return failure(blankEmbeds as AnyChangeset);
+  const changes =
+    schemaMeta.embeds.length === 0
+      ? (prepared.changes as Readonly<Record<string, unknown>>)
+      : embedChanges(prepared, "loaded");
 
   const table = writeTable(schemaMeta);
   const persisted = schemaMeta.persisted;

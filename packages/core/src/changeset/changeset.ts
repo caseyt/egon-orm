@@ -20,6 +20,16 @@ import { formatStruct, formatValue, omitRedacted, redactFields } from "../intern
 import { meta } from "../schema/index.js";
 import { booleanType } from "../types/index.js";
 import { codepoints, graphemes, utf8Bytes } from "./measure.js";
+import { castRelation, putRelation } from "./nested/change.js";
+import { embedValue } from "./nested/embed.js";
+import type {
+  AssocTarget,
+  CastNestedArgs,
+  EmbedName,
+  EmbedTarget,
+  PutAssocValue,
+  PutEmbedValue,
+} from "./nested/types.js";
 import type { Spec } from "./spec.js";
 import { fieldOf, paramsOf, startOf } from "./spec.js";
 import type {
@@ -651,7 +661,11 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
   getField(field: string, fallback?: unknown): unknown {
     const meta = fieldOf(this.#spec, field, "getField");
     const changes = this.changes as Values;
-    const value = hasOwn(changes, field) ? changes[field] : currentValue(this.#spec, this.data, meta);
+    const value = hasOwn(changes, field)
+      ? this.#spec.embeds.has(field)
+        ? embedValue(changes[field], "built")
+        : changes[field]
+      : currentValue(this.#spec, this.data, meta);
     return value === undefined ? fallback : value;
   }
 
@@ -665,8 +679,8 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
    *
    * @throws QueryError when `field` is not a field.
    */
-  getChange<K extends FieldName<S>>(field: K): FieldValues<S>[K] | undefined;
-  getChange<K extends FieldName<S>, D>(field: K, fallback: D): FieldValues<S>[K] | D;
+  getChange<K extends FieldName<S>>(field: K): Changes<S>[K] | undefined;
+  getChange<K extends FieldName<S>, D>(field: K, fallback: D): Exclude<Changes<S>[K], undefined> | D;
   getChange(field: string, fallback?: unknown): unknown {
     fieldOf(this.#spec, field, "getChange");
     const changes = this.changes as Values;
@@ -690,7 +704,10 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
   ): { readonly from: "changes" | "data"; readonly value: FieldValues<S>[K] } | undefined {
     const meta = fieldOf(this.#spec, field, "fetchField");
     const changes = this.changes as Values;
-    if (hasOwn(changes, field)) return { from: "changes", value: changes[field] as FieldValues<S>[K] };
+    if (hasOwn(changes, field)) {
+      const change = this.#spec.embeds.has(field) ? embedValue(changes[field], "built") : changes[field];
+      return { from: "changes", value: change as FieldValues<S>[K] };
+    }
     const value = currentValue(this.#spec, this.data, meta);
     return value === undefined ? undefined : { from: "data", value: value as FieldValues<S>[K] };
   }
@@ -705,10 +722,14 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
    *
    * @throws QueryError when `field` is not a field.
    */
-  fetchChange<K extends FieldName<S>>(field: K): { readonly value: FieldValues<S>[K] } | undefined {
+  fetchChange<K extends FieldName<S>>(
+    field: K,
+  ): { readonly value: Exclude<Changes<S>[K], undefined> } | undefined {
     fieldOf(this.#spec, field, "fetchChange");
     const changes = this.changes as Values;
-    return hasOwn(changes, field) ? { value: changes[field] as FieldValues<S>[K] } : undefined;
+    return hasOwn(changes, field)
+      ? { value: changes[field] as Exclude<Changes<S>[K], undefined> }
+      : undefined;
   }
 
   /**
@@ -1267,6 +1288,89 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
   }
 
   // -------------------------------------------------------------------------
+  // Nested changes (step 15: ./nested/)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Casts an association from the params given to `cast`: each item becomes a child
+   * changeset made by `with` (by default the target's static `changeset` function),
+   * called as `with(existingRow, item, index)` for an item whose primary key matches a
+   * child the parent has (an update), and `with(TargetClass, item, index)` otherwise (an
+   * insert). Children the params leave out are handled by the association's `onReplace`.
+   *
+   * A to-one association takes an object or `null`, a to-many one an array of objects. On
+   * a loaded parent the association must be preloaded as whole rows; a new parent has no
+   * children. A key missing from the params changes nothing. The parent is invalid when a
+   * child is; the children keep their own errors.
+   *
+   * @example
+   * ```ts
+   * cast(post, params, ["title"]).castAssoc("comments", { with: Comment.changeset });
+   * ```
+   *
+   * @throws QueryError for an unknown or has-through association, wrong options, a
+   * changeset made by `change`, or a left-out child when `onReplace` is `"error"`.
+   * @throws NotLoadedError when the association of a loaded parent is not preloaded.
+   */
+  castAssoc<const K extends AssocName<S>>(name: K, ...options: CastNestedArgs<AssocTarget<S, K>>): this {
+    return castRelation(this, name, (options as readonly unknown[])[0], false) as this;
+  }
+
+  /**
+   * Casts an embed field from the params, as {@link Changeset.castAssoc} casts an
+   * association. Items of an embedded list are matched by the embedded schema's primary
+   * key; without one, the list is replaced as a whole.
+   *
+   * @example
+   * ```ts
+   * cast(user, params, ["email"]).castEmbed("address", { with: Address.changeset, required: true });
+   * ```
+   *
+   * @throws QueryError for a field that is not an embed, wrong options, a changeset made
+   * by `change`, or a left-out item when `onReplace` is `"error"`.
+   */
+  castEmbed<const K extends EmbedName<S>>(name: K, ...options: CastNestedArgs<EmbedTarget<S, K>>): this {
+    return castRelation(this, name, (options as readonly unknown[])[0], true) as this;
+  }
+
+  /**
+   * Sets an association from values you trust: rows (kept as they are), changesets (a
+   * new record is inserted, one of a loaded row updated) or plain objects (a new record,
+   * or an update of the existing child with that primary key). A list for `hasMany` and
+   * `manyToMany`, one value or `null` for the others. Children left out follow
+   * `onReplace`; putting the rows that are already there changes nothing.
+   *
+   * @example
+   * ```ts
+   * change(post).putAssoc("tags", [news, sport]);
+   * change(comment).putAssoc("post", post);
+   * ```
+   *
+   * @throws QueryError for an unknown or has-through association, a value of the wrong
+   * kind, the same row twice, or a left-out child when `onReplace` is `"error"`.
+   * @throws NotLoadedError when the association of a loaded parent is not preloaded.
+   */
+  putAssoc<const K extends AssocName<S>>(name: K, value: PutAssocValue<S, K>): this {
+    return putRelation(this, name, value, false) as this;
+  }
+
+  /**
+   * Sets an embed field from values you trust, as {@link Changeset.putAssoc} sets an
+   * association: embedded rows, changesets of them, or plain objects of their fields.
+   *
+   * @example
+   * ```ts
+   * change(user).putEmbed("address", { street: "Storgata 1", city: "Oslo" });
+   * ```
+   *
+   * @throws QueryError for a field that is not an embed, a value of the wrong kind, or a
+   * left-out item when `onReplace` is `"error"`.
+   */
+  putEmbed<const K extends EmbedName<S>>(name: K, value: PutEmbedValue<S, K>): this {
+    return putRelation(this, name, value, true) as this;
+  }
+
+  // -------------------------------------------------------------------------
   // Errors
   // -------------------------------------------------------------------------
 
@@ -1817,12 +1921,22 @@ function applied(changeset: AnyChangeset): object {
         defaults[field.name] = value;
       }
     }
-    return { ...data, ...defaults, ...changes };
+    let embedded: Record<string, unknown> | undefined;
+    for (const name of spec.embeds) {
+      if (!hasOwn(changes, name)) continue;
+      embedded ??= {};
+      embedded[name] = embedValue(changes[name], "built");
+    }
+    return { ...data, ...defaults, ...changes, ...embedded };
   }
   const row = data as Values;
   const values: unknown[] = [];
   for (const field of spec.meta.persisted) {
-    values.push(hasOwn(changes, field.name) ? changes[field.name] : row[field.name]);
+    if (!hasOwn(changes, field.name)) values.push(row[field.name]);
+    else
+      values.push(
+        spec.embeds.has(field.name) ? embedValue(changes[field.name], "built") : changes[field.name],
+      );
   }
   const loaded: string[] = [];
   for (const key of Object.keys(row)) if (!spec.fields.has(key)) loaded.push(key);
@@ -1893,7 +2007,9 @@ function interpolate(error: ChangesetError): string {
  * Turns every error of a changeset, and of the changesets nested in its changes, into a
  * value with `fn`: to render messages, translate them or handle plurals. The result has
  * the errors' keys; a nested changeset contributes its own tree, a list of changesets a
- * list of trees (only when one of them has errors).
+ * list of trees (only when one of them has errors). A key that has errors of its own and
+ * nested changesets with errors keeps both: its own under `$errors` (beside a child's
+ * keys, or beside `$items`, the list of children's trees).
  *
  * @example
  * ```ts
@@ -1911,13 +2027,21 @@ export function traverseErrors<T>(changeset: ChangesetLike, fn: ErrorFormatter<T
   const changes = changeset.changes;
   for (const key of Object.keys(changes)) {
     const value = changes[key];
+    let nested: ErrorTree<T> | readonly ErrorTree<T>[] | undefined;
     if (value instanceof Changeset) {
       const child = traverseErrors(value, fn);
-      if (Object.keys(child).length > 0) out[key] = child;
+      if (Object.keys(child).length > 0) nested = child;
     } else if (Array.isArray(value) && value.length > 0 && value.every((item) => item instanceof Changeset)) {
       const children = value.map((item: AnyChangeset) => traverseErrors(item, fn));
-      if (children.some((child) => Object.keys(child).length > 0)) out[key] = children;
+      if (children.some((child) => Object.keys(child).length > 0)) nested = children;
     }
+    if (nested === undefined) continue;
+    const own = out[key] as readonly T[] | undefined;
+    // A key with errors of its own and children with errors: both are kept, the key's own
+    // under "$errors" (and a list of children under "$items").
+    if (own === undefined) out[key] = nested;
+    else if (Array.isArray(nested)) out[key] = { $errors: own, $items: nested as readonly ErrorTree<T>[] };
+    else out[key] = { ...(nested as ErrorTree<T>), $errors: own };
   }
   return out;
 }

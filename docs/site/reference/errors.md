@@ -27,7 +27,7 @@ try {
 | `MultipleResultsError` | `one`, `getBy` or their twins matched more than one row. | the query, rendered |
 | `QueryError` | A query is built or used wrongly, or needs a feature the database lacks. | |
 | `CastError` | `cast` is given something that is not an object, or a stored value does not fit its type. | |
-| `NotLoadedError` | `castAssoc` is used on an association that was not preloaded as whole rows. | |
+| `NotLoadedError` | `castAssoc` or `putAssoc` is used on an association of a loaded row that was not preloaded as whole rows. | |
 | `SchemaDefinitionError` | A schema or association is defined incorrectly. | |
 | `RollbackError` | `transactionOrThrow` ended in a rollback: `tx.rollback(reason)`, a batch step that failed (`reason` is `{ step, error, completed }`), or a statement that failed and was not handled. | `reason` |
 | `DatabaseError` | The connection or the database failed. | `code`, `retryable` |

@@ -12,8 +12,10 @@ import type { Action, ChangesetError, ValidatorContext, ValidatorFn } from "../.
 import type { FieldMeta } from "../../contracts/schema.js";
 import type { StandardSchemaV1Props } from "../../contracts/standard-schema.js";
 import { QueryError } from "../../errors.js";
-import type { Changeset } from "../changeset.js";
-import { addValidation, fieldsOf, rebuild, valueBefore } from "../changeset.js";
+import { addValidation, Changeset, fieldsOf, rebuild, valueBefore } from "../changeset.js";
+import { nestedValid } from "../nested/change.js";
+import { isNestedValue } from "../nested/embed.js";
+import { leaves, type Relation, relationOf } from "../nested/relation.js";
 import type { ChangesetSource } from "../types.js";
 import type { FieldValidatorFn, ValidateOptions } from "./types.js";
 import { BASE } from "./types.js";
@@ -484,19 +486,42 @@ function withAdded<C extends AnyChangeset>(changeset: C, added: Map<string, Chan
   return rebuild(changeset, { errors, valid: false });
 }
 
-/** Routes whole-changeset issues by the first segment of their path. */
+/** Issues whose path leads into a nested changeset: by key, then by the child's position (-1 for a to-one child). */
+type Routed = Map<string, Map<number, Issue[]>>;
+
+/**
+ * Routes whole-changeset issues by the first segment of their path: to a field, to a
+ * nested changeset (an association or embed changed through `castAssoc`, `putAssoc`,
+ * `castEmbed` or `putEmbed`, by position for a list), or to `BASE`.
+ */
 function mapIssues(
   changeset: AnyChangeset,
   fields: ReadonlyMap<string, FieldMeta>,
   issues: readonly unknown[],
   options: Options,
   fn: string,
-): Map<string, ChangesetError[]> {
+): { readonly added: Map<string, ChangesetError[]>; readonly routed: Routed | undefined } {
   const added = new Map<string, ChangesetError[]>();
+  let routed: Routed | undefined;
   const changes = changeset.changes as Values;
   for (const raw of issues) {
-    const { message, path, meta } = issueOf(raw, fn);
+    const issue = issueOf(raw, fn);
+    const { message, path, meta } = issue;
     const head = path[0];
+    const into = typeof head === "string" ? childOf(changeset, head, path) : undefined;
+    if (into !== undefined && (options.only === undefined || options.only.includes(head as string))) {
+      routed ??= new Map();
+      let byIndex = routed.get(head as string);
+      if (byIndex === undefined) {
+        byIndex = new Map();
+        routed.set(head as string, byIndex);
+      }
+      const list = byIndex.get(into.index);
+      const moved: Issue = { message, path: into.rest, meta };
+      if (list === undefined) byIndex.set(into.index, [moved]);
+      else list.push(moved);
+      continue;
+    }
     if (typeof head === "string" && fields.has(head)) {
       if (options.changedOnly && !hasOwn(changes, head)) continue;
       if (options.only !== undefined && !options.only.includes(head)) continue;
@@ -506,7 +531,121 @@ function mapIssues(
       collect(added, BASE, schemaError(message, path, meta));
     }
   }
-  return added;
+  return { added, routed };
+}
+
+/**
+ * The child changeset an issue's path leads into, and the rest of the path: `[key, …]`
+ * for a to-one nested change, `[key, position, …]` for a list (positions count the
+ * children that stay, as the validator saw them). `undefined` when the path leads into
+ * no nested changeset.
+ */
+function childOf(
+  changeset: AnyChangeset,
+  head: string,
+  path: readonly PropertyKey[],
+): { readonly index: number; readonly rest: readonly PropertyKey[] } | undefined {
+  const changes = changeset.changes as Values;
+  if (!hasOwn(changes, head)) return undefined;
+  const value = changes[head];
+  if (value instanceof Changeset) return { index: -1, rest: path.slice(1) };
+  if (!Array.isArray(value) || !isNestedValue(value)) return undefined;
+  const at = path[1];
+  const position = typeof at === "number" ? at : typeof at === "string" && /^\d+$/.test(at) ? Number(at) : -1;
+  if (position < 0) return undefined;
+  const stay = staying(changeset, head, value);
+  const index = stay[position];
+  return index === undefined ? undefined : { index, rest: path.slice(2) };
+}
+
+/** The positions in `list` of the children that stay in the relation (not deleted or unlinked). */
+function staying(changeset: AnyChangeset, key: string, list: readonly unknown[]): number[] {
+  const relation = nestedRelation(changeset, key);
+  const out: number[] = [];
+  list.forEach((item, i) => {
+    if (!(item instanceof Changeset) || relation === undefined || !leaves(relation, item as AnyChangeset))
+      out.push(i);
+  });
+  return out;
+}
+
+function nestedRelation(changeset: AnyChangeset, key: string): Relation | undefined {
+  if (fieldsOf(changeset).has(key)) return relationOf(changeset, key, "validate", "embed");
+  return changeset.model === null ? undefined : relationOf(changeset, key, "validate", "assoc");
+}
+
+/** The changeset with its own issues added and the routed ones given to its children. */
+function applyIssues<C extends AnyChangeset>(
+  changeset: C,
+  issues: { readonly added: Map<string, ChangesetError[]>; readonly routed: Routed | undefined },
+  options: Options,
+  fn: string,
+): C {
+  let out = withAdded(changeset, issues.added);
+  if (issues.routed === undefined) return out;
+  const childOptions: Options = { changedOnly: options.changedOnly, apply: false, only: undefined };
+  const changes: Record<string, unknown> = { ...(out.changes as Values) };
+  for (const [key, byIndex] of issues.routed) {
+    const value = changes[key];
+    const list = Array.isArray(value) ? value.slice() : undefined;
+    for (const [index, routed] of byIndex) {
+      const child = (list === undefined ? value : list[index]) as AnyChangeset;
+      const next = applyIssues(
+        child,
+        mapIssues(child, fieldsOf(child), routed, childOptions, fn),
+        childOptions,
+        fn,
+      );
+      if (list === undefined) changes[key] = next;
+      else list[index] = next;
+    }
+    if (list !== undefined) changes[key] = list;
+  }
+  // Valid again only if nothing is wrong anywhere: a child may have dropped every issue
+  // routed to it (scope "changed").
+  let own = true;
+  for (const key in out.errors) if (hasOwn(out.errors, key)) own = false;
+  out = rebuild(out, { changes, valid: own && nestedValid(changes) });
+  return out;
+}
+
+/**
+ * The values a validator sees, with each nested change given as the values of its
+ * children (in the form a validator sees a changeset's values; children that leave the
+ * relation are left out of a list). An association appears only when it has a change.
+ */
+function withNested(changeset: AnyChangeset, values: Values, only: readonly string[] | undefined): Values {
+  const changes = changeset.changes as Values;
+  const fields = fieldsOf(changeset);
+  let out: Record<string, unknown> | undefined;
+  for (const key in changes) {
+    if (!hasOwn(changes, key)) continue;
+    const value = changes[key];
+    if (fields.has(key)) {
+      if (!isNestedValue(value) || (only !== undefined && !only.includes(key))) continue;
+    } else if (only !== undefined) continue;
+    let nested: unknown;
+    if (value instanceof Changeset) nested = childValues(value as AnyChangeset);
+    else if (Array.isArray(value)) {
+      const stay = staying(changeset, key, value);
+      nested = stay.map((i) => {
+        const item: unknown = value[i];
+        return item instanceof Changeset ? childValues(item as AnyChangeset) : item;
+      });
+    } else nested = value;
+    out ??= { ...values };
+    out[key] = nested;
+  }
+  return out ?? values;
+}
+
+function childValues(child: AnyChangeset): Values {
+  const table = tableOf(fieldsOf(child));
+  return withNested(
+    child,
+    valuesOf(child.changes as Values, table, baseOf(child, table), undefined),
+    undefined,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -596,7 +735,11 @@ function start(
 function call(changeset: AnyChangeset, run: Run): unknown {
   const table = tableOf(run.fields);
   const base = baseOf(changeset, table);
-  const values = valuesOf(changeset.changes as Values, table, base, run.options.only);
+  const values = withNested(
+    changeset,
+    valuesOf(changeset.changes as Values, table, base, run.options.only),
+    run.options.only,
+  );
   const { standard, fn } = run.dispatched;
   if (standard !== undefined) return standard.validate(values);
   return (fn as ValidatorFn<Values>)(values, new Context(changeset, contextData(changeset, base)));
@@ -618,7 +761,7 @@ function finish<C extends AnyChangeset>(
       ? applyOutput(recorded, run.fields, (result as { readonly value?: unknown }).value)
       : recorded;
   }
-  return withAdded(recorded, mapIssues(changeset, run.fields, issues, run.options, fn));
+  return applyIssues(recorded, mapIssues(changeset, run.fields, issues, run.options, fn), run.options, fn);
 }
 
 /**

@@ -3,64 +3,55 @@
 An embed is a structured object, or a list of them, stored inside one JSON column of its
 parent. It has fields, types and validations like a schema, but no table.
 
-```ts
-import { EmbeddedSchema, Schema, t, cast } from "egon-orm";
+<<< @/examples/embeds.ts#define
 
-class Address extends EmbeddedSchema({
-  street: t.string(),
-  city: t.string(),
-  postCode: t.string().nullable(),
-}) {
-  static changeset(address: Address | typeof Address, params: unknown) {
-    return cast(address, params, ["street", "city", "postCode"]).validateRequired(["street", "city"]);
-  }
-}
-
-class Phone extends EmbeddedSchema({
-  id: t.uuid().primaryKey().autogenerate(),
-  label: t.string(),
-  number: t.string(),
-}) {}
-
-class User extends Schema("users", {
-  id: t.integer().primaryKey().dbGenerated(),
-  email: t.string(),
-  address: t.embedOne(() => Address).nullable(),
-  phones: t.embedMany(() => Phone),
-}) {}
-```
-
-- `t.embedOne(() => E)` is one object; `t.embedMany(() => E)` is an array.
+- `t.embedOne(() => E)` is one object; `t.embedMany(() => E)` is an array (a new record
+  starts with an empty one).
 - Both are stored as `jsonb` on Postgres, and as JSON text or native JSON elsewhere.
-- Loaded embeds are instances of their class, so getters and methods work.
+- Loaded embeds are instances of their class, so getters and methods work. They are built
+  by the class's row factory: no constructor runs.
 - Embeds can contain embeds.
 
 ## Changing embeds
 
-```ts
-// From untrusted input
-cast(user, params, ["email"]).castEmbed("address", { with: Address.changeset, required: true });
-
-// From trusted data
-change(user).putEmbed("address", { street: "Karl Johans gate 1", city: "Oslo" });
-```
+<<< @/examples/embeds.ts#change
 
 `castEmbed` and `putEmbed` work like
 [`castAssoc` and `putAssoc`](/guide/nested-changesets): child changesets, nested errors,
-and `with` defaulting to the embed's static `changeset`.
+and `with` defaulting to the embed's static `changeset`. `cast`, `change` and `putChange`
+refuse an embed field and point to them.
 
 - **Matching in a list** needs a primary key on the embed, as `Phone` has. Items are then
-  matched by id and updated in place. Without a key, `castEmbed` replaces the whole list.
+  matched by id and updated in place, and a key with `.autogenerate()` is filled in for
+  new items when they are saved (or applied). Without a key, `castEmbed` replaces the
+  whole list, and a list equal to the stored one is no change.
 - **`onReplace`** is passed to the field: `t.embedOne(() => Address, { onReplace: "update" })`.
-  The values are `"error"` (the default), `"invalid"`, `"update"` (one only) and `"delete"`.
+  The values are `"error"` (the default), `"invalid"`, `"update"` (one only) and `"delete"`
+  (the item is dropped from the column).
 - **Any change inside an embed rewrites the whole column.** The parent field counts as
-  changed.
+  changed, and `cs.changes.address` holds the child changeset. `getField`,
+  `applyChanges` and `applyAction` give embedded rows instead.
+- A new item that would lack a value for a field that is neither nullable nor defaulted is
+  reported as `can't be blank` on that item when the parent is saved.
+
+<<< @/examples/embeds.ts#phones
 
 ## Stored form
 
-Each embedded field is written with its own type, so a `timestamp` is stored as an ISO
-string and read back as a `Date`. When reading, keys that are not fields are ignored and
-missing keys get the field's default.
+Each embedded field is written with its own type, then as JSON: a `timestamp` is stored as
+an ISO string and read back as a `Date`, a `bigint` as a string of digits, bytes as
+base64. A plain object written directly (by `insertAll`, say) is first made an embedded
+row: its missing fields take their defaults and generated values, its values are cast, and
+a key that is not a field is refused (`CastError`).
+
+When reading, keys that are not fields are ignored and missing keys get the field's
+default (or `null` for a nullable field); a stored `null` in a field that is not nullable
+counts as missing. A missing key of a field that has neither, or a stored value of the
+wrong JSON kind (a string where a number is expected), is an error (`CastError`): the
+database does not check what is inside a JSON column. Give a field a default when you add
+it to an embed that already has stored rows.
+
+A `.redact()` field inside an embed hides the whole embed column's value in logs.
 
 The JSON keys are the field names as written: `postCode` is stored as `"postCode"`, not
 `"post_code"`. `.column("pc")` renames one key, and `EmbeddedSchema(fields, { naming: "snake_case" })`
@@ -68,12 +59,15 @@ switches the whole embed to snake_case keys.
 
 ## Querying inside an embed
 
-```ts
-from(User, "u").where(({ u }) => u.address.field("city").eq("Oslo"));
-```
+<<< @/examples/embeds.ts#query
 
-`field(name)` is typed from the embed. The general JSON operators `path` and `pathText`
-also work; see [Expressions](/guide/query-expressions#json).
+`field(name)` is typed from the embed (`Expr<string>` here; nullable when the embed or the
+field is). It reads the field's JSON key as text, cast to the field's type where that is
+not text (a number, a boolean, a date or timestamp from its ISO string), and chains into a
+nested embed: `u.card.field("point").field("lat")`. It works on `t.embedOne` fields. Bytes
+(stored as base64) and lists (stored as JSON arrays) are refused, as are lists of embeds and
+other JSON: use the general JSON operators `path` and `pathText` for those; see
+[Expressions](/guide/query-expressions#json).
 
 ## When to use an embed
 

@@ -407,17 +407,17 @@ describe("insert", () => {
     expect(statements).toEqual([]);
   });
 
-  test("nested changes are refused", async () => {
+  test("a change that is neither a field nor an association, or a changeset on a plain field, is refused", async () => {
     const { repo } = setup();
     const withAssoc = change(User, { email: "a" });
     const nested = Object.create(
       Object.getPrototypeOf(withAssoc),
       Object.getOwnPropertyDescriptors(withAssoc),
     );
-    Object.defineProperty(nested, "changes", { value: { email: "a", posts: [] } });
+    Object.defineProperty(nested, "changes", { value: { email: "a", nothing: [] } });
     const error = await rejection(repo.insert(nested));
     expect(error).toBeInstanceOf(QueryError);
-    expect((error as Error).message).toContain("nested changes are not supported yet");
+    expect((error as Error).message).toContain('"nothing", which is neither a field nor an association');
     const child = change(Tag, { name: "a" });
     const holder = Object.create(
       Object.getPrototypeOf(withAssoc),

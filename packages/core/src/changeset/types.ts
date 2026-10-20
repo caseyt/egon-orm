@@ -16,6 +16,7 @@ import type {
   RowOf,
   SchemaStatic,
 } from "../contracts/schema.js";
+import type { AssocChange, AssocChanges, FieldChange } from "./nested/types.js";
 
 /**
  * A changeset without a schema class: the data it starts from and the type of each
@@ -86,13 +87,15 @@ export type FieldOfType<S, T> =
 /**
  * The `changes` of a changeset: the changed fields and their new values. A field that is
  * not nullable never has a `null` change (a `null` is refused with `can't be blank`).
+ * An embed field and an association changed through `castEmbed` / `castAssoc` /
+ * `putEmbed` / `putAssoc` hold child changesets ({@link FieldChange}, {@link AssocChange}).
  *
  * @example
  * ```ts
  * type UserChanges = Changes<typeof User>; // { email?: string; name?: string | null; … }
  * ```
  */
-export type Changes<S> = { readonly [K in FieldName<S>]?: FieldValues<S>[K] };
+export type Changes<S> = { readonly [K in FieldName<S>]?: FieldChange<S, K> } & AssocChanges<S>;
 
 /**
  * The association names of `S`: none for a changeset without a schema class, and any
@@ -396,11 +399,17 @@ export type ValidationEntry = readonly [field: string, descriptor: Readonly<Reco
 /**
  * The errors of a changeset as `traverseErrors` returns them: for each key, the values
  * the callback made of its errors, or, for a nested changeset, its own tree (a list of
- * trees for a list of changesets).
+ * trees for a list of changesets). A key with errors of its own and children with errors
+ * keeps both: a child's tree gets a `$errors` entry with the key's own errors, and a list
+ * becomes `{ $errors, $items }`, `$items` being the list of children's trees.
  *
  * @example
  * ```ts
  * const tree: ErrorTree<string> = { title: ["can't be blank"], comments: [{}, { body: ["can't be blank"] }] };
+ * const both: ErrorTree<string> = {
+ *   comments: { $errors: ["is invalid"], $items: [{}, { body: ["can't be blank"] }] },
+ *   author: { $errors: ["does not exist"], email: ["can't be blank"] },
+ * };
  * ```
  */
 export interface ErrorTree<T> {

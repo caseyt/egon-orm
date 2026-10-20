@@ -170,7 +170,8 @@ interface Chunked {
 
 function decodeInserted(result: RawResult, plan: CompiledQuery, core: ReadCore, back: Returning): Chunked {
   if (back.whole === undefined || plan.output === undefined) return { count: result.rowCount, rows: null };
-  const objects = decodeRows(result.rows, decoderFor(plan, core.adapter, core.codegen), NONE);
+  const decoder = decoderFor(plan, core.adapter, core.codegen, back.schemaMeta.name);
+  const objects = decodeRows(result.rows, decoder, NONE);
   if (!back.whole) return { count: result.rowCount, rows: objects };
   const schemaMeta = back.schemaMeta;
   const rowMeta = schemaMeta.rowMeta("loaded", plan.schema);

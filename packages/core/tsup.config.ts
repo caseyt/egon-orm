@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 
 // Build config is identical across packages on purpose; keep them in sync. The
-// differences here are the entries and `splitting`:
+// differences here are the entries, `splitting` and `dts.entry` (below):
 //
 // - `dist/migration.js` and `dist/testing.js` are the public subpaths `egon-orm/migration`
 //   (step 18) and `egon-orm/testing` (step 16).
@@ -30,7 +30,17 @@ export default defineConfig({
   // tsup 8 injects the deprecated `baseUrl` option into its declaration build, which
   // TypeScript 6 reports as TS5101 unless deprecations are silenced. Build-only; the
   // type-check configs do not carry this.
-  dts: { compilerOptions: { ignoreDeprecations: "6.0" } },
+  //
+  // Declarations are built for the public entries only. `dist/internal.js` needs none (the
+  // benchmarks take its types from the sources), and its `export * as expr` made the
+  // declaration bundler write namespace aliases such as `type expr_Expr<out T, in P> =
+  // Expr<T, P>` into the shared chunk: variance annotations on an alias of a class, which
+  // tsc rejects with TS2637 in a consumer that checks libraries (`skipLibCheck: false`).
+  // examples/smoke/check-types.mjs runs that check.
+  dts: {
+    entry: { index: "src/index.ts", migration: "src/migration/index.ts", testing: "src/testing.ts" },
+    compilerOptions: { ignoreDeprecations: "6.0" },
+  },
   sourcemap: true,
   clean: true,
   splitting: true, // see above

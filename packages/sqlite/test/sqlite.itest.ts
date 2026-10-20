@@ -1,7 +1,7 @@
 // SQLite specifics the conformance suites do not reach: the one handle serialises
 // transactions (two never interleave), an in-memory database serves a whole repo, and
 // values without a type (a Date, a boolean) bind as SQLite stores them.
-import { change, createRepo, fragment, from, val } from "egon-orm";
+import { CastError, change, createRepo, fragment, from, Schema, t, val } from "egon-orm";
 import { describe, expect, test } from "vitest";
 import { readFixture, User } from "../../core/test/support/index.js";
 import { sqlite } from "../src/index.js";
@@ -91,6 +91,25 @@ describe("sqlite", () => {
           .select(({ u }) => u.name),
       );
       expect(names).toEqual(["Ann"]);
+    } finally {
+      await repo.close();
+    }
+  });
+
+  test("a t.integer() field reads integers as numbers, and refuses text stored in its column", async () => {
+    const adapter = sqlite({ filename: ":memory:" });
+    const repo = createRepo({ adapter });
+    try {
+      // SQLite keeps a value of any kind in any column: "12a" stays text in an integer column.
+      await adapter.execute("create table counters (id integer primary key, n integer not null)", []);
+      await adapter.execute("insert into counters values (1, 7)", []);
+      class Counter extends Schema("counters", { id: t.integer().primaryKey(), n: t.integer() }) {}
+      expect((await repo.all(from(Counter, "c"))).map((c) => [c.id, c.n])).toEqual([[1, 7]]);
+      await adapter.execute("insert into counters values (2, '12a')", []);
+      await expect(repo.all(from(Counter, "c"))).rejects.toThrow(CastError);
+      await expect(repo.all(from(Counter, "c"))).rejects.toThrow(
+        "Counter.n is declared t.integer(), but the database returned a string for it, not a number:",
+      );
     } finally {
       await repo.close();
     }

@@ -400,6 +400,19 @@ export class ColumnBuilder {
 }
 
 /**
+ * Options of {@link ColumnAdder.id}: the key's type, `"bigint"` (`bigserial`, the default)
+ * or `"integer"` (`serial`).
+ *
+ * @example
+ * ```ts
+ * const options: IdOptions = { type: "integer" };
+ * ```
+ */
+export interface IdOptions {
+  readonly type?: "bigint" | "integer";
+}
+
+/**
  * Options of {@link ColumnAdder.references}.
  *
  * @example
@@ -570,12 +583,24 @@ export class ColumnAdder {
 
   /**
    * A key the database generates: `bigserial primary key` named `id` by default, or
-   * `serial` with `{ type: "integer" }`.
+   * `serial` with `{ type: "integer" }`. The options can come first when the column is
+   * named `id`: `t.id({ type: "integer" })` is `t.id("id", { type: "integer" })`.
    *
-   * @throws TypeError when an option is unknown or has the wrong type.
+   * @throws TypeError when an option is unknown or has the wrong type, or when options
+   * come first and a second argument is given too.
    */
-  id(name = "id", options?: { readonly type?: "bigint" | "integer" }): ColumnBuilder {
+  id(options?: IdOptions): ColumnBuilder;
+  id(name?: string, options?: IdOptions): ColumnBuilder;
+  id(nameOrOptions: string | IdOptions = "id", options?: IdOptions): ColumnBuilder {
     const where = `${this.context.where}: id()`;
+    let name: unknown = nameOrOptions;
+    if (typeof nameOrOptions === "object" && nameOrOptions !== null) {
+      if (options !== undefined) {
+        throw new TypeError(`${where}: give the options once, as t.id(options) or t.id(name, options).`);
+      }
+      name = "id";
+      options = nameOrOptions;
+    }
     const checked = checkOptions(where, options, ["type"]);
     const kind = checked.type ?? "bigint";
     if (kind !== "bigint" && kind !== "integer") {

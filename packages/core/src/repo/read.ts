@@ -221,6 +221,13 @@ export class QueryHub {
  * transaction's connection).
  */
 export class ReadCore {
+  /**
+   * Whether `executor` is the pool (the adapter itself, or the development-mode wrapper
+   * over it that step 16 installs) rather than one connection. A call that needs several
+   * statements on one connection checks one out only when this is true.
+   */
+  pooled: boolean;
+
   constructor(
     readonly adapter: DatabaseAdapter,
     /** Where statements run: the adapter (any pooled connection) or one connection. */
@@ -229,7 +236,9 @@ export class ReadCore {
     readonly schema: string | undefined,
     readonly codegen: boolean,
     readonly hub: QueryHub,
-  ) {}
+  ) {
+    this.pooled = executor === adapter;
+  }
 }
 
 /** What the repo keeps per compiled plan, besides its decoder (which is on the plan). */

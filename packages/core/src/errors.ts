@@ -28,6 +28,7 @@ export type ErrorCode =
   | "query"
   | "cast"
   | "notLoaded"
+  | "rollback"
   | DatabaseErrorCode
   | "schemaDefinition";
 
@@ -406,6 +407,43 @@ export class DatabaseError extends EgonError {
     this.code = details.code ?? "database";
     this.retryable = details.retryable ?? (this.code === "serializationFailure" || this.code === "deadlock");
     this.sql = details.sql;
+  }
+}
+
+/**
+ * A transaction was rolled back where its caller expected a value: `transactionOrThrow`
+ * throws it instead of returning `{ success: false, error: reason }`. `reason` is what
+ * `repo.transaction` would have returned as `error`: the value given to
+ * `tx.rollback(reason)`, a batch's `{ step, error, completed }`, or the error of a
+ * statement that failed inside the transaction and was not handled.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   await repo.transactionOrThrow(async (tx) => {
+ *     const order = await tx.insertOrThrow(change(Order, { total }));
+ *     if (order.total > limit) tx.rollback("over the limit");
+ *     return order;
+ *   });
+ * } catch (error) {
+ *   if (error instanceof RollbackError) return error.reason; // "over the limit"
+ *   throw error;
+ * }
+ * ```
+ */
+export class RollbackError<R = unknown> extends EgonError {
+  override readonly name = "RollbackError" as const;
+  readonly code = "rollback" as const;
+  /** Why the transaction was rolled back. */
+  readonly reason: R;
+
+  constructor(details: { readonly reason: R; readonly message?: string; readonly cause?: unknown }) {
+    super(
+      details.message ??
+        "The transaction was rolled back: tx.rollback(reason) was called, and the reason is error.reason. Call repo.transaction() instead of transactionOrThrow() to get the reason back as a failed Result.",
+      details.cause,
+    );
+    this.reason = details.reason;
   }
 }
 

@@ -538,7 +538,7 @@ export function overBudget(error: unknown, options: ReadOptions | undefined): un
 /**
  * A connection from the pool within the call's budget: the wait counts against
  * `timeoutMs`, and the call's signal stops it. A connection that arrives after the call
- * gave up is returned to the pool.
+ * gave up is returned to the pool. `what` names the call in the messages.
  *
  * @throws DatabaseError with the code `"timeout"` or `"aborted"`.
  */
@@ -546,10 +546,11 @@ export async function acquireWithin(
   core: ReadCore,
   options: ReadOptions | undefined,
   deadline: number | undefined,
+  what = "write",
 ): Promise<Connection> {
   const signal = options?.signal;
   if (signal?.aborted === true) {
-    throw new DatabaseError("The write was not run: its AbortSignal had fired.", { code: "aborted" });
+    throw new DatabaseError(`The ${what} was not run: its AbortSignal had fired.`, { code: "aborted" });
   }
   const pending = core.adapter.acquire();
   if (signal === undefined && deadline === undefined) return pending;
@@ -569,7 +570,7 @@ export async function acquireWithin(
     const onAbort = (): void =>
       giveUp(
         new DatabaseError(
-          "The write was not run: its AbortSignal fired while it waited for a free connection.",
+          `The ${what} was not run: its AbortSignal fired while it waited for a free connection.`,
           {
             code: "aborted",
           },
@@ -580,7 +581,7 @@ export async function acquireWithin(
         () =>
           giveUp(
             new DatabaseError(
-              `The write was not run: it waited longer than its timeoutMs (${options?.timeoutMs} ms) for a free connection.`,
+              `The ${what} was not run: it waited longer than its timeoutMs (${options?.timeoutMs} ms) for a free connection.`,
               { code: "timeout" },
             ),
           ),
@@ -1082,8 +1083,7 @@ async function insertThenRead(
   written: readonly unknown[],
 ): Promise<[Written, Readonly<Record<string, unknown>> | undefined]> {
   const deadline = deadlineOf(settings.options);
-  const connection =
-    core.executor === core.adapter ? await acquireWithin(core, settings.options, deadline) : undefined;
+  const connection = core.pooled ? await acquireWithin(core, settings.options, deadline) : undefined;
   const executor: Executor = connection ?? core.executor;
   try {
     const result = await runWrite(

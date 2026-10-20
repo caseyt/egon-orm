@@ -1,0 +1,1306 @@
+/**
+ * Transactions: `repo.transaction(fn | batch, options?)`, `transactionOrThrow`, nesting
+ * with savepoints, `tx.rollback(reason)`, `repo.checkout(fn)`, the multi-statement
+ * primitive the bulk writes use, and the machinery of the test sandbox.
+ *
+ * ## The pieces
+ *
+ * - A {@link Session} is one checked-out connection. Every statement on it goes through
+ *   its queue, one at a time: a statement issued while another runs waits for it (so a
+ *   cancel request can only ever reach the statement it was meant for), and the wait
+ *   counts against the statement's `timeoutMs`. The session also remembers the first
+ *   statement that failed inside a transaction: on Postgres that aborts the transaction
+ *   until it, or a savepoint, is rolled back, and the session refuses to commit it, on
+ *   every dialect alike.
+ * - A {@link Level} is one scope on a session, and the executor of the repo bound to it:
+ *   a transaction (`BEGIN`), a savepoint inside one, a checkout (no transaction), or the
+ *   sandbox's transaction. A level checks every statement before it reaches the queue:
+ *   it refuses statements once its callback has ended (a promise that leaked out of the
+ *   callback), after `tx.rollback()`, while a nested transaction is open on it (the outer
+ *   `tx` used inside the inner callback) and while a stream is open on the connection.
+ * - The root repo's {@link RootScope} knows whether a sandbox has taken the repo over.
+ *
+ * The transaction statements themselves (`BEGIN`, `SAVEPOINT`, `COMMIT`, ...) are the
+ * adapter's `Connection` methods, which write each dialect's syntax. They take no
+ * options, so they are not cancelled by `timeoutMs`, and they are not reported as the
+ * repo's `query` events (the adapter's own `query` events include them).
+ *
+ * @module
+ */
+import type { AsyncLocalStorage } from "node:async_hooks";
+import type { DatabaseAdapter } from "../adapter/adapter.js";
+import { type Batch, firstInvalid, isBatch, runSteps } from "../batch/batch.js";
+
+/** A batch of any results and failures. */
+type AnyBatch = Batch<object, unknown>;
+
+import type {
+  BeginOptions,
+  Connection,
+  ExecuteOptions,
+  Executor,
+  IsolationLevel,
+  RawResult,
+  StreamOptions,
+} from "../contracts/adapter.js";
+import { failure, type Result, success } from "../contracts/result.js";
+import { DatabaseError, isEgonError, QueryError, RollbackError } from "../errors.js";
+import { isPlainObject } from "../internal/plain-object.js";
+import type { ReadOptions } from "./options.js";
+import { ReadCore } from "./read.js";
+import type { Repo } from "./repo.js";
+import { acquireWithin } from "./write.js";
+
+// ---------------------------------------------------------------------------
+// Options
+// ---------------------------------------------------------------------------
+
+/**
+ * The options of `repo.transaction` and `repo.transactionOrThrow`.
+ *
+ * - `isolation`: the isolation level of the transaction. Not on a nested transaction.
+ * - `readOnly`: begins a read-only transaction. Not on a nested transaction.
+ * - `retries`: how many times to run the callback again after a serialisation failure or
+ *   a deadlock (`DatabaseError.retryable`), with a randomised, growing pause in between.
+ *   The callback must be safe to run again. Default 0. Not on a nested transaction.
+ * - `timeoutMs`: the time budget of the whole call, in milliseconds: the wait for a
+ *   connection, every statement and every retry. When it runs out, the running statement
+ *   is cancelled, the transaction is rolled back and the call rejects with
+ *   `DatabaseError`, code `"timeout"`.
+ *
+ * @example
+ * ```ts
+ * const options: TransactionOptions = { isolation: "serializable", retries: 3, timeoutMs: 5_000 };
+ * ```
+ */
+export interface TransactionOptions {
+  readonly isolation?: IsolationLevel | undefined;
+  readonly readOnly?: boolean | undefined;
+  readonly retries?: number | undefined;
+  readonly timeoutMs?: number | undefined;
+}
+
+const TRANSACTION_OPTION_KEYS: readonly string[] = Object.freeze([
+  "isolation",
+  "readOnly",
+  "retries",
+  "timeoutMs",
+]);
+
+const ISOLATION_LEVELS: readonly string[] = Object.freeze([
+  "read committed",
+  "repeatable read",
+  "serializable",
+]);
+
+/** The checked options of one call. */
+interface Settings {
+  readonly begin: BeginOptions | undefined;
+  readonly retries: number;
+  readonly timeoutMs: number | undefined;
+}
+
+function describe(value: unknown): string {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "an array";
+  return typeof value === "object" ? "an object" : `${typeof value} ${String(value)}`;
+}
+
+/**
+ * Checks the options of a transaction call.
+ *
+ * @throws TypeError when an option is unknown or has the wrong type.
+ */
+function settingsOf(method: string, options: unknown): Settings {
+  if (options === undefined) return NO_SETTINGS;
+  if (typeof options !== "object" || options === null || !isPlainObject(options)) {
+    throw new TypeError(
+      `repo.${method}(fn, options): options must be an object, but it is ${describe(options)}.`,
+    );
+  }
+  const given = options as Record<string, unknown>;
+  for (const key of Object.keys(given)) {
+    if (!TRANSACTION_OPTION_KEYS.includes(key)) {
+      throw new TypeError(
+        `repo.${method}(fn, options): unknown option "${key}". The options are ${TRANSACTION_OPTION_KEYS.join(", ")}.`,
+      );
+    }
+  }
+  const { isolation, readOnly, retries, timeoutMs } = given;
+  if (isolation !== undefined && (typeof isolation !== "string" || !ISOLATION_LEVELS.includes(isolation))) {
+    throw new TypeError(
+      `repo.${method}(fn, { isolation }): isolation must be "read committed", "repeatable read" or "serializable", but it is ${describe(isolation)}.`,
+    );
+  }
+  if (readOnly !== undefined && typeof readOnly !== "boolean") {
+    throw new TypeError(
+      `repo.${method}(fn, { readOnly }): readOnly must be true or false, but it is ${describe(readOnly)}.`,
+    );
+  }
+  if (
+    retries !== undefined &&
+    (typeof retries !== "number" || !Number.isSafeInteger(retries) || retries < 0)
+  ) {
+    throw new TypeError(
+      `repo.${method}(fn, { retries }): retries must be a whole number of 0 or more, but it is ${describe(retries)}.`,
+    );
+  }
+  if (
+    timeoutMs !== undefined &&
+    (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs < 0)
+  ) {
+    throw new TypeError(
+      `repo.${method}(fn, { timeoutMs }): timeoutMs must be a non-negative number of milliseconds, but it is ${describe(timeoutMs)}.`,
+    );
+  }
+  let begin: BeginOptions | undefined;
+  if (isolation !== undefined || readOnly !== undefined) {
+    begin = {
+      ...(isolation === undefined ? {} : { isolation: isolation as IsolationLevel }),
+      ...(readOnly === undefined ? {} : { readOnly }),
+    };
+  }
+  return { begin, retries: retries ?? 0, timeoutMs };
+}
+
+const NO_SETTINGS: Settings = Object.freeze({ begin: undefined, retries: 0, timeoutMs: undefined });
+
+// ---------------------------------------------------------------------------
+// Errors and signals
+// ---------------------------------------------------------------------------
+
+/** "Nothing here": no failure, no rollback reason. Distinct from every value a user can pass. */
+const NONE: unique symbol = Symbol("none");
+type Maybe<T> = T | typeof NONE;
+
+const now = (): number => performance.now();
+
+/**
+ * What `tx.rollback(reason)` throws: caught by the transaction it names, which rolls
+ * back and returns `failure(reason)`. It is an `Error` so that, should it escape (a
+ * rollback called from a callback that outlived the transaction's), it reads as one.
+ */
+class RollbackSignal extends Error {
+  constructor(
+    readonly level: Level,
+    readonly reason: unknown,
+  ) {
+    super(
+      "tx.rollback() was called. This error is caught by the transaction it belongs to; seeing it means the call happened outside that transaction's callback.",
+    );
+    this.name = "RollbackSignal";
+  }
+}
+
+function completedError(level: Level): QueryError {
+  switch (level.kind) {
+    case "checkout":
+      return new QueryError(
+        "This checkout already ended: the repo it gave was used after its callback returned or threw (a promise that outlived the callback?). Await every call inside the callback.",
+      );
+    case "sandbox":
+      return new QueryError(
+        "This sandbox transaction was already rolled back: sandbox.rollback() ran before this call. Await every call inside the test.",
+      );
+    default:
+      return new QueryError(
+        "transaction already completed: tx was used after its callback returned or threw (a promise that outlived the callback?). Await every call on tx inside the callback.",
+      );
+  }
+}
+
+function rolledBackError(): QueryError {
+  return new QueryError(
+    "tx.rollback() was called on this transaction, so it takes no more statements: it is being rolled back.",
+  );
+}
+
+function childOpenError(): QueryError {
+  return new QueryError(
+    "A nested transaction is open on this tx: run the statements on the repo the nested callback was given (tx.transaction(async (inner) => …) runs them on inner), or await the nested transaction first.",
+  );
+}
+
+function streamOpenError(): QueryError {
+  return new QueryError(
+    "A stream is still open on this transaction's connection. Finish it, or leave its for-await loop (break or return), before running another statement or stream.",
+  );
+}
+
+function failedError(cause: unknown): QueryError {
+  return new QueryError(
+    "A statement in this transaction failed (see the cause), so the transaction can only be rolled back: Postgres refuses every further statement in it, and Egon does the same on every database. Roll back (throw, or tx.rollback(reason)), or run the statement that may fail in a nested transaction, tx.transaction(async (inner) => …), whose failure undoes only its own work.",
+    cause,
+  );
+}
+
+function brokenError(cause: unknown): QueryError {
+  return new QueryError(
+    "This transaction could not roll back to one of its savepoints (see the cause), so its state is unknown: it can only be rolled back as a whole.",
+    cause,
+  );
+}
+
+/** Whether a statement's error came from the database (so that, on Postgres, it aborted the transaction). */
+function fromDatabase(error: unknown): boolean {
+  return isEgonError(error) && DATABASE_CODES.includes(error.code);
+}
+
+/** The codes of `ConstraintError` and `DatabaseError`: errors the database reported for a statement it ran. */
+const DATABASE_CODES: readonly string[] = Object.freeze([
+  "constraint",
+  "database",
+  "connection",
+  "serializationFailure",
+  "deadlock",
+  "aborted",
+  "timeout",
+]);
+
+function isRetryable(error: unknown): boolean {
+  return isEgonError(error) && (error as { readonly retryable?: unknown }).retryable === true;
+}
+
+/** Keeps a failure of the cleanup on the error being rethrown, as `error.suppressed`. */
+function attachSuppressed(error: unknown, suppressed: unknown): void {
+  if (typeof error !== "object" || error === null || !Object.isExtensible(error)) return;
+  if (Object.hasOwn(error, "suppressed")) return;
+  Object.defineProperty(error, "suppressed", {
+    value: suppressed,
+    writable: true,
+    configurable: true,
+    enumerable: false,
+  });
+}
+
+function transactionTimeout(level: Level, sql: string | undefined, cause: unknown): DatabaseError {
+  return new DatabaseError(
+    `The transaction ran longer than its timeoutMs (${level.timeoutMs} ms), which covers every statement in it, so it was stopped and rolled back.`,
+    { code: "timeout", ...(sql === undefined ? {} : { sql }), cause },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The session: one connection, one statement at a time
+// ---------------------------------------------------------------------------
+
+const NO_PARAMS: readonly unknown[] = Object.freeze([]);
+
+/** A statement (or a transaction statement, `work`) waiting for the connection. */
+class Waiting {
+  done = false;
+  timer: ReturnType<typeof setTimeout> | undefined = undefined;
+  onAbort: (() => void) | undefined = undefined;
+
+  constructor(
+    readonly level: Level | undefined,
+    readonly sql: string,
+    readonly params: readonly unknown[],
+    readonly options: ExecuteOptions | undefined,
+    readonly work: (() => Promise<unknown>) | undefined,
+    readonly since: number,
+    readonly resolve: (value: unknown) => void,
+    readonly reject: (error: unknown) => void,
+  ) {}
+
+  stop(): void {
+    this.done = true;
+    if (this.timer !== undefined) clearTimeout(this.timer);
+    if (this.onAbort !== undefined) this.options?.signal?.removeEventListener("abort", this.onAbort);
+  }
+}
+
+/** One checked-out connection and its queue. */
+export class Session {
+  /** Whether a statement is running on the connection now. */
+  busy = false;
+  readonly #queue: Waiting[] = [];
+  /** Streams open on the connection: statements are refused meanwhile. */
+  streams = 0;
+  /** The first statement that failed inside a transaction since it, or the savepoint last rolled back to, began. */
+  failure: Maybe<unknown> = NONE;
+  /** A savepoint could not be released or rolled back to: only a full rollback ends this transaction now. */
+  broken: Maybe<unknown> = NONE;
+  /** How many transactions and savepoints are open: a failed statement aborts the transaction only then. */
+  transactions = 0;
+  /** Set when a `ROLLBACK` failed: the connection is closed instead of returned to the pool. */
+  destroy = false;
+
+  constructor(
+    readonly connection: Connection,
+    /** The repo the session belongs to; `undefined` for a bulk write's own transaction. */
+    readonly root: RootScope | undefined,
+  ) {}
+
+  /** Runs a statement now, or when the statements before it are done. */
+  execute(
+    level: Level,
+    sql: string,
+    params: readonly unknown[],
+    options: ExecuteOptions | undefined,
+  ): Promise<RawResult> {
+    if (!this.busy) return this.#send(sql, params, options);
+    return this.#wait(level, sql, params, options, undefined) as Promise<RawResult>;
+  }
+
+  /** Runs `work` (transaction statements) when the connection is free; nothing else runs meanwhile. */
+  control<T>(work: () => Promise<T>): Promise<T> {
+    if (!this.busy) return this.#control(work);
+    return this.#wait(undefined, "", NO_PARAMS, undefined, work) as Promise<T>;
+  }
+
+  #control<T>(work: () => Promise<T>): Promise<T> {
+    this.busy = true;
+    let promise: Promise<T>;
+    try {
+      promise = work();
+    } catch (error) {
+      promise = Promise.reject(error);
+    }
+    promise.then(this.#free, this.#free);
+    return promise;
+  }
+
+  #send(sql: string, params: readonly unknown[], options: ExecuteOptions | undefined): Promise<RawResult> {
+    this.busy = true;
+    const promise = this.connection.execute(sql, params, options);
+    promise.then(this.#free, this.#failed);
+    return promise;
+  }
+
+  readonly #free = (): void => {
+    this.busy = false;
+    this.#next();
+  };
+
+  readonly #failed = (error: unknown): void => {
+    this.fail(error);
+    this.busy = false;
+    this.#next();
+  };
+
+  /** Records a statement's failure when it aborted (or, on other databases, would have aborted) the transaction. */
+  fail(error: unknown): void {
+    if (this.failure === NONE && this.transactions > 0 && fromDatabase(error)) this.failure = error;
+  }
+
+  #wait(
+    level: Level | undefined,
+    sql: string,
+    params: readonly unknown[],
+    options: ExecuteOptions | undefined,
+    work: (() => Promise<unknown>) | undefined,
+  ): Promise<unknown> {
+    return new Promise<unknown>((resolve, reject) => {
+      const entry = new Waiting(level, sql, params, options, work, now(), resolve, reject);
+      const signal = options?.signal;
+      if (signal !== undefined) {
+        entry.onAbort = () => {
+          if (entry.done) return;
+          entry.stop();
+          reject(
+            new DatabaseError(
+              "The statement was not run: its AbortSignal fired while it waited for the statements before it on this transaction's connection.",
+              { code: "aborted", sql },
+            ),
+          );
+        };
+        signal.addEventListener("abort", entry.onAbort, { once: true });
+      }
+      const timeoutMs = options?.timeoutMs;
+      if (timeoutMs !== undefined) {
+        entry.timer = setTimeout(() => {
+          if (entry.done) return;
+          entry.stop();
+          reject(waitedTooLong(sql, timeoutMs));
+        }, timeoutMs);
+      }
+      this.#queue.push(entry);
+    });
+  }
+
+  #next(): void {
+    while (!this.busy && this.#queue.length > 0) {
+      const entry = this.#queue.shift() as Waiting;
+      if (entry.done) continue;
+      entry.stop();
+      const work = entry.work;
+      if (work !== undefined) {
+        this.#control(work).then(entry.resolve, entry.reject);
+        return;
+      }
+      const refused = (entry.level as Level).queuedRefusal();
+      if (refused !== undefined) {
+        entry.reject(refused);
+        continue;
+      }
+      let options = entry.options;
+      const timeoutMs = options?.timeoutMs;
+      if (timeoutMs !== undefined) {
+        const left = timeoutMs - (now() - entry.since);
+        if (left <= 0) {
+          entry.reject(waitedTooLong(entry.sql, timeoutMs));
+          continue;
+        }
+        options = { ...options, timeoutMs: left };
+      }
+      if (options?.signal?.aborted === true) {
+        entry.reject(
+          new DatabaseError("The statement was not run: its AbortSignal had fired.", {
+            code: "aborted",
+            sql: entry.sql,
+          }),
+        );
+        continue;
+      }
+      this.#send(entry.sql, entry.params, options).then(entry.resolve, entry.reject);
+    }
+  }
+}
+
+function waitedTooLong(sql: string, timeoutMs: number): DatabaseError {
+  return new DatabaseError(
+    `The statement was not run: it waited longer than its timeoutMs (${timeoutMs} ms) for the statements before it on this transaction's connection.`,
+    { code: "timeout", sql },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Levels: the scopes on a session, and the executors of the repos bound to them
+// ---------------------------------------------------------------------------
+
+/**
+ * - `transaction`: `BEGIN` … `COMMIT` / `ROLLBACK`.
+ * - `savepoint`: a nested transaction, `SAVEPOINT` … `RELEASE` / `ROLLBACK TO`.
+ * - `checkout`: one connection, no transaction.
+ * - `sandbox`: the test sandbox's transaction, always rolled back.
+ */
+type LevelKind = "transaction" | "savepoint" | "checkout" | "sandbox";
+
+/** One scope on a session; the executor of the repo bound to it. */
+export class Level implements Executor {
+  /** `closing` once its callback ended: what it issued before still runs, nothing new is accepted. */
+  state: "open" | "closing" | "ended" = "open";
+  /** The reason given to `tx.rollback(reason)`; the level then ends with a rollback, whatever its callback does next. */
+  rollbackReason: Maybe<unknown> = NONE;
+  /** Set when the level ends with a rollback: its statements still waiting are not run. */
+  discard = false;
+  /** The nested transaction open on this level. */
+  child: Level | undefined = undefined;
+  /** Nested transactions waiting for {@link child} to end before they begin. */
+  readonly #turns: { readonly resolve: () => void; readonly reject: (error: unknown) => void }[] = [];
+  /** Whether the root-use warning was given for this transaction. */
+  warned = false;
+
+  constructor(
+    readonly session: Session,
+    readonly parent: Level | undefined,
+    readonly kind: LevelKind,
+    /** 0 for a transaction, a checkout and the sandbox; 1, 2, … for savepoints, which are named `egon_<depth>`. */
+    readonly depth: number,
+    /** The `performance.now()` time by which the level must end, its own or its parent's, whichever is first. */
+    readonly deadline: number | undefined,
+    /** The `timeoutMs` that set {@link deadline}, for the messages. */
+    readonly timeoutMs: number | undefined,
+  ) {}
+
+  /** Whether the repo bound to this level is inside a transaction. */
+  get inTransaction(): boolean {
+    return this.kind !== "checkout";
+  }
+
+  /** Why a statement issued on this level now cannot run; `undefined` when it can. */
+  refusal(): unknown {
+    if (this.state !== "open") return completedError(this);
+    if (this.rollbackReason !== NONE) return rolledBackError();
+    if (this.child !== undefined && this.kind !== "sandbox") return childOpenError();
+    return this.sessionRefusal();
+  }
+
+  /** Why nothing new can run on the connection now. */
+  sessionRefusal(): unknown {
+    const session = this.session;
+    if (session.broken !== NONE) return brokenError(session.broken);
+    if (session.failure !== NONE) return failedError(session.failure);
+    if (session.streams > 0) return streamOpenError();
+    return undefined;
+  }
+
+  /** Why a statement that waited in the queue must not run after all. */
+  queuedRefusal(): unknown {
+    if (this.discard || this.state === "ended") return completedError(this);
+    return this.sessionRefusal();
+  }
+
+  execute(sql: string, params: readonly unknown[], options?: ExecuteOptions): Promise<RawResult> {
+    const refused = this.refusal();
+    if (refused !== undefined) return Promise.reject(refused);
+    if (this.deadline === undefined) return this.session.execute(this, sql, params, options);
+    return this.#withinDeadline(sql, params, options, this.deadline);
+  }
+
+  async #withinDeadline(
+    sql: string,
+    params: readonly unknown[],
+    options: ExecuteOptions | undefined,
+    deadline: number,
+  ): Promise<RawResult> {
+    const left = deadline - now();
+    const own = options?.timeoutMs;
+    if (own !== undefined && own <= left) return this.session.execute(this, sql, params, options);
+    if (left <= 0) throw transactionTimeout(this, sql, undefined);
+    try {
+      return await this.session.execute(this, sql, params, { ...options, timeoutMs: left });
+    } catch (error) {
+      throw isEgonError(error, "timeout") ? transactionTimeout(this, sql, error) : error;
+    }
+  }
+
+  stream(
+    sql: string,
+    params: readonly unknown[],
+    options?: StreamOptions,
+  ): AsyncIterable<Record<string, unknown>> {
+    return this.#streamRows(sql, params, options);
+  }
+
+  async *#streamRows(
+    sql: string,
+    params: readonly unknown[],
+    options: StreamOptions | undefined,
+  ): AsyncGenerator<Record<string, unknown>, void, undefined> {
+    const refused = this.refusal();
+    if (refused !== undefined) throw refused;
+    const session = this.session;
+    // Wait for the statements before it; from then on, other statements are refused.
+    await session.control(async () => {
+      session.streams++;
+    });
+    let given = options;
+    if (this.deadline !== undefined) {
+      const left = Math.max(0, this.deadline - now());
+      if (given?.timeoutMs === undefined || given.timeoutMs > left) given = { ...given, timeoutMs: left };
+    }
+    try {
+      yield* session.connection.stream(sql, params, given);
+    } catch (error) {
+      session.fail(error);
+      throw error;
+    } finally {
+      session.streams--;
+    }
+  }
+
+  /** Resolves when the nested transaction open on this level ends; rejects when this level ends first. */
+  turn(): Promise<void> {
+    return new Promise<void>((resolve, reject) => this.#turns.push({ resolve, reject }));
+  }
+
+  /** Lets the next waiting nested transaction begin. */
+  nextTurn(): void {
+    const turn = this.#turns.shift();
+    if (turn !== undefined) turn.resolve();
+  }
+
+  /** Ends this level and every level nested in it, without statements: an enclosing level is ending. */
+  abandon(): void {
+    this.state = "ended";
+    this.discard = true;
+    this.refuseTurns();
+    this.child?.abandon();
+  }
+
+  /** Rejects the nested transactions waiting to begin on this level. */
+  refuseTurns(): void {
+    for (const turn of this.#turns.splice(0)) turn.reject(completedError(this));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The root repo's scope, and the development-mode warning
+// ---------------------------------------------------------------------------
+
+/** Makes a repo over a core, bound to a scope (repo.ts passes its `DatabaseRepo` constructor). */
+export type RepoFactory = (core: ReadCore, scope: Scope) => Repo;
+
+/** The state of a repo made by `createRepo`. */
+export class RootScope {
+  /** The sandbox's transaction while a sandbox has taken the repo over. */
+  sandbox: Level | undefined = undefined;
+
+  constructor(
+    readonly core: ReadCore,
+    readonly makeRepo: RepoFactory,
+    /** Whether the development-mode root-use warning is on. */
+    readonly watch: boolean,
+  ) {}
+}
+
+/** What a repo is bound to: the root (the pool), or a level on one connection. */
+export type Scope = RootScope | Level;
+
+const roots = new WeakMap<object, RootScope>();
+
+let storage: AsyncLocalStorage<Level> | undefined;
+
+/** The store that tells the root repo it is being used inside one of its transactions' callbacks. */
+function watchStorage(): AsyncLocalStorage<Level> {
+  if (storage === undefined) {
+    const hooks = process.getBuiltinModule("node:async_hooks");
+    storage = new hooks.AsyncLocalStorage<Level>();
+  }
+  return storage;
+}
+
+/**
+ * The root repo's executor when the root-use warning is on: the adapter, with a check of
+ * whether the call comes from inside one of the repo's transaction callbacks.
+ */
+class RootWatch implements Executor {
+  constructor(
+    readonly adapter: DatabaseAdapter,
+    readonly root: RootScope,
+  ) {}
+
+  execute(sql: string, params: readonly unknown[], options?: ExecuteOptions): Promise<RawResult> {
+    this.check();
+    return this.adapter.execute(sql, params, options);
+  }
+
+  stream(
+    sql: string,
+    params: readonly unknown[],
+    options?: StreamOptions,
+  ): AsyncIterable<Record<string, unknown>> {
+    this.check();
+    return this.adapter.stream(sql, params, options);
+  }
+
+  check(): void {
+    warnIfInside(this.root);
+  }
+}
+
+function warnIfInside(root: RootScope): void {
+  if (!root.watch) return;
+  const level = watchStorage().getStore();
+  if (level === undefined || level.session.root !== root || level.state !== "open" || level.warned) return;
+  level.warned = true;
+  process.emitWarning(
+    "The repo was used inside one of its own transaction callbacks. Only calls on the tx the callback was given are inside the transaction; this call ran on another connection, outside it, and is not rolled back with it. Pass tx to the code you call. (warnOnRootUseInTransaction: this warning is given once per transaction, and never when NODE_ENV is production.)",
+    { code: "EGON_ROOT_IN_TRANSACTION" },
+  );
+}
+
+/**
+ * Sets up the scope of a repo made by `createRepo`, and installs the root-use warning when
+ * asked for outside production.
+ */
+export function createRoot(repo: object, core: ReadCore, makeRepo: RepoFactory, warn: boolean): RootScope {
+  const watch = warn && process.env.NODE_ENV !== "production";
+  const root = new RootScope(core, makeRepo, watch);
+  if (watch) {
+    core.executor = new RootWatch(core.adapter, root);
+    core.pooled = true;
+  }
+  roots.set(repo, root);
+  return root;
+}
+
+/** The scope of a repo made by `createRepo`; `undefined` for anything else (a transaction's repo too). */
+export function rootOf(repo: unknown): RootScope | undefined {
+  return typeof repo === "object" && repo !== null ? roots.get(repo) : undefined;
+}
+
+/** A repo bound to `level`, sharing the adapter, the defaults and the listeners of its root. */
+function repoFor(root: RootScope, level: Level): Repo {
+  const core = root.core;
+  return root.makeRepo(new ReadCore(core.adapter, level, core.schema, core.codegen, core.hub), level);
+}
+
+// ---------------------------------------------------------------------------
+// Running a level
+// ---------------------------------------------------------------------------
+
+/** How a level's callback ended. */
+type Outcome =
+  | { readonly kind: "value"; readonly value: unknown }
+  | { readonly kind: "rollback"; readonly reason: unknown }
+  | { readonly kind: "throw"; readonly error: unknown }
+  | { readonly kind: "timeout" };
+
+const TIMED_OUT: Outcome = Object.freeze({ kind: "timeout" });
+
+/** Why a level ended in a failure, for the message of `transactionOrThrow`. */
+type Why = "rollback" | "statement";
+
+/** What a level returns: its result, and why it failed when it did. */
+interface Ended {
+  readonly result: Result<unknown, unknown>;
+  readonly why: Why | undefined;
+}
+
+/** Runs a level's callback and says how it ended. Never rejects. */
+async function body(level: Level, call: () => unknown): Promise<Outcome> {
+  try {
+    const value = await call();
+    if (level.rollbackReason !== NONE) return { kind: "rollback", reason: level.rollbackReason };
+    return { kind: "value", value };
+  } catch (error) {
+    if (error instanceof RollbackSignal && error.level === level)
+      return { kind: "rollback", reason: error.reason };
+    return { kind: "throw", error };
+  }
+}
+
+/** The callback's outcome, or a timeout when the level's deadline comes first. */
+async function within(level: Level, running: Promise<Outcome>): Promise<Outcome> {
+  const deadline = level.deadline;
+  if (deadline === undefined) return running;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<Outcome>((resolve) => {
+    timer = setTimeout(resolve, Math.max(0, deadline - now()), TIMED_OUT);
+  });
+  try {
+    return await Promise.race([running, expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The statement that ends a level that commits. */
+function commitOf(level: Level): Promise<void> {
+  const connection = level.session.connection;
+  return level.kind === "savepoint" ? connection.releaseSavepoint(savepointName(level)) : connection.commit();
+}
+
+/** The statement that ends a level that rolls back. */
+function rollbackOf(level: Level): Promise<void> {
+  const connection = level.session.connection;
+  return level.kind === "savepoint" ? connection.rollbackTo(savepointName(level)) : connection.rollback();
+}
+
+function savepointName(level: Level): string {
+  return `egon_${level.depth}`;
+}
+
+/**
+ * Ends a level after its callback: commits (or releases its savepoint) when the callback
+ * returned and nothing failed, rolls back otherwise. Returns the result, or throws what
+ * the callback threw.
+ */
+async function finish(level: Level, ended: Outcome): Promise<Ended> {
+  const session = level.session;
+  if (level.state === "ended") {
+    // An enclosing level ended first (its callback returned, threw or timed out) and took
+    // this one with it: the connection is no longer this level's to use.
+    session.transactions--;
+    if (ended.kind === "throw") throw ended.error;
+    throw completedError(level);
+  }
+  level.state = "closing";
+  let outcome = ended;
+  if (level.child !== undefined) {
+    if (outcome.kind === "value") {
+      outcome = {
+        kind: "throw",
+        error: new QueryError(
+          "A nested transaction was still running when its enclosing transaction's callback returned, so the enclosing one was rolled back. Await tx.transaction(…) inside the callback.",
+        ),
+      };
+    }
+    level.child.abandon();
+  }
+  level.refuseTurns();
+  if (outcome.kind === "value" && session.streams > 0) {
+    outcome = {
+      kind: "throw",
+      error: new QueryError(
+        "A stream on tx was still open when the transaction's callback returned, so the transaction was rolled back. Finish the stream, or leave its for-await loop, inside the callback.",
+      ),
+    };
+  }
+  if (outcome.kind !== "value") level.discard = true;
+
+  // Decided when the connection is free, so that what the callback issued and did not
+  // await has run (and, failing, has been recorded) first.
+  // (Typed with `as`: both are assigned in the callback, which narrowing does not follow.)
+  let action = "rollback" as "commit" | "rollback";
+  let failed = NONE as Maybe<unknown>;
+  let endError: Maybe<unknown> = NONE;
+  try {
+    await session.control(() => {
+      if (outcome.kind === "value") {
+        if (session.failure === NONE && session.broken === NONE) {
+          action = "commit";
+          return commitOf(level);
+        }
+        failed = session.failure !== NONE ? session.failure : session.broken;
+      }
+      level.discard = true;
+      return rollbackOf(level);
+    });
+    if (action === "rollback" && level.kind === "savepoint") session.failure = NONE;
+  } catch (error) {
+    endError = error;
+  }
+  session.transactions--;
+  level.state = "ended";
+
+  if (endError !== NONE) {
+    if (level.kind === "savepoint") {
+      // The savepoint could not be released or rolled back to: the enclosing transaction
+      // can only be rolled back as a whole now.
+      if (session.broken === NONE) session.broken = endError;
+    } else if (action === "rollback") {
+      // ROLLBACK itself failed: the connection's state is unknown; close it.
+      session.destroy = true;
+    }
+    if (outcome.kind === "throw") {
+      attachSuppressed(outcome.error, endError);
+      throw outcome.error;
+    }
+    throw endError;
+  }
+  switch (outcome.kind) {
+    case "value":
+      return action === "commit"
+        ? { result: success(outcome.value), why: undefined }
+        : { result: failure(failed), why: "statement" };
+    case "rollback":
+      return { result: failure(outcome.reason), why: "rollback" };
+    case "throw":
+      throw outcome.error;
+    default:
+      throw transactionTimeout(level, undefined, undefined);
+  }
+}
+
+/** The callback of a transaction or savepoint on the repo's side: the repo bound to the level, and the root-use watch. */
+function withRepo(root: RootScope, call: (repo: Repo) => unknown): (level: Level) => unknown {
+  if (!root.watch) return (level) => call(repoFor(root, level));
+  return (level) => watchStorage().run(level, call, repoFor(root, level));
+}
+
+/** Opens a transaction (`BEGIN`) on `session` and runs `call` on the level bound to it. */
+async function runTransaction(
+  session: Session,
+  parent: Level | undefined,
+  call: (level: Level) => unknown,
+  begin: BeginOptions | undefined,
+  deadline: number | undefined,
+  timeoutMs: number | undefined,
+): Promise<Ended> {
+  const level = new Level(session, parent, "transaction", 0, deadline, timeoutMs);
+  if (parent !== undefined) parent.child = level;
+  try {
+    session.transactions++;
+    try {
+      await session.control(() => session.connection.begin(begin));
+    } catch (error) {
+      session.transactions--;
+      level.state = "ended";
+      throw error;
+    }
+    return await finish(
+      level,
+      await within(
+        level,
+        body(level, () => call(level)),
+      ),
+    );
+  } finally {
+    if (parent !== undefined && parent.child === level) {
+      parent.child = undefined;
+      parent.nextTurn();
+    }
+  }
+}
+
+/** Why a nested transaction cannot begin on `parent` now; `undefined` when it can (perhaps after waiting its turn). */
+function nestedRefusal(parent: Level): unknown {
+  if (parent.state !== "open") return completedError(parent);
+  if (parent.rollbackReason !== NONE) return rolledBackError();
+  return parent.sessionRefusal();
+}
+
+/** Opens a savepoint on `parent` and runs `call` on the level bound to it. */
+async function runSavepoint(
+  parent: Level,
+  call: (level: Level) => unknown,
+  timeoutMs: number | undefined,
+): Promise<Ended> {
+  const refused = nestedRefusal(parent);
+  if (refused !== undefined) throw refused;
+  // One nested transaction at a time on a level: the others wait for their turn.
+  while (parent.child !== undefined) {
+    await parent.turn();
+    const again = nestedRefusal(parent);
+    if (again !== undefined) throw again;
+  }
+  const session = parent.session;
+  const own = timeoutMs === undefined ? undefined : now() + timeoutMs;
+  const inherited = parent.deadline;
+  const ownFirst = own !== undefined && (inherited === undefined || own < inherited);
+  const level = new Level(
+    session,
+    parent,
+    "savepoint",
+    parent.kind === "checkout" ? 0 : parent.depth + 1,
+    ownFirst ? own : inherited,
+    ownFirst ? timeoutMs : parent.timeoutMs,
+  );
+  parent.child = level;
+  try {
+    session.transactions++;
+    try {
+      await session.control(() => session.connection.savepoint(savepointName(level)));
+    } catch (error) {
+      session.fail(error);
+      session.transactions--;
+      level.state = "ended";
+      throw error;
+    }
+    return await finish(
+      level,
+      await within(
+        level,
+        body(level, () => call(level)),
+      ),
+    );
+  } finally {
+    if (parent.child === level) parent.child = undefined;
+    parent.nextTurn();
+  }
+}
+
+/** A pause before the next attempt: growing with each one, randomised, never past the deadline. */
+async function backoff(attempt: number, deadline: number | undefined): Promise<boolean> {
+  const delay = Math.min(1_000, 10 * 2 ** attempt) * (0.5 + Math.random());
+  if (deadline !== undefined && now() + delay >= deadline) return false;
+  await new Promise((resolve) => setTimeout(resolve, delay));
+  return true;
+}
+
+/** Whether a finished attempt failed in a way another attempt may not. */
+function retryableEnd(ended: Ended): boolean {
+  return ended.why === "statement" && !ended.result.success && isRetryable(ended.result.error);
+}
+
+/** A top-level transaction on its own connection from the pool, with its retries. */
+async function onPool(root: RootScope, call: (level: Level) => unknown, settings: Settings): Promise<Ended> {
+  const timeoutMs = settings.timeoutMs;
+  const deadline = timeoutMs === undefined ? undefined : now() + timeoutMs;
+  const budget: ReadOptions | undefined = timeoutMs === undefined ? undefined : { timeoutMs };
+  for (let attempt = 0; ; attempt++) {
+    const connection = await acquireWithin(root.core, budget, deadline, "transaction");
+    const session = new Session(connection, root);
+    let ended: Ended;
+    try {
+      ended = await runTransaction(session, undefined, call, settings.begin, deadline, timeoutMs);
+    } catch (error) {
+      await giveBack(session);
+      if (attempt < settings.retries && isRetryable(error) && (await backoff(attempt, deadline))) continue;
+      throw error;
+    }
+    await giveBack(session);
+    if (attempt < settings.retries && retryableEnd(ended) && (await backoff(attempt, deadline))) continue;
+    return ended;
+  }
+}
+
+/** A top-level transaction on a checkout's connection, with its retries. */
+async function onCheckout(
+  parent: Level,
+  call: (level: Level) => unknown,
+  settings: Settings,
+): Promise<Ended> {
+  const timeoutMs = settings.timeoutMs;
+  const deadline = timeoutMs === undefined ? undefined : now() + timeoutMs;
+  for (let attempt = 0; ; attempt++) {
+    const refused = parent.refusal();
+    if (refused !== undefined) throw refused;
+    let ended: Ended;
+    try {
+      ended = await runTransaction(parent.session, parent, call, settings.begin, deadline, timeoutMs);
+    } catch (error) {
+      if (attempt < settings.retries && isRetryable(error) && (await backoff(attempt, deadline))) continue;
+      throw error;
+    }
+    if (attempt < settings.retries && retryableEnd(ended) && (await backoff(attempt, deadline))) continue;
+    return ended;
+  }
+}
+
+/** Returns a session's connection to the pool, or closes it when its state cannot be trusted. */
+function giveBack(session: Session): Promise<void> {
+  return session.destroy ? session.connection.destroy() : session.connection.release();
+}
+
+// ---------------------------------------------------------------------------
+// What the repo calls
+// ---------------------------------------------------------------------------
+
+/** Whether the repo bound to `scope` is inside a transaction (`tx.inTransaction`). */
+export function inTransaction(scope: Scope): boolean {
+  return scope instanceof Level ? scope.inTransaction : false;
+}
+
+/** The callback that runs a batch's steps on the transaction's repo. */
+function batchCall(batch: AnyBatch): (repo: Repo) => unknown {
+  return (repo) => runSteps(batch, repo);
+}
+
+/**
+ * `repo.transaction(fnOrBatch, options)` and `repo.transactionOrThrow(…)`.
+ *
+ * @throws TypeError for a wrong argument or option; QueryError for an option a nested
+ * transaction cannot take; whatever the callback throws; `RollbackError` (orThrow) when
+ * the transaction was rolled back.
+ */
+export async function transaction(
+  scope: Scope,
+  input: unknown,
+  options: unknown,
+  orThrow: boolean,
+): Promise<unknown> {
+  const method = orThrow ? "transactionOrThrow" : "transaction";
+  let call: (repo: Repo) => unknown;
+  let batch: AnyBatch | undefined;
+  if (isBatch(input)) {
+    batch = input;
+    call = batchCall(input);
+  } else if (typeof input === "function") {
+    call = input as (repo: Repo) => unknown;
+  } else {
+    throw new TypeError(
+      `repo.${method}() takes a callback, repo.${method}(async (tx) => …), or a batch made with createBatch().`,
+    );
+  }
+  const settings = settingsOf(method, options);
+  if (batch !== undefined) {
+    const invalid = firstInvalid(batch);
+    if (invalid !== undefined) return settle({ result: failure(invalid), why: "rollback" }, orThrow, batch);
+  }
+  let ended: Ended;
+  if (scope instanceof Level) {
+    ended = await onLevel(scope, call, settings, method);
+  } else if (scope.sandbox !== undefined) {
+    // Inside the sandbox, the repo's transactions are savepoints of the sandbox's own; the
+    // options that only a real transaction can take are left out.
+    ended = await runSavepoint(scope.sandbox, withRepo(scope, call), settings.timeoutMs);
+  } else {
+    warnIfInside(scope);
+    ended = await onPool(scope, withRepo(scope, call), settings);
+  }
+  return settle(ended, orThrow, batch);
+}
+
+async function onLevel(
+  level: Level,
+  call: (repo: Repo) => unknown,
+  settings: Settings,
+  method: string,
+): Promise<Ended> {
+  const root = level.session.root as RootScope;
+  if (level.kind === "checkout") return onCheckout(level, withRepo(root, call), settings);
+  if (level.kind !== "sandbox" && (settings.begin !== undefined || settings.retries > 0)) {
+    throw new QueryError(
+      `tx.${method}() inside a transaction runs in a savepoint, which cannot take isolation, readOnly or retries: give those to the outermost transaction.`,
+    );
+  }
+  return runSavepoint(level, withRepo(root, call), settings.timeoutMs);
+}
+
+/** The result as `transaction` returns it, or (orThrow) its data, or a `RollbackError`. */
+function settle(ended: Ended, orThrow: boolean, batch: AnyBatch | undefined): unknown {
+  const result = ended.result;
+  if (!orThrow) return result;
+  if (result.success) return result.data;
+  const reason = result.error;
+  if (ended.why === "statement") {
+    throw new RollbackError({
+      reason,
+      message:
+        "The transaction was rolled back because a statement in it failed and the callback returned anyway (the statement's error is error.reason). Let the error propagate, or run the statement that may fail in a nested tx.transaction().",
+      cause: reason,
+    });
+  }
+  if (batch !== undefined && isBatchFailure(reason)) {
+    throw new RollbackError({
+      reason,
+      message: `The batch failed at its step "${reason.step}" and was rolled back; error.reason holds { step, error, completed }. Call repo.transaction(batch) instead of transactionOrThrow() to get it back as a failed Result.`,
+    });
+  }
+  throw new RollbackError({ reason });
+}
+
+function isBatchFailure(value: unknown): value is { readonly step: string } {
+  return (
+    typeof value === "object" && value !== null && typeof (value as { step?: unknown }).step === "string"
+  );
+}
+
+/**
+ * `tx.rollback(reason)`: ends the transaction's callback; the transaction rolls back and
+ * returns `failure(reason)`.
+ *
+ * @throws QueryError outside a transaction, and after the transaction ended.
+ */
+export function rollback(scope: Scope, reason: unknown): never {
+  if (!(scope instanceof Level) || scope.kind === "checkout") {
+    throw new QueryError(
+      "rollback() is only available inside a transaction: call it on the tx that repo.transaction(async (tx) => …) gives the callback.",
+    );
+  }
+  if (scope.kind === "sandbox") {
+    throw new QueryError(
+      "The sandbox's transaction is rolled back by sandbox.rollback(), not by rollback() on the repo sandbox.begin() returned.",
+    );
+  }
+  if (scope.state !== "open") throw completedError(scope);
+  if (scope.rollbackReason === NONE) scope.rollbackReason = reason;
+  throw new RollbackSignal(scope, reason);
+}
+
+/**
+ * `repo.checkout(fn)`: one connection, no transaction, for as long as `fn` runs.
+ *
+ * @throws TypeError when `fn` is not a function; whatever `fn` throws.
+ */
+export async function checkout(scope: Scope, repo: Repo, fn: unknown): Promise<unknown> {
+  if (typeof fn !== "function") {
+    throw new TypeError("repo.checkout() takes a callback: repo.checkout(async (r) => …).");
+  }
+  const call = fn as (repo: Repo) => unknown;
+  // Already on one connection: the callback gets the same repo.
+  if (scope instanceof Level) {
+    const refused = scope.refusal();
+    if (refused !== undefined) throw refused;
+    return call(repo);
+  }
+  if (scope.sandbox !== undefined) return call(repo);
+  warnIfInside(scope);
+  const connection = await scope.core.adapter.acquire();
+  const session = new Session(connection, scope);
+  const level = new Level(session, undefined, "checkout", 0, undefined, undefined);
+  try {
+    return await call(repoFor(scope, level));
+  } finally {
+    level.state = "closing";
+    level.child?.abandon();
+    level.refuseTurns();
+    // Statements it issued and did not await still run before the connection goes back.
+    await session.control(async () => undefined);
+    level.state = "ended";
+    await connection.release();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The multi-statement primitive (bulk writes, nested writes)
+// ---------------------------------------------------------------------------
+
+/**
+ * Runs `work` atomically on one executor: inside a transaction of its own when the repo
+ * runs on the pool, in a savepoint when the repo is a transaction's (so a failure undoes
+ * only this work and leaves the caller's transaction usable), and as it is when the repo
+ * runs on one connection that the caller manages.
+ */
+export async function atomically<T>(
+  core: ReadCore,
+  options: ReadOptions | undefined,
+  deadline: number | undefined,
+  work: (executor: Executor) => Promise<T>,
+): Promise<T> {
+  const executor = core.executor;
+  if (executor instanceof Level) {
+    const refused = executor.refusal();
+    if (refused !== undefined) throw refused;
+    const ended =
+      executor.kind === "checkout"
+        ? await runTransaction(executor.session, executor, work, undefined, undefined, undefined)
+        : await runSavepoint(executor, work, undefined);
+    return valueOfEnded(ended) as T;
+  }
+  if (!core.pooled) return work(executor);
+  if (executor instanceof RootWatch) executor.check();
+  const connection = await acquireWithin(core, options, deadline);
+  const session = new Session(connection, undefined);
+  let ended: Ended;
+  try {
+    ended = await runTransaction(session, undefined, work, undefined, undefined, undefined);
+  } finally {
+    await giveBack(session);
+  }
+  return valueOfEnded(ended) as T;
+}
+
+/** The value of a level the primitive ran, which ends in a failure only when a statement failed. */
+function valueOfEnded(ended: Ended): unknown {
+  if (ended.result.success) return ended.result.data;
+  throw ended.result.error;
+}
+
+// ---------------------------------------------------------------------------
+// The sandbox's transaction
+// ---------------------------------------------------------------------------
+
+/** A sandbox that has begun: what `endSandbox` needs to undo it. */
+export interface OpenSandbox {
+  readonly level: Level;
+  readonly repo: Repo;
+  readonly executor: Executor;
+  readonly pooled: boolean;
+}
+
+/**
+ * Checks out a connection, begins a transaction on it and routes every operation of the
+ * root repo through it; the repo's own transactions become savepoints of it.
+ */
+export async function beginSandbox(root: RootScope): Promise<OpenSandbox> {
+  const core = root.core;
+  const connection = await core.adapter.acquire();
+  const session = new Session(connection, root);
+  const level = new Level(session, undefined, "sandbox", 0, undefined, undefined);
+  session.transactions = 1;
+  try {
+    await session.control(() => connection.begin(undefined));
+  } catch (error) {
+    await connection.release();
+    throw error;
+  }
+  const open: OpenSandbox = {
+    level,
+    repo: repoFor(root, level),
+    executor: core.executor,
+    pooled: core.pooled,
+  };
+  core.executor = level;
+  core.pooled = false;
+  root.sandbox = level;
+  return open;
+}
+
+/** Rolls the sandbox's transaction back, returns its connection and gives the repo back its pool. */
+export async function endSandbox(root: RootScope, open: OpenSandbox): Promise<void> {
+  const core = root.core;
+  core.executor = open.executor;
+  core.pooled = open.pooled;
+  root.sandbox = undefined;
+  const level = open.level;
+  const session = level.session;
+  level.state = "closing";
+  level.discard = true;
+  level.child?.abandon();
+  level.refuseTurns();
+  try {
+    await session.control(() => session.connection.rollback());
+  } catch (error) {
+    level.state = "ended";
+    await session.connection.destroy();
+    throw error;
+  }
+  level.state = "ended";
+  await session.connection.release();
+}

@@ -12,6 +12,7 @@ test("the public entry point exports exactly these values", () => {
   // Adding a public export is a decision: update this list in the same change.
   expect(Object.keys(api).sort()).toEqual([
     "BASE",
+    "Batch",
     "CastError",
     "Changeset",
     "ConstraintError",
@@ -23,6 +24,7 @@ test("the public entry point exports exactly these values", () => {
     "NoResultsError",
     "NotLoadedError",
     "QueryError",
+    "RollbackError",
     "Schema",
     "SchemaDefinitionError",
     "StaleEntryError",
@@ -39,6 +41,7 @@ test("the public entry point exports exactly these values", () => {
     "count",
     "countDistinct",
     "createAdapter",
+    "createBatch",
     "createRepo",
     "cte",
     "cumeDist",

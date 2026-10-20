@@ -5,6 +5,7 @@
  * @module
  */
 import type { PoolStats } from "../adapter/adapter.js";
+import type { Batch } from "../batch/batch.js";
 import type { Changeset } from "../changeset/changeset.js";
 import type { ChangesetSource, RowSchema } from "../changeset/types.js";
 import type { PlanCacheStats } from "../compiler/index.js";
@@ -55,6 +56,16 @@ import {
   stream,
   toSql,
 } from "./read.js";
+import {
+  checkout,
+  createRoot,
+  inTransaction,
+  Level,
+  rollback,
+  type Scope,
+  type TransactionOptions,
+  transaction,
+} from "./transaction.js";
 import {
   type DeleteOptions,
   type InsertOptions,
@@ -729,6 +740,110 @@ export interface Repo {
     ...args: ReadArgs<Q, ReadOptions>
   ): Promise<BulkResult<ResultOf<Q>>>;
 
+  // --- transactions (step 16) ------------------------------------------------------
+
+  /**
+   * Whether this repo is inside a transaction: `true` for the `tx` of a transaction
+   * callback, `false` for the repo `createRepo` made (also while a test sandbox routes it)
+   * and for the repo of a `checkout`.
+   *
+   * @example
+   * ```ts
+   * await repo.transaction(async (tx) => tx.inTransaction); // true
+   * ```
+   */
+  readonly inTransaction: boolean;
+
+  /**
+   * Runs `fn` in a transaction on one connection, with `tx`, a repo bound to it. Only
+   * calls on `tx` are inside the transaction: the outer repo uses other connections.
+   *
+   * - `fn` returns: `COMMIT`, and the result is `{ success: true, data }`.
+   * - `fn` calls `tx.rollback(reason)`: `ROLLBACK`, and the result is
+   *   `{ success: false, error: reason }`.
+   * - `fn` returns although a statement in it failed (an error it caught, or a write
+   *   `Result` it did not check whose statement the database refused): `ROLLBACK`, and the
+   *   result is `{ success: false, error }` with that statement's error.
+   * - `fn` throws: `ROLLBACK`, and the error is rethrown.
+   *
+   * Inside a transaction (`tx.transaction(fn)`) it runs in a savepoint: only its own work
+   * is undone when it fails, and the outer transaction carries on. Given a batch
+   * (`createBatch()`), it runs the batch's steps; see {@link Batch}.
+   *
+   * @example
+   * ```ts
+   * const result = await repo.transaction(async (tx) => {
+   *   const user = await tx.insertOrThrow(User.changeset(User, input));
+   *   await tx.insertOrThrow(change(Profile, { userId: user.id }));
+   *   return user;
+   * });
+   * if (result.success) result.data; // User
+   * ```
+   *
+   * @throws whatever `fn` throws; TypeError for an unknown or wrong option; QueryError for
+   * `isolation`, `readOnly` or `retries` on a nested transaction; DatabaseError (code
+   * `"timeout"`) when `timeoutMs` runs out.
+   */
+  transaction<R extends object, F>(batch: Batch<R, F>, options?: TransactionOptions): Promise<Result<R, F>>;
+  transaction<T>(
+    fn: (tx: Repo) => T | PromiseLike<T>,
+    options?: TransactionOptions,
+  ): Promise<Result<T, unknown>>;
+
+  /**
+   * Like {@link Repo.transaction}, but returns the value of `fn` (the results of a batch),
+   * and a rollback throws `RollbackError`, whose `reason` is what `transaction` would have
+   * returned as `error`.
+   *
+   * @example
+   * ```ts
+   * const user = await repo.transactionOrThrow(async (tx) => tx.insertOrThrow(User.changeset(User, input)));
+   * ```
+   *
+   * @throws RollbackError when the transaction was rolled back; otherwise as {@link Repo.transaction}.
+   */
+  transactionOrThrow<R extends object, F>(batch: Batch<R, F>, options?: TransactionOptions): Promise<R>;
+  transactionOrThrow<T>(fn: (tx: Repo) => T | PromiseLike<T>, options?: TransactionOptions): Promise<T>;
+
+  /**
+   * Ends the transaction's callback; the transaction rolls back and `repo.transaction`
+   * returns `{ success: false, error: reason }`. It never returns: nothing after it runs.
+   *
+   * @example
+   * ```ts
+   * await repo.transaction(async (tx) => {
+   *   const order = await tx.insertOrThrow(change(Order, { total }));
+   *   if (order.total > limit) tx.rollback("over the limit");
+   *   return order;
+   * });
+   * ```
+   *
+   * @throws QueryError when called outside a transaction (on the repo `createRepo` made),
+   * or after the transaction ended.
+   */
+  rollback(reason: unknown): never;
+
+  /**
+   * Runs `fn` with a repo bound to one connection, with no transaction, for session
+   * settings or advisory locks that must run on the same connection as what follows.
+   * On a transaction's repo, `fn` gets that same repo.
+   *
+   * @example
+   * ```ts
+   * await repo.checkout(async (r) => {
+   *   await r.raw(fragment`select pg_advisory_lock(${42})`);
+   *   try {
+   *     return await r.all(User);
+   *   } finally {
+   *     await r.raw(fragment`select pg_advisory_unlock(${42})`);
+   *   }
+   * });
+   * ```
+   *
+   * @throws whatever `fn` throws.
+   */
+  checkout<T>(fn: (repo: Repo) => T | PromiseLike<T>): Promise<T>;
+
   /**
    * Subscribes to the repo's events; returns the function that unsubscribes. `query`
    * reports each statement the repo ran ({@link RepoQueryEvent}); `connect`,
@@ -815,17 +930,34 @@ export function createRepo(options: RepoOptions): Repo {
   const hub = new QueryHub(settings.adapter, settings.logParams);
   if (settings.logger !== undefined) hub.on(settings.logger);
   const core = new ReadCore(settings.adapter, settings.adapter, settings.schema, settings.codegen, hub);
-  return new DatabaseRepo(core);
+  const repo = new DatabaseRepo(core, undefined);
+  repo.bind(createRoot(repo, core, makeRepo, settings.warnOnRootUseInTransaction));
+  return repo;
 }
+
+/** Makes the repo of a transaction, a savepoint, a checkout or a sandbox (step 16). */
+const makeRepo = (core: ReadCore, scope: Scope): Repo => new DatabaseRepo(core, scope);
 
 const POOL_EVENTS = ["connect", "disconnect", "poolExhausted"];
 
-/** The repo of {@link createRepo}. */
+/** The repo of {@link createRepo}, and of the transactions made from it. */
 class DatabaseRepo implements Repo {
   readonly #core: ReadCore;
+  /** The root's scope, or the transaction (savepoint, checkout) this repo is bound to. */
+  #scope: Scope | undefined;
 
-  constructor(core: ReadCore) {
+  constructor(core: ReadCore, scope: Scope | undefined) {
     this.#core = core;
+    this.#scope = scope;
+  }
+
+  /** Sets the root repo's scope, which needs the repo itself to be made. */
+  bind(scope: Scope): void {
+    this.#scope = scope;
+  }
+
+  get #bound(): Scope {
+    return this.#scope as Scope;
   }
 
   // Not async: the call goes straight to `load`, the one async function of the pipeline.
@@ -1072,6 +1204,28 @@ class DatabaseRepo implements Repo {
     return modifyAll(this.#core, "deleteAll", queryable, args) as Promise<never>;
   }
 
+  // --- transactions ----------------------------------------------------------------
+
+  get inTransaction(): boolean {
+    return inTransaction(this.#bound);
+  }
+
+  transaction(input: unknown, options?: TransactionOptions): Promise<never> {
+    return transaction(this.#bound, input, options, false) as Promise<never>;
+  }
+
+  transactionOrThrow(input: unknown, options?: TransactionOptions): Promise<never> {
+    return transaction(this.#bound, input, options, true) as Promise<never>;
+  }
+
+  rollback(reason: unknown): never {
+    return rollback(this.#bound, reason);
+  }
+
+  checkout(fn: unknown): Promise<never> {
+    return checkout(this.#bound, this, fn) as Promise<never>;
+  }
+
   on(event: "query", listener: (event: RepoQueryEvent) => void): () => void;
   on(event: "connect" | "disconnect" | "poolExhausted", listener: (event: PoolEvent) => void): () => void;
   on(event: string, listener: (event: never) => void): () => void {
@@ -1097,6 +1251,13 @@ class DatabaseRepo implements Repo {
   }
 
   close(): Promise<void> {
+    if (this.#scope instanceof Level) {
+      return Promise.reject(
+        new QueryError(
+          "close() closes the whole repo and its pool: call it on the repo createRepo made, not on the repo of a transaction, a checkout or a sandbox.",
+        ),
+      );
+    }
     this.#core.hub.close();
     return this.#core.adapter.close();
   }

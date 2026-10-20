@@ -1,13 +1,21 @@
 import { defineConfig } from "tsup";
 
-// Build config is identical across packages on purpose; keep them in sync. The one
-// difference here is the second entry: `dist/internal.js` is NOT part of the package's
-// `exports` (nothing can import it by name) and is excluded from the published files
-// (`"!dist/internal.*"` in package.json). It exists so that benchmarks, which run inside
-// the workspace, can measure the built internal utilities
-// (benchmarks/micro/internal.bench.ts) instead of the sources.
+// Build config is identical across packages on purpose; keep them in sync. The
+// differences here are the entries and `splitting`:
+//
+// - `dist/testing.js` is the second public entry point, `egon-orm/testing` (step 16).
+// - `dist/internal.js` is NOT part of the package's `exports` (nothing can import it by
+//   name) and is excluded from the published files (`"!dist/internal.*"` in
+//   package.json). It exists so that benchmarks, which run inside the workspace, can
+//   measure the built internal utilities (benchmarks/micro/internal.bench.ts) instead of
+//   the sources.
+// - `splitting: true`, because there is more than one entry: the code they share goes into
+//   shared chunks (`dist/chunk-*.js`, and `dist/*-<hash>.d.ts` for the declarations), so
+//   that `egon-orm` and `egon-orm/testing` use one copy of every class and registry. With
+//   one bundle per entry, the sandbox of `egon-orm/testing` could not recognise a repo
+//   made by `egon-orm`.
 export default defineConfig({
-  entry: { index: "src/index.ts", internal: "src/internal/index.ts" },
+  entry: { index: "src/index.ts", testing: "src/testing.ts", internal: "src/internal/index.ts" },
   // ESM only (decision D14): no CommonJS build. A CommonJS project loads the package with
   // `require()` of an ES module, which Node supports from 22.12.
   format: ["esm"],
@@ -20,6 +28,6 @@ export default defineConfig({
   dts: { compilerOptions: { ignoreDeprecations: "6.0" } },
   sourcemap: true,
   clean: true,
-  splitting: false,
+  splitting: true, // see above
   treeshake: true,
 });

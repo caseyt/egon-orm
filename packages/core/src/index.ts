@@ -20,6 +20,9 @@ export type { AdapterDefinition, DatabaseAdapter, PoolStats } from "./adapter/ad
 export { createAdapter } from "./adapter/adapter.js";
 export type { DriverCodec, DriverCodecs } from "./adapter/codecs.js";
 export type { QueryListenerOptions } from "./adapter/telemetry.js";
+// Step 16: Batch, and the options of transactions.
+export type { BatchFailure, BatchOperation, BatchStep } from "./batch/index.js";
+export { Batch, createBatch } from "./batch/index.js";
 // Step 05: changesets. The contract types a developer names when reading a changeset
 // (its errors, its constraints, its action) are public with it.
 export type {
@@ -148,6 +151,7 @@ export {
   NoResultsError,
   NotLoadedError,
   QueryError,
+  RollbackError,
   SchemaDefinitionError,
   StaleEntryError,
 } from "./errors.js";
@@ -234,6 +238,7 @@ export type {
 export type { AggregateFunction, RawRows } from "./repo/read.js";
 export type { ReadArgs, Repo, ResultOf, RootSchemaOf, SqlAndParams } from "./repo/repo.js";
 export { createRepo } from "./repo/repo.js";
+export type { TransactionOptions } from "./repo/transaction.js";
 export type {
   ConflictTargetOption,
   ConflictUpdateOption,

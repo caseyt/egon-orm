@@ -1,6 +1,6 @@
 # 0006 — Sixteen capabilities for the tier-2 dialects
 
-- **Status:** proposed
+- **Status:** accepted (by the owner on 2026-10-20)
 - **Date:** 2026-10-20
 - **Step:** 17 (raised in the review of PR #38, finding 11; implemented as described below,
   pending the owner's decision)

@@ -1177,6 +1177,63 @@ describe("retries", () => {
     expect(swallowed).toEqual({ success: true, data: 2 });
   });
 
+  test("in a checkout, the failure an attempt ended with does not decide the next attempt's retry", async () => {
+    const { pool, repo } = setup();
+    let attempts = 0;
+    const plain = new Error("not retryable");
+    pool.fail = (sql) =>
+      sql === "write" && attempts === 1 ? new DatabaseError("deadlock", { code: "deadlock" }) : undefined;
+    await repo.checkout(async (c) => {
+      const error = await rejection(
+        c.transaction(
+          async (tx) => {
+            attempts++;
+            if (attempts === 1) {
+              // Records a deadlock, then fails with the refusal: retried.
+              await tx.raw(say("write")).catch(() => undefined);
+              await tx.raw(say("next"));
+            }
+            // The second attempt throws something that is not retryable.
+            throw plain;
+          },
+          { retries: 3 },
+        ),
+      );
+      expect(error).toBe(plain);
+    });
+    expect(attempts).toBe(2);
+  });
+
+  test("an attempt whose BEGIN fails is not retried for the failure an earlier attempt ended with", async () => {
+    // The second attempt fails before its callback, with an error that is not retryable,
+    // so nothing in it replaces the deadlock the first attempt ended with: only the reset
+    // when an attempt begins keeps that deadlock from deciding.
+    const plainBegin = (pool: ScriptedPool, plain: Error) => {
+      let begins = 0;
+      pool.fail = (sql) => {
+        if (sql === "write") return new DatabaseError("deadlock", { code: "deadlock" });
+        if (sql === "begin" && ++begins === 2) return plain;
+        return undefined;
+      };
+      return () => begins;
+    };
+    const callback = async (tx: Repo) => {
+      await tx.raw(say("write")).catch(() => undefined);
+      await tx.raw(say("next"));
+    };
+    for (const where of ["checkout", "pool"] as const) {
+      const { pool, repo } = setup();
+      const plain = new Error(`not retryable (${where})`);
+      const begins = plainBegin(pool, plain);
+      const error =
+        where === "checkout"
+          ? await repo.checkout((c) => rejection(c.transaction(callback, { retries: 3 })))
+          : await rejection(repo.transaction(callback, { retries: 3 }));
+      expect(error).toBe(plain);
+      expect(begins()).toBe(2);
+    }
+  });
+
   test("a retryable failure the callback caught before running another statement (refused) is retried", async () => {
     const { pool, repo } = setup();
     let attempts = 0;
@@ -2007,7 +2064,12 @@ describe("the sandbox", () => {
     await streamed;
     await sandbox.rollback();
     const sent = pool.sent.filter((sql) => !sql.includes("egon_statement"));
-    expect(sent.indexOf("concurrent write")).toBeGreaterThan(sent.indexOf('rollback to savepoint "egon_1"'));
+    const rolledBack = sent.indexOf('rollback to savepoint "egon_1"');
+    expect(rolledBack).toBeGreaterThan(0);
+    expect(sent.indexOf("concurrent write")).toBeGreaterThan(rolledBack);
+    // The stream's statement waited too.
+    const streamedAt = sent.findIndex((sql) => sql.startsWith('select "t"."id"'));
+    expect(streamedAt).toBeGreaterThan(rolledBack);
   });
 
   test("a statement waiting for the repo's transaction is refused when that transaction broke the sandbox's", async () => {

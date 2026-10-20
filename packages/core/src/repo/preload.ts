@@ -196,7 +196,7 @@ function concurrencyOf(core: ReadCore, options: ReadOptions | undefined): number
     );
   }
   // On one connection (a transaction) statements cannot overlap.
-  return core.executor === core.adapter ? given : 1;
+  return core.pooled ? given : 1;
 }
 
 function newRun(

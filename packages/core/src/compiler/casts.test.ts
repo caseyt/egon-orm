@@ -6,7 +6,7 @@
 import { Post, User } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
 import type { BinaryOp, ExprNode, QueryAst } from "../contracts/query.js";
-import { caseWhen, from, param, t, val } from "../index.js";
+import { caseWhen, coalesce, from, lit, param, subquery, t, val } from "../index.js";
 import { caseNode, fnNode, literalNode, unaryNode } from "../query/ast.js";
 import { bindParams } from "./bind.js";
 import { createCompiler } from "./compiler.js";
@@ -40,14 +40,20 @@ const untypedCase = (...results: unknown[]): ExprNode =>
 describe("arithmetic of bound values", () => {
   test.each(["add", "sub", "mul", "div", "mod"] as const)("%s() of two untyped numbers is refused", (op) => {
     expect(() => compile(selecting(binary(op, untyped(3), untyped(1))))).toThrow(
-      `A value without a type is in arithmetic on values without a type (${op}()), where nothing gives it one, so the database would return it as text. It is a number: give it a type, val(value, t.integer()) or val(value, t.float()).`,
+      `Arithmetic (${op}()) on values without a type, where nothing gives them one, so the database cannot choose an operator. Give a value a type: val(value, t.integer()) or val(value, t.float()).`,
     );
   });
 
-  test("unary minus of an untyped number is refused; of a typed one it is cast", () => {
-    expect(() => compile(selecting(unaryNode("neg", untyped(3))))).toThrow(
-      "A value without a type is in arithmetic on a value without a type (neg())",
+  test("the refusal never quotes a value", () => {
+    expect(() => compile(selecting(binary("add", untyped(123456789), untyped(1))))).toThrow(
+      expect.objectContaining({ message: expect.not.stringContaining("123456789") }),
     );
+  });
+
+  test("unary minus of an untyped value is refused; of a typed one it is cast", () => {
+    expect(() => compile(selecting(unaryNode("neg", untyped(3))))).toThrow("Arithmetic (neg())");
+    expect(() => compile(selecting(unaryNode("neg", untyped("3"))))).toThrow("Arithmetic (neg())");
+    expect(() => compile(selecting(unaryNode("neg", untypedCase(1, 2))))).toThrow("Arithmetic (neg())");
     expect(compile(selecting(unaryNode("neg", typed(3)))).sql).toBe(
       'select -cast($1 as integer) as "c0" from "users" as "u"',
     );
@@ -62,21 +68,26 @@ describe("arithmetic of bound values", () => {
     );
   });
 
-  test("untyped text is cast to text, as in a comparison of two values", () => {
-    expect(compile(selecting(binary("add", untyped("a"), untyped("b")))).sql).toBe(
-      'select cast($1 as text) + cast($2 as text) as "c0" from "users" as "u"',
+  test("untyped text is refused too: text has no arithmetic", () => {
+    expect(() => compile(selecting(binary("add", untyped("a"), untyped("b"))))).toThrow("Arithmetic (add())");
+    expect(() => compile(selecting(binary("add", untyped(null), untypedCase("a"))))).toThrow(
+      "Arithmetic (add())",
     );
   });
 
-  test("an operand that is a column, a function or a literal types the other: nothing is cast", () => {
+  test("a typed value beside a column is left to the column; beside anything else it keeps its type", () => {
     expect(compile(selecting(binary("add", col("u", "age"), typed(1)))).sql).toBe(
       'select "u"."age" + $1 as "c0" from "users" as "u"',
     );
     expect(compile(selecting(binary("add", typed(1), literalNode(2)))).sql).toBe(
-      'select $1 + 2 as "c0" from "users" as "u"',
+      'select cast($1 as integer) + 2 as "c0" from "users" as "u"',
     );
     expect(compile(selecting(binary("sub", fnNode("lower", [col("u", "name")]), typed(1)))).sql).toBe(
-      'select lower("u"."name") - $1 as "c0" from "users" as "u"',
+      'select lower("u"."name") - cast($1 as integer) as "c0" from "users" as "u"',
+    );
+    // An untyped value beside an expression is typed by it.
+    expect(compile(selecting(binary("add", binary("add", typed(1), typed(2)), untyped(3)))).sql).toBe(
+      'select cast($1 as integer) + cast($2 as integer) + $3 as "c0" from "users" as "u"',
     );
     expect(compile(selecting(unaryNode("neg", col("u", "age")))).sql).toBe(
       'select -"u"."age" as "c0" from "users" as "u"',
@@ -105,26 +116,9 @@ describe("arithmetic of bound values", () => {
     expect(compiler.stats().collisions).toBe(0);
   });
 
-  test("a plan made with untyped text refuses a number bound to it later", () => {
-    const compiler = createCompiler(postgresDialect);
-    const text = selecting(binary("add", untyped("a"), untyped("b")));
-    const plan = compiler.compile(text, "all", undefined);
-    const numbers = selecting(binary("add", untyped(1), untyped(2)));
-    expect(compiler.compile(numbers, "all", undefined)).toBe(plan);
-    expect(() => bindParams(plan.slots, numbers.params)).toThrow(
-      "A value without a type is in arithmetic on values without a type (add())",
-    );
-  });
-
-  test("an untyped named parameter in arithmetic takes text only; a typed one is cast", () => {
-    const plan = compile(
-      selecting(
-        binary("add", { kind: "namedParam", name: "n", type: undefined, redact: false }, untyped("x")),
-      ),
-    );
-    expect(() => bindParams(plan.slots, ["x"], { n: 5 })).toThrow(
-      "arithmetic on values without a type (add())",
-    );
+  test("an untyped named parameter in arithmetic is refused; a typed one is cast", () => {
+    const named: ExprNode = { kind: "namedParam", name: "n", type: undefined, redact: false };
+    expect(() => compile(selecting(binary("add", named, untyped(1))))).toThrow("Arithmetic (add())");
     const q = from(Post, "p")
       .where(({ p }) => p.views.gt(param("base", t.integer()).sub(1)))
       .select(({ p }) => p.id);
@@ -210,5 +204,63 @@ describe("a CASE or coalesce of bound values compared with an operand that has a
     expect(compile(q.ast).sql).toContain(
       '"p"."views" = cast(case when "p"."published" then $1 else $2 end as integer)',
     );
+  });
+
+  test("a subquery source of whole rows types a CASE; one of values does not yet (review round 1)", () => {
+    const rows = from(subquery(from(Post, "p")), "s")
+      .where(({ s }) => s.authorId.eq(caseWhen(lit(true), 1)))
+      .select(({ s }) => s.id);
+    expect(compile(rows.ast).sql).toContain(
+      'where "s"."author_id" = cast(case when true then $1 end as bigint)',
+    );
+    const values = from(subquery(from(Post, "p").select(({ p }) => ({ k: p.authorId }))), "s")
+      .where(({ s }) => s.k.eq(caseWhen(lit(true), 1)))
+      .select(({ s }) => s.k);
+    expect(compile(values.ast).sql).toContain('where "s"."k" = case when true then $1 end');
+  });
+});
+
+describe("a CASE or coalesce with no typed value beside a typed bound value (review round 1)", () => {
+  test("takes that value's type, in arithmetic and comparisons", () => {
+    expect(
+      compile(selecting(binary("add", typed(1), fnNode("coalesce", [untyped(null), untyped(2)])))).sql,
+    ).toBe('select cast($1 as integer) + cast(coalesce($2, $3) as integer) as "c0" from "users" as "u"');
+    expect(compile(where(binary("eq", untypedCase(1), typed(1)))).sql).toContain(
+      "where cast(case when true then $1 end as integer) = cast($2 as integer)",
+    );
+  });
+
+  test("a typed value inside a CASE types the other side's untyped CASE", () => {
+    const typedCase = caseNode([{ when: literalNode(true), result: typed(1) }], undefined);
+    expect(compile(selecting(binary("add", typedCase, untypedCase(2)))).sql).toBe(
+      'select case when true then cast($1 as integer) end + cast(case when true then $2 end as integer) as "c0" from "users" as "u"',
+    );
+    const typedCoalesce = fnNode("coalesce", [untyped(null), typed(1)]);
+    expect(compile(where(binary("eq", untypedCase(2), typedCoalesce))).sql).toContain(
+      "where cast(case when true then $1 end as integer) = coalesce($2, cast($3 as integer))",
+    );
+  });
+
+  test("between and in a typed list", () => {
+    const ranged = { kind: "between", expr: typed(1), low: untypedCase(0), high: untypedCase(5) } as const;
+    expect(compile(where(ranged)).sql).toContain(
+      "where cast($1 as integer) between cast(case when true then $2 end as integer) and cast(case when true then $3 end as integer)",
+    );
+    const inList = binary("in", untypedCase(1), {
+      kind: "list",
+      value: [1, 2],
+      type: integer,
+      redact: false,
+    });
+    expect(compile(where(inList)).sql).toContain(
+      "where cast(case when true then $1 end as integer) = any($2)",
+    );
+  });
+
+  test("through the builder", () => {
+    const q = from(User, "u")
+      .where(() => val(1, t.integer()).eq(coalesce(val(null as number | null), val(1))))
+      .select(({ u }) => u.id);
+    expect(compile(q.ast).sql).toContain("where cast($1 as integer) = cast(coalesce($2, $3) as integer)");
   });
 });

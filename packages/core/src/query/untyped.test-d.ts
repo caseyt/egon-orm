@@ -115,3 +115,34 @@ describe("comparisons where neither side has a type (review round 2)", () => {
     users.where(() => val(a).in(["a", "b"]));
   });
 });
+
+describe("arithmetic where no operand has a type (review round 1)", () => {
+  test("does not compile", () => {
+    // @ts-expect-error: neither operand has a type
+    val(3).add(1);
+    // @ts-expect-error: sub
+    val(3).sub(val(1));
+    // @ts-expect-error: mul
+    val(3).mul(2);
+    // @ts-expect-error: div
+    val(3).div(2);
+    // @ts-expect-error: mod
+    val(3).mod(2);
+    // @ts-expect-error: unary minus of a value without a type
+    val(3).neg();
+    // @ts-expect-error: a CASE without a type
+    users.where(({ u }) => caseWhen(u.age.lt(18), 1).add(2).eq(u.age));
+    // @ts-expect-error: in a where too
+    users.where(({ u }) => val(5).add(1).eq(u.age));
+  });
+
+  test("compiles when an operand has a type", () => {
+    expectTypeOf(val(3, t.integer()).add(1)).toEqualTypeOf<Expr<number>>();
+    expectTypeOf(val(3, t.integer()).neg()).toEqualTypeOf<Expr<number>>();
+    val(3).add(val(1, t.integer()));
+    users.where(({ u }) => val(3).add(u.age).gt(u.age));
+    users.where(({ u }) => u.age.add(val(3)).gt(1));
+    users.where(({ u }) => u.age.neg().lt(0));
+    users.where(({ u }) => caseWhen(u.age.lt(18), 1).add(u.age).gt(0));
+  });
+});

@@ -500,7 +500,7 @@ export const WHERE_CASES: readonly SqlCase[] = [
       )
       .select(({ p }) => p.views.neg()),
     {
-      sql: 'select -"p"."views" as "c0" from "posts" as "p" where ("p"."views" + $1) * $2 > ("p"."views" - "p"."views" % $3) / $4',
+      sql: 'select -"p"."views" as "c0" from "posts" as "p" where ("p"."views" + $1) * cast($2 as integer) > ("p"."views" - "p"."views" % $3) / cast($4 as integer)',
       params: [1, 2, 3, 4],
     },
   ),
@@ -1710,6 +1710,37 @@ export const CAST_CASES: readonly SqlCase[] = [
     {
       sql: 'select "p"."id" as "c0" from "posts" as "p" where "p"."author_id" = case when "p"."published" then "p"."author_id" else $1 end and "p"."author_id" = $2',
       params: [0, 1],
+    },
+  ),
+  queryCase(
+    "a typed value beside arithmetic keeps its own type (review round 1)",
+    users
+      .select(() => ({
+        half: val(7.5, t.float()).div(int(2).add(1)),
+        big: val(2 ** 40, t.bigint({ mode: "number" })).add(int(1).add(1)),
+      }))
+      .limit(1),
+    {
+      sql: 'select cast($1 as double precision) / (cast($2 as integer) + cast($3 as integer)) as "c0", cast($4 as bigint) + (cast($5 as integer) + cast($6 as integer)) as "c1" from "users" as "u" limit $7',
+      params: [7.5, 2, 1, 2 ** 40, 1, 1, 1],
+    },
+  ),
+  queryCase(
+    "a CASE or coalesce with no typed value beside a typed value takes its type (review round 1)",
+    users
+      .where(() => int(3).eq(int(1).add(coalesce(val(null as number | null), val(2)))))
+      .where(() =>
+        caseWhen(lit(true), int(1))
+          .add(caseWhen(lit(true), 2))
+          .eq(3),
+      )
+      .where(() => int(1).eq(coalesce(val(null as number | null), val(1))))
+      .where(() => caseWhen(lit(true), int(1)).eq(caseWhen(lit(true), 1)))
+      .where(() => int(1).between(caseWhen(lit(true), 0), caseWhen(lit(true), 5)))
+      .select(({ u }) => u.id),
+    {
+      sql: 'select "u"."id" as "c0" from "users" as "u" where $1 = cast($2 as integer) + cast(coalesce($3, $4) as integer) and case when true then cast($5 as integer) end + cast(case when true then $6 end as integer) = $7 and cast($8 as integer) = cast(coalesce($9, $10) as integer) and case when true then cast($11 as integer) end = cast(case when true then $12 end as integer) and cast($13 as integer) between cast(case when true then $14 end as integer) and cast(case when true then $15 end as integer)',
+      params: [3, 1, null, 2, 1, 2, 3, 1, null, 1, 1, 1, 1, 0, 5],
     },
   ),
   queryCase(

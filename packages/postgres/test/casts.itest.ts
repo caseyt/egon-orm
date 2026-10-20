@@ -97,6 +97,43 @@ describe("arithmetic of typed values", () => {
     // The tests below count the three seeded posts only.
     await repo.deleteAll(cast);
   });
+
+  test("a typed value beside other arithmetic keeps its own type (review round 1)", async () => {
+    const [row] = await repo.all(
+      from(User, "u")
+        .where(({ u }) => u.id.eq(1))
+        .select(() => ({
+          half: val(7.5, t.float()).div(int(2).add(1)),
+          big: val(2 ** 40, t.bigint({ mode: "number" })).add(int(1).add(1)),
+        })),
+    );
+    expect(row).toEqual({ half: 2.5, big: 2 ** 40 + 2 });
+  });
+
+  test("a CASE with a typed value beside a column (review round 1)", async () => {
+    const rows = await repo.all(
+      from(Post, "p")
+        .where(({ p }) => p.id.in([1, 3]))
+        .orderBy(({ p }) => p.id)
+        .select(({ p }) => p.views.add(caseWhen(p.published, int(10)).else(0))),
+    );
+    expect(rows).toEqual([17, 22]);
+  });
+
+  test("a CASE or coalesce with no typed value takes the type of a typed value beside it (review round 1)", async () => {
+    const [row] = await repo.all(
+      from(User, "u")
+        .where(({ u }) => u.id.eq(1))
+        .select(() => ({
+          coalesced: int(1).add(coalesce(val(null as number | null), val(2))),
+          cases: caseWhen(lit(true), int(1)).add(caseWhen(lit(true), 2)),
+          eq: int(1).eq(coalesce(val(null as number | null), val(1))),
+          caseEq: caseWhen(lit(true), int(1)).eq(caseWhen(lit(true), 1)),
+          between: int(1).between(caseWhen(lit(true), 0), caseWhen(lit(true), 5)),
+        })),
+    );
+    expect(row).toEqual({ coalesced: 3, cases: 3, eq: true, caseEq: true, between: true });
+  });
 });
 
 describe("a column compared with a CASE or coalesce of untyped values takes the column's type", () => {

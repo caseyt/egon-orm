@@ -768,6 +768,7 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
           // The next transaction on the same connection has the default level.
           await connection.begin();
           const { rows } = await connection.execute(profile.isolationLevel, []);
+          expect(rows).toHaveLength(1);
           expect(rows[0]?.level).not.toBe("serializable");
           await connection.rollback();
         } finally {

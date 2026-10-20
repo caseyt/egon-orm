@@ -204,8 +204,10 @@ describe("Adapter", () => {
     expectTypeOf(legacy).toExtend<Connection>();
     const asConnection: Connection = legacy;
     void asConnection;
-    // A method whose second parameter is not the execution options does not fit.
-    const wrong = { ...legacy, savepoint: async (_name: string, _depth: number): Promise<void> => {} };
+    // An optional second parameter of another type fitted the contract before ADR 0005 (it
+    // never received a second argument); it does not fit now, where that position is the
+    // execution options.
+    const wrong = { ...legacy, savepoint: async (_name: string, _depth?: number): Promise<void> => {} };
     expectTypeOf(wrong).not.toExtend<Connection>();
   });
 

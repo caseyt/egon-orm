@@ -63,10 +63,32 @@ const adapter = sqlite({ filename: "app.db", pragmas: { journal_mode: "WAL" } })
 const memory = sqlite({ filename: ":memory:" });
 ```
 
+| Option | Default | Effect |
+|---|---|---|
+| `filename` | required | The database file, or `":memory:"` for a database that lives as long as the adapter. |
+| `pragmas` | `{}` | Pragmas run in order when the file is opened (`{ journal_mode: "WAL", busy_timeout: 5000 }`). Names and values must be plain words, numbers or booleans. |
+| `readonly` | `false` | Opens the file read-only. |
+| `planCacheSize` | `1000` | How many compiled query shapes to keep. |
+
+`better-sqlite3` 12 and 13 are supported; version 13 needs Node.js 22.14 or later, and the
+adapter says so instead of crashing on an older one. SQLite 3.39 or later (the version
+`better-sqlite3` bundles) is assumed.
+
 - Foreign keys are **on** by default. SQLite itself ships with them off; set
-  `pragmas: { foreign_keys: "OFF" }` to get that back.
-- `:memory:` is the fastest way to run a test suite.
-- SQLite has one writer at a time. Row locks are ignored.
+  `pragmas: { foreign_keys: false }` to get that back.
+- `:memory:` is the fastest way to run a test suite: no file, no server.
+- **One handle, one caller at a time.** The adapter opens one database handle and hands it
+  to one caller at a time, in order: a transaction holds it until it ends, and everything
+  else waits. Two transactions never interleave, and there are no isolation levels to
+  choose (asking for one throws `QueryError`).
+- Row locks (`lock("update")`) are accepted and not written: with one writer they are
+  already satisfied.
+- A statement runs synchronously to its end. `timeoutMs` and `signal` bound the wait for
+  the handle, not the statement.
+- The `schema` option names an attached database (`attach database 'audit.db' as audit`,
+  run on the adapter).
+- A unique violation is reported by its columns; see
+  [Constraint names](/reference/dialect-support#constraint-names).
 
 ## MySQL
 
@@ -80,9 +102,31 @@ import { mysql } from "@egon-orm/mysql";
 const adapter = mysql({ connectionString: process.env.DATABASE_URL, pool: { max: 10 } });
 ```
 
-- The session time zone is always UTC, so timestamps mean the same thing everywhere.
-- MySQL cannot return rows from a write. The adapter reads the row back after an insert.
-- DDL is not transactional in MySQL.
+| Option | Default | Effect |
+|---|---|---|
+| `connectionString` | none | A `mysql://` URL. Or `host`, `port`, `user`, `password`, `database`, `ssl`; with both, the separate settings win. |
+| `pool` | `{ max: 10 }` | `max`, `idleTimeoutMs`, and `connectionTimeoutMs` (how long to wait for a connection; `0` waits for ever). |
+| `planCacheSize` | `1000` | How many compiled query shapes to keep. |
+
+MySQL 8.0.31 or later and `mysql2` 3.11 or later are supported. There is no time zone
+option: every session is UTC, so a timestamp means the same instant whatever the server's
+or the process's time zone.
+
+- **No rows from writes.** `insert` reads the row back by its key: the generated
+  auto-increment id, or the key you gave (a client-generated uuid, a composite key).
+  `.returning(...)` on bulk writes throws `QueryError`.
+- **Upserts take no target.** `ON DUPLICATE KEY UPDATE` fires on any unique key, so
+  `onConflict.target` throws `QueryError`; leave it out. An upsert that updates an
+  existing row returns that row.
+- **DDL commits.** Each DDL statement ends the transaction it runs in, so a migration that
+  fails midway is left half-applied; see [Migrations](/guide/migrations).
+- A write conflict between serializable transactions is reported as a deadlock
+  (`code: "deadlock"`, retryable), not a serialization failure.
+- `timeoutMs` and `signal` stop a statement with `KILL QUERY`, sent on a connection of
+  its own.
+- A migration's `text` column is a `varchar(255)` on MySQL, because a MySQL `TEXT` column
+  can be neither indexed nor given a default. Declare a long text column with
+  `m.custom("body", "text")`.
 
 ## How values are stored
 
@@ -95,9 +139,17 @@ the driver differs:
 | `bigint` | `bigint` | integer | `bigint` |
 | `decimal` | `numeric` | text | `decimal` |
 | `uuid` | `uuid` | text | `char(36)` |
-| `date`, `timestamp` | native | ISO-8601 text, UTC | native, UTC |
+| `date`, `time` | native | ISO-8601 text | native |
+| `timestamp` | native | ISO-8601 text in UTC, with milliseconds | `datetime(6)`, UTC |
 | `json` | `jsonb` | text | `json` |
-| `array` | native | not supported | not supported |
+| `binary` | `bytea` | blob | `longblob` |
+| array | native | JSON text of the elements | `json` (an array of the elements) |
+
+On SQLite and MySQL an array field is stored as a JSON array and read back as an array;
+the array operators (`has`, `contains`, `in(arrayExpression)`) are refused with
+`QueryError`. On SQLite, integers are read exactly: a `t.bigint()` beyond
+`Number.MAX_SAFE_INTEGER` keeps every digit. A value with no type (`val(new Date())`,
+`val(true)`) is bound as SQLite stores one: timestamp text, `1` / `0`.
 
 On Postgres:
 

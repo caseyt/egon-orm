@@ -12,7 +12,7 @@
   },
   "scripts": {
     "check": "pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:types && pnpm build",
-    "lint": "biome ci --error-on-warnings . && node scripts/check-workspace-policy.mjs && node scripts/check-dialect-conditionals.mjs",
+    "lint": "biome ci --error-on-warnings . && node scripts/check-workspace-policy.mjs && node scripts/check-dialect-conditionals.mjs && tsx scripts/dialect-support.ts --check",
     "format": "biome check --write .",
     "typecheck": "tsc -b && pnpm typecheck:spikes",
     "typecheck:spikes": "tsc -p tsconfig.spikes.json && node scripts/check-rejected-spike.mjs",
@@ -25,6 +25,7 @@
     "lint:packages": "pnpm -r --filter './packages/*' run lint:package",
     "smoke": "pnpm --filter @egon-orm/example-smoke run smoke",
     "bench": "pnpm build && pnpm --filter @egon-orm/benchmarks run bench",
+    "docs:dialects": "tsx scripts/dialect-support.ts",
     "docs:dev": "pnpm --filter @egon-orm/docs-site run dev",
     "docs:build": "pnpm --filter @egon-orm/docs-site run build",
     "docs:preview": "pnpm --filter @egon-orm/docs-site run preview",

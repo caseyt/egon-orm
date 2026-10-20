@@ -133,11 +133,17 @@ Pass `name` to choose your own; then give the same name to the changeset functio
 - **Order.** Pending migrations run oldest version first. A pending migration older than
   the latest applied one (merged from another branch) is applied too, with a warning.
 - **Transactions.** Each migration runs in its own transaction where the database has
-  transactional DDL (Postgres does); if it fails, it is rolled back and the run stops. With
-  `transaction: false` it runs without one, and a failure can leave it partly applied.
+  transactional DDL (Postgres and SQLite do); if it fails, it is rolled back and the run
+  stops. With `transaction: false` it runs without one, and a failure can leave it partly
+  applied. **MySQL commits after every DDL statement**, so there a migration that fails
+  midway is always left partly applied and is not recorded: fix the database by hand (or
+  write migrations of one DDL statement each) before running again.
 - **The lock.** The runner holds a lock for the whole run (on Postgres a session-level
-  advisory lock keyed by the tracking table), so two deploys that start at once take turns:
-  the second waits, then finds nothing left to do. `lockTimeoutMs` makes it give up instead.
+  advisory lock keyed by the tracking table, on MySQL `GET_LOCK` with a name derived from
+  it), so two deploys that start at once take turns: the second waits, then finds nothing
+  left to do. `lockTimeoutMs` makes it give up instead. SQLite takes no lock: its adapter
+  has one handle and runs one caller at a time, and two processes migrating one file at
+  once are not supported.
 - **Tracking.** Applied versions are rows of `schema_migrations (version bigint primary key,
   created_at timestamp(0))`, created by the first `up` or `down` that is not a dry run
   (`status` and dry runs never create it), with `created_at` in UTC.

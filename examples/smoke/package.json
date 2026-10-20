@@ -8,8 +8,12 @@
     "smoke": "node esm.mjs && node require-esm.cjs"
   },
   "dependencies": {
+    "@egon-orm/mysql": "workspace:*",
     "@egon-orm/postgres": "workspace:*",
+    "@egon-orm/sqlite": "workspace:*",
     "@egon-orm/zod": "workspace:*",
-    "egon-orm": "workspace:*"
+    "better-sqlite3": "13.0.3",
+    "egon-orm": "workspace:*",
+    "mysql2": "3.24.5"
   }
 }

@@ -297,4 +297,14 @@ describe("the status table", () => {
     `);
     expect(statusTable([])).toBe("No migrations.\n");
   });
+
+  test("shows a runner's claim, and says what to do about one left behind", () => {
+    const table = statusTable([
+      { version: -1, name: undefined, state: "claimed" },
+      { version: 20260101000000, name: "create_users", state: "up" },
+    ]);
+    expect(table).toContain("claimed  -1              ** a runner's claim (see below) **");
+    expect(table).toContain("Every run waits while the claim is there.");
+    expect(table).toContain("delete the row with version -1 from the tracking table.");
+  });
 });

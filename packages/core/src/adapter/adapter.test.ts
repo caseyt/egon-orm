@@ -1,13 +1,24 @@
 import { User } from "@egon-orm/test-support";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { bindParams, POSTGRES_CAPABILITIES } from "../compiler/index.js";
+import {
+  bindParams,
+  MYSQL_CAPABILITIES,
+  POSTGRES_CAPABILITIES,
+  SQLITE_CAPABILITIES,
+} from "../compiler/index.js";
 import type { Capabilities, PoolEvent, QueryEvent, RawResult } from "../contracts/adapter.js";
 import type { FieldMeta } from "../contracts/schema.js";
 import type { AnyFieldType } from "../contracts/type.js";
 import { ConstraintError, DatabaseError, QueryError } from "../errors.js";
 import { fragment, from, meta } from "../index.js";
 import { bigintType } from "../types/index.js";
-import { type AdapterDefinition, beginSql, createAdapter, DEFAULT_BATCH_SIZE } from "./adapter.js";
+import {
+  type AdapterDefinition,
+  beginSql,
+  beginStatements,
+  createAdapter,
+  DEFAULT_BATCH_SIZE,
+} from "./adapter.js";
 import type { DriverConnection, DriverCursor, DriverHooks, DriverWrapper } from "./driver.js";
 
 // --- a driver wrapper without a database --------------------------------------------
@@ -146,6 +157,8 @@ class FakeDriver implements DriverWrapper {
 
 const CAPABILITIES = {
   isolationLevels: ["read committed", "serializable"],
+  readOnlyTransactions: true,
+  deferrableTransactions: true,
   lockModes: [],
 } as unknown as Capabilities;
 
@@ -617,6 +630,28 @@ describe("cancellation", () => {
     const error = await rejection(adapter.execute("select pg_sleep(10)", [], { timeoutMs: 5 }));
     expect(error).toMatchObject({ code: "timeout" });
     expect((error as Error).message).toContain("timeoutMs (5 ms)");
+  });
+
+  test("a statement whose budget is already spent is refused before it is sent", async () => {
+    const { adapter, driver } = setup();
+    let sent = 0;
+    driver.connectionSetup = (connection) => {
+      connection.respond = () => {
+        sent++;
+        return Promise.resolve(EMPTY);
+      };
+    };
+    const error = await rejection(adapter.execute("select 1", [], { timeoutMs: 0 }));
+    expect(error).toMatchObject({ code: "timeout", sql: "select 1" });
+    expect((error as Error).message).toContain("was spent before it could start");
+    const connection = await adapter.acquire();
+    await expect(connection.execute("select 2", [], { timeoutMs: 0 })).rejects.toMatchObject({
+      code: "timeout",
+    });
+    // Nothing failed on the connection: it carries on.
+    await connection.execute("select 3", []);
+    await connection.release();
+    expect(sent).toBe(1);
   });
 
   test("a timeout and an abort together send one cancel request; the first reason wins", async () => {
@@ -1261,9 +1296,72 @@ describe("dedicated connections", () => {
   });
 });
 
+describe("beginStatements", () => {
+  test.each([
+    [
+      "postgres",
+      { isolation: "serializable", readOnly: true },
+      ["begin isolation level serializable, read only"],
+    ],
+    ["mysql", undefined, ["start transaction"]],
+    ["mysql", { readOnly: true }, ["start transaction read only"]],
+    ["mysql", { readOnly: false }, ["start transaction read write"]],
+    [
+      "mysql",
+      { isolation: "read committed", readOnly: true },
+      ["set transaction isolation level read committed", "start transaction read only"],
+    ],
+    ["mysql", { deferrable: false }, ["start transaction"]],
+    ["sqlite", undefined, ["begin"]],
+    ["sqlite", { readOnly: false, deferrable: false }, ["begin"]],
+  ] as const)("%s, %o: %o", (dialect, options, statements) => {
+    const capabilities = {
+      postgres: POSTGRES_CAPABILITIES,
+      mysql: MYSQL_CAPABILITIES,
+      sqlite: SQLITE_CAPABILITIES,
+    };
+    expect(beginStatements(dialect, options, capabilities[dialect])).toEqual(statements);
+  });
+
+  test.each([
+    ["mysql", { deferrable: true }, "A deferrable transaction (deferrable: true) is not supported by mysql."],
+    ["sqlite", { readOnly: true }, "A read-only transaction (readOnly: true) is not supported by sqlite."],
+    [
+      "sqlite",
+      { isolation: "serializable" },
+      'The isolation level "serializable" is not supported by sqlite.',
+    ],
+  ] as const)("%s refuses %o with QueryError", (dialect, options, message) => {
+    const capabilities = dialect === "mysql" ? MYSQL_CAPABILITIES : SQLITE_CAPABILITIES;
+    expect(() => beginStatements(dialect, options, capabilities)).toThrow(QueryError);
+    expect(() => beginStatements(dialect, options, capabilities)).toThrow(message);
+  });
+
+  test("a transaction on a dialect that starts one with two statements sends both, in order", async () => {
+    const driver = new FakeDriver();
+    const adapter = createAdapter({
+      dialect: "mysql",
+      capabilities: MYSQL_CAPABILITIES,
+      quoteIdentifier: (name) => `\`${name.replaceAll("`", "``")}\``,
+      driver: () => driver,
+      driverCodecs: {},
+      normalizeError: (error) => error,
+    });
+    const connection = await adapter.acquire();
+    await connection.begin({ isolation: "repeatable read" });
+    await connection.release();
+    expect(driver.connections[0]?.statements.map((s) => s.sql)).toEqual([
+      "set transaction isolation level repeatable read",
+      "start transaction",
+    ]);
+  });
+});
+
 describe("beginSql", () => {
   const all = {
     isolationLevels: ["read committed", "repeatable read", "serializable"],
+    readOnlyTransactions: true,
+    deferrableTransactions: true,
   } as unknown as Capabilities;
 
   test.each([

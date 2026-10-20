@@ -1,9 +1,11 @@
-// The checked sources of the Postgres code blocks in guide/adapters.md. Each `#region` is
+// The checked sources of the code blocks in guide/adapters.md. Each `#region` is
 // included in the page by name; everything outside a region is the scaffolding that makes
 // the regions compile.
 
+import { mysql } from "@egon-orm/mysql";
 import { postgres } from "@egon-orm/postgres";
-import { ConstraintError, DatabaseError, isEgonError } from "egon-orm";
+import { sqlite } from "@egon-orm/sqlite";
+import { ConstraintError, createRepo, DatabaseError, isEgonError, Schema, t } from "egon-orm";
 import pg from "pg";
 
 export function connect() {
@@ -73,4 +75,36 @@ export async function errors(email: string) {
     }
   }
   // #endregion errors
+}
+
+export function sqliteConnect() {
+  // #region sqlite
+  const adapter = sqlite({ filename: "app.db", pragmas: { journal_mode: "WAL", busy_timeout: 5000 } });
+  const forTests = sqlite({ filename: ":memory:" });
+  // #endregion sqlite
+  return [adapter, forTests];
+}
+
+export async function sqliteSchemas() {
+  // #region sqlite-attach
+  const adapter = sqlite({ filename: "app.db", attach: { audit: "audit.db" } });
+  const repo = createRepo({ adapter });
+  const logins = await repo.count(AuditLog, { schema: "audit" }); // reads audit.db
+  // #endregion sqlite-attach
+  return logins;
+}
+
+class AuditLog extends Schema("audit_logs", {
+  id: t.bigint({ mode: "number" }).primaryKey().dbGenerated(),
+  action: t.string(),
+}) {}
+
+export function mysqlConnect() {
+  // #region mysql
+  const adapter = mysql({
+    connectionString: process.env.DATABASE_URL,
+    pool: { max: 10, idleTimeoutMs: 30_000, connectionTimeoutMs: 5_000 },
+  });
+  // #endregion mysql
+  return adapter;
 }

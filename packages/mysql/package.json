@@ -1,8 +1,7 @@
 {
   "name": "@egon-orm/mysql",
   "version": "0.0.0",
-  "private": true,
-  "description": "MySQL adapter for Egon ORM (placeholder until step 17).",
+  "description": "MySQL adapter for Egon ORM.",
   "license": "MIT",
   "author": "Casey Tickes",
   "repository": {
@@ -17,7 +16,8 @@
     "typescript",
     "sql",
     "changeset",
-    "query-builder"
+    "query-builder",
+    "mysql"
   ],
   "type": "module",
   "sideEffects": false,
@@ -40,9 +40,14 @@
     "lint:package": "publint --strict && attw --pack . --profile esm-only"
   },
   "peerDependencies": {
-    "egon-orm": "workspace:^"
+    "egon-orm": "workspace:^",
+    "mysql2": "^3.11.0"
   },
   "devDependencies": {
-    "egon-orm": "workspace:*"
+    "egon-orm": "workspace:*",
+    "mysql2": "3.24.5"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

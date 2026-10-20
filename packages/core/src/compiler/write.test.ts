@@ -1,5 +1,10 @@
+import { Tag } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
-import { POSTGRES_CAPABILITIES } from "./dialect.js";
+import type { OnConflict } from "../contracts/adapter.js";
+import type { FieldMeta } from "../contracts/schema.js";
+import { meta } from "../schema/index.js";
+import { createCompiler } from "./compiler.js";
+import { mysqlDialect, POSTGRES_CAPABILITIES } from "./dialect.js";
 import { insertChunks } from "./write.js";
 
 describe("insertChunks", () => {
@@ -35,5 +40,29 @@ describe("insertChunks", () => {
       "An insert's row count is a whole number of zero or more.",
     );
     expect(() => insertChunks(-1, 1, 10)).toThrow("An insert's row count is a whole number of zero or more.");
+  });
+});
+
+describe("upserts on MySQL (ON DUPLICATE KEY UPDATE)", () => {
+  const tags = meta(Tag);
+  const field = (name: string) => tags.fieldsByName.get(name) as FieldMeta;
+  const compile = (onConflict: OnConflict) =>
+    createCompiler(mysqlDialect).compileInsert(
+      tags,
+      [field("name")],
+      { source: { kind: "values", rows: 1 }, returning: [], onConflict },
+      undefined,
+    ).sql;
+
+  test("an update reads the excluded row, and sets the generated key with last_insert_id so a no-op reports it", () => {
+    expect(compile({ target: undefined, update: [field("name")] })).toBe(
+      "insert into `tags` (`name`) values (?) as `excluded` on duplicate key update `id` = last_insert_id(`id`), `name` = `excluded`.`name`",
+    );
+  });
+
+  test('"nothing" sets the key to itself', () => {
+    expect(compile("nothing")).toBe(
+      "insert into `tags` (`name`) values (?) on duplicate key update `id` = `id`",
+    );
   });
 });

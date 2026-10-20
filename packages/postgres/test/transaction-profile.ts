@@ -14,4 +14,10 @@ export const POSTGRES_TRANSACTION_PROFILE: TransactionConformanceProfile = {
   isolationLevel: fragment`select current_setting('transaction_isolation') as level`,
   schema: `create table wide_rows (id bigserial primary key, ${wideColumns}, constraint wide_rows_c0_key unique (c0))`,
   module: { url: import.meta.url, exportName: "POSTGRES_TRANSACTION_PROFILE" },
+  // The application name of a session is visible to every other in pg_stat_activity.
+  rendezvous: {
+    announce: (marker) => fragment`select set_config('application_name', ${marker}, false) as name`,
+    count: (marker) =>
+      fragment`select count(*)::int as n from pg_stat_activity where application_name = ${marker}`,
+  },
 };

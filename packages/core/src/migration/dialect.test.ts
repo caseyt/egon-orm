@@ -4,7 +4,12 @@
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 import { MigrationError } from "../errors.js";
-import { migrationDialectOf, POSTGRES_MIGRATION_DIALECT } from "./dialect.js";
+import {
+  MYSQL_MIGRATION_DIALECT,
+  migrationDialectOf,
+  POSTGRES_MIGRATION_DIALECT,
+  SQLITE_MIGRATION_DIALECT,
+} from "./dialect.js";
 
 const literal = POSTGRES_MIGRATION_DIALECT.stringLiteral;
 
@@ -81,9 +86,11 @@ describe("the Postgres string literal", () => {
 });
 
 describe("migrationDialectOf", () => {
-  test("has a table for Postgres and refuses the others", () => {
+  test("has a table for each dialect and refuses anything else", () => {
     expect(migrationDialectOf("postgres")).toBe(POSTGRES_MIGRATION_DIALECT);
-    expect(() => migrationDialectOf("sqlite")).toThrow(MigrationError);
+    expect(migrationDialectOf("mysql")).toBe(MYSQL_MIGRATION_DIALECT);
+    expect(migrationDialectOf("sqlite")).toBe(SQLITE_MIGRATION_DIALECT);
+    expect(() => migrationDialectOf("oracle" as never)).toThrow(MigrationError);
     expect(() => migrationDialectOf("constructor" as never)).toThrow(MigrationError);
   });
 

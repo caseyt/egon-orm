@@ -724,11 +724,18 @@ function cached(ast: QueryAst, key: string, make: () => QueryAst): QueryAst {
  * `LIMIT CASE WHEN <own> < 1 THEN <own> ELSE 1 END` (`<own>` cast to bigint): never more
  * than one row, never more
  * than the query's own limit (`limit(0)` still returns nothing). Its offset is kept.
+ *
+ * On a database whose `LIMIT` takes only a value (`expressions` false, MySQL), an own
+ * limit that is a value is replaced by the smaller of it and 1; a limit given as a named
+ * parameter stays as it is, and the compiler refuses the `CASE` there.
  */
-export function firstAst(ast: QueryAst): QueryAst {
-  return cached(ast, "first", () => {
+export function firstAst(ast: QueryAst, expressions = true): QueryAst {
+  return cached(ast, expressions ? "first" : "firstValue", () => {
     const own = ast.limit;
     if (own === undefined) return derive(ast, { limit: limitOne() });
+    if (!expressions && own.kind === "param" && typeof own.value === "number") {
+      return derive(ast, { limit: paramNode(Math.min(own.value, 1), INTEGER, false) });
+    }
     // As bigint: a CASE would otherwise type the limit as a 32-bit integer and refuse the
     // large limits a plain LIMIT takes.
     const limit = castNode(own, BIGINT);
@@ -1022,7 +1029,7 @@ export async function first(
   const rows = await load(
     core,
     "first",
-    firstAst(input.ast),
+    firstAst(input.ast, core.adapter.capabilities.limitExpressions),
     named,
     options,
     sourceOf(input.ast),

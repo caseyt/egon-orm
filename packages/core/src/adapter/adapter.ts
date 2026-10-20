@@ -131,38 +131,105 @@ const ISOLATION_SQL: ReadonlyMap<IsolationLevel, string> = new Map<IsolationLeve
   ["serializable", "isolation level serializable"],
 ]);
 
-/** The statement that starts a transaction with `options`. */
-export function beginSql(options: BeginOptions | undefined, capabilities: Capabilities): string {
-  if (options === undefined) return "begin";
+/** The options of a `begin`, checked. */
+interface CheckedBegin {
+  readonly isolation: IsolationLevel | undefined;
+  readonly readOnly: boolean | undefined;
+  readonly deferrable: boolean | undefined;
+}
+
+const NO_BEGIN_OPTIONS: CheckedBegin = Object.freeze({
+  isolation: undefined,
+  readOnly: undefined,
+  deferrable: undefined,
+});
+
+/**
+ * Checks the options of a `begin` against the database's capabilities. A mode the
+ * database lacks is refused when it asks for something (`readOnly: true`,
+ * `deferrable: true`); asking for the default (`false`) is accepted everywhere.
+ */
+function checkBegin(
+  options: BeginOptions | undefined,
+  capabilities: Capabilities,
+  dialect: Dialect,
+): CheckedBegin {
+  if (options === undefined) return NO_BEGIN_OPTIONS;
   if (!isPlainObject(options)) {
     throw new TypeError("connection.begin(options): options must be a plain object or undefined.");
   }
-  const modes: string[] = [];
   const { isolation, readOnly, deferrable } = options;
   if (isolation !== undefined) {
-    const sql = ISOLATION_SQL.get(isolation);
-    if (sql === undefined) {
+    if (!ISOLATION_SQL.has(isolation)) {
       throw new TypeError(
         `connection.begin({ isolation }): unknown isolation level ${JSON.stringify(isolation)}. Use "read committed", "repeatable read" or "serializable".`,
       );
     }
     if (!capabilities.isolationLevels.includes(isolation)) {
-      throw new QueryError(`The isolation level "${isolation}" is not supported by this database.`);
+      throw new QueryError(`The isolation level "${isolation}" is not supported by ${dialect}.`);
     }
-    modes.push(sql);
   }
   if (readOnly !== undefined) {
     if (typeof readOnly !== "boolean")
       throw new TypeError("connection.begin({ readOnly }): readOnly must be a boolean.");
-    modes.push(readOnly ? "read only" : "read write");
+    if (readOnly && !capabilities.readOnlyTransactions) {
+      throw new QueryError(`A read-only transaction (readOnly: true) is not supported by ${dialect}.`);
+    }
   }
   if (deferrable !== undefined) {
     if (typeof deferrable !== "boolean") {
       throw new TypeError("connection.begin({ deferrable }): deferrable must be a boolean.");
     }
-    modes.push(deferrable ? "deferrable" : "not deferrable");
+    if (deferrable && !capabilities.deferrableTransactions) {
+      throw new QueryError(`A deferrable transaction (deferrable: true) is not supported by ${dialect}.`);
+    }
   }
+  return { isolation, readOnly, deferrable };
+}
+
+/** The statement that starts a transaction with `options`, as Postgres writes it. */
+export function beginSql(
+  options: BeginOptions | undefined,
+  capabilities: Capabilities,
+  dialect: Dialect = "postgres",
+): string {
+  const { isolation, readOnly, deferrable } = checkBegin(options, capabilities, dialect);
+  const modes: string[] = [];
+  if (isolation !== undefined) modes.push(ISOLATION_SQL.get(isolation) as string);
+  if (readOnly !== undefined) modes.push(readOnly ? "read only" : "read write");
+  if (deferrable !== undefined) modes.push(deferrable ? "deferrable" : "not deferrable");
   return modes.length === 0 ? "begin" : `begin ${modes.join(", ")}`;
+}
+
+/**
+ * The statements that start a transaction with `options` on `dialect`, in order:
+ *
+ * - Postgres: `begin [isolation level …, read only, deferrable]`;
+ * - MySQL: `set transaction isolation level …` (for the next transaction only), then
+ *   `start transaction [read only | read write]`;
+ * - SQLite: `begin` (one writer at a time: there is nothing to choose).
+ *
+ * @example
+ * ```ts
+ * beginStatements("mysql", { isolation: "serializable", readOnly: true }, MYSQL_CAPABILITIES);
+ * // ["set transaction isolation level serializable", "start transaction read only"]
+ * ```
+ *
+ * @throws TypeError for a malformed option; QueryError for a mode the database lacks.
+ */
+export function beginStatements(
+  dialect: Dialect,
+  options: BeginOptions | undefined,
+  capabilities: Capabilities,
+): readonly string[] {
+  if (dialect === "postgres") return [beginSql(options, capabilities)];
+  const { isolation, readOnly } = checkBegin(options, capabilities, dialect);
+  if (dialect === "sqlite") return ["begin"];
+  const start =
+    readOnly === undefined
+      ? "start transaction"
+      : `start transaction ${readOnly ? "read only" : "read write"}`;
+  return isolation === undefined ? [start] : [`set transaction ${ISOLATION_SQL.get(isolation)}`, start];
 }
 
 function checkSavepointName(method: string, name: unknown): string {
@@ -220,6 +287,19 @@ function interruption(
   return new DatabaseError(message, { code: kind, sql, cause });
 }
 
+/**
+ * The error of a statement whose `timeoutMs` was spent before it could start (the budget of
+ * the call it belongs to ran out on earlier statements, or it was given 0): it is not sent.
+ * A database whose statements cannot be cancelled once started (SQLite) relies on this check
+ * to keep the budget between statements.
+ */
+function spent(sql: string, timeoutMs: number | undefined): DatabaseError {
+  return new DatabaseError(
+    `The statement was not run: its timeoutMs (${timeoutMs} ms) was spent before it could start.`,
+    { code: "timeout", sql },
+  );
+}
+
 function closedError(sql: string | undefined): DatabaseError {
   return new DatabaseError(
     "This adapter is closed: adapter.close() was called. Create a new adapter to keep using the database.",
@@ -266,6 +346,7 @@ function interruptible<T>(
 ): Promise<T> {
   if (signal === undefined && timeoutMs === undefined) return work();
   if (signal?.aborted === true) return Promise.reject(interruption("aborted", sql, timeoutMs, undefined));
+  if (delayMs !== undefined && delayMs <= 0) return Promise.reject(spent(sql, timeoutMs));
   return new Promise<T>((resolve, reject) => {
     let reason: "aborted" | "timeout" | undefined;
     let cancelled: Promise<unknown> = Promise.resolve();
@@ -710,6 +791,7 @@ class SharedAdapter implements DatabaseAdapter {
     if (signal?.aborted === true) {
       return Promise.reject(interruption("aborted", sql, timeoutMs, undefined, true));
     }
+    if (timeoutMs !== undefined && timeoutMs <= 0) return Promise.reject(spent(sql, timeoutMs));
     return new Promise<DriverConnection>((resolve, reject) => {
       let settled = false;
       const stop = (): void => {
@@ -785,6 +867,10 @@ class SharedConnection implements Connection {
     return promise;
   }
 
+  inTransaction(): boolean {
+    return this.connection.inTransaction();
+  }
+
   stream(
     sql: string,
     params: readonly unknown[],
@@ -794,7 +880,14 @@ class SharedConnection implements Connection {
   }
 
   begin(options?: BeginOptions): Promise<void> {
-    return this.statement(beginSql(options, this.adapter.capabilities));
+    // Checked before anything is sent, as a statement's own arguments are.
+    const statements = beginStatements(this.adapter.dialect, options, this.adapter.capabilities);
+    if (statements.length === 1) return this.statement(statements[0] as string);
+    return this.statements(statements);
+  }
+
+  private async statements(statements: readonly string[]): Promise<void> {
+    for (const sql of statements) await this.statement(sql);
   }
 
   commit(): Promise<void> {

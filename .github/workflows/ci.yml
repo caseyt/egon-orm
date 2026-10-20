@@ -60,6 +60,7 @@ jobs:
       - uses: ./.github/actions/setup
       # The Postgres service comes from docker-compose.yml, so CI and local runs share one
       # definition of image, port, credentials and server flags.
+      # SQLite needs no service: its suites run here too (files in a temporary directory).
       - run: pnpm db:up
       - run: pnpm test:integration
       - if: failure()
@@ -70,6 +71,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # Postgres, SQLite and MySQL 8.4 (the tier2 compose profile); EGON_TEST_TIER2 turns the
+      # MySQL suites on. A required check through the ci job below.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       - run: pnpm db:up:tier2

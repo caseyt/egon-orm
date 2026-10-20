@@ -22,7 +22,7 @@ From the command line, with the configuration in [`egon.config.ts`](/reference/c
 egon migrate                 # apply every pending migration
 egon migrate --dry-run       # print the SQL, run nothing
 egon rollback                # roll back the latest one
-egon migrations              # list them: up, down or missing
+egon migrations              # list them: up, down or missing (claimed: see SQLite below)
 ```
 
 From code, with `createMigrator` from `egon-orm/migration`:
@@ -133,11 +133,60 @@ Pass `name` to choose your own; then give the same name to the changeset functio
 - **Order.** Pending migrations run oldest version first. A pending migration older than
   the latest applied one (merged from another branch) is applied too, with a warning.
 - **Transactions.** Each migration runs in its own transaction where the database has
-  transactional DDL (Postgres does); if it fails, it is rolled back and the run stops. With
-  `transaction: false` it runs without one, and a failure can leave it partly applied.
+  transactional DDL (Postgres and SQLite do); if it fails, it is rolled back and the run
+  stops. With `transaction: false` it runs without one, and a failure can leave it partly
+  applied. **MySQL commits after every DDL statement**, so there a migration that fails
+  midway is always left partly applied and is not recorded: fix the database by hand (or
+  write migrations of one DDL statement each) before running again.
 - **The lock.** The runner holds a lock for the whole run (on Postgres a session-level
-  advisory lock keyed by the tracking table), so two deploys that start at once take turns:
-  the second waits, then finds nothing left to do. `lockTimeoutMs` makes it give up instead.
+  advisory lock keyed by the tracking table, on MySQL `GET_LOCK` with a name derived from
+  it), so two deploys that start at once take turns: the second waits, then finds nothing
+  left to do. `lockTimeoutMs` makes it give up instead.
+- **The lock on SQLite.** SQLite has no lock outside a transaction, so the runner holds a
+  write transaction (`begin immediate`) for the whole run, and each migration is a savepoint
+  inside it. While it runs, every other writer to the file waits until the run ends: another
+  runner, in this process or another, tries again every 25 ms until `lockTimeoutMs`, and
+  other writes to the file fail with a retryable `SQLITE_BUSY` once their `busy_timeout`
+  runs out. Keep migration runs out of busy periods.
+- **`transaction: false` on SQLite.** Some statements cannot run in a transaction at all
+  (`vacuum`), and `pragma foreign_keys = off` is ignored inside one, which the table
+  rebuild needs (copy, drop, rename: the way to change a column on SQLite). Such a migration
+  runs outside the lock:
+  1. the runner records a claim (a row with version `-1` in the tracking table) and commits;
+  2. it runs the migration with no transaction;
+  3. it takes the lock again, removes the claim and records the version.
+
+  Another runner that gets the lock while the claim is there gives it back and waits, so
+  two runners never both run it.
+
+  If the process dies in step 2, the claim stays behind:
+  - `egon migrations` (`status()`) lists it as `claimed`, version `-1`;
+  - a later run warns once (a `warning` event, which `egon migrate` prints), then waits for
+    the claim to go;
+  - with `lockTimeoutMs`, it gives up instead.
+
+  Check what the migration did, then delete the row with version `-1`; a waiting run then
+  carries on.
+
+  After such a migration, whether it succeeded or failed, the runner:
+  - rolls back a transaction the migration left open (a `begin` without a `commit` is a
+    failure);
+  - puts `foreign_keys` back as it was before, since the adapter's one handle is shared
+    with the application.
+
+  A failure is reported as "failed inside a transaction of its own, which was rolled
+  back" when the migration's own transaction was undone, and otherwise as "ran without a
+  transaction": statements before the failing one stay applied.
+
+  A table rebuild follows SQLite's own order:
+  1. foreign keys off, outside any transaction;
+  2. the rebuild and its check inside `begin … commit`;
+  3. foreign keys on.
+
+  A row left without its parent fails the check, and the whole rebuild is rolled back:
+
+  <<< @/examples/migrations.ts#sqlite-rebuild
+
 - **Tracking.** Applied versions are rows of `schema_migrations (version bigint primary key,
   created_at timestamp(0))`, created by the first `up` or `down` that is not a dry run
   (`status` and dry runs never create it), with `created_at` in UTC.

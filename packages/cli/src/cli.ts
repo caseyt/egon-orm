@@ -377,15 +377,22 @@ export function statusTable(rows: readonly MigrationStatus[]): string {
   if (rows.length === 0) return "No migrations.\n";
   const lines = [
     ["Status", "Version", "Name"],
-    ...rows.map((row) => [row.state, String(row.version), row.name ?? "** no file **"]),
+    ...rows.map((row) => [
+      row.state,
+      String(row.version),
+      row.state === "claimed" ? "** a runner's claim (see below) **" : (row.name ?? "** no file **"),
+    ]),
   ];
+  const claim = rows.some((row) => row.state === "claimed")
+    ? "\nA runner is running a migration without a transaction, or stopped in the middle of one\n(SQLite). Every run waits while the claim is there. If no runner is running, check what\nthat migration did, then delete the row with version -1 from the tracking table.\n"
+    : "";
   const widths = [0, 1].map((column) => Math.max(...lines.map((line) => (line[column] as string).length)));
   return `${lines
     .map(
       (line) =>
         `${(line[0] as string).padEnd(widths[0] as number)}  ${(line[1] as string).padEnd(widths[1] as number)}  ${line[2]}`,
     )
-    .join("\n")}\n`;
+    .join("\n")}\n${claim}`;
 }
 
 async function migrations(args: readonly string[], io: CliIo): Promise<number> {

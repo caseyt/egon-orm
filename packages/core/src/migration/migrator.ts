@@ -61,7 +61,8 @@ export interface MigratorOptions {
  * - `migrating`: a migration is about to run.
  * - `migrated`: it ran and its version was recorded (or, going down, removed).
  * - `warning`: something to know about that did not stop the run, such as a pending
- *   migration older than the latest applied one.
+ *   migration older than the latest applied one, or (SQLite) a run waiting for another
+ *   runner's claim.
  *
  * @example
  * ```ts
@@ -109,6 +110,11 @@ export interface MigrationRun {
  * The state of one migration: `up` (applied), `down` (pending), or `missing` (recorded
  * as applied, but no migration with that version is known; it has no name then).
  *
+ * `claimed` is not a migration: on SQLite, a runner records a claim (version `-1`, no name)
+ * while it runs a migration without a transaction. Outside a run, a claim means a runner
+ * stopped in the middle of such a migration: every later run waits for it until it is
+ * deleted (check what the migration did first).
+ *
  * @example
  * ```ts
  * const row: MigrationStatus = { version: 20261012093000, name: "create_users", state: "up" };
@@ -117,7 +123,7 @@ export interface MigrationRun {
 export interface MigrationStatus {
   readonly version: number;
   readonly name: string | undefined;
-  readonly state: "up" | "down" | "missing";
+  readonly state: "up" | "down" | "missing" | "claimed";
 }
 
 /**
@@ -187,6 +193,18 @@ export interface Migrator {
   /** Every known and every recorded migration, by version. */
   status(): Promise<MigrationStatus[]>;
 }
+
+/** How long a runner waits between tries for a `transaction` lock that another runner holds. */
+const LOCK_RETRY_MS = 25;
+
+/**
+ * The version a runner records, under a `transaction` lock, while it runs a migration
+ * without a transaction (outside the lock): its claim. Real versions are positive.
+ */
+const CLAIM = -1;
+
+/** The savepoint a migration runs in under a `transaction` lock. */
+const MIGRATION_SAVEPOINT = "egon_migration";
 
 const DEFAULT_TABLE = "schema_migrations";
 const DEFAULT_TIMESTAMP = "created_at";
@@ -402,12 +420,13 @@ class DatabaseMigrator implements Migrator {
   async status(): Promise<MigrationStatus[]> {
     const known = await this.#sources();
     const connection = await this.#settings.adapter.acquire();
-    let applied: readonly number[];
+    let recorded: readonly number[];
     try {
-      applied = await this.#applied(connection, false);
+      recorded = await this.#recorded(connection, false);
     } finally {
       await connection.release();
     }
+    const applied = recorded.filter((version) => version !== CLAIM);
     const done = new Set(applied);
     const rows: MigrationStatus[] = known.map((source) => ({
       version: source.version,
@@ -418,6 +437,7 @@ class DatabaseMigrator implements Migrator {
     for (const version of applied) {
       if (!names.has(version)) rows.push({ version, name: undefined, state: "missing" });
     }
+    if (recorded.includes(CLAIM)) rows.push({ version: CLAIM, name: undefined, state: "claimed" });
     return rows.sort((a, b) => a.version - b.version);
   }
 
@@ -460,7 +480,12 @@ class DatabaseMigrator implements Migrator {
     } finally {
       if (healthy && locked) {
         try {
-          await this.#statement(connection, this.#settings.dialect.lock.release, this.#lockKey, undefined);
+          await this.#statement(
+            connection,
+            this.#settings.dialect.lock.release,
+            this.#lockParams(),
+            undefined,
+          );
         } catch {
           healthy = false;
         }
@@ -475,8 +500,14 @@ class DatabaseMigrator implements Migrator {
     return this.#settings.sources();
   }
 
+  /** The parameters of the lock's statements: the keys of a session lock, none for a transaction lock. */
+  #lockParams(): readonly unknown[] {
+    return this.#settings.dialect.lock.kind === "session" ? this.#lockKey : [];
+  }
+
   async #lock(connection: Connection): Promise<void> {
     const { lockTimeoutMs } = this.#settings;
+    if (this.#settings.dialect.lock.kind === "transaction") return this.#lockWithTransaction(connection);
     try {
       await this.#statement(connection, this.#settings.dialect.lock.acquire, this.#lockKey, lockTimeoutMs);
     } catch (cause) {
@@ -490,6 +521,134 @@ class DatabaseMigrator implements Migrator {
     }
   }
 
+  /**
+   * Takes a `transaction` lock: starts the write transaction, trying again every
+   * {@link LOCK_RETRY_MS} while the database is busy (another runner holds it) until
+   * `lockTimeoutMs`, with the connection's own busy timeout set to 0 meanwhile, so that the
+   * waiting never blocks the process.
+   *
+   * A runner that holds the lock gives it up only to run a migration without a transaction,
+   * after recording a claim ({@link CLAIM}). Another runner that gets the lock while the
+   * claim is there gives it back at once and keeps waiting, as if the database were busy.
+   * The runner that made the claim takes the lock again with `ownClaim`, which ignores it.
+   */
+  async #lockWithTransaction(
+    connection: Connection,
+    lockTimeoutMs: number | undefined = this.#settings.lockTimeoutMs,
+    ownClaim = false,
+  ): Promise<void> {
+    const { dialect } = this.#settings;
+    const busy = dialect.busyTimeout;
+    let previous: number | undefined;
+    if (busy !== undefined) {
+      const row = (await this.#statement(connection, busy.read, [], undefined)).rows[0];
+      const value = row === undefined ? Number.NaN : Number(Object.values(row)[0]);
+      previous = Number.isSafeInteger(value) ? value : undefined;
+      await this.#statement(connection, busy.write(0), [], undefined);
+    }
+    const deadline = lockTimeoutMs === undefined ? undefined : performance.now() + lockTimeoutMs;
+    let claimSeen = false;
+    try {
+      for (;;) {
+        let cause: unknown;
+        try {
+          await this.#statement(connection, dialect.lock.acquire, [], undefined);
+          if (ownClaim || !(await this.#claimed(connection))) return;
+          // Another runner is running a migration without a transaction: wait for it. Say so
+          // once, since without lockTimeoutMs the wait has no end when that runner is gone.
+          if (!claimSeen) {
+            this.#emit({
+              kind: "warning",
+              message: `Waiting for a claim in the tracking table "${this.#settings.table.name}" (the row with version ${CLAIM}): another runner is running a migration without a transaction. If no runner is running, one stopped in the middle of such a migration; check what that migration did, then delete the row with version ${CLAIM}, and this run carries on.`,
+              version: undefined,
+            });
+          }
+          claimSeen = true;
+          await this.#statement(connection, dialect.lock.abandon ?? "rollback", [], undefined);
+        } catch (error) {
+          if (!(error instanceof DatabaseError && error.retryable)) throw error;
+          cause = error;
+        }
+        if (deadline !== undefined && performance.now() >= deadline) {
+          const stale = claimSeen
+            ? ` If no runner is running, one stopped while it ran a migration without a transaction: check what that migration did, then delete the row with version ${CLAIM} from "${this.#settings.table.name}".`
+            : "";
+          throw new MigrationError(
+            `Gave up waiting for the migration lock after ${lockTimeoutMs} ms: another runner is migrating the same database (tracking table "${this.#settings.table.name}").${stale}`,
+            cause === undefined ? {} : { cause },
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
+      }
+    } finally {
+      if (busy !== undefined && previous !== undefined) {
+        await this.#statement(connection, busy.write(previous), [], undefined);
+      }
+    }
+  }
+
+  /** Whether another runner has a claim in the tracking table (it is running a migration without a transaction). */
+  async #claimed(connection: Connection): Promise<boolean> {
+    const { dialect, table } = this.#settings;
+    const exists = await this.#statement(
+      connection,
+      dialect.tableExists,
+      [table.schema ?? null, table.name],
+      undefined,
+    );
+    if (exists.rowCount === 0) return false;
+    const found = await connection.execute(
+      `select 1 from ${tableSql(table, this.#ddl)} where ${this.#quoted("version")} = ${this.#placeholder(1)}`,
+      [String(CLAIM)],
+      { slots: VERSION_SLOT, context: { operation: "migration" } },
+    );
+    return found.rowCount > 0;
+  }
+
+  /**
+   * Gives up a `transaction` lock to run a migration without a transaction: records the
+   * claim, then commits, so that another runner sees the claim as soon as it can get the
+   * lock, and waits.
+   */
+  async #claim(connection: Connection): Promise<void> {
+    await this.#record(connection, CLAIM, "up");
+    await this.#statement(connection, this.#settings.dialect.lock.release, [], undefined);
+  }
+
+  /** Whether the connection enforces foreign keys, where the dialect says how to ask; `undefined` otherwise. */
+  async #foreignKeys(connection: Connection): Promise<boolean | undefined> {
+    const keys = this.#settings.dialect.foreignKeys;
+    if (keys === undefined) return undefined;
+    const row = (await this.#statement(connection, keys.read, [], undefined)).rows[0];
+    return row === undefined ? undefined : Number(Object.values(row)[0]) === 1;
+  }
+
+  /**
+   * Ends a migration that ran outside the lock, whether it succeeded or not:
+   * 1. a transaction it left open is rolled back;
+   * 2. foreign keys go back to what they were before it;
+   * 3. the lock is taken back and the claim removed.
+   *
+   * Returns whether it had to roll back.
+   */
+  async #endOutside(connection: Connection, foreignKeys: boolean | undefined): Promise<boolean> {
+    const { dialect } = this.#settings;
+    const open = connection.inTransaction();
+    if (open) await this.#statement(connection, dialect.lock.abandon ?? "rollback", [], undefined);
+    if (foreignKeys !== undefined && dialect.foreignKeys !== undefined) {
+      await this.#statement(connection, dialect.foreignKeys.write(foreignKeys), [], undefined);
+    }
+    await this.#unclaim(connection);
+    return open;
+  }
+
+  /** Takes the `transaction` lock back after a migration without a transaction, and removes the claim. */
+  async #unclaim(connection: Connection): Promise<void> {
+    // No timeout: other runners only take the lock for a moment while the claim is there.
+    await this.#lockWithTransaction(connection, undefined, true);
+    await this.#record(connection, CLAIM, "down");
+  }
+
   #quoted(name: string): string {
     return quoteIdentifier(this.#settings.syntax, name);
   }
@@ -500,6 +659,12 @@ class DatabaseMigrator implements Migrator {
 
   /** The applied versions, oldest first. With `create`, the tracking table is created when it is missing. */
   async #applied(connection: Connection, create: boolean): Promise<readonly number[]> {
+    // A claim is not an applied version.
+    return (await this.#recorded(connection, create)).filter((version) => version !== CLAIM);
+  }
+
+  /** Every version in the tracking table, a claim included, oldest first. */
+  async #recorded(connection: Connection, create: boolean): Promise<readonly number[]> {
     const { dialect, table, timestampColumn } = this.#settings;
     const name = tableSql(table, this.#ddl);
     const exists = await this.#statement(
@@ -537,7 +702,7 @@ class DatabaseMigrator implements Migrator {
       [],
       undefined,
     );
-    return result.rows.map((row) => {
+    const versions = result.rows.map((row) => {
       const version = Number(row.version);
       if (!Number.isSafeInteger(version)) {
         throw new MigrationError(
@@ -546,6 +711,7 @@ class DatabaseMigrator implements Migrator {
       }
       return version;
     });
+    return versions;
   }
 
   /** The operations and statements of one migration in one direction. */
@@ -608,8 +774,29 @@ class DatabaseMigrator implements Migrator {
     this.#emit({ kind: "migrating", direction, version: source.version, name: source.name });
     const start = performance.now();
     let current: string | undefined;
+    // Under a transaction lock the run is already one transaction: a migration's own is a
+    // savepoint in it.
+    const nested = this.#settings.dialect.lock.kind === "transaction";
+    const begin = () => (nested ? connection.savepoint(MIGRATION_SAVEPOINT) : connection.begin());
+    const commit = () => (nested ? connection.releaseSavepoint(MIGRATION_SAVEPOINT) : connection.commit());
+    const rollback = async () => {
+      if (!nested) return connection.rollback();
+      await connection.rollbackTo(MIGRATION_SAVEPOINT);
+      await connection.releaseSavepoint(MIGRATION_SAVEPOINT);
+    };
+    // A migration without a transaction cannot run inside the run's transaction (SQLite's
+    // vacuum refuses to, and its foreign_keys pragma is ignored there): the runner records a
+    // claim and gives the lock up while it runs, then takes it back and records the version.
+    let claimed = false;
+    let foreignKeys: boolean | undefined;
+    let leftOpen = false;
     try {
-      if (transaction) await connection.begin();
+      if (transaction) await begin();
+      else if (nested) {
+        foreignKeys = await this.#foreignKeys(connection);
+        await this.#claim(connection);
+        claimed = true;
+      }
       for (const statement of prepared.statements) {
         current = statement.sql;
         await connection.execute(statement.sql, statement.params, {
@@ -619,29 +806,58 @@ class DatabaseMigrator implements Migrator {
         });
       }
       current = undefined;
+      if (claimed) {
+        // A transaction the migration opened and never ended is a failure: it is rolled back.
+        if (connection.inTransaction()) {
+          leftOpen = true;
+          throw new MigrationError("it opened a transaction and did not end it (a begin without a commit).");
+        }
+        await this.#endOutside(connection, foreignKeys);
+        claimed = false;
+      }
       await this.#record(connection, source.version, direction);
-      if (transaction) await connection.commit();
+      if (transaction) await commit();
     } catch (cause) {
       let healthy = true;
       if (transaction) {
         try {
-          await connection.rollback();
+          await rollback();
         } catch {
           healthy = false;
+        }
+      }
+      let rolledBackOwn = false;
+      let unclaimFailure: unknown;
+      if (claimed) {
+        try {
+          rolledBackOwn = await this.#endOutside(connection, foreignKeys);
+        } catch (error) {
+          healthy = false;
+          unclaimFailure = error;
         }
       }
       const message = cause instanceof Error ? cause.message : String(cause);
       const outcome = transaction
         ? "failed and was rolled back"
-        : "failed; it ran without a transaction, so the statements before the failing one stay applied";
+        : rolledBackOwn || leftOpen
+          ? "failed inside a transaction of its own, which was rolled back (anything it committed before that stays applied)"
+          : "failed; it ran without a transaction, so the statements before the failing one stay applied";
+      const stuck =
+        unclaimFailure === undefined
+          ? ""
+          : ` The runner could not then take its lock back and remove its claim (${unclaimFailure instanceof Error ? unclaimFailure.message : String(unclaimFailure)}): later runs wait for the claim. Check the database, then delete the row with version ${CLAIM} from "${this.#settings.table.name}".`;
+      if (stuck !== "") this.#emit({ kind: "warning", message: stuck.trim(), version: source.version });
       return {
         healthy,
         durationMs: 0,
-        error: new MigrationError(`Migration ${source.version}_${source.name} ${outcome}: ${message}`, {
-          ...context,
-          ...(current === undefined ? {} : { sql: current }),
-          cause,
-        }),
+        error: new MigrationError(
+          `Migration ${source.version}_${source.name} ${outcome}: ${message}${stuck}`,
+          {
+            ...context,
+            ...(current === undefined ? {} : { sql: current }),
+            cause,
+          },
+        ),
       };
     }
     const durationMs = performance.now() - start;

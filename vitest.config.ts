@@ -127,6 +127,8 @@ export default defineConfig({
         "packages/core/src/**": { lines: 95, branches: 95 },
         "packages/postgres/src/**": { lines: 95, branches: 95 },
         "packages/cli/src/**": { lines: 95, branches: 95 },
+        "packages/sqlite/src/**": { lines: 95, branches: 95 },
+        "packages/mysql/src/**": { lines: 95, branches: 95 },
       },
     },
   },

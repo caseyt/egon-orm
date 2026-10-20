@@ -171,6 +171,9 @@ export function precedenceOf(dialect: SqlDialect, node: ExprNode): number {
         return node.right.kind === "subquery" ? PRECEDENCE.like : PRECEDENCE.comparison;
       }
       if (node.op === "has") return PRECEDENCE.comparison;
+      // Written as concat(a, b) and not (a <=> b) where the dialect says so.
+      if (node.op === "concat" && dialect.concat === "function") return PRECEDENCE.atom;
+      if (node.op === "isDistinctFrom" && dialect.distinctFrom === "nullSafeEqual") return PRECEDENCE.not;
       return tableOperator(node.op)?.precedence ?? PRECEDENCE.atom;
     case "between":
       return PRECEDENCE.like;
@@ -181,7 +184,7 @@ export function precedenceOf(dialect: SqlDialect, node: ExprNode): number {
     case "fragment":
       return PRECEDENCE.fragment;
     case "jsonPath":
-      return PRECEDENCE.other;
+      return dialect.jsonPath === "pathFunctions" ? PRECEDENCE.atom : PRECEDENCE.other;
     case "selectedAs":
       return node.expr === undefined ? PRECEDENCE.atom : precedenceOf(dialect, node.expr);
     default: {
@@ -221,6 +224,8 @@ interface Frame {
   readonly schema: string | undefined;
   /** The output names of the query's select list, once planned: what `selectedAs("name")` may refer to. */
   outputs: ReadonlySet<string> | undefined;
+  /** A binding whose columns are written without it (the target in SQLite's RETURNING). */
+  readonly bare: string | undefined;
 }
 
 /**
@@ -398,6 +403,7 @@ function expr(ctx: Ctx, frame: Frame, node: ExprNode): string {
   switch (node.kind) {
     case "column":
       checkColumn(frame.scope, node);
+      if (frame.bare === node.binding) return quote(ctx, node.column);
       return `${quote(ctx, node.binding)}.${quote(ctx, node.column)}`;
     case "param":
       return inlineValue(ctx, node.type, node.redact);
@@ -436,6 +442,10 @@ function expr(ctx: Ctx, frame: Frame, node: ExprNode): string {
     case "nary":
       return nary(ctx, frame, node.op, node.args);
     case "fn": {
+      if (node.args.length === 0) {
+        const fixed = lookup(ctx.dialect.niladic, node.name);
+        if (fixed !== undefined) return fixed;
+      }
       const name = lookup(ctx.dialect.functions, node.name);
       if (name === undefined) {
         throw new QueryError(
@@ -467,7 +477,7 @@ function expr(ctx: Ctx, frame: Frame, node: ExprNode): string {
       return `exists (${query(ctx, node.query, frame.scope, frame.schema, "all", "exists", undefined).sql})`;
     case "tuple":
       if (node.items.length === 0) throw new QueryError("A tuple has no items.");
-      return node.items.length === 1
+      return node.items.length === 1 && ctx.dialect.singleTuple === "row"
         ? `row(${list(ctx, frame, node.items, PRECEDENCE.fragment)})`
         : `(${list(ctx, frame, node.items, PRECEDENCE.fragment)})`;
     case "selectedAs":
@@ -583,7 +593,9 @@ function binary(ctx: Ctx, frame: Frame, node: BinaryNode): string {
   }
   const spec = tableOperator(op);
   if (spec === undefined) throw new QueryError(`Unknown operator "${String(op)}".`);
-  if (op === "ilike" && !ctx.dialect.capabilities.ilike) throw unsupported(ctx.dialect, "ILIKE");
+  if (op === "ilike" && !ctx.dialect.capabilities.ilike && !ctx.dialect.ilikeAsLike) {
+    throw unsupported(ctx.dialect, "ILIKE");
+  }
   if (
     (op === "contains" || op === "containedBy" || op === "overlaps") &&
     !ctx.dialect.capabilities.arrays &&
@@ -604,13 +616,15 @@ function binary(ctx: Ctx, frame: Frame, node: BinaryNode): string {
     if (!comparison && !typed) throw untypedArithmetic(op);
     const where = `a comparison of two values without a type (${op}())`;
     const type = firstType(left) ?? firstType(right);
-    return `${boundOperand(ctx, frame, left, where, typed, type)} ${sql} ${boundOperand(ctx, frame, right, where, typed, type)}`;
+    const l = boundOperand(ctx, frame, left, where, typed, type);
+    return infix(ctx, op, sql, l, boundOperand(ctx, frame, right, where, typed, type));
   }
   const p = spec.precedence;
   const leftMin = p <= PRECEDENCE.like ? COMPARISON_OPERAND : p;
   const rightMin = p <= PRECEDENCE.like ? COMPARISON_OPERAND : p + 1;
   if (!typesOperands) {
-    return `${operand(ctx, frame, left, leftMin)} ${sql} ${operand(ctx, frame, right, rightMin)}`;
+    const l = operand(ctx, frame, left, leftMin);
+    return infix(ctx, op, sql, l, operand(ctx, frame, right, rightMin));
   }
   // A CASE or coalesce of bound values beside an expression that has a type: written as
   // it is, the database reads it as text (see typedCompound). In arithmetic, a typed value
@@ -626,6 +640,25 @@ function binary(ctx: Ctx, frame: Frame, node: BinaryNode): string {
     : comparison
       ? operand(ctx, frame, right, rightMin)
       : typedArithmeticValue(ctx, frame, right, left, rightMin);
+  return infix(ctx, op, sql, l, r);
+}
+
+/** The three `LIKE` operators, after whose pattern the dialect may add an `ESCAPE` clause. */
+const LIKES: ReadonlySet<string> = new Set(["like", "notLike", "ilike"]);
+
+/**
+ * Writes a table operator between its two written operands, in the dialect's form:
+ * `concat(l, r)` and `not (l <=> r)` where the dialect has no infix form, `LIKE` for
+ * `ilike` where it is lowered, and the dialect's escape clause after a `LIKE` pattern.
+ */
+function infix(ctx: Ctx, op: BinaryOp, sql: string, l: string, r: string): string {
+  const dialect = ctx.dialect;
+  if (op === "concat" && dialect.concat === "function") return `concat(${l}, ${r})`;
+  if (op === "isDistinctFrom" && dialect.distinctFrom === "nullSafeEqual") return `not (${l} <=> ${r})`;
+  if (LIKES.has(op)) {
+    const keyword = op === "ilike" && !dialect.capabilities.ilike ? "like" : sql;
+    return `${l} ${keyword} ${r}${dialect.likeEscape}`;
+  }
   return `${l} ${sql} ${r}`;
 }
 
@@ -770,7 +803,12 @@ function aggregate(ctx: Ctx, frame: Frame, node: AggregateNode): string {
     );
   }
   let text = `${name}(${node.distinct ? "distinct " : ""}${list(ctx, frame, node.args, PRECEDENCE.fragment)})`;
-  if (node.filter !== undefined) text += ` filter (where ${expr(ctx, frame, node.filter)})`;
+  if (node.filter !== undefined) {
+    if (!ctx.dialect.capabilities.aggregateFilter) {
+      throw unsupported(ctx.dialect, "FILTER (WHERE …) on an aggregate");
+    }
+    text += ` filter (where ${expr(ctx, frame, node.filter)})`;
+  }
   const over = node.over;
   if (typeof over === "string") text += ` over ${windowName(ctx, over)}`;
   else if (over !== undefined) text += ` over (${windowSpec(ctx, frame, over)})`;
@@ -1074,8 +1112,14 @@ function jsonPath(
   asText: boolean,
 ): string {
   if (path.length === 0) throw new QueryError("A JSON path has no keys.");
+  const style = ctx.dialect.jsonPath;
+  if (style === "pathFunctions") {
+    const extracted = `json_extract(${operand(ctx, frame, value, PRECEDENCE.fragment)}, ${pathText(ctx, path)})`;
+    return asText ? `json_unquote(${extracted})` : extracted;
+  }
   const subject = operand(ctx, frame, value, PRECEDENCE.other);
-  if (ctx.dialect.jsonPath === "pathArray") {
+  if (style === "pathOperators") return `${subject} ${asText ? "->>" : "->"} ${pathText(ctx, path)}`;
+  if (style === "pathArray") {
     return `${subject} ${asText ? "#>>" : "#>"} array[${list(ctx, frame, path, PRECEDENCE.fragment)}]`;
   }
   let text = subject;
@@ -1084,6 +1128,61 @@ function jsonPath(
     text += ` ${last && asText ? "->>" : "->"} ${operand(ctx, frame, path[i] as ExprNode, PRECEDENCE.atom)}`;
   }
   return text;
+}
+
+/**
+ * A JSON path as text built at execution from bound steps: `'$'` followed by one
+ * placeholder per key, joined as the dialect concatenates text (`('$' || ? || ?)` or
+ * `concat('$', ?, ?)`). Each key is bound through {@link jsonPathStep}, so the path is
+ * made of values only.
+ *
+ * @throws QueryError when a key is not a bound value.
+ */
+function pathText(ctx: Ctx, path: readonly ExprNode[]): string {
+  const steps: string[] = ["'$'"];
+  for (const key of path) {
+    if (key.kind === "param") {
+      const index = ctx.index;
+      ctx.index = index + 1;
+      steps.push(placeholder(ctx, { kind: "inline", index, toDb: jsonPathStep, redact: key.redact }));
+    } else if (key.kind === "namedParam") {
+      if (typeof key.name !== "string" || key.name === "")
+        throw new QueryError("A named parameter has no name.");
+      steps.push(placeholder(ctx, { kind: "named", name: key.name, toDb: jsonPathStep, redact: key.redact }));
+    } else {
+      throw new QueryError(
+        `A key of a JSON path on ${ctx.dialect.name} must be a value (a string or a whole number), not an expression.`,
+      );
+    }
+  }
+  return ctx.dialect.concat === "function" ? `concat(${steps.join(", ")})` : `(${steps.join(" || ")})`;
+}
+
+/**
+ * Turns one key of a JSON path into its step of the path text: `."name"` for a string,
+ * `[n]` for a whole number from 0. A name holding `"` or `\` is refused: the two
+ * databases that take path text do not read escapes in it alike.
+ *
+ * @example
+ * ```ts
+ * jsonPathStep("theme"); // '."theme"'
+ * jsonPathStep(0); // "[0]"
+ * ```
+ *
+ * @throws QueryError for any other value.
+ */
+export function jsonPathStep(key: unknown): string {
+  if (typeof key === "string") {
+    if (key.includes('"') || key.includes("\\")) {
+      throw new QueryError(
+        "A key of a JSON path holds a double quote or a backslash, which this database cannot read in a path.",
+      );
+    }
+    return `."${key}"`;
+  }
+  if (typeof key === "number" && Number.isSafeInteger(key) && key >= 0) return `[${key}]`;
+  if (typeof key === "bigint" && key >= 0n) return `[${key}]`;
+  throw new QueryError("A key of a JSON path is a string or a whole number from 0.");
 }
 
 // ---------------------------------------------------------------------------
@@ -1191,7 +1290,12 @@ function query(
 ): Written {
   const base = ctx.index;
   const start = starts(ast, base);
-  const frame: Frame = { scope: newScope(parent), schema: ast.schema ?? inherited, outputs: undefined };
+  const frame: Frame = {
+    scope: newScope(parent),
+    schema: ast.schema ?? inherited,
+    outputs: undefined,
+    bare: undefined,
+  };
   if (operation !== "all" && operation !== "updateAll" && operation !== "deleteAll") {
     throw new QueryError(`Unknown query operation "${String(operation)}".`);
   }
@@ -1220,6 +1324,9 @@ function ctes(ctx: Ctx, frame: Frame, nodes: readonly CteNode[]): string {
     const node = nodes[i] as CteNode;
     if (node.recursive) recursive = true;
     const entry = cteEntry(frame.scope, node);
+    if (node.operation !== "all" && !ctx.dialect.capabilities.writingCtes) {
+      throw unsupported(ctx.dialect, "A CTE that writes (updateAll or deleteAll in a WITH)");
+    }
     let body: string;
     if (node.query.kind === "query") {
       const written = query(
@@ -1301,17 +1408,30 @@ function select(
     if (ast.lock !== undefined)
       throw new QueryError("A row lock cannot be combined with union(), intersect() or except().");
     ctx.index = start[COMBINATIONS] as number;
+    const parenthesized = ctx.dialect.setOperand === "parenthesized";
     let loose = false;
     for (const combination of ast.combinations) {
       const op = lookup(SET_OPERATIONS, combination.op);
       if (op === undefined) throw new QueryError(`Unknown set operation "${String(combination.op)}".`);
+      if (combination.all && op !== "union" && !ctx.dialect.capabilities.intersectExceptAll) {
+        throw unsupported(ctx.dialect, `${op.toUpperCase()} ALL`);
+      }
       // Each set operation applies to everything before it. INTERSECT binds tighter than
       // UNION and EXCEPT in SQL, so what comes before it is grouped when it holds those.
-      if (op === "intersect" && loose) sql = `(${sql})`;
+      // A database that takes no parentheses here (SQLite) applies them left to right.
+      if (op === "intersect" && loose && parenthesized) sql = `(${sql})`;
       if (op !== "intersect") loose = true;
       const branch = query(ctx, combination.query, frame.scope, frame.schema, "all", mode, undefined);
       result = mergeProvenance(result, branch.output);
-      sql += ` ${op}${combination.all ? " all" : ""} (${branch.sql})`;
+      // Without parentheses, a branch with clauses of its own that would apply to the whole
+      // (order, limit, offset, its own WITH or set operations) is read from a subquery; a
+      // plain one is written as it is (a recursive CTE refers to itself only that way).
+      const operand = parenthesized
+        ? `(${branch.sql})`
+        : plainBranch(combination.query)
+          ? branch.sql
+          : `select * from (${branch.sql})`;
+      sql += ` ${op}${combination.all ? " all" : ""} ${operand}`;
     }
   }
   if (ast.orderBys.length > 0) {
@@ -1321,12 +1441,26 @@ function select(
         : orderList(ctx, frame, ast.orderBys),
     )}`;
   }
+  if (!ctx.dialect.capabilities.limitExpressions) {
+    for (const bound of [ast.limit, ast.offset]) {
+      if (
+        bound !== undefined &&
+        bound.kind !== "param" &&
+        bound.kind !== "namedParam" &&
+        bound.kind !== "literal"
+      ) {
+        throw unsupported(ctx.dialect, "A limit or offset that is an expression (not a value)");
+      }
+    }
+  }
   if (ast.limit !== undefined) {
     const limit = ast.limit;
     sql += ` limit ${at(ctx, start[LIMIT] as number, () => operand(ctx, frame, limit, PRECEDENCE.fragment))}`;
   }
   if (ast.offset !== undefined) {
     const offset = ast.offset;
+    const unlimited = ctx.dialect.offsetWithoutLimit;
+    if (ast.limit === undefined && unlimited !== undefined) sql += ` limit ${unlimited}`;
     sql += ` offset ${at(ctx, start[OFFSET] as number, () => operand(ctx, frame, offset, PRECEDENCE.fragment))}`;
   }
   if (ast.lock !== undefined) {
@@ -1334,6 +1468,17 @@ function select(
     sql += at(ctx, start[LOCK] as number, () => lockClause(ctx, frame, lock.clause));
   }
   return { sql, output: result };
+}
+
+/** Whether a set-operation branch can be written without parentheses and mean the same. */
+function plainBranch(ast: QueryAst): boolean {
+  return (
+    ast.orderBys.length === 0 &&
+    ast.limit === undefined &&
+    ast.offset === undefined &&
+    ast.ctes.length === 0 &&
+    ast.combinations.length === 0
+  );
 }
 
 function selectList(ctx: Ctx, frame: Frame, items: readonly SelectItem[]): string {
@@ -1345,7 +1490,7 @@ function selectList(ctx: Ctx, frame: Frame, items: readonly SelectItem[]): strin
     text +=
       item.kind === "expr"
         ? `${selectedValue(ctx, frame, item.expr, "the select list")} as ${quote(ctx, item.alias)}`
-        : `${quote(ctx, item.binding)}.${quote(ctx, item.column)} as ${quote(ctx, item.alias)}`;
+        : `${item.binding === frame.bare ? "" : `${quote(ctx, item.binding)}.`}${quote(ctx, item.column)} as ${quote(ctx, item.alias)}`;
   }
   return text;
 }
@@ -1459,6 +1604,7 @@ function source(ctx: Ctx, frame: Frame, node: SourceNode, lateral = false): stri
       return `(${query(ctx, node.query, lateral ? frame.scope : sourceScope(frame.scope), frame.schema, "all", "source", undefined).sql}) as ${alias}`;
     case "values": {
       if (node.rows.length === 0) throw new QueryError(`The values source "${node.alias}" has no rows.`);
+      const style = ctx.dialect.valuesSource;
       let text = "(values ";
       for (let r = 0; r < node.rows.length; r++) {
         const row = node.rows[r] as readonly ExprNode[];
@@ -1471,11 +1617,22 @@ function source(ctx: Ctx, frame: Frame, node: SourceNode, lateral = false): stri
         let cells = "";
         for (let c = 0; c < row.length; c++)
           cells += `${c > 0 ? ", " : ""}${selectedValue(ctx, frame, row[c] as ExprNode, "a values list")}`;
-        text += `${r > 0 ? ", " : ""}(${cells})`;
+        text += `${r > 0 ? ", " : ""}${style === "valuesRow" ? "row" : ""}(${cells})`;
+      }
+      if (style === "valuesSelect") {
+        // SQLite takes no column list after the alias; its values name their columns column1, column2, ….
+        let names = "";
+        for (let c = 0; c < node.columns.length; c++) {
+          names += `${c > 0 ? ", " : ""}${quote(ctx, `column${c + 1}`)} as ${quote(ctx, node.columns[c] as string)}`;
+        }
+        return `(select ${names} from ${text})) as ${alias}`;
       }
       return `${text}) as ${alias} (${node.columns.map((column) => quote(ctx, column)).join(", ")})`;
     }
     case "fragmentSource": {
+      if (node.columns.length > 0 && !ctx.dialect.sourceColumnList) {
+        throw unsupported(ctx.dialect, "A column list after a fragment source's alias");
+      }
       const text = `${fragment(ctx, frame, node.fragment)} as ${alias}`;
       return node.columns.length === 0
         ? text
@@ -1546,31 +1703,40 @@ function modify(
   }
   if (items.length > 0 && !ctx.dialect.capabilities.returning) throw unsupported(ctx.dialect, "RETURNING");
 
+  for (const node of ast.joins) {
+    if (node.type !== "inner" && node.type !== "cross") {
+      throw new QueryError(
+        `${verb} can join only with join() or crossJoin(); a ${node.type} join has no meaning there.`,
+      );
+    }
+  }
   const target = at(ctx, start[FROM] as number, () => source(ctx, frame, ast.from));
+  // MySQL writes the joins as a join clause after the target, conditions included, and
+  // names the target's columns with its alias in SET (a joined table may have the same).
+  const joinClause = ast.joins.length > 0 && ctx.dialect.updateJoin === "joinClause";
+  const joined = joinClause ? at(ctx, start[JOINS] as number, () => joins(ctx, frame, ast.joins)) : "";
   let sql: string;
   if (operation === "updateAll") {
-    sql = `update ${target} set ${at(ctx, start[UPDATES] as number, () => {
+    const owner = joinClause ? `${quote(ctx, ast.from.alias)}.` : "";
+    sql = `update ${target}${joined} set ${at(ctx, start[UPDATES] as number, () => {
       let text = "";
       for (let i = 0; i < ast.updates.length; i++) {
         const node = ast.updates[i] as (typeof ast.updates)[number];
-        text += `${i > 0 ? ", " : ""}${quote(ctx, node.column)} = ${expr(ctx, frame, node.value)}`;
+        text += `${i > 0 ? ", " : ""}${owner}${quote(ctx, node.column)} = ${expr(ctx, frame, node.value)}`;
       }
       return text;
     })}`;
   } else {
-    sql = `delete from ${target}`;
+    sql = joinClause
+      ? `delete ${quote(ctx, ast.from.alias)} from ${target}${joined}`
+      : `delete from ${target}`;
   }
   // Joins become a FROM (UPDATE) or USING (DELETE) list, and their conditions part of WHERE.
   const conditions: string[] = [];
-  if (ast.joins.length > 0) {
+  if (ast.joins.length > 0 && !joinClause) {
     let joinStart = start[JOINS] as number;
     const sources: string[] = [];
     for (const node of ast.joins) {
-      if (node.type !== "inner" && node.type !== "cross") {
-        throw new QueryError(
-          `${verb} can join only with join() or crossJoin(); a ${node.type} join has no meaning there.`,
-        );
-      }
       const sourceCount = valuesIn(node.source);
       sources.push(at(ctx, joinStart, () => source(ctx, frame, node.source)));
       if (node.on !== undefined) {
@@ -1586,8 +1752,11 @@ function modify(
     conditions.push(at(ctx, start[WHERES] as number, () => operand(ctx, frame, condition, PRECEDENCE.and)));
   }
   if (conditions.length > 0) sql += ` where ${conditions.join(" and ")}`;
-  if (items.length > 0)
-    sql += ` returning ${at(ctx, start[SELECT] as number, () => selectList(ctx, frame, items))}`;
+  if (items.length > 0) {
+    const returning: Frame =
+      ctx.dialect.returningColumns === "bare" ? { ...frame, bare: ast.from.alias } : frame;
+    sql += ` returning ${at(ctx, start[SELECT] as number, () => selectList(ctx, returning, items))}`;
+  }
   return sql;
 }
 
@@ -1632,7 +1801,11 @@ export function finish(
  * @throws QueryError when the fragment refers to a binding (a statement has none).
  */
 export function emitFragmentStatement(ctx: EmitContext, node: FragmentNode): string {
-  return fragment(ctx, { scope: newScope(undefined), schema: undefined, outputs: undefined }, node);
+  return fragment(
+    ctx,
+    { scope: newScope(undefined), schema: undefined, outputs: undefined, bare: undefined },
+    node,
+  );
 }
 
 /**
@@ -1647,7 +1820,7 @@ export function emitFragmentStatement(ctx: EmitContext, node: FragmentNode): str
  * ```
  */
 export function emitLooseExpr(ctx: EmitContext, node: ExprNode, schema: string | undefined): string {
-  return expr(ctx, { scope: newScope(undefined), schema, outputs: undefined }, node);
+  return expr(ctx, { scope: newScope(undefined), schema, outputs: undefined, bare: undefined }, node);
 }
 
 /**

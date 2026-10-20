@@ -109,20 +109,20 @@ const ORG_B = "0b6b6c40-3c38-4f39-9e6b-3f3c6e8e2a02";
 /** The data set: three users, four posts, four comments, three tags, two orgs. */
 const SEED = `
   insert into users (id, email, name, created_at, updated_at) values
-    (1, 'ada@example.com', 'Ada', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'),
-    (2, 'grace@example.com', 'Grace', '2026-01-02T00:00:00Z', '2026-01-02T00:00:00Z'),
-    (3, 'linus@example.com', null, '2026-01-03T00:00:00Z', '2026-01-03T00:00:00Z');
+    (1, 'ada@example.com', 'Ada', '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00'),
+    (2, 'grace@example.com', 'Grace', '2026-01-02T00:00:00+00:00', '2026-01-02T00:00:00+00:00'),
+    (3, 'linus@example.com', null, '2026-01-03T00:00:00+00:00', '2026-01-03T00:00:00+00:00');
   insert into profiles (id, user_id, bio) values (1, 1, 'Mathematician');
   insert into posts (id, author_id, title, published, views, created_at, updated_at) values
-    (10, 1, 'Engines', true, 5, '2026-02-01T00:00:00Z', '2026-02-01T00:00:00Z'),
-    (11, 1, 'Notes (draft)', false, 0, '2026-02-02T00:00:00Z', '2026-02-02T00:00:00Z'),
-    (12, 1, 'Loops', true, 9, '2026-02-03T00:00:00Z', '2026-02-03T00:00:00Z'),
-    (20, 2, 'Compilers', true, 7, '2026-02-01T12:00:00Z', '2026-02-01T12:00:00Z');
+    (10, 1, 'Engines', true, 5, '2026-02-01T00:00:00+00:00', '2026-02-01T00:00:00+00:00'),
+    (11, 1, 'Notes (draft)', false, 0, '2026-02-02T00:00:00+00:00', '2026-02-02T00:00:00+00:00'),
+    (12, 1, 'Loops', true, 9, '2026-02-03T00:00:00+00:00', '2026-02-03T00:00:00+00:00'),
+    (20, 2, 'Compilers', true, 7, '2026-02-01T12:00:00+00:00', '2026-02-01T12:00:00+00:00');
   insert into comments (id, post_id, author_id, body, created_at) values
-    (100, 10, 2, 'Lovely', '2026-03-01T00:00:00Z'),
-    (101, 10, 2, 'More please', '2026-03-02T00:00:00Z'),
-    (102, 10, null, 'Anonymous', '2026-03-03T00:00:00Z'),
-    (103, 20, 1, 'Agreed', '2026-03-01T00:00:00Z');
+    (100, 10, 2, 'Lovely', '2026-03-01T00:00:00+00:00'),
+    (101, 10, 2, 'More please', '2026-03-02T00:00:00+00:00'),
+    (102, 10, null, 'Anonymous', '2026-03-03T00:00:00+00:00'),
+    (103, 20, 1, 'Agreed', '2026-03-01T00:00:00+00:00');
   insert into tags (id, name) values (1, 'sql'), (2, 'ts'), (3, 'orm');
   insert into posts_tags (post_id, tag_id) values (10, 1), (10, 2), (12, 1), (20, 3);
   insert into post_labels (post_id, tag_id, featured) values (10, 1, true), (10, 2, false), (12, 3, true);
@@ -173,6 +173,8 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
 
     afterAll(async () => {
       for (const each of adapters.splice(0)) await each.close();
+      const drop = handle === undefined ? undefined : profile.dropCopies?.(handle.db);
+      if (drop !== undefined) await handle?.db.exec(drop);
       await handle?.drop();
     });
 
@@ -244,7 +246,8 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
             .orderBy(({ c }) => c.id),
         );
         expect(comments.map((comment) => comment.author?.id ?? null)).toEqual([2, 2, null, 1]);
-        expect(events[1]?.params).toEqual([[2, 1]]);
+        // One array parameter, or the keys one by one where lists are expanded (capability arrayParams).
+        expect(events[1]?.params).toEqual(adapter().capabilities.arrayParams ? [[2, 1]] : [2, 1]);
         expect(events).toHaveLength(2);
       });
 
@@ -782,18 +785,19 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
         expect(await plain.all(query)).toEqual(await generated.all(query));
       });
 
-      test("children read from another database schema come from that schema", async () => {
-        if (profile.copyTableInto === undefined) return;
-        await db.exec(profile.copyTableInto("archive", "posts"));
-        await db.exec(profile.copyTableInto("archive", "users"));
+      test("children read from another database schema come from that schema", async (context) => {
+        if (profile.copyTableInto === undefined)
+          return context.skip("the profile has no database schemas to copy a table into");
+        await db.exec(profile.copyTableInto("history", "posts", db));
+        await db.exec(profile.copyTableInto("history", "users", db));
         await db.exec(
-          "insert into archive.users (id, email) values (1, 'old@example.com'); insert into archive.posts (id, author_id, title) values (90, 1, 'Archived')",
+          "insert into history.users (id, email) values (1, 'old@example.com'); insert into history.posts (id, author_id, title) values (90, 1, 'Archived')",
         );
         const { repo, events } = watched();
-        const users = await repo.all(from(User, "u").preload("posts"), { schema: "archive" });
+        const users = await repo.all(from(User, "u").preload("posts"), { schema: "history" });
         expect(users.map((user) => user.posts.map((post) => post.title))).toEqual([["Archived"]]);
         const archived = users[0]?.posts[0] as unknown as { readonly [ROW]: { readonly schema: string } };
-        expect(archived[ROW].schema).toBe("archive");
+        expect(archived[ROW].schema).toBe("history");
         expect(events).toHaveLength(2);
       });
     });
@@ -982,6 +986,9 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
       // adapters the suite closes after each test).
       onTestFinished(() => db.exec("delete from posts where id >= 40"));
       const { repo, events } = watched();
+      // With one shared handle there is no connection outside the transaction to ask
+      // (capability multipleConnections): that part is left out.
+      const outsideExists = adapter().capabilities.multipleConnections;
       const result = await repo.transaction(async (tx) => {
         await tx.raw(
           fragment`insert into posts (id, author_id, title) values (${40}, ${3}, ${"In the transaction"}), (${41}, ${3}, ${"Also in it"})`,
@@ -993,12 +1000,14 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
           { maxConcurrency: 4 },
         );
         // A connection outside the transaction does not see the posts yet.
-        const outside = await repo.count(from(Post, "p").where(({ p }) => p.id.gte(40)));
+        const outside = outsideExists
+          ? await repo.count(from(Post, "p").where(({ p }) => p.id.gte(40)))
+          : undefined;
         return { titles: rows[0]?.posts.map((post) => post.title), outside };
       });
       expect(result).toEqual({
         success: true,
-        data: { titles: ["In the transaction", "Also in it"], outside: 0 },
+        data: { titles: ["In the transaction", "Also in it"], outside: outsideExists ? 0 : undefined },
       });
       expect(operations(events)).toEqual([
         "raw",
@@ -1007,7 +1016,7 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
         "preload posts",
         "preload comments",
         "preload tags",
-        "aggregate posts",
+        ...(outsideExists ? ["aggregate posts"] : []),
       ]);
       // Committed with the transaction.
       expect(await repo.count(from(Post, "p").where(({ p }) => p.id.gte(40)))).toBe(2);
@@ -1049,11 +1058,15 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
     });
 
     test("timeoutMs is one budget for the query and its preloads", async () => {
+      // Where a running statement can be cancelled, each statement alone fits the budget and
+      // the preload is stopped while it runs. Where it cannot (capability cancel false), the
+      // query overruns the budget, and the preload must be refused before it starts.
+      const cancels = adapter().capabilities.cancel;
       const { repo, events } = watched();
       const error = await repo
         .all(
           from(Profile, "p")
-            .where(() => profile.sleep(0.6))
+            .where(() => profile.sleep(cancels ? 0.6 : 1.2))
             .preload("user", (q) => q.where(() => profile.sleep(0.6))),
           { timeoutMs: 1_000 },
         )
@@ -1061,13 +1074,15 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
       expect(error).toBeInstanceOf(DatabaseError);
       expect((error as DatabaseError).code).toBe("timeout");
       expect((error as Error).message).toContain("timeoutMs (1000 ms)");
+      // The preload is reported either way: stopped while it ran, or refused before it started.
       expect(operations(events)).toEqual(["all profiles", "preload users"]);
     });
 
-    test("children of a parent whose class declares a database schema are read with the call's", async () => {
-      if (profile.copyTableInto === undefined) return;
-      await db.exec(profile.copyTableInto("auth", "users"));
-      await db.exec(profile.copyTableInto("auth", "posts"));
+    test("children of a parent whose class declares a database schema are read with the call's", async (context) => {
+      if (profile.copyTableInto === undefined)
+        return context.skip("the profile has no database schemas to copy a table into");
+      await db.exec(profile.copyTableInto("auth", "users", db));
+      await db.exec(profile.copyTableInto("auth", "posts", db));
       await db.exec(
         "insert into auth.users (id, email) values (1, 'auth@example.com'); insert into auth.posts (id, author_id, title) values (99, 1, 'Decoy')",
       );
@@ -1087,7 +1102,7 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
       expect(again[0]?.posts.map((post) => post.id)).toEqual([10, 11, 12]);
       expect(events).toHaveLength(4);
       // With the query's own schema, the children come from it, and a reload reads there too.
-      await db.exec(profile.copyTableInto("tenant", "posts"));
+      await db.exec(profile.copyTableInto("tenant", "posts", db));
       await db.exec("insert into tenant.posts (id, author_id, title) values (77, 1, 'Tenant post')");
       const [inTenant] = await repo.all(from(AuthUser, "u").schema("tenant").preload("posts"));
       expect(inTenant?.posts.map((post) => post.title)).toEqual(["Tenant post"]);

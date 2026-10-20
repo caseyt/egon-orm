@@ -14,6 +14,7 @@
  */
 import type { AnyFieldType, Codec, DbTypeKind } from "../contracts/type.js";
 import { IDENTITY } from "../contracts/type.js";
+import { elementTypeOf, mapElements } from "../types/composite.js";
 import { detached } from "../types/define.js";
 
 /**
@@ -34,15 +35,18 @@ export interface DriverCodec {
 }
 
 /**
- * The fixes of one driver, by column kind. Kinds that are not listed (and `array` and
- * `custom` always) need none: an array's elements are fixed by their own kind.
+ * The fixes of one driver, by column kind. Kinds that are not listed (and `custom` always)
+ * need none. An array's elements are fixed by their own kind; a fix for `array` itself is
+ * for a database without array columns, which stores the array as one value (as JSON text,
+ * say): it is applied to the whole array after its elements were converted for the driver
+ * (`toDb`), and before they are converted back (`fromDb`).
  *
  * @example
  * ```ts
  * const fixes: DriverCodecs = { json: { toDb: (value) => JSON.stringify(value) } };
  * ```
  */
-export type DriverCodecs = Readonly<Partial<Record<Exclude<DbTypeKind, "array" | "custom">, DriverCodec>>>;
+export type DriverCodecs = Readonly<Partial<Record<Exclude<DbTypeKind, "custom">, DriverCodec>>>;
 
 function composeFromDb(
   fix: ((value: unknown) => unknown) | undefined,
@@ -69,7 +73,7 @@ function composeToDb(
  * element's override to each element of an array).
  */
 export function typeOverridesFrom(fixes: DriverCodecs): (type: AnyFieldType) => Codec | undefined {
-  return (type) => {
+  const scalar = (type: AnyFieldType): Codec | undefined => {
     const kind = type.db.kind;
     if (kind === "array" || kind === "custom") return undefined;
     const fix = fixes[kind];
@@ -77,6 +81,37 @@ export function typeOverridesFrom(fixes: DriverCodecs): (type: AnyFieldType) => 
     return Object.freeze({
       fromDb: composeFromDb(fix.fromDb, detached(type, "fromDb") as (value: unknown) => unknown),
       toDb: composeToDb(fix.toDb, detached(type, "toDb") as (value: unknown) => unknown),
+    });
+  };
+  const arrayFix = fixes.array;
+  if (arrayFix === undefined) return scalar;
+  /**
+   * The conversions of one element: its own fix composed with its type's, nested arrays
+   * element-wise. A JSON element is a value of the array's own JSON, so the JSON fix (which
+   * makes text of a whole column's value) is not applied to it.
+   */
+  const element = (type: AnyFieldType): Codec => {
+    const inner = elementTypeOf(type);
+    if (inner === undefined) {
+      const kind = type.db.kind;
+      const fixed = kind === "json" || kind === "jsonb" ? undefined : scalar(type);
+      return fixed ?? { fromDb: detached(type, "fromDb"), toDb: detached(type, "toDb") };
+    }
+    const codec = element(inner);
+    return {
+      fromDb: codec.fromDb === IDENTITY ? IDENTITY : mapElements(codec.fromDb),
+      toDb: codec.toDb === IDENTITY ? IDENTITY : mapElements(codec.toDb),
+    };
+  };
+  return (type) => {
+    const inner = type.db.kind === "array" ? elementTypeOf(type) : undefined;
+    if (inner === undefined) return scalar(type);
+    // The whole array is one value of the database's: its elements are converted for the
+    // driver, then the array is (`toDb`); the other way round when it is read.
+    const codec = element(type);
+    return Object.freeze({
+      fromDb: composeFromDb(arrayFix.fromDb, codec.fromDb as (value: unknown) => unknown),
+      toDb: composeToDb(arrayFix.toDb, codec.toDb as (value: unknown) => unknown),
     });
   };
 }

@@ -603,10 +603,11 @@ describe("options", () => {
   });
 
   test("a dialect without migration support is refused", () => {
+    // Every dialect of the Dialect type has migrations; an unknown name stands for one that would not.
     const mysql = createAdapter({
-      dialect: "mysql",
+      dialect: "oracle" as never,
       capabilities: POSTGRES_CAPABILITIES,
-      quoteIdentifier: (name) => `\`${name}\``,
+      quoteIdentifier: (name) => `"${name}"`,
       driver: () => {
         throw new Error("not used");
       },

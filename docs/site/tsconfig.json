@@ -9,6 +9,8 @@
   "references": [
     { "path": "../../packages/core" },
     { "path": "../../packages/postgres" },
+    { "path": "../../packages/sqlite" },
+    { "path": "../../packages/mysql" },
     { "path": "../../packages/cli" },
     { "path": "../../packages/zod" }
   ]

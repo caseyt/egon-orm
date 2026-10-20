@@ -83,6 +83,32 @@ export const bookingRules = defineMigration({
 });
 // #endregion constraints
 
+// #region sqlite-rebuild
+// migrations/20261101090000_require_post_title.ts (SQLite)
+export const requirePostTitle = defineMigration({
+  // SQLite's own order: foreign keys off outside a transaction (the pragma does nothing
+  // inside one), then the rebuild and its check in a transaction, so that a row left
+  // without its parent rolls the whole rebuild back.
+  transaction: false,
+  up(m) {
+    m.execute(fragment`pragma foreign_keys = off`);
+    m.execute(fragment`begin`);
+    m.execute(fragment`create table posts_new (id integer primary key, title text not null default '')`);
+    m.execute(fragment`insert into posts_new (id, title) select id, coalesce(title, '') from posts`);
+    m.execute(fragment`drop table posts`);
+    m.execute(fragment`alter table posts_new rename to posts`);
+    // pragma foreign_key_check lists the rows that break a foreign key: counting them into a
+    // column that must be 0 fails the statement, and the runner rolls the transaction back.
+    m.execute(fragment`create temp table fk_violations (n integer check (n = 0))`);
+    m.execute(fragment`insert into fk_violations select count(*) from pragma_foreign_key_check`);
+    m.execute(fragment`drop table fk_violations`);
+    m.execute(fragment`commit`);
+    // The adapter's one handle keeps the pragma: the runner also puts it back, even on failure.
+    m.execute(fragment`pragma foreign_keys = on`);
+  },
+});
+// #endregion sqlite-rebuild
+
 // #region changeset-pairing
 class User extends Schema("users", {
   id: t.bigint({ mode: "number" }).primaryKey().dbGenerated(),

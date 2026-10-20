@@ -24,6 +24,8 @@ export interface RoundTripCase {
   readonly type: AnyFieldType;
   /** Application values; `null` is sent as SQL `NULL`. */
   readonly values: readonly unknown[];
+  /** The capability the case needs; it is skipped where that capability is false. */
+  readonly requires?: "nonFiniteFloats";
 }
 
 const allBytes = Uint8Array.from({ length: 256 }, (_, i) => i);
@@ -57,18 +59,13 @@ export const ROUND_TRIP_CASES: readonly RoundTripCase[] = [
   {
     label: "float",
     type: AnyType(floatType()),
-    values: [
-      0,
-      1.5,
-      -2.25,
-      0.1,
-      1e308,
-      5e-324,
-      Number.NaN,
-      Number.POSITIVE_INFINITY,
-      Number.NEGATIVE_INFINITY,
-      null,
-    ],
+    values: [0, 1.5, -2.25, 0.1, 1e308, 5e-324, null],
+  },
+  {
+    label: "float (NaN and infinities)",
+    type: AnyType(floatType()),
+    values: [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, null],
+    requires: "nonFiniteFloats",
   },
   {
     label: "decimal",

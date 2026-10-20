@@ -8,6 +8,7 @@
 // One database per run of the suite, over the blog fixture with a small fixed data set.
 // Every repo a test makes is closed after the test, once its connections are back.
 import {
+  type AnyFieldType,
   avg,
   coalesce,
   count,
@@ -38,7 +39,7 @@ import {
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import type { AnySchema } from "../../../src/contracts/schema.js";
 import { ROW } from "../../../src/contracts/schema.js";
-import { resolveCodec } from "../../../src/types/index.js";
+import { resolveCodec, stringType } from "../../../src/types/index.js";
 import {
   Comment,
   createTestDatabase,
@@ -222,7 +223,7 @@ async function insertRows(
   profile: ReadConformanceProfile,
   schema: AnySchema,
   rows: readonly Readonly<Record<string, unknown>>[],
-  table: string = meta(schema).source as string,
+  table: string = profile.quoteIdentifier(meta(schema).source as string),
 ): Promise<void> {
   const schemaMeta = meta(schema);
   for (const row of rows) {
@@ -238,7 +239,7 @@ async function insertRows(
     });
     const placeholders = names.map((_, i) => profile.param(i + 1));
     await adapter.execute(
-      `insert into ${table} (${fields.map((field) => field.column).join(", ")}) values (${placeholders.join(", ")})`,
+      `insert into ${table} (${fields.map((field) => profile.quoteIdentifier(field.column)).join(", ")}) values (${placeholders.join(", ")})`,
       values,
     );
   }
@@ -288,9 +289,11 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
     beforeAll(async () => {
       handle = await createTestDatabase(profile.server, { label: "read", fixtures: ["blog"] });
       db = handle.db;
-      await db.exec("create table stream_rows (id integer primary key, label text not null)");
-      await db.exec("create table notes (body text not null)");
-      await db.exec("create table pairs (a integer not null, b text not null, primary key (a, b))");
+      // The profile's text type: a key column cannot be `text` on every database.
+      const text = profile.columnType(stringType() as AnyFieldType) as string;
+      await db.exec(`create table stream_rows (id integer primary key, label ${text} not null)`);
+      await db.exec(`create table notes (body ${text} not null)`);
+      await db.exec(`create table pairs (a integer not null, b ${text} not null, primary key (a, b))`);
       const seeding = profile.makeAdapter(db, { poolMax: 1 });
       try {
         await insertRows(seeding, profile, User, USERS);
@@ -317,6 +320,8 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
     });
 
     afterAll(async () => {
+      const drop = handle === undefined ? undefined : profile.dropCopies?.(handle.db);
+      if (drop !== undefined) await handle?.db.exec(drop);
       await handle?.drop();
     });
 
@@ -376,9 +381,35 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
             )
           ).map((user) => user.id),
         ).toEqual([1, 2]);
-        expect(
-          (await r.all(from(User, "u").orderBy(({ u }) => u.age.asc().nullsFirst()))).map((user) => user.id),
-        ).toEqual([3, 4, 1, 2]);
+        const nullsFirst = from(User, "u").orderBy(({ u }) => u.age.asc().nullsFirst());
+        if (!adapter().capabilities.nullsOrder) {
+          // NULLS FIRST is refused when the query is compiled (capability nullsOrder).
+          await expect(r.all(nullsFirst)).rejects.toThrow(QueryError);
+          return;
+        }
+        expect((await r.all(nullsFirst)).map((user) => user.id)).toEqual([3, 4, 1, 2]);
+      });
+
+      test("like with an escaped % or _ matches the character itself", async () => {
+        const text = (value: string) => val(value, t.string());
+        const [row] = await repo().all(
+          from(User, "u")
+            .where({ id: 1 })
+            .select(() => ({
+              percent: text("100%").like("100\\%"),
+              notPercent: text("1000").like("100\\%"),
+              underscore: text("1_3").like("1\\_3"),
+              notUnderscore: text("123").like("1\\_3"),
+              wildcard: text("1000").like("100%"),
+            })),
+        );
+        expect(row).toEqual({
+          percent: true,
+          notPercent: false,
+          underscore: true,
+          notUnderscore: false,
+          wildcard: true,
+        });
       });
 
       test("distinct", async () => {
@@ -557,14 +588,19 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         ]);
       });
 
-      test("a full join makes both sides nullable", async () => {
-        const rows = await repo().all(
-          from(Post, "p")
-            .fullJoin(Comment, "c", ({ p, c }) => c.postId.eq(p.id).and(c.authorId.eq(2)))
-            .orderBy(({ p }) => p.id)
-            .select(({ p, c }) => ({ post: p.id, comment: c })),
+      test("a full join makes both sides nullable", async (context) => {
+        if (!adapter().capabilities.fullJoin) return context.skip("capability fullJoin is false");
+        // The order is the database's own: NULLS LAST where the database can say so (where
+        // NULL sorts by default differs: last on Postgres, first on SQLite and MySQL).
+        const joined = from(Post, "p").fullJoin(Comment, "c", ({ p, c }) =>
+          c.postId.eq(p.id).and(c.authorId.eq(2)),
         );
-        expect(rows.map((row) => [row.post, row.comment?.id ?? null])).toEqual([
+        const ordered = adapter().capabilities.nullsOrder
+          ? joined.orderBy(({ p, c }) => [p.id.asc().nullsLast(), c.id.asc().nullsLast()])
+          : joined.orderBy(({ p, c }) => [p.id.isNull(), p.id, c.id.isNull(), c.id]);
+        const rows = await repo().all(ordered.select(({ p, c }) => ({ post: p.id, comment: c })));
+        const pairs = rows.map((row) => [row.post, row.comment?.id ?? null] as const);
+        expect(pairs).toEqual([
           [10, 100],
           [11, null],
           [12, null],
@@ -601,8 +637,11 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
       const cases = ROUND_TRIP_CASES.filter((each) => profile.columnType(each.type) !== undefined);
       test.for(cases.map((each, index) => ({ ...each, index })))(
         "$label",
-        async ({ type, values, index }) => {
+        async ({ type, values, index, requires }, { skip }) => {
           const table = `rt_${index}`;
+          if (requires !== undefined && !adapter().capabilities[requires]) {
+            return skip(`capability ${requires} is false`);
+          }
           const columnType = profile.columnType(type) as string;
           await db.exec(`create table ${table} (id integer primary key, value ${columnType})`);
           class Sample extends Schema(table, {
@@ -680,12 +719,17 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         const r = repo();
         const ordered = from(User, "u").orderBy(({ u }) => u.id);
         expect(await r.first(ordered.limit(0))).toBeNull();
-        const paged = ordered.limit(param("size", t.integer()));
-        expect(await r.first(paged, { size: 0 })).toBeNull();
-        expect((await r.first(paged, { size: 3 }))?.id).toBe(1);
         expect((await r.first(ordered.limit(5)))?.id).toBe(1);
         expect((await r.first(ordered.limit(5).offset(2)))?.id).toBe(3);
         expect((await r.first(ordered))?.id).toBe(1);
+        const paged = ordered.limit(param("size", t.integer()));
+        if (!adapter().capabilities.limitExpressions) {
+          // The limit of first() is then an expression, refused when compiled (capability limitExpressions).
+          await expect(r.first(paged, { size: 0 })).rejects.toThrow(QueryError);
+          return;
+        }
+        expect(await r.first(paged, { size: 0 })).toBeNull();
+        expect((await r.first(paged, { size: 3 }))?.id).toBe(1);
       });
 
       test("first takes the large limits all takes", async () => {
@@ -695,6 +739,11 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         expect(await r.all(huge)).toHaveLength(4);
         expect((await r.first(huge))?.id).toBe(1);
         const big = ordered.limit(param("size", t.bigint({ mode: "number" })));
+        if (!adapter().capabilities.limitExpressions) {
+          // As above: a named limit makes the limit of first() an expression.
+          await expect(r.first(big, { size: 0 })).rejects.toThrow(QueryError);
+          return;
+        }
         expect((await r.first(big, { size: 5_000_000_000 }))?.id).toBe(1);
         expect(await r.first(big, { size: 0 })).toBeNull();
       });
@@ -806,6 +855,11 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         const firstPerRole = from(User, "u")
           .distinct(({ u }) => [u.role])
           .orderBy(({ u }) => [u.role, u.id]);
+        if (!adapter().capabilities.distinctOn) {
+          // DISTINCT ON is refused when the query is compiled (capability distinctOn).
+          await expect(r.exists(firstPerRole.offset(1))).rejects.toThrow(QueryError);
+          return;
+        }
         expect(await r.exists(firstPerRole.offset(1))).toBe(true);
         expect(await r.exists(firstPerRole.offset(2))).toBe(false);
       });
@@ -1084,12 +1138,13 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
           rows: readonly Readonly<Record<string, unknown>>[],
         ): Promise<void> {
           const schemaMeta = meta(schema);
+          const q = profile.quoteIdentifier;
           const columns = schemaMeta.persisted.map(
-            (field) => `${field.column} ${profile.columnType(field.type) as string} not null`,
+            (field) => `${q(field.column)} ${profile.columnType(field.type) as string} not null`,
           );
-          const key = schemaMeta.primaryKey.map((field) => field.column).join(", ");
+          const key = schemaMeta.primaryKey.map((field) => q(field.column)).join(", ");
           await db.exec(
-            `create table ${schemaMeta.source as string} (${columns.join(", ")}, primary key (${key}))`,
+            `create table ${q(schemaMeta.source as string)} (${columns.join(", ")}, primary key (${key}))`,
           );
           await insertRows(adapter(), profile, schema, rows);
         }
@@ -1137,7 +1192,8 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
           expect((await r.get(Coded, new Code("200")))?.n).toBe(2);
         });
 
-        test("a decimal key whose scale changed is still the same key", async () => {
+        test("a decimal key whose scale changed is still the same key", async (context) => {
+          if (!adapter().capabilities.exactDecimals) return context.skip("capability exactDecimals is false");
           await create(Priced, [{ id: "1.0", n: 1 }]);
           const r = repo();
           const [priced] = await r.all(Priced);
@@ -1168,7 +1224,7 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
           class Moment extends Schema("rt_moment_keys", { at: t.timestamp().primaryKey(), n: t.integer() }) {}
           await db.exec(`create table rt_moment_keys (at ${column} primary key, n integer not null)`);
           await db.exec(
-            "insert into rt_moment_keys values ('2026-01-01 00:00:00.123456+00', 1), ('2026-01-01 00:00:00.5+00', 2)",
+            "insert into rt_moment_keys values ('2026-01-01 00:00:00.123456+00:00', 1), ('2026-01-01 00:00:00.5+00:00', 2)",
           );
           const r = repo();
           const moments = await r.all(from(Moment, "m").orderBy(({ m }) => m.n));
@@ -1208,6 +1264,7 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         test("an array key", async (context) => {
           if (profile.columnType(meta(Path).primaryKey[0]?.type as never) === undefined)
             return context.skip("no array column");
+          if (!adapter().capabilities.arrays) return context.skip("capability arrays is false");
           await create(Path, [
             { path: ["a", "b"], n: 1 },
             { path: ["a,b"], n: 2 },
@@ -1226,6 +1283,7 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
           if (profile.columnType(meta(Tagged).fieldsByName.get("tags")?.type as never) === undefined) {
             return context.skip("no array column");
           }
+          if (!adapter().capabilities.arrays) return context.skip("capability arrays is false");
           await create(Tagged, [
             { a: 1, tags: ["a,b"], n: 1 },
             { a: 1, tags: ["a", "b"], n: 2 },
@@ -1254,7 +1312,7 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
 
       test("rows read from a schema are stamped with it, and reload reads them there", async (context) => {
         if (copy === undefined) return context.skip("the database has no database schemas");
-        await db.exec(copy("tenant_a", "users"));
+        await db.exec(copy("tenant_a", "users", db));
         const seeding = adapter();
         await insertRows(
           seeding,
@@ -1278,7 +1336,7 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
 
       test("the query's own schema wins over the call's, which wins over the repo's", async (context) => {
         if (copy === undefined) return context.skip("the database has no database schemas");
-        await db.exec(copy("tenant_b", "users"));
+        await db.exec(copy("tenant_b", "users", db));
         const seeding = adapter();
         await insertRows(
           seeding,
@@ -1292,8 +1350,10 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         );
         const r = repo({ schema: "tenant_b" });
         expect(await r.count(User)).toBe(2);
-        expect(await r.count(User, { schema: "public" })).toBe(4);
-        expect(await r.count(from(User, "u").schema("public"), { schema: "tenant_b" })).toBe(4);
+        expect(await r.count(User, { schema: profile.defaultSchema(db) })).toBe(4);
+        expect(await r.count(from(User, "u").schema(profile.defaultSchema(db)), { schema: "tenant_b" })).toBe(
+          4,
+        );
         expect(await r.count(from(User, "u").schema("tenant_b"))).toBe(2);
       });
     });
@@ -1352,7 +1412,8 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
     });
 
     describe("cancellation", () => {
-      test("timeoutMs and signal reject with timeout and aborted", async () => {
+      test("timeoutMs and signal reject with timeout and aborted", async (context) => {
+        if (!adapter().capabilities.cancel) return context.skip("capability cancel is false");
         const r = repo();
         const timedOut = await rejection(r.raw(profile.sleep(5), { timeoutMs: 100 }));
         expect(timedOut).toBeInstanceOf(DatabaseError);
@@ -1377,8 +1438,16 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         const text = await r.explain(from(User, "u").where({ id: 1 }));
         expect(typeof text).toBe("string");
         expect(text.length).toBeGreaterThan(0);
-        const json = await r.explain(from(User, "u"), { format: "json", analyze: true });
+        if (!adapter().capabilities.explainOptions) {
+          // The options are refused when the statement is compiled (capability explainOptions).
+          await expect(r.explain(from(User, "u"), { format: "json" })).rejects.toThrow(QueryError);
+          await expect(r.explain(from(User, "u"), { analyze: true })).rejects.toThrow(QueryError);
+          return;
+        }
+        const json = await r.explain(from(User, "u"), { format: "json" });
         expect(typeof json).toBe("object");
+        const analyzed = await r.explain(from(User, "u").where({ id: 1 }), { analyze: true });
+        expect(analyzed).toBeTruthy();
       });
 
       test("raw runs a fragment with bound values and returns the driver's rows", async () => {

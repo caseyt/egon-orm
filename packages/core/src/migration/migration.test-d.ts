@@ -89,7 +89,7 @@ describe("the migrator", () => {
     expectTypeOf(migrator.up()).resolves.toEqualTypeOf<MigrationRun[]>();
     expectTypeOf(migrator.down({ step: 2 })).resolves.toEqualTypeOf<MigrationRun[]>();
     expectTypeOf(migrator.status()).resolves.toEqualTypeOf<MigrationStatus[]>();
-    expectTypeOf<MigrationStatus["state"]>().toEqualTypeOf<"up" | "down" | "missing">();
+    expectTypeOf<MigrationStatus["state"]>().toEqualTypeOf<"up" | "down" | "missing" | "claimed">();
   });
 
   test("refuses what is not an adapter, and unknown options", () => {

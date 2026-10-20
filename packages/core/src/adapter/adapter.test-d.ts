@@ -27,8 +27,13 @@ describe("createAdapter", () => {
     createAdapter();
     // @ts-expect-error the dialect must be one Egon knows
     createAdapter({ ...definition, dialect: "oracle" });
-    // @ts-expect-error driver fixes are keyed by column kind; arrays have none of their own
-    createAdapter({ ...definition, driverCodecs: { array: { fromDb: (value: unknown) => value } } });
+    // @ts-expect-error driver fixes are keyed by column kind; a custom type has none
+    createAdapter({ ...definition, driverCodecs: { custom: { fromDb: (value: unknown) => value } } });
+    // A database without array columns stores an array as one value, with a fix of its own.
+    createAdapter({
+      ...definition,
+      driverCodecs: { array: { toDb: (value: unknown) => JSON.stringify(value) } },
+    });
   });
 });
 

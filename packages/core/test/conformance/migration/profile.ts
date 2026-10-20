@@ -15,8 +15,33 @@ export interface MigrationConformanceProfile {
   readonly listTables: string;
   /** SQL listing the indexes of the current database schema: one row per index, its name in `name`. */
   readonly listIndexes: string;
-  /** SQL listing the constraints of the current database schema: one row each, its name in `name`. */
-  readonly listConstraints: string;
+  /**
+   * SQL listing the constraints of the current database schema: one row each, its name in
+   * `name`; `undefined` when the database keeps no list of them (SQLite).
+   */
+  readonly listConstraints: string | undefined;
+  /** SQL listing the columns of `table` in the current database schema: one row each, its name in `name`. */
+  readonly listColumns: (table: string) => string;
+  /** The placeholder of the n-th parameter of the test helper's own queries, counting from 1. */
+  readonly param: (n: number) => string;
+  /** SQL whose one row's `n` counts the migration locks held in this database; `undefined` without locks. */
+  readonly lockCount: string | undefined;
+  /**
+   * Whether a migration lock is held on `db`, for a database whose locks SQL cannot count
+   * (`lockCount` undefined): SQLite tries to take the write lock itself.
+   */
+  readonly lockHeld?: ((db: TestDatabase) => Promise<boolean>) | undefined;
+  /**
+   * A statement that the database refuses inside a transaction (`vacuum`),
+   * for the case that a `transaction: false` migration runs outside any; where DDL is not
+   * transactional (MySQL), any statement.
+   */
+  readonly outsideTransaction: SqlFragment;
+  /**
+   * Whether the suite may create database schemas of its own: false where a schema is a
+   * database named server-wide (MySQL), so that two runs on one server would collide.
+   */
+  readonly ownSchemas: boolean;
   /** A range column type with an index method for exclusion constraints; `undefined` without them. */
   readonly exclusion: { readonly type: string; readonly using: string } | undefined;
   /** An index method for array columns (`gin`); `undefined` without one. */

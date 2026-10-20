@@ -1,8 +1,7 @@
 {
   "name": "@egon-orm/sqlite",
   "version": "0.0.0",
-  "private": true,
-  "description": "SQLite adapter for Egon ORM (placeholder until step 17).",
+  "description": "SQLite adapter for Egon ORM.",
   "license": "MIT",
   "author": "Casey Tickes",
   "repository": {
@@ -17,7 +16,8 @@
     "typescript",
     "sql",
     "changeset",
-    "query-builder"
+    "query-builder",
+    "sqlite"
   ],
   "type": "module",
   "sideEffects": false,
@@ -40,9 +40,15 @@
     "lint:package": "publint --strict && attw --pack . --profile esm-only"
   },
   "peerDependencies": {
+    "better-sqlite3": "^12.4.0 || ^13.0.0",
     "egon-orm": "workspace:^"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "9.6.0",
+    "better-sqlite3": "12.11.1",
     "egon-orm": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

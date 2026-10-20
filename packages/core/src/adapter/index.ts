@@ -4,7 +4,13 @@
  * @module
  */
 export type { AdapterDefinition, DatabaseAdapter, PoolStats } from "./adapter.js";
-export { beginSql, createAdapter, DEFAULT_BATCH_SIZE, DEFAULT_PLAN_CACHE_SIZE } from "./adapter.js";
+export {
+  beginSql,
+  beginStatements,
+  createAdapter,
+  DEFAULT_BATCH_SIZE,
+  DEFAULT_PLAN_CACHE_SIZE,
+} from "./adapter.js";
 export type { DriverCodec, DriverCodecs } from "./codecs.js";
 export { typeOverridesFrom } from "./codecs.js";
 export type { StatementCompiler, StatementCompilerOptions } from "./compiler.js";

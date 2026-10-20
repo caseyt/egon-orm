@@ -101,6 +101,9 @@ async function sweepMysql(server: ConnectionSettings, options: SweepOptions): Pr
  * and has no open connections.
  */
 export function sweepTestDatabases(dialect: Dialect, options: SweepOptions): Promise<string[]> {
+  // A SQLite test database is a file in a directory of its own, removed with it; a killed
+  // run leaves it in the system's temporary directory, which the system cleans.
+  if (dialect === "sqlite") return Promise.resolve([]);
   const server = options.settings ?? connectionSettings(dialect);
   return dialect === "postgres" ? sweepPostgres(server, options) : sweepMysql(server, options);
 }

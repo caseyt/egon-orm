@@ -28,10 +28,12 @@
 import {
   type CodecSource,
   createCompiler,
+  mysqlDialect,
   type PlanCacheStats,
   postgresDialect,
   quoteIdentifier,
   type SqlDialect,
+  sqliteDialect,
 } from "../compiler/index.js";
 import type { Adapter, Capabilities, Dialect } from "../contracts/adapter.js";
 import { QueryError } from "../errors.js";
@@ -60,8 +62,12 @@ export interface StatementCompilerOptions {
   readonly codecs: CodecSource;
 }
 
-/** The compiler's SQL syntax table for each dialect that has one (step 17 adds MySQL and SQLite). */
-const SYNTAX: Readonly<Partial<Record<Dialect, SqlDialect>>> = Object.freeze({ postgres: postgresDialect });
+/** The compiler's SQL syntax table for each dialect. */
+const SYNTAX: Readonly<Partial<Record<Dialect, SqlDialect>>> = Object.freeze({
+  postgres: postgresDialect,
+  mysql: mysqlDialect,
+  sqlite: sqliteDialect,
+});
 
 /**
  * The compiler's SQL table for `dialect`, or `undefined` when this build has none. For the

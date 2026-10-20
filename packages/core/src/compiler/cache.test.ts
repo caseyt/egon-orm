@@ -7,7 +7,13 @@ import { meta } from "../schema/index.js";
 import { bindParams } from "./bind.js";
 import { PlanCache } from "./cache.js";
 import { createCompiler } from "./compiler.js";
-import { POSTGRES_CAPABILITIES, postgresDialect, type SqlDialect } from "./dialect.js";
+import {
+  mysqlDialect,
+  POSTGRES_CAPABILITIES,
+  postgresDialect,
+  type SqlDialect,
+  sqliteDialect,
+} from "./dialect.js";
 import { ALL_CASES } from "./sql-cases.js";
 import { col, frag, rebuild, selectOne, value } from "./sql-fixtures.js";
 
@@ -483,5 +489,26 @@ describe("list lengths where lists are expanded", () => {
   test("explain and read plans key on list lengths", () => {
     sameAsCold((c, list) => c.compile(ids(list), "all", undefined));
     sameAsCold((c, list) => c.compileExplain(ids(list), "all", undefined, {}));
+  });
+});
+
+describe.each([mysqlDialect, sqliteDialect])("list lengths key the plans of $name", (dialect) => {
+  const ids = (list: number[]) =>
+    from(User, "u")
+      .where(({ u }) => u.id.in(list))
+      .select(({ u }) => u.id).ast;
+
+  test("lists of different lengths get plans of their own; lists of one length share one", () => {
+    const compiler = createCompiler(dialect);
+    const two = compiler.compile(ids([1, 2]), "all", undefined);
+    const three = compiler.compile(ids([1, 2, 3]), "all", undefined);
+    expect(three).not.toBe(two);
+    expect(two.sql).toContain("in (?, ?)");
+    expect(three.sql).toContain("in (?, ?, ?)");
+    expect(compiler.stats()).toMatchObject({ hits: 0, misses: 2 });
+    const otherTwo = compiler.compile(ids([8, 9]), "all", undefined);
+    expect(otherTwo).toBe(two);
+    expect(bindParams(otherTwo.slots, ids([8, 9]).params)).toEqual([8, 9]);
+    expect(compiler.stats()).toMatchObject({ hits: 1, misses: 2, collisions: 0 });
   });
 });

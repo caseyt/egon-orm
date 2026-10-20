@@ -19,14 +19,23 @@ export interface ReadConformanceProfile {
   readonly makeAdapter: (db: TestDatabase, options: MakeReadAdapterOptions) => DatabaseAdapter;
   /** The placeholder of the n-th parameter, counting from 1. */
   readonly param: (n: number) => string;
+  /** Quotes an identifier, for the suite's own DDL and inserts (a table may be named like a keyword). */
+  readonly quoteIdentifier: (name: string) => string;
   /** The column type that stores values of `type`; `undefined` when the database has none. */
   readonly columnType: (type: AnyFieldType) => string | undefined;
   /**
-   * DDL (`;`-separated, no parameters) that creates the database schema `schema` with a
-   * copy of the blog table `table` (same columns, no rows). `undefined` when the dialect
-   * has no database schemas.
+   * DDL (`;`-separated, no parameters, run on `db`) that creates the database schema
+   * `schema` (when missing) with a fresh copy of the blog table `table` (same columns, no
+   * rows, no foreign keys). `undefined` when the dialect has no database schemas.
    */
-  readonly copyTableInto: ((schema: string, table: string) => string) | undefined;
+  readonly copyTableInto: ((schema: string, table: string, db: TestDatabase) => string) | undefined;
+  /**
+   * DDL that drops the database schemas `copyTableInto` made, run when the suite ends;
+   * `undefined` when they go with the test database.
+   */
+  readonly dropCopies?: ((db: TestDatabase) => string | undefined) | undefined;
+  /** The name of the schema the test database's own tables are in (`public`, `main`, the database). */
+  readonly defaultSchema: (db: TestDatabase) => string;
   /**
    * A statement (no parameters) that inserts `count` rows into
    * `stream_rows (id integer primary key, label text not null)`: ids 1..count, labels

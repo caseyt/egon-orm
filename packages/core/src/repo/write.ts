@@ -1520,9 +1520,9 @@ function allOf(conditions: readonly Condition[]): Condition {
 
 /**
  * The implementation of `cs.validateUniqueAsync(fields, repo, options)`: when one of the
- * fields changed, all have a value and none has an error, asks the database whether
- * another row (not the changeset's own) has these values, and adds `has already been
- * taken` (`validation: "uniqueAsync"`) when one does.
+ * fields changed, all have a value and neither they nor `errorKey` has an error, asks the
+ * database whether another row (not the changeset's own) has these values, and adds `has
+ * already been taken` (`validation: "uniqueAsync"`) when one does.
  *
  * @throws TypeError (as a rejection) when `repo` is not a repo.
  */
@@ -1549,6 +1549,9 @@ export async function validateUnique(
   const changes = changeset.changes as Readonly<Record<string, unknown>>;
   if (!fields.some((field) => hasOwn(changes, field))) return changeset;
   if (fields.some((field) => hasOwn(changeset.errors, field))) return changeset;
+  // One message per key: an error already on errorKey stands, so the database is not asked.
+  const key = options?.errorKey ?? (fields[0] as string);
+  if (hasOwn(changeset.errors, key)) return changeset;
   const values = fields.map((field) => changeset.getField(field));
   if (values.some((value) => value === null || value === undefined)) return changeset;
   const schemaMeta = meta(model);
@@ -1569,7 +1572,6 @@ export async function validateUnique(
   const rowSchema = data !== null && isRow(data) ? data[ROW].schema : undefined;
   if (rowSchema !== undefined) query = query.schema(rowSchema);
   if (!(await repo.exists(query))) return changeset;
-  const key = options?.errorKey ?? (fields[0] as string);
   const errorMeta = { fields: [...fields] };
   const message = options?.message;
   const text =

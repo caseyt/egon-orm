@@ -1719,8 +1719,9 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
   /**
    * Asks the database whether another row already has these values, and adds `has
    * already been taken` if one does. It runs only when the fields have changes and no
-   * errors. Another request can insert the same values between the check and the write,
-   * so it is for early feedback only: always declare `uniqueConstraint` as well.
+   * errors, and the error key (`errorKey`, by default the first field) has none. Another
+   * request can insert the same values between the check and the write, so it is for
+   * early feedback only: always declare `uniqueConstraint` as well.
    *
    * @example
    * ```ts

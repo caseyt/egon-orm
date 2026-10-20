@@ -98,7 +98,8 @@ sending SQL; see [Required fields](/guide/changesets#required-fields).
 `validateUniqueAsync(fields, repo)` queries for another row with the same values (not the
 changeset's own row) and adds `has already been taken` (`validation: "uniqueAsync"`)
 before the write is attempted. It runs only when one of the fields changed, all of them
-have a value and none has an error already. A changeset of a loaded row is checked in the
+have a value and none has an error already, nor has the key the error would go on
+(`errorKey`, by default the first field). A changeset of a loaded row is checked in the
 database schema the row was read from, where its update will be written. It cannot
 replace the constraint, because
 another request can insert between the check and the write. Declare both.

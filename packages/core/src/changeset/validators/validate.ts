@@ -513,6 +513,9 @@ function mapIssues(
     const head = path[0];
     const into = typeof head === "string" ? childOf(changeset, head, path) : undefined;
     if (into !== undefined && (options.only === undefined || options.only.includes(head as string))) {
+      // An issue on the key itself (`["venue"]`), where the key already has an error, is
+      // dropped like an issue on a field: the key keeps its first message.
+      if (path.length === 1 && hasOwn(errors, head as string)) continue;
       routed ??= new Map();
       let byIndex = routed.get(head as string);
       if (byIndex === undefined) {

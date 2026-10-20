@@ -792,6 +792,30 @@ describe("nested errors and validators", () => {
     });
   });
 
+  test("an issue on a nested key itself is dropped when the key already has an error", () => {
+    const venue = cast(Event, { venue: { name: "Hall" } }, [])
+      .castEmbed("venue")
+      .addError("venue", "is closed");
+    const cs = venue.validate(() => [
+      { path: ["venue"], message: "is dropped" },
+      { path: ["venue", "name"], message: "is kept" },
+    ]);
+    expect(cs.errorMessages()).toEqual({ venue: { name: ["is kept"], $errors: ["is closed"] } });
+    // Without an error on the key, the issue goes to the child's BASE.
+    const open = cast(Event, { venue: { name: "Hall" } }, [])
+      .castEmbed("venue")
+      .validate(() => [{ path: ["venue"], message: "is kept" }]);
+    expect(open.errorMessages()).toEqual({ venue: { $base: ["is kept"] } });
+
+    const Novel = novelWith("delete");
+    const novel = loaded(Novel, { id: 1, title: "N" }, { cover: null });
+    const covered = cast(novel, { cover: { colour: "red" } }, [])
+      .castAssoc("cover", { with: (c, p) => cast(c, p, ["colour"]) })
+      .addError("cover", "is missing")
+      .validate(() => [{ path: ["cover"], message: "is dropped" }]);
+    expect(covered.errorMessages()).toEqual({ cover: ["is missing"] });
+  });
+
   test("a nested change replaced by a valid one leaves the parent valid", () => {
     const Book = bookWith("delete");
     const book = loaded(Book, { id: 7, title: "B" }, { pages: [] });

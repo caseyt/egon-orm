@@ -97,7 +97,7 @@ accept it and a required key reports it as missing.
 
 | Option | Default | Effect |
 |---|---|---|
-| `scope` | `"all"` | `"all"` keeps every issue. `"changed"` keeps only issues on fields that have a change (and issues on the record as a whole). |
+| `scope` | `"all"` | `"all"` keeps every issue, except on a field that already has an error. `"changed"` keeps only issues on fields that have a change (and issues on the record as a whole). |
 | `apply` | `false` | When `true` and the schema finds no issue, its output is written back as changes, so transforms such as `.trim()` take effect. Standard Schemas only; cannot be combined with `only` or `scope: "changed"`. |
 | `only` | all fields | Gives the validator only these fields, and keeps only issues on them (and on the record as a whole). |
 
@@ -229,8 +229,9 @@ Type it with `ValidatorFn<T>` for the fields it needs:
 <<< @/examples/validation.ts#reusable
 
 ::: tip Good to know
-- **Validation keeps every issue by default.** A rule that reports on a field the user
-  did not change is still reported (`scope: "all"`); opt in to `scope: "changed"` per call.
+- **Validation keeps every issue by default**, except on a field that already has an
+  error, which keeps its first message. A rule that reports on a field the user did not
+  change is still reported (`scope: "all"`); opt in to `scope: "changed"` per call.
 - **A validator function returns an array, or nothing.** `return { path, message }`,
   `return "is taken"` or `return null` throws a `TypeError`; it is never read as "no
   issues".

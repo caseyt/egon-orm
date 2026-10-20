@@ -142,7 +142,8 @@ For Zod and other schema validators, see [Validation](/guide/validation).
 
 - `validateChange(field, (value, field) => ...)` returns a message, an error object
   (`{ message, validation?, meta? }`), an array of either, or nothing. It is called with
-  the changed value, never with `null`.
+  the changed value, never with `null`, and is not called at all for a field that
+  already has an error.
 - Every validation takes `{ message }`: a string, or a function that receives the error's
   `meta` and returns the message.
 - For a step you reuse across changeset functions, write a function of a changeset and

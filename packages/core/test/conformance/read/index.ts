@@ -684,6 +684,14 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
           .select(({ p }) => p.views.mul(val(2, t.type(cents))));
         expect(repo().toSql(q).sql).not.toContain("cast(");
         expect((await repo().all(q)).map(Number)).toEqual([240]);
+        // The guide's workaround for a fraction: give the value a built-in type.
+        const [half] = await repo().all(
+          from(Post, "p")
+            .where({ id: 10 })
+            .select(({ p }) => p.views.div(val(16, t.float()))),
+        );
+        expect(half).toBe(7.5);
+        expect(typeof half).toBe("number");
       });
     });
 

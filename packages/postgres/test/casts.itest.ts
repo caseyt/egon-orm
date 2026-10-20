@@ -340,10 +340,7 @@ describe("a typed value beside a column of another type in arithmetic keeps its 
     expect(repo.toSql(q.select(({ p }) => p.views.div(by))).sql).toContain('"p"."views" / $1');
     // The value takes the column's type: integer division, read as an integer.
     expect(await repo.all(q.select(({ p }) => p.views.div(by)))).toEqual([3]);
-    // The guide's workaround: cast the column.
-    const [half] = await repo.all(q.select(({ p }) => p.views.cast(t.float()).div(by)));
-    expect(half).toBe(3.5);
-    expect(typeof half).toBe("number");
+    // The guide's workaround, a built-in type, runs on every database: read conformance.
   });
 
   test("beside a column of a subquery that selects values the value is cast too (review round 1)", async () => {

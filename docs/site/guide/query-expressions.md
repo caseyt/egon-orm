@@ -186,8 +186,10 @@ two operands' types, in the order integer < bigint < decimal < float:
 `p.views.add(p.authorId)` (an integer and a `bigint({ mode: "number" })`) is read as that
 bigint. A plain value (`p.views.add(1)`) or a value of the column's own type takes the
 column's type. Two cases keep the left operand's type and leave the value to the column:
-`mod`, and a type made with `defineType`, which has no place in the order. There, cast the
-column first: `p.views.cast(t.float()).div(val(2, t.type(Cents)))`.
+`mod`, and a type made with `defineType`, which has no place in the order. For a value of
+such a type, give the value a built-in type instead: `p.views.div(val(2, t.float()))`
+rather than `p.views.div(val(2, t.type(Cents)))`. A fractional remainder is not available
+on Postgres, which has no `%` for floats: `mod` there takes integers.
 
 A comparison always reads the value as the column's type. On Postgres, a fraction compared
 with an integer column is refused (`p.views.lt(val(7.5, t.float()))`); cast the column,

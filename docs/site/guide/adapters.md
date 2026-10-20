@@ -126,10 +126,13 @@ of used.
   binary or `_as_cs` collation in your DDL where you need exact comparisons.
 - **DDL commits.** Each DDL statement ends the transaction it runs in, so a migration that
   fails midway is left half-applied; see [Migrations](/guide/migrations).
-- **A custom type is not named in a `CAST`.** MySQL's `CAST` takes only a few type names
-  (`signed`, `double`, `decimal(p, s)`, `char`, …), so a value of a type made with
-  `defineType` is bound as it is beside a column in arithmetic, as on every database (see
-  [Expressions](/guide/query-expressions#explicit-values-and-types)).
+- **Custom types and `CAST`.** MySQL's `CAST` takes only a few type names (`signed`,
+  `double`, `decimal(p, s)`, `char`, …). Beside a column in arithmetic, a value of a type
+  made with `defineType` is bound as it is, as on every database (see
+  [Expressions](/guide/query-expressions#explicit-values-and-types)). Elsewhere (two values
+  with nothing else to type them, a value in a `select`, a value beside an expression) such
+  a value is still cast to its type's name, which MySQL refuses unless it is one of those
+  names; give the value a built-in type there.
 - **`/` of two integers gives a decimal** (`7 / 2` is `3.5000`), where Postgres divides as
   integers (`3`).
 - A write conflict between serializable transactions is reported as a deadlock

@@ -9,7 +9,7 @@ import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createTestDatabase,
@@ -88,23 +88,20 @@ export default defineConfig({
 `;
 }
 
-const SCHEMAS = `import { belongsTo, Schema, t, timestamps } from "egon-orm";
-
-export class Author extends Schema("authors", {
-  id: t.bigint({ mode: "number" }).primaryKey().dbGenerated(),
-  email: t.string(),
-  nickname: t.string().nullable(),
-  ...timestamps(),
-}) {}
-
-export class Book extends Schema("books", {
-  id: t.bigint({ mode: "number" }).primaryKey().dbGenerated(),
-  authorId: t.bigint({ mode: "number" }),
-  title: t.string(),
-  pages: t.integer().default(100),
-}) {
-  static author = belongsTo(() => Author);
-}
+/** What the test writes into the created migration's change(m) { … }. */
+const LIBRARY = `    m.createTable("authors", (t) => {
+      t.id();
+      t.text("email").notNull();
+      t.text("nickname");
+      t.timestamps();
+    });
+    m.createTable("books", (t) => {
+      t.id();
+      t.references("author_id", "authors").notNull();
+      t.text("title").notNull();
+      t.integer("pages").notNull().default(100);
+    });
+    m.createIndex("authors", ["email"], { unique: true });
 `;
 
 beforeAll(async () => {
@@ -122,7 +119,6 @@ beforeAll(async () => {
   handle = await createTestDatabase("postgres", { label: "cli" });
   db = handle.db;
   await writeFile(join(project, "egon.config.ts"), config(db.name));
-  await writeFile(join(project, "schemas.ts"), SCHEMAS);
 }, 240_000);
 
 afterAll(async () => {
@@ -142,29 +138,34 @@ describe("egon, the built binary", () => {
     expect(unknown.stderr).toMatch(/Unknown command "deploy"/);
   });
 
-  test("gen migration --from-schema writes a scaffold; migrate, migrations, rollback run it", async () => {
-    const generated = await egon([
-      "gen",
-      "migration",
-      "create_library",
-      "--from-schema",
-      "schemas.ts",
-      "--export",
-      "Author,Book",
-    ]);
-    expect(generated.code).toBe(0);
-    expect(generated.stdout).toMatch(/^Created migrations\/\d{14}_create_library\.ts\n/);
-    expect(generated.stdout).toMatch(/one-time scaffold from the schema, not a diff/);
+  test("migrate create writes a migration; migrate, migrations, rollback run it", async () => {
+    expect((await egon(["migrate", "create", "--help"])).stdout).toBe(COMMAND_HELP["migrate create"]);
+    const gen = await egon(["gen", "migration", "create_library"]);
+    expect(gen.code).toBe(2);
+    expect(gen.stderr).toMatch(/Unknown command "gen"/);
+
+    const created = await egon(["migrate", "create", "create_library"]);
+    expect(created.code).toBe(0);
+    expect(created.stderr).toBe("");
+    expect(created.stdout).toMatch(/^Created migrations\/\d{14}_create_library\.ts\n$/);
     const [file] = await readdir(join(project, "migrations"));
-    const source = await readFile(join(project, "migrations", file as string), "utf8");
-    expect(source).toContain('m.createTable("authors", (t) => {');
-    expect(source).toContain('t.references("author_id", "authors").notNull();');
-    expect(source).toContain('t.integer("pages").notNull().default(100);');
-    // An index the schema cannot say: added by hand, as the scaffold asks.
-    await writeFile(
-      join(project, "migrations", file as string),
-      source.replace("  },\n});", '    m.createIndex("authors", ["email"], { unique: true });\n  },\n});'),
+    expect(created.stdout).toBe(`Created migrations/${file}\n`);
+    const path = join(project, "migrations", file as string);
+    const source = await readFile(path, "utf8");
+    expect(source).toBe(
+      'import { defineMigration } from "egon-orm/migration";\n\nexport default defineMigration({\n  change(m) {\n  },\n});\n',
     );
+    // --json and --dir: one object naming the file, written elsewhere.
+    const asJson = await egon(["migrate", "create", "create_other", "--dir", "drafts", "--json"]);
+    expect(asJson.code).toBe(0);
+    const report = JSON.parse(asJson.stdout) as { ok: boolean; command: string; name: string; path: string };
+    expect(report).toMatchObject({ ok: true, command: "migrate create", name: "create_other" });
+    expect(await readFile(report.path, "utf8")).toBe(source);
+    expect(isAbsolute(report.path)).toBe(true);
+    expect(await readdir(join(project, "drafts"))).toEqual([basename(report.path)]);
+    expect(basename(report.path)).toMatch(/^\d{14}_create_other\.ts$/);
+    expect(await readdir(join(project, "migrations"))).toEqual([file]);
+    await writeFile(path, source.replace("  change(m) {\n", `  change(m) {\n${LIBRARY}`));
 
     const dry = await egon(["migrate", "--dry-run"]);
     expect(dry.code).toBe(0);

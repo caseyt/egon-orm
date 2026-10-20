@@ -13,29 +13,28 @@
  * ```
  */
 export const COMMAND_HELP: Readonly<Record<string, string>> = Object.freeze({
-  "gen migration": `Usage: egon gen migration <name> [options]
-
-Writes a new migration file, <version>_<name>.ts, in the migrations directory. The
-version is the current UTC time (YYYYMMDDHHMMSS); the name is lower-case letters,
-digits and underscores.
-
-Options:
-  --from-schema <file>   Prefill createTable from the schema classes the file exports.
-                         A one-time scaffold, not a diff: check and edit what it writes.
-  --export <names>       With --from-schema: the exports to use, comma-separated
-                         (needed when the file exports more than one schema class).
-  --dir <directory>      Where to write it (default: the configured migrations directory).
-  --config <file>        The config file (default: egon.config.ts in this directory).
-`,
   migrate: `Usage: egon migrate [options]
+       egon migrate create <name> [options]
 
-Applies the pending migrations, oldest first.
+Applies the pending migrations, oldest first. With create, writes a new migration file
+instead (egon migrate create --help).
 
 Options:
   --to <version>         Apply up to and including this version.
   --step <n>             Apply this many.
   --dry-run              Print the SQL of each pending migration; run nothing.
   --json                 Print one JSON object instead of log lines.
+  --config <file>        The config file (default: egon.config.ts in this directory).
+`,
+  "migrate create": `Usage: egon migrate create <name> [options]
+
+Writes a new, empty migration file, <version>_<name>.ts, in the migrations directory.
+The version is the current UTC time (YYYYMMDDHHMMSS); the name is lower-case letters,
+digits and underscores. An existing file is never overwritten.
+
+Options:
+  --dir <directory>      Where to write it (default: the configured migrations directory).
+  --json                 Print one JSON object instead of the path.
   --config <file>        The config file (default: egon.config.ts in this directory).
 `,
   rollback: `Usage: egon rollback [options]
@@ -86,8 +85,8 @@ Options:
 export const MAIN_HELP = `Usage: egon <command> [options]
 
 Commands:
-  gen migration <name>   Write a new migration file (--from-schema to prefill it).
   migrate                Apply pending migrations.
+  migrate create <name>  Write a new, empty migration file.
   rollback               Roll back applied migrations (the latest one by default).
   migrations             List migrations and their state.
   db create|drop|reset   Create, drop or recreate the development database.

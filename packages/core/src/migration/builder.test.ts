@@ -238,6 +238,16 @@ describe("arguments refused when recorded", () => {
     ["an empty schema", (m) => m.createTable("t", (t) => t.id(), { schema: "" })],
     ["an id of another type", (m) => m.createTable("t", (t) => t.id("id", { type: "uuid" } as never))],
     [
+      "an id of another type, options first",
+      (m) => m.createTable("t", (t) => t.id({ type: "uuid" } as never)),
+    ],
+    ["an id with an unknown option first", (m) => m.createTable("t", (t) => t.id({ name: "key" } as never))],
+    [
+      "an id with options first and a second argument",
+      (m) => m.createTable("t", (t) => loose(t).id?.({ type: "integer" }, { type: "bigint" })),
+    ],
+    ["an id named by null", (m) => m.createTable("t", (t) => t.id(null as never))],
+    [
       "a bad reference action",
       (m) => m.createTable("t", (t) => t.id() && t.references("o", "orgs", { onDelete: "drop" } as never)),
     ],

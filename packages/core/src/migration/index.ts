@@ -19,6 +19,7 @@ export type {
   CreateTableOptions,
   DropConstraintOptions,
   DropTableOptions,
+  IdOptions,
   IndexOptions,
   MigrationBuilder,
   ModifyOptions,

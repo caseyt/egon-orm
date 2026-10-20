@@ -434,6 +434,125 @@ describe("building and caching", () => {
   });
 });
 
+describe("integer and float values must be numbers", () => {
+  class Gauge extends Schema("gauges", {
+    id: t.integer().primaryKey(),
+    level: t.float().nullable(),
+    label: t.string(),
+    total: t.bigint({ mode: "number" }),
+  }) {}
+  const GAUGE = meta(Gauge);
+  const kinds = ["generated", "interpreted"] as const;
+  const decoderOf = (kind: (typeof kinds)[number], plan: OutputPlan, source: CodecSource = codecs) =>
+    kind === "generated" ? generateDecoder(plan, source) : interpretDecoder(plan, source);
+
+  test.for(kinds)("a t.integer() field that receives a string throws a CastError naming it (%s)", (kind) => {
+    // pg reads a bigint (bigserial) column as text.
+    const decode = decoderOf(kind, rowLeaf(GAUGE, 0));
+    const read = () => decode(rawRow(GAUGE, 0, { id: "12", label: "a", total: 1 }), []);
+    expect(read).toThrow(CastError);
+    expect(read).toThrow(
+      'Gauge.id is declared t.integer(), but the database returned a string for it, not a number. A bigint or numeric column is read as text: declare the field t.bigint({ mode: "number" }) to read a 64-bit column as a number, or make the column an integer column.',
+    );
+  });
+
+  test.for(kinds)("a t.float() field that receives a string suggests t.decimal() (%s)", (kind) => {
+    // pg reads a numeric column as text.
+    const decode = decoderOf(kind, rowLeaf(GAUGE, 0));
+    expect(() => decode(rawRow(GAUGE, 0, { id: 1, level: "1.5", label: "a", total: 1 }), [])).toThrow(
+      "Gauge.level is declared t.float(), but the database returned a string for it, not a number. A numeric (decimal) column is read as text: declare the field t.decimal(), or make the column a floating-point column.",
+    );
+  });
+
+  test.for(kinds)("a value of another kind is refused too, and named by kind only (%s)", (kind) => {
+    const decode = decoderOf(kind, rowLeaf(GAUGE, 0));
+    expect(() => decode(rawRow(GAUGE, 0, { id: 7n, label: "a", total: 1 }), [])).toThrow(
+      "returned a bigint for it",
+    );
+    expect(() => decode(rawRow(GAUGE, 0, { id: { secret: "s3cr3t" }, label: "a", total: 1 }), [])).toThrow(
+      /returned a object for it/,
+    );
+    // The value never appears in the message: the field may be redacted.
+    try {
+      decode(rawRow(GAUGE, 0, { id: "s3cr3t", label: "a", total: 1 }), []);
+      expect.unreachable();
+    } catch (error) {
+      expect(String(error)).not.toContain("s3cr3t");
+    }
+  });
+
+  test.for(kinds)("numbers, null, and a column the row does not have pass as they are (%s)", (kind) => {
+    const decode = decoderOf(kind, rowLeaf(GAUGE, 0));
+    const gauge = decode(rawRow(GAUGE, 0, { id: 1, level: 2.5, label: "a", total: 1 }), []) as Gauge;
+    expect([gauge.id, gauge.level]).toEqual([1, 2.5]);
+    expect((decode(rawRow(GAUGE, 0, { id: 1, label: "a", total: 1 }), []) as Gauge).level).toBeNull();
+    const plan: OutputPlan = { kind: "value", alias: "c0", type: integerType() as AnyFieldType };
+    expect(decoderOf(kind, plan)({}, [])).toBeUndefined();
+    expect(decoderOf(kind, plan)({ c0: Number.NaN }, [])).toBeNaN();
+  });
+
+  test.for(kinds)("other types are not checked (%s)", (kind) => {
+    const decode = decoderOf(kind, rowLeaf(GAUGE, 0));
+    // A string for t.string(), digit text for t.bigint({ mode: "number" }) (its own fromDb reads it).
+    const gauge = decode(rawRow(GAUGE, 0, { id: 1, label: "a", total: "42" }), []) as Gauge;
+    expect([gauge.label, gauge.total]).toEqual(["a", 42]);
+    // A type of your own with an integer column is yours to convert.
+    const Own = defineType<number>({
+      name: "own",
+      db: { kind: "integer" },
+      cast: () => ({ success: false }),
+    });
+    expect(decoderOf(kind, { kind: "value", alias: "c0", type: Own as AnyFieldType })({ c0: "x" }, [])).toBe(
+      "x",
+    );
+  });
+
+  test.for(kinds)("the check runs after the dialect's driver fix (%s)", (kind) => {
+    // As MySQL declares it: digit text becomes a number, anything else is left as it is.
+    const fixed: CodecSource = {
+      typeOverrides: typeOverridesFrom({
+        integer: {
+          fromDb: (value) => (typeof value === "string" && /^\d+$/.test(value) ? Number(value) : value),
+        },
+      }),
+    };
+    const decode = decoderOf(kind, rowLeaf(GAUGE, 0), fixed);
+    expect((decode(rawRow(GAUGE, 0, { id: "12", label: "a", total: 1 }), []) as Gauge).id).toBe(12);
+    expect(() => decode(rawRow(GAUGE, 0, { id: "1.5", label: "a", total: 1 }), [])).toThrow(
+      "Gauge.id is declared t.integer(), but the database returned a string",
+    );
+    expect((decode(rawRow(GAUGE, 0, { id: 3, label: "a", total: 1 }), []) as Gauge).id).toBe(3);
+  });
+
+  test.for(kinds)("a selected value is named by its key, or as the selected value (%s)", (kind) => {
+    const integer: OutputPlan = { kind: "value", alias: "c0", type: integerType() as AnyFieldType };
+    const nested: OutputPlan = {
+      kind: "object",
+      keys: ["stats"],
+      values: [{ kind: "object", keys: ["posts"], values: [integer] }],
+    };
+    expect(() => decoderOf(kind, nested)({ c0: "3" }, [])).toThrow(
+      '"stats".posts is declared t.integer(), but the database returned a string',
+    );
+    expect(() => decoderOf(kind, integer)({ c0: "3" }, [])).toThrow(
+      "The selected value is declared t.integer()",
+    );
+    const pair: OutputPlan = { kind: "tuple", items: [integer] };
+    expect(() => decoderOf(kind, pair)({ c0: "3" }, [])).toThrow("The selected value[0] is declared");
+    const inObject: OutputPlan = { kind: "object", keys: ["pair"], values: [pair] };
+    expect(() => decoderOf(kind, inObject)({ c0: "3" }, [])).toThrow('"pair"[0] is declared');
+    expect(decoderOf(kind, nested)({ c0: 3 }, [])).toEqual({ stats: { posts: 3 } });
+  });
+
+  test("the generated decoder tests a value that needs no conversion inline", () => {
+    // The check function is called only for a value that is not a number.
+    const plan: OutputPlan = { kind: "value", alias: "c0", type: integerType() as AnyFieldType };
+    const decode = generateDecoder(plan, codecs);
+    expect(decode.toString()).toContain('(v0 === null || typeof v0 === "number" ? v0 : n0(v0))');
+    expect(decode({ c0: 5 }, [])).toBe(5);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Generated and interpreted decoders are equivalent
 // ---------------------------------------------------------------------------

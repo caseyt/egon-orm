@@ -182,4 +182,19 @@ describe.runIf(tier2Enabled())("mysql", () => {
       }),
     ).rejects.toThrow("An onConflict target is not supported by mysql.");
   });
+
+  test("a t.integer() field over a bigint column reads numbers: mysql2 sends one as a number", async () => {
+    // The blog keys are bigint AUTO_INCREMENT; pg would send them as text (see the Postgres suite).
+    class LooseUser extends Schema("users", {
+      id: t.integer().primaryKey().dbGenerated(),
+      email: t.string(),
+    }) {}
+    const rows = await repo.all(from(LooseUser, "u").where(({ u }) => u.id.eq(1)));
+    expect(rows.map((row) => row.id)).toEqual([1]);
+    await handle.db.query("create table measures (id integer primary key, amount decimal(10, 2) not null)");
+    await handle.db.query("insert into measures values (1, 1.50)");
+    // A decimal arrives as text; the float codec reads numeric text as a number.
+    class Measure extends Schema("measures", { id: t.integer().primaryKey(), amount: t.float() }) {}
+    expect((await repo.all(from(Measure, "m"))).map((m) => m.amount)).toEqual([1.5]);
+  });
 });

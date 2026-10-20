@@ -82,6 +82,24 @@ describe("createTable", () => {
     `);
   });
 
+  test("t.id() takes its options first when the key is named id", () => {
+    expect(
+      sqlOf((m) => {
+        m.createTable("tallies", (t) => t.id({ type: "integer" }));
+        m.createTable("ledgers", (t) => t.id({ type: "bigint" }));
+        m.createTable("notes", (t) => t.id({}));
+        m.createTable("marks", (t) => t.id(undefined, { type: "integer" }));
+      }),
+    ).toMatchInlineSnapshot(`
+      [
+        "create table "tallies" ("id" serial primary key)",
+        "create table "ledgers" ("id" bigserial primary key)",
+        "create table "notes" ("id" bigserial primary key)",
+        "create table "marks" ("id" serial primary key)",
+      ]
+    `);
+  });
+
   test("a table can live in a database schema, skip an existing one, and have no key when it says so", () => {
     expect(
       sqlOf((m) => {

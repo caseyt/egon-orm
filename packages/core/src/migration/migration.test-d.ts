@@ -24,6 +24,15 @@ describe("defineMigration", () => {
         expectTypeOf(m).toEqualTypeOf<MigrationBuilder>();
         m.createTable("users", (t) => {
           expectTypeOf(t.id()).toEqualTypeOf<ColumnBuilder>();
+          // Options first when the key is named id, or after a name.
+          expectTypeOf(t.id({ type: "integer" })).toEqualTypeOf<ColumnBuilder>();
+          expectTypeOf(t.id("key", { type: "bigint" })).toEqualTypeOf<ColumnBuilder>();
+          // @ts-expect-error: a key is bigint or integer
+          t.id({ type: "uuid" });
+          // @ts-expect-error: options come first or second, not both
+          t.id({ type: "integer" }, { type: "bigint" });
+          // @ts-expect-error: no other option
+          t.id({ name: "key" });
           t.text("email").notNull().unique();
         });
       },

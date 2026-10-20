@@ -1,8 +1,10 @@
 // Postgres-only read behaviour the shared conformance suite cannot assert on every database:
-// explain with format and analyze in one call (MySQL refuses the pair), and where Postgres
-// puts NULLs by default in an ascending order (last; SQLite and MySQL put them first).
+// explain with format and analyze in one call (MySQL refuses the pair), where Postgres
+// puts NULLs by default in an ascending order (last; SQLite and MySQL put them first), and
+// that pg reads a bigint or numeric column as text, which a t.integer() or t.float() field
+// refuses.
 import { Comment, createTestDatabase, Post, type TestDatabaseHandle, User } from "@egon-orm/test-support";
-import { createRepo, from, type Repo } from "egon-orm";
+import { CastError, createRepo, from, type Repo, Schema, t } from "egon-orm";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { postgres } from "../src/index.js";
 
@@ -45,4 +47,53 @@ test("a full join ordered by a nullable key puts the NULLs last, in the database
     [null, 101],
     [null, 102],
   ]);
+});
+
+// The blog keys are bigserial (int8), which pg sends as text; posts.views is an integer.
+class LooseUser extends Schema("users", { id: t.integer().primaryKey().dbGenerated(), email: t.string() }) {}
+class LoosePost extends Schema("posts", {
+  id: t.bigint({ mode: "number" }).primaryKey(),
+  views: t.integer(),
+}) {}
+
+test("a t.integer() field over a bigint column throws a CastError instead of holding a string", async () => {
+  const read = repo.all(from(LooseUser, "u").orderBy(({ u }) => u.id));
+  await expect(read).rejects.toThrow(CastError);
+  await expect(repo.all(from(LooseUser, "u"))).rejects.toThrow(
+    'LooseUser.id is declared t.integer(), but the database returned a string for it, not a number. A bigint or numeric column is read as text: declare the field t.bigint({ mode: "number" }) to read a 64-bit column as a number, or make the column an integer column.',
+  );
+  // A selected column is checked too, named by its key.
+  await expect(repo.all(from(LooseUser, "u").select(({ u }) => ({ key: u.id })))).rejects.toThrow(
+    '"key" is declared t.integer(), but the database returned a string',
+  );
+  // An integer column read into t.integer() or t.float() is a number.
+  expect(
+    await repo.all(
+      from(LooseUser, "u")
+        .select(({ u }) => u.email)
+        .orderBy(({ u }) => u.email),
+    ),
+  ).toEqual(["a@example.com", "b@example.com"]);
+  expect((await repo.all(from(LoosePost, "p").orderBy(({ p }) => p.id))).map((post) => post.views)).toEqual([
+    0, 0, 0,
+  ]);
+});
+
+test("a t.float() field over a numeric column throws a CastError; t.decimal() or a cast reads it", async () => {
+  await handle.db.exec(`
+    create table measures (id integer primary key, amount numeric(10, 2) not null, ratio double precision not null);
+    insert into measures values (1, 1.50, 0.5);
+  `);
+  class Measure extends Schema("measures", {
+    id: t.integer().primaryKey(),
+    amount: t.float(),
+    ratio: t.float(),
+  }) {}
+  class ExactMeasure extends Schema("measures", { id: t.integer().primaryKey(), amount: t.decimal() }) {}
+  await expect(repo.all(from(Measure, "m"))).rejects.toThrow(
+    "Measure.amount is declared t.float(), but the database returned a string for it, not a number. A numeric (decimal) column is read as text: declare the field t.decimal(), or make the column a floating-point column.",
+  );
+  expect((await repo.all(from(ExactMeasure, "m"))).map((m) => m.amount)).toEqual(["1.50"]);
+  const asFloat = from(ExactMeasure, "m").select(({ m }) => ({ amount: m.amount.cast(t.float()) }));
+  expect(await repo.all(asFloat)).toEqual([{ amount: 1.5 }]);
 });

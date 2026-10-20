@@ -25,6 +25,7 @@
     "paths": {
       "egon-orm": ["./packages/core/src/index.ts"],
       "egon-orm/migration": ["./packages/core/src/migration/index.ts"],
+      "egon-orm/testing": ["./packages/core/src/testing.ts"],
       "@egon-orm/postgres": ["./packages/postgres/src/index.ts"],
       "@egon-orm/sqlite": ["./packages/sqlite/src/index.ts"],
       "@egon-orm/mysql": ["./packages/mysql/src/index.ts"],

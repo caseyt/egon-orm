@@ -53,8 +53,8 @@ import {
   splitArgs,
 } from "./options.js";
 import { inputOf, type ReadCore } from "./read.js";
+import { atomically } from "./transaction.js";
 import {
-  acquireWithin,
   conflictOption,
   deadlineOf,
   type OnConflictOption,
@@ -138,37 +138,9 @@ export const INSERT_ALL_OPTION_KEYS: readonly string[] = Object.freeze([
 // Transactions and budgets
 // ---------------------------------------------------------------------------
 
-/**
- * Runs `work` on one executor inside a transaction: the call's own (begin, commit,
- * rollback on failure) when the repo runs on the pool, or the executor it already has
- * (a transaction's connection), whose transaction the work joins.
- */
-async function inTransaction<T>(
-  core: ReadCore,
-  options: ReadOptions | undefined,
-  deadline: number | undefined,
-  work: (executor: Executor) => Promise<T>,
-): Promise<T> {
-  if (core.executor !== core.adapter) return work(core.executor);
-  const connection = await acquireWithin(core, options, deadline);
-  let value: T;
-  try {
-    await connection.begin();
-    value = await work(connection);
-    await connection.commit();
-  } catch (error) {
-    try {
-      await connection.rollback();
-    } catch {
-      await connection.destroy();
-      throw error;
-    }
-    await connection.release();
-    throw error;
-  }
-  await connection.release();
-  return value;
-}
+// Several chunks run through `atomically` (step 16): in a transaction of their own on the
+// pool, in a savepoint inside a transaction (so that a failed chunk undoes only this call
+// and the caller's transaction stays usable).
 
 // ---------------------------------------------------------------------------
 // insertAll
@@ -509,7 +481,7 @@ export async function insertAll(
     }
     return { count, rows };
   };
-  return sizes.length > 1 ? inTransaction(core, settings.options, deadline, run) : run(core.executor);
+  return sizes.length > 1 ? atomically(core, settings.options, deadline, run) : run(core.executor);
 }
 
 /**

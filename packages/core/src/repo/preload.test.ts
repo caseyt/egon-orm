@@ -293,14 +293,18 @@ function setup(capabilities: Capabilities = POSTGRES_CAPABILITIES): {
   return { adapter, driver };
 }
 
-function fake(options: { capabilities?: Capabilities; codegen?: boolean } = {}): {
+function fake(options: { capabilities?: Capabilities; codegen?: boolean; warn?: boolean } = {}): {
   repo: Repo;
   driver: FakeDriver;
   events: RepoQueryEvent[];
   adapter: DatabaseAdapter;
 } {
   const { adapter, driver } = setup(options.capabilities);
-  const repo = createRepo({ adapter, codegen: options.codegen ?? true });
+  const repo = createRepo({
+    adapter,
+    codegen: options.codegen ?? true,
+    warnOnRootUseInTransaction: options.warn ?? false,
+  });
   const events: RepoQueryEvent[] = [];
   repo.on("query", (event) => events.push(event));
   return { repo, driver, events, adapter };
@@ -994,6 +998,19 @@ describe("options", () => {
     expect(rows).toHaveLength(3);
     expect(driver.most).toBe(1);
     await connection.release();
+  });
+
+  test("with the root-use warning on, the root still runs siblings together, and tx one at a time", async () => {
+    // The warning wraps the root's executor around the pool: it is still the pool.
+    const { repo, driver } = fake({ warn: true });
+    driver.delayMs = 10;
+    const query = from(Author, "a").preload(["bio", "books", "notes"]);
+    await repo.all(query, { maxConcurrency: 2 });
+    expect(driver.most).toBe(2);
+    driver.most = 0;
+    const inside = await repo.transaction((tx) => tx.all(query, { maxConcurrency: 2 }));
+    expect(inside.success).toBe(true);
+    expect(driver.most).toBe(1);
   });
 });
 

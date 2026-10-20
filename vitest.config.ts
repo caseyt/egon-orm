@@ -10,6 +10,7 @@ const fromRoot = (path: string): string => fileURLToPath(new URL(path, import.me
 const alias = {
   // Before "egon-orm": an alias also matches the subpaths of its key, and the first match wins.
   "egon-orm/migration": fromRoot("./packages/core/src/migration/index.ts"),
+  "egon-orm/testing": fromRoot("./packages/core/src/testing.ts"),
   "egon-orm": fromRoot("./packages/core/src/index.ts"),
   "@egon-orm/postgres": fromRoot("./packages/postgres/src/index.ts"),
   "@egon-orm/sqlite": fromRoot("./packages/sqlite/src/index.ts"),
@@ -90,10 +91,30 @@ const parallelPair: TestProjectConfiguration = {
   },
 };
 
+/**
+ * Step 16: the two files that prove the sandbox isolates test files that run at the same
+ * time over one database. Like the parallel pair, they need two workers and are started in
+ * a Vitest process of their own, by the transaction conformance suite
+ * (packages/core/test/conformance/transaction), which passes the database and the
+ * dialect's profile in the environment.
+ */
+const sandboxPair: TestProjectConfiguration = {
+  resolve: { alias },
+  test: {
+    name: "core:sandbox-pair",
+    root: fromRoot("./packages/core"),
+    environment: "node",
+    include: ["test/conformance/transaction/sandbox-*.pair.ts"],
+    fileParallelism: true,
+    testTimeout: 30_000,
+    hookTimeout: 60_000,
+  },
+};
+
 export default defineConfig({
   test: {
     passWithNoTests: true,
-    projects: [...PACKAGES.flatMap(projectsFor), parallelPair],
+    projects: [...PACKAGES.flatMap(projectsFor), parallelPair, sandboxPair],
     coverage: {
       provider: "v8",
       // Resolved against each project root (packages/<name>), not the repository root.

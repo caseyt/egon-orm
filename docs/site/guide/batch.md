@@ -3,25 +3,7 @@
 A batch is a list of named steps that run in one transaction. It is a value: you can
 build it in one place, add to it in another, inspect it in a test, and run it later.
 
-```ts
-import { createBatch, change, success } from "egon-orm";
-
-const signUp = createBatch()
-  .insert("user", User.changeset(User, input))
-  .insert("profile", ({ user }) => change(Profile, { userId: user.id }))
-  .run("welcome", async (tx, { user }) => success(await queueWelcomeEmail(tx, user)));
-
-const result = await repo.transaction(signUp);
-
-if (result.success) {
-  result.data.user;      // User
-  result.data.profile;   // Profile
-} else {
-  result.error.step;       // "user" | "profile" | "welcome"
-  result.error.error;      // what that step failed with
-  result.error.completed;  // the results of the steps before it
-}
-```
+<<< @/examples/batch.ts#sign-up
 
 ## Steps
 
@@ -30,62 +12,69 @@ the results of the earlier steps by name, fully typed.
 
 | Step | Result under its name |
 |---|---|
-| `insert`, `update`, `delete`, `insertOrUpdate` | the row |
-| `insertAll`, `updateAll`, `deleteAll` | `{ count, rows }` |
-| `one`, `all`, `exists` | the query's result |
+| `insert(name, changeset, opts?)`, `update`, `delete`, `insertOrUpdate` | the row (`delete` also takes a row) |
+| `insertAll(name, schema, rows, opts?)`, `updateAll(name, query)`, `deleteAll(name, queryable)` | `{ count, rows }` |
+| `one(name, queryable)`, `all`, `exists` | the query's result (`one`: the row or `null`) |
 | `run(name, fn)` | whatever `fn` returns inside `success(...)` |
 | `put(name, value)` | the value |
 | `inspect(name?, fn)` | nothing; calls `fn` with the results so far |
 
+Each step takes the same options as the repo method of its name; a query with named
+parameters takes them after the query, as `repo.all` does.
+
 `run(name, async (tx, results) => ...)` is for anything else. It must return
-`success(data)` or `failure(error)`. Use the `tx` it is given for database work.
+`success(data)` or `failure(error)`; anything else is a `TypeError`. Use the `tx` it is
+given for database work.
+
+<<< @/examples/batch.ts#steps
+
+A step's function receives a copy of the results so far: changing it changes nothing.
 
 ## Composing
 
 | Method | Effect |
 |---|---|
-| `merge((results) => batch)` | Builds more steps from the results so far, at that point in the sequence. |
+| `merge((results) => batch)` | Builds more steps from the results so far, at that point in the sequence. It runs when the batch reaches it, inside the transaction. |
 | `append(batch)`, `prepend(batch)` | Joins two batches. |
-| `Batch.toList(batch)` | The steps as data, for tests. |
+| `Batch.toList(batch)` | The steps as data, for tests: `{ name, operation, input, schema, args }` each. |
 
-A batch is immutable: every method returns a new one. A duplicate step name throws when
-the batch is built.
+A batch is immutable: every method returns a new one. A duplicate step name does not
+compile where the types can see it, and throws `QueryError` when the batch is built (or,
+for a name a `merge` adds, when the batch runs).
 
-```ts
-const audit = (action: string) => (results: { user: User }) =>
-  createBatch().insert("audit", change(AuditLog, { userId: results.user.id, action }));
+<<< @/examples/batch.ts#compose
 
-const withAudit = signUp.merge(audit("signed_up"));
-```
+<<< @/examples/batch.ts#to-list
 
 ## Running
 
 `repo.transaction(batch)` runs the steps in order.
 
-- **Checked first.** Steps given a ready-made changeset are checked before the
-  transaction opens. If one is invalid, the batch fails at once with no queries.
-- **The first failure stops it.** Everything is rolled back, and the result names the
-  step, its error, and what had completed.
+- **Checked first.** Write steps given a ready-made changeset (not a function) are checked
+  before the transaction opens. If one is invalid, the batch fails at once with that step,
+  its changeset and `completed: {}`, and no query is sent.
+- **The first failure stops it.** A write step whose result is a failure, or a `run` step
+  that returns `failure(error)`, rolls everything back, and the result names the step,
+  its error, and what had completed.
 - **A throw is a throw.** If a step throws, the transaction is rolled back and the error
   propagates.
 - **Inside a transaction** (`tx.transaction(batch)`) the batch runs in a savepoint.
+- **`repo.transactionOrThrow(batch)`** returns the results, and a failure throws
+  `RollbackError` whose `reason` is `{ step, error, completed }`:
+
+<<< @/examples/batch.ts#or-throw
+
+`repo.transaction(batch, opts)` takes the [transaction options](/guide/transactions#options).
 
 ## Handling a failure
 
-`step` is typed as the union of the step names, so a `switch` narrows `error`:
+`step` is typed as the union of the names of the steps that can fail (the write steps, and
+the `run` steps that can return `failure(…)`), so a `switch` narrows `error`, and
+`completed` to the results of the steps before that one. A `run` step that only returns
+`success(…)` is not in the union, and a batch with no step that can fail has `never` as its
+error type.
 
-```ts
-if (!result.success) {
-  switch (result.error.step) {
-    case "user":
-      return result.error.error.errorMessages();   // Changeset<User>
-    case "profile":
-      return result.error.error.errorMessages();   // Changeset<Profile>
-    case "welcome":
-      return { email: ["could not be queued"] };
-  }
-}
-```
+<<< @/examples/batch.ts#handle
 
 ## Batch or transaction callback?
 

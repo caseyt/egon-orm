@@ -17,6 +17,7 @@ import {
   createRepo,
   type DatabaseAdapter,
   DatabaseError,
+  fragment,
   from,
   hasMany,
   isLoaded,
@@ -971,6 +972,45 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
       }
       const { repo } = watched();
       expect(await repo.count(from(Post, "p").where(({ p }) => p.id.gte(30)))).toBe(0);
+    });
+
+    test("through repo.transaction, preloads run on the transaction's connection and see its writes", async ({
+      onTestFinished,
+    }) => {
+      // The transaction commits the posts: remove them again for the tests after this one,
+      // whether this one passes or not (through the helper's connection, which outlives the
+      // adapters the suite closes after each test).
+      onTestFinished(() => db.exec("delete from posts where id >= 40"));
+      const { repo, events } = watched();
+      const result = await repo.transaction(async (tx) => {
+        await tx.raw(
+          fragment`insert into posts (id, author_id, title) values (${40}, ${3}, ${"In the transaction"}), (${41}, ${3}, ${"Also in it"})`,
+        );
+        const rows = await tx.all(
+          from(User, "u")
+            .where(({ u }) => u.id.eq(3))
+            .preload(["profile", { posts: ["comments", "tags"] }]),
+          { maxConcurrency: 4 },
+        );
+        // A connection outside the transaction does not see the posts yet.
+        const outside = await repo.count(from(Post, "p").where(({ p }) => p.id.gte(40)));
+        return { titles: rows[0]?.posts.map((post) => post.title), outside };
+      });
+      expect(result).toEqual({
+        success: true,
+        data: { titles: ["In the transaction", "Also in it"], outside: 0 },
+      });
+      expect(operations(events)).toEqual([
+        "raw",
+        "all users",
+        "preload profiles",
+        "preload posts",
+        "preload comments",
+        "preload tags",
+        "aggregate posts",
+      ]);
+      // Committed with the transaction.
+      expect(await repo.count(from(Post, "p").where(({ p }) => p.id.gte(40)))).toBe(2);
     });
 
     test("many parents: the keys are sent in statements of at most chunkKeys", async () => {

@@ -13,8 +13,10 @@ const quoteMysql = (name: string): string => `\`${name.replaceAll("`", "``")}\``
  * Empties every table in the test database and resets its sequences / auto-increment
  * counters. Returns the names of the tables it truncated.
  *
- * This is the isolation mechanism for integration tests until the transactional sandbox
- * arrives in step 16: call it in `afterEach` (or `beforeEach`).
+ * Integration tests isolate themselves with the sandbox of `egon-orm/testing` (step 16),
+ * which rolls each test back and commits nothing. This is for the tests that cannot run in
+ * a sandbox because they check what other connections see after a commit (two adapters,
+ * real transactions): call it after such a test, or before each one.
  */
 export async function truncateAll(db: TestDatabase, options: TruncateOptions = {}): Promise<string[]> {
   const except = new Set(options.except ?? []);

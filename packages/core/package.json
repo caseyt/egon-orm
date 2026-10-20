@@ -34,6 +34,10 @@
       "types": "./dist/migration.d.ts",
       "default": "./dist/migration.js"
     },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
+    },
     "./package.json": "./package.json"
   },
   "engines": {

@@ -1,17 +1,26 @@
 import { defineConfig } from "tsup";
 
-// Build config is identical across packages on purpose; keep them in sync. The one
-// difference here is the second entry: `dist/internal.js` is NOT part of the package's
-// `exports` (nothing can import it by name) and is excluded from the published files
-// (`"!dist/internal.*"` in package.json). It exists so that benchmarks, which run inside
-// the workspace, can measure the built internal utilities
-// (benchmarks/micro/internal.bench.ts) instead of the sources.
+// Build config is identical across packages on purpose; keep them in sync. The
+// differences here are the entries and `splitting`:
 //
-// The third entry is the public subpath `egon-orm/migration` (step 18). The entries share
-// their modules through chunks (`splitting: true`), so that `egon-orm` and
-// `egon-orm/migration` have one copy of every class (the errors, `Expr`) between them.
+// - `dist/migration.js` and `dist/testing.js` are the public subpaths `egon-orm/migration`
+//   (step 18) and `egon-orm/testing` (step 16).
+// - `dist/internal.js` is NOT part of the package's `exports` (nothing can import it by
+//   name) and is excluded from the published files (`"!dist/internal.*"` in
+//   package.json). It exists so that benchmarks, which run inside the workspace, can
+//   measure the built internal utilities (benchmarks/micro/internal.bench.ts) instead of
+//   the sources.
+// - `splitting: true`, because there is more than one entry: the code they share goes into
+//   shared chunks (`dist/chunk-*.js`, and `dist/*-<hash>.d.ts` for the declarations), so
+//   that the entries use one copy of every class and registry between them (the errors,
+//   `Expr`; the sandbox of `egon-orm/testing` recognises a repo made by `egon-orm`).
 export default defineConfig({
-  entry: { index: "src/index.ts", migration: "src/migration/index.ts", internal: "src/internal/index.ts" },
+  entry: {
+    index: "src/index.ts",
+    migration: "src/migration/index.ts",
+    testing: "src/testing.ts",
+    internal: "src/internal/index.ts",
+  },
   // ESM only (decision D14): no CommonJS build. A CommonJS project loads the package with
   // `require()` of an ES module, which Node supports from 22.12.
   format: ["esm"],
@@ -24,6 +33,6 @@ export default defineConfig({
   dts: { compilerOptions: { ignoreDeprecations: "6.0" } },
   sourcemap: true,
   clean: true,
-  splitting: true,
+  splitting: true, // see above
   treeshake: true,
 });

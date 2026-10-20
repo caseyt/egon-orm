@@ -999,6 +999,22 @@ describe("timeoutMs on a transaction", () => {
     expect(pool.sent).toEqual(["begin", "slow", "rollback"]);
   });
 
+  test("still ends in the timeout when the callback catches the stopped statement's error and returns", async () => {
+    const { pool, repo } = setup();
+    pool.delay = (sql) => (sql === "slow" ? 1_000 : 0);
+    const error = await rejection(
+      repo.transaction(
+        async (tx) => {
+          await tx.raw(say("slow")).catch(() => undefined);
+          return "returned";
+        },
+        { timeoutMs: 30 },
+      ),
+    );
+    expect((error as DatabaseError).code).toBe("timeout");
+    expect(pool.sent).toEqual(["begin", "slow", "rollback"]);
+  });
+
   test("runs out between statements too, and tx is refused afterwards", async () => {
     const { pool, repo } = setup();
     let leaked: Repo | undefined;
@@ -1823,11 +1839,18 @@ describe("the sandbox", () => {
     const { repo } = setup({ warn: true });
     const sandbox = await createSandbox(repo);
     await sandbox.begin();
+    // Inside the sandbox, the warning is given too.
+    await repo.transaction(async (tx) => {
+      await tx.raw(say("inside"));
+      await repo.raw(say("outside"));
+    });
+    await repo.raw(say("not in a callback"));
+    expect(seen).toHaveLength(1);
     await sandbox.rollback();
     await repo.transaction(async () => {
       await repo.raw(say("outside"));
     });
-    expect(seen).toHaveLength(1);
+    expect(seen).toHaveLength(2);
   });
 });
 

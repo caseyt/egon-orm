@@ -524,6 +524,8 @@ export class Level implements Executor {
   readonly #turns: { readonly resolve: () => void; readonly reject: (error: unknown) => void }[] = [];
   /** Whether the root-use warning was given for this transaction. */
   warned = false;
+  /** Set when this level's budget ran out (a statement was stopped by it, or its timer fired): it then ends in a timeout. */
+  timedOut = false;
 
   constructor(
     readonly session: Session,
@@ -547,10 +549,20 @@ export class Level implements Executor {
     if (this.state !== "open") return completedError(this);
     if (this.rollbackReason !== NONE) return rolledBackError();
     if (this.child !== undefined && this.kind !== "sandbox") return childOpenError();
-    // The budget is spent (its timer has not fired yet): that, not what it caused, is the reason.
-    if (this.deadline !== undefined && now() >= this.deadline)
+    // The budget is spent (perhaps before its timer fired): that, not what it caused, is the reason.
+    if (this.timedOut || (this.deadline !== undefined && now() >= this.deadline)) {
       return transactionTimeout(this, undefined, undefined);
+    }
     return this.sessionRefusal();
+  }
+
+  /** Records that the budget ran out, here and on the enclosing levels whose budget it was. */
+  expire(): void {
+    let level: Level | undefined = this;
+    while (level !== undefined && level.deadline === this.deadline) {
+      level.timedOut = true;
+      level = level.parent;
+    }
   }
 
   /** Why nothing new can run on the connection now. */
@@ -573,7 +585,12 @@ export class Level implements Executor {
     if (refused !== undefined) return Promise.reject(refused);
     // Outside the sandbox, each of these statements would run alone: a failure would undo
     // only itself. A savepoint per statement keeps it so inside the sandbox's transaction.
-    if (this.kind === "sandbox") return this.session.isolated(sql, params, options);
+    if (this.kind === "sandbox") {
+      // The sandbox stands in for the pool: the root-use warning applies here too.
+      const root = this.session.root as RootScope;
+      if (root.watch) warnIfInside(root);
+      return this.session.isolated(sql, params, options);
+    }
     if (this.deadline === undefined) return this.session.execute(this, sql, params, options);
     return this.#withinDeadline(sql, params, options, this.deadline);
   }
@@ -591,7 +608,9 @@ export class Level implements Executor {
     try {
       return await this.session.execute(this, sql, params, { ...options, timeoutMs: left });
     } catch (error) {
-      throw isEgonError(error, "timeout") ? transactionTimeout(this, sql, error) : error;
+      if (!isEgonError(error, "timeout")) throw error;
+      this.expire();
+      throw transactionTimeout(this, sql, error);
     }
   }
 
@@ -838,7 +857,10 @@ async function finish(level: Level, ended: Outcome): Promise<Ended> {
     throw completedError(level);
   }
   level.state = "closing";
-  let outcome = ended;
+  // A budget that ran out decides the outcome, whatever the callback made of it (it may
+  // have caught the cancelled statement's error).
+  if (ended.kind === "timeout") level.expire();
+  let outcome = level.timedOut ? TIMED_OUT : ended;
   if (level.child !== undefined) {
     if (outcome.kind === "value") {
       outcome = {

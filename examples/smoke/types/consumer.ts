@@ -268,7 +268,7 @@ export const sandbox = () => createSandbox(repo);
 
 // Migrations.
 export const createUsers = defineMigration({
-  change(m) {
+  up(m) {
     m.createTable("users", (table) => {
       table.id();
       table.text("email").notNull();
@@ -277,13 +277,16 @@ export const createUsers = defineMigration({
     });
     m.createIndex("users", ["email"], { unique: true });
   },
+  down(m) {
+    m.dropTable("users");
+  },
 });
 export const migrator = createMigrator({ adapter, directory: "./migrations" });
 export const alterUsers = defineMigration({
   up(m) {
     m.alterTable("users", (table) => {
       table.text("nickname");
-      table.modify("age", "bigint", { from: "integer" });
+      table.modify("age", "bigint");
       table.rename("name", "full_name");
     });
   },

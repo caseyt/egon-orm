@@ -84,7 +84,9 @@ export const MYSQL_PROFILE: AdapterConformanceProfile = {
     insert into authors values (1, 'ada@example.com');
     insert into counters values (1, 0), (2, 0);
   `,
-  // Triggers run with their statement, never at COMMIT: nothing makes a COMMIT wait on its own.
+  // A COMMIT can be made to wait only by another session's FLUSH TABLES WITH READ LOCK,
+  // which is server-wide: it would stall the other test files and workers sharing the
+  // server, so the suite does not use it (status/16.md, "Follow-up: ADR 0005", Known gaps).
   slowCommit: undefined,
   violations: {
     unique: {

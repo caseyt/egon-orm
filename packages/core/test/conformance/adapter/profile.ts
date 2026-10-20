@@ -52,7 +52,8 @@ export interface AdapterConformanceProfile {
   /**
    * A statement (no parameters) that, run inside a transaction, makes its `COMMIT` take
    * several seconds (its DDL is part of {@link schema}); `undefined` when the database has
-   * no way to make a `COMMIT` wait, and the suite's cancelled-`COMMIT` case is skipped.
+   * no way to make a `COMMIT` wait that is safe for a shared test server, and the suite's
+   * cancelled-`COMMIT` case is skipped.
    */
   readonly slowCommit: string | undefined;
   /** One violating statement per constraint kind; `undefined` when the database has no such constraint. */

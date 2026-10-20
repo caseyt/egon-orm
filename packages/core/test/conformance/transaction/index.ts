@@ -571,7 +571,8 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
         const made = adapter({ poolMax: 1 });
         if (!made.capabilities.cancel) return context.skip("capability cancel is false");
         const slowCommit = profile.slowCommit;
-        if (slowCommit === undefined) return context.skip("the profile has no way to make a COMMIT wait");
+        if (slowCommit === undefined)
+          return context.skip("the profile has no safe way to make a COMMIT wait");
         const r = repo({ adapter: made });
         const statements: RepoQueryEvent[] = [];
         r.on("query", (event) => statements.push(event));
@@ -591,10 +592,15 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
         expect((error as Error).message).toContain("timeoutMs (400 ms)");
         expect((error as DatabaseError).sql).toBe("commit");
         expect(await committedTags()).toEqual([]);
-        // The cancelled COMMIT is the transaction's last event, and it failed.
-        const last = statements.filter((event) => event.operation === "transaction").at(-1);
-        expect(last).toMatchObject({ sql: "commit", operation: "transaction" });
-        expect((last as RepoQueryEvent).error).toMatchObject({ code: "timeout" });
+        // The cancelled COMMIT is reported, and it failed. It may be followed by one ROLLBACK:
+        // `pg` can still report the transaction open right after the error, and the
+        // transaction then rolls back (a no-op for Postgres, which answers with a warning).
+        const ends = statements.filter((event) => event.operation === "transaction");
+        const at = ends.findIndex((event) => event.sql === "commit");
+        expect(ends[at]?.error).toMatchObject({ code: "timeout" });
+        const after = ends.slice(at + 1);
+        expect(after.length).toBeLessThanOrEqual(1);
+        for (const event of after) expect(event).toMatchObject({ sql: "rollback", error: undefined });
         await r.insertOrThrow(change(Tag, { name: "after" }));
         expect(await committedTags()).toEqual(["after"]);
       });

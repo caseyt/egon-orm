@@ -186,6 +186,29 @@ describe("Adapter", () => {
     expectTypeOf(connection.destroy()).resolves.toBeVoid();
   });
 
+  test("a connection implemented with the signatures from before ADR 0005 still is a Connection", () => {
+    // A third-party adapter that ignores the execution options compiles unchanged.
+    const legacy = {
+      execute: async (_sql: string, _params: readonly unknown[]) => result,
+      stream: noRows,
+      begin: async (_options?: BeginOptions): Promise<void> => {},
+      commit: async (): Promise<void> => {},
+      rollback: async (): Promise<void> => {},
+      savepoint: async (_name: string): Promise<void> => {},
+      rollbackTo: async (_name: string): Promise<void> => {},
+      releaseSavepoint: async (_name: string): Promise<void> => {},
+      inTransaction: () => false,
+      release: async (): Promise<void> => {},
+      destroy: async (): Promise<void> => {},
+    };
+    expectTypeOf(legacy).toExtend<Connection>();
+    const asConnection: Connection = legacy;
+    void asConnection;
+    // A method whose second parameter is not the execution options does not fit.
+    const wrong = { ...legacy, savepoint: async (_name: string, _depth: number): Promise<void> => {} };
+    expectTypeOf(wrong).not.toExtend<Connection>();
+  });
+
   test("every transaction method takes execution options last, optionally (ADR 0005)", () => {
     expectTypeOf(connection.begin).parameter(1).toEqualTypeOf<ExecuteOptions | undefined>();
     expectTypeOf(connection.commit).parameter(0).toEqualTypeOf<ExecuteOptions | undefined>();

@@ -921,11 +921,22 @@ class SharedConnection implements Connection {
         await this.statement(statements[i] as string, options);
       } catch (error) {
         // What the statements before it set (MySQL's `set transaction` applies to the next
-        // transaction on the connection) must not reach the next caller: the connection is
-        // closed on release, not returned to the pool.
-        if (i > 0) this.broken = true;
+        // transaction on the connection) must not reach the next transaction, on this
+        // connection or after it goes back to the pool: `ROLLBACK` clears it (and ends the
+        // transaction, if a statement stopped too late had begun one). When that fails too,
+        // the connection is closed on release instead of reused.
+        if (i > 0) await this.clearPending();
         throw error;
       }
+    }
+  }
+
+  /** After a `begin` that failed part way: `ROLLBACK`, with no options; on failure, the connection is not reused. */
+  private async clearPending(): Promise<void> {
+    try {
+      await this.statement("rollback", undefined);
+    } catch {
+      this.broken = true;
     }
   }
 

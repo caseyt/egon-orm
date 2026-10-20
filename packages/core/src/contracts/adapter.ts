@@ -544,6 +544,10 @@ export interface Connection extends Executor {
    * statement of the call) and `context` reaches the `query` listeners with each event.
    * `statementName` is refused (`TypeError`): transaction statements are never prepared.
    * The same holds for the `execute` argument of every transaction method below.
+   *
+   * The argument is optional for implementers too: a connection whose methods do not take
+   * it still is a `Connection`, but its transaction statements then lose the budget, the
+   * cancellation and the telemetry context that the repo passes.
    */
   begin(options?: BeginOptions, execute?: ExecuteOptions): Promise<void>;
   /** `COMMIT`. A `COMMIT` cancelled by `execute.signal` or `execute.timeoutMs` rejects with `DatabaseError` (`"aborted"` or `"timeout"`). */

@@ -681,7 +681,7 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
         const a = adapter();
         if (!a.capabilities.cancel) return skip("capability cancel is false");
         const slowCommit = profile.slowCommit;
-        if (slowCommit === undefined) return skip("the profile has no way to make a COMMIT wait");
+        if (slowCommit === undefined) return skip("the profile has no safe way to make a COMMIT wait");
         const connection = await a.acquire();
         try {
           await connection.begin();
@@ -734,6 +734,45 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
         // The refused statements were reported as failed, but never reached the database.
         const refused = sqls.filter((sql) => /^(commit|savepoint)/.test(sql));
         expect(refused.map((sql) => sql.replace(/[`"]/g, ""))).toEqual(["savepoint s", "commit"]);
+      });
+
+      test("a BEGIN of two statements stopped between them leaves no isolation level for the next transaction", async ({
+        skip,
+      }) => {
+        const a = adapter();
+        if (!a.capabilities.isolationLevels.includes("serializable")) {
+          return skip("the database has no isolation levels to choose from");
+        }
+        const connection = await a.acquire();
+        try {
+          // The signal fires once the first statement (`set transaction …`) has run: the
+          // second is refused before it is sent.
+          const controller = new AbortController();
+          const off = a.on("query", (event) => {
+            if (event.sql.startsWith("set transaction")) controller.abort();
+          });
+          let error: unknown;
+          try {
+            await connection.begin({ isolation: "serializable" }, { signal: controller.signal });
+          } catch (caught) {
+            error = caught;
+          } finally {
+            off();
+          }
+          if (error === undefined) {
+            await connection.rollback();
+            return skip("the database begins a transaction with one statement");
+          }
+          expect(error).toMatchObject({ code: "aborted" });
+          expect(connection.inTransaction()).toBe(false);
+          // The next transaction on the same connection has the default level.
+          await connection.begin();
+          const { rows } = await connection.execute(profile.isolationLevel, []);
+          expect(rows[0]?.level).not.toBe("serializable");
+          await connection.rollback();
+        } finally {
+          await connection.release();
+        }
       });
 
       test("an abort between stream reads keeps the connection", async () => {

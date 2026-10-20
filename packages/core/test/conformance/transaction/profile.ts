@@ -22,7 +22,7 @@ export interface TransactionConformanceProfile {
   readonly sleep: (seconds: number) => Expr<unknown>;
   /**
    * A statement that, run inside a transaction, makes its `COMMIT` take several seconds
-   * (its DDL is part of {@link schema}); `undefined` when the database has no way to make a
+   * (its DDL is part of {@link schema}); `undefined` when the database has no way, safe for a shared test server, to make a
    * `COMMIT` wait, and the suite's cancelled-`COMMIT` case is skipped.
    */
   readonly slowCommit: Expr<unknown> | undefined;

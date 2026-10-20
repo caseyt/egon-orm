@@ -1454,7 +1454,8 @@ describe("beginStatements", () => {
     const first = deferred<RawResult>();
     const second = deferred<RawResult>();
     driver.connectionSetup = (connection) => {
-      connection.respond = (sql) => (sql.startsWith("set") ? first.promise : second.promise);
+      connection.respond = (sql) =>
+        sql.startsWith("set") ? first.promise : sql === "rollback" ? Promise.resolve(EMPTY) : second.promise;
       connection.cancelResult = async () => second.reject(new Error("canceling statement"));
     };
     const events: QueryEvent[] = [];
@@ -1471,13 +1472,15 @@ describe("beginStatements", () => {
     const error = await begun;
     expect(error).toMatchObject({ code: "timeout", sql: "start transaction" });
     expect(driver.connections[0]?.cancels).toBe(1);
+    // What the first statement set must not reach the next transaction on the connection:
+    // ROLLBACK clears it, and the connection stays usable.
     expect(events.map((event) => [event.sql, event.context])).toEqual([
       ["set transaction isolation level serializable", context],
       ["start transaction", context],
+      ["rollback", undefined],
     ]);
-    // What the first statement set must not reach the next transaction on the connection.
     await connection.release();
-    expect(driver.released).toEqual([{ id: 1, destroy: true }]);
+    expect(driver.released).toEqual([{ id: 1, destroy: false }]);
   });
 
   test("a budget the first statement spent stops the second before it is sent", async () => {
@@ -1499,6 +1502,28 @@ describe("beginStatements", () => {
     expect((error as Error).message).toContain("was spent before it could start");
     expect(driver.connections[0]?.statements.map((s) => s.sql)).toEqual([
       "set transaction isolation level serializable",
+      "rollback",
+    ]);
+    await connection.release();
+    expect(driver.released).toEqual([{ id: 1, destroy: false }]);
+  });
+
+  test("a second statement that fails, then a ROLLBACK that fails too: the begin's error is thrown and the connection is closed", async () => {
+    const { adapter, driver } = mysqlSetup();
+    const refused = new Error("start refused");
+    driver.connectionSetup = (connection) => {
+      connection.respond = async (sql) => {
+        if (sql === "start transaction") throw refused;
+        if (sql === "rollback") throw new Error("rollback refused");
+        return EMPTY;
+      };
+    };
+    const connection = await adapter.acquire();
+    expect(await rejection(connection.begin({ isolation: "serializable" }))).toBe(refused);
+    expect(driver.connections[0]?.statements.map((s) => s.sql)).toEqual([
+      "set transaction isolation level serializable",
+      "start transaction",
+      "rollback",
     ]);
     await connection.release();
     expect(driver.released).toEqual([{ id: 1, destroy: true }]);

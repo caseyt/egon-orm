@@ -112,15 +112,20 @@ work is undone and the outer transaction continues.
   own work.
 - **`timeoutMs` covers the transaction statements too.** `BEGIN`, `SAVEPOINT`, `RELEASE`
   and `COMMIT` get what is left of the budget, and so does their wait behind queries
-  issued before them. A `COMMIT` that waits (a lock, synchronous replication) is
-  cancelled at the deadline and the call rejects with `"timeout"`; a budget already spent
-  when the callback returns sends `ROLLBACK` instead of `COMMIT`. `ROLLBACK` itself is never
-  cut short. A `COMMIT` that completed just as the deadline passed did commit: the call
-  then succeeds.
+  issued before them. A budget already spent when the callback returns sends `ROLLBACK`
+  instead of `COMMIT`, and `ROLLBACK` itself is never cut short.
+- **A `COMMIT` at the deadline.** One that waits on a lock or a deferred trigger is
+  cancelled at the deadline, and the call rejects with `"timeout"`. One that waits for
+  synchronous replication has already committed when the cancel arrives, and so has a
+  `COMMIT` that completed just as the deadline passed: the call succeeds. Its `query` event
+  still carries the `"timeout"` error, so `log: true` prints it as failed; the call's result
+  is what counts. On SQLite a running `COMMIT` is never cut short.
 - **The transaction statements are `query` events** with `operation: "transaction"` and
   no `source`: `log: true` prints them and `expectQueries` returns them. In the test
   sandbox a transaction is a savepoint, so its events are `SAVEPOINT` and `RELEASE`
-  rather than `BEGIN` and `COMMIT`.
+  rather than `BEGIN` and `COMMIT`. After a failed `COMMIT` a `ROLLBACK` may follow, also
+  when the database had already ended the transaction (Postgres then answers with a
+  warning).
 - **`tx.close()`** is refused: it would close the whole pool.
 
 ## A connection without a transaction

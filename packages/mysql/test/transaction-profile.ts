@@ -14,7 +14,9 @@ export const MYSQL_TRANSACTION_PROFILE: TransactionConformanceProfile = {
   // The running transaction's level: @@transaction_isolation is the session's default.
   isolationLevel: fragment`select lower(isolation_level) as level from performance_schema.events_transactions_current where thread_id = ps_current_thread_id()`,
   schema: `create table wide_rows (id bigint auto_increment primary key, ${wideColumns}, constraint wide_rows_c0_key unique (c0))`,
-  // Triggers run with their statement, never at COMMIT: nothing makes a COMMIT wait on its own.
+  // A COMMIT can be made to wait only by another session's FLUSH TABLES WITH READ LOCK,
+  // which is server-wide: it would stall the other test files and workers sharing the
+  // server, so the suite does not use it (status/16.md, "Follow-up: ADR 0005", Known gaps).
   slowCommit: undefined,
   module: { url: import.meta.url, exportName: "MYSQL_TRANSACTION_PROFILE" },
   // A session's user variables are visible to every other in performance_schema.

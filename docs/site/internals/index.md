@@ -87,7 +87,7 @@ The decisions behind this design are recorded as ADRs in
 | [0003](https://github.com/caseyt/ectype-orm/blob/main/docs/adr/0003-own-sql-emitter.md) | Egon emits its own SQL and wraps the drivers directly. |
 | [0004](https://github.com/caseyt/ectype-orm/blob/main/docs/adr/0004-validator-non-list-result-throws.md) | A validator function that returns something other than a list throws. |
 | [0005](https://github.com/caseyt/ectype-orm/blob/main/docs/adr/0005-transaction-statement-options.md) | Statement options on the `Connection` transaction methods (accepted; implemented in a follow-up). |
-| [0006](https://github.com/caseyt/ectype-orm/blob/main/docs/adr/0006-capabilities-for-tier-2-dialects.md) | Capabilities for the tier 2 dialects (proposed). |
+| [0006](https://github.com/caseyt/ectype-orm/blob/main/docs/adr/0006-capabilities-for-tier-2-dialects.md) | Capabilities for the tier 2 dialects. |
 
 ## See also
 

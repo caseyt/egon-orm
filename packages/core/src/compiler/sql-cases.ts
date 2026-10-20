@@ -1093,7 +1093,7 @@ export const NESTED_CASES: readonly SqlCase[] = withDialects(
       },
     ),
     queryCase("a recursive CTE", recursiveTree, {
-      sql: 'with recursive "n" as (select "v"."i" as "i" from (values (cast($1 as integer))) as "v" ("i") union all (select "n"."i" + $2 as "i" from "n" as "n" where "n"."i" < $3)) select sum("n"."i") as "c0" from "n" as "n"',
+      sql: 'with recursive "n" as (select "v"."i" as "i" from (values (cast($1 as integer))) as "v" ("i") union all (select "n"."i" + cast($2 as integer) as "i" from "n" as "n" where "n"."i" < $3)) select sum("n"."i") as "c0" from "n" as "n"',
       params: [1, 1, 5],
     }),
     statementCase(

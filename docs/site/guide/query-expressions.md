@@ -175,15 +175,24 @@ pass: `val(10, t.integer()).gt(9)` and `val(3, t.integer()).add(1)` work, while
 on the other side of a comparison is enough: `u.age.eq(val(5))` and
 `p.authorId.eq(caseWhen(p.published, 1).else(2))` take the column's type. A column of a
 `subquery` or `cte` source that selects values rather than whole rows does not give a
-type yet: there, type the value. In arithmetic a typed value keeps its own type beside a
-column of another type: `p.views.div(val(2, t.float()))` divides as floats (7 / 2 is 3.5),
-while `p.views.add(1)` and `p.views.add(val(1, t.integer()))` use the column's type. A
-comparison always reads the value as the column's type, so on Postgres compare a fraction
-with an integer column through a cast of the column:
-`p.views.cast(t.float()).lt(val(5.5, t.float()))`. Without a
+type yet: there, type the value. Without a
 type, `val` infers the value's plain TypeScript type (`val(5)` is an `Expr<number>`), so
 `val("b").gt("a")` compiles, and next to an enum column given a list
 (`t.enum(["admin", "member"])`) `val("admin")` is checked against the enum's values.
+
+In arithmetic a typed value keeps its own type, and the result is read as the wider of the
+two operands' types, in the order integer < bigint < decimal < float:
+`p.views.div(val(2, t.float()))` divides as floats (7 / 2 is 3.5), and
+`p.views.add(p.authorId)` (an integer and a `bigint({ mode: "number" })`) is read as that
+bigint. A plain value (`p.views.add(1)`) or a value of the column's own type takes the
+column's type. Two cases keep the left operand's type and leave the value to the column:
+`mod`, and a type made with `defineType`, which has no place in the order. There, cast the
+column first: `p.views.cast(t.float()).div(val(2, t.type(Cents)))`.
+
+A comparison always reads the value as the column's type. On Postgres, a fraction compared
+with an integer column is refused (`p.views.lt(val(7.5, t.float()))`); cast the column,
+`p.views.cast(t.float()).lt(val(7.5, t.float()))`, or, since the cast keeps an index on the
+column from being used, compare with the integer it means, `p.views.lt(val(8, t.integer()))`.
 
 A type is always a field type, `t.integer()`, the same one you use in a schema. `cast`
 keeps the operand's `null`: `u.age.cast(t.string())` is `string | null` because `age` is
@@ -216,7 +225,9 @@ See [Queries](/guide/queries#named-parameters) for passing the values.
 ## Result types
 
 - Comparisons and predicates are `boolean`.
-- Arithmetic keeps the operand's type, and is nullable when an operand is.
+- Arithmetic is read as the wider operand's type (integer < bigint < decimal < float; `mod`
+  and types made with `defineType` keep the left operand's), and is nullable when an
+  operand is.
 - `count` is a `number`; `sum`, `avg`, `min` and `max` are nullable.
 - `coalesce` is nullable only when its last argument is.
 - A selected expression is read back with its type: `u.createdAt` as a `Date`,

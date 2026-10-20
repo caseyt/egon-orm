@@ -308,7 +308,7 @@ export const SQLITE_CASES: DialectTable = {
       params: [SINCE],
     },
     "a recursive CTE": {
-      sql: 'with recursive "n" as (select "v"."i" as "i" from (select "column1" as "i" from (values (cast(? as integer)))) as "v" union all select "n"."i" + ? as "i" from "n" as "n" where "n"."i" < ?) select sum("n"."i") as "c0" from "n" as "n"',
+      sql: 'with recursive "n" as (select "v"."i" as "i" from (select "column1" as "i" from (values (cast(? as integer)))) as "v" union all select "n"."i" + cast(? as integer) as "i" from "n" as "n" where "n"."i" < ?) select sum("n"."i") as "c0" from "n" as "n"',
       params: [1, 1, 5],
     },
     "a CTE with a fragment body": {

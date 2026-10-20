@@ -150,7 +150,7 @@ describe("a typed value beside a column of another type in arithmetic (owner dec
   const float = typeOf(t.float());
   const floatValue = (v: number): ExprNode => value(v, float);
 
-  test("is cast to its own type, on either side, for every operator", () => {
+  test("is cast to its own type, on either side, for + - * and /", () => {
     expect(compile(selecting(binary("div", col("u", "age"), floatValue(2)))).sql).toBe(
       'select "u"."age" / cast($1 as double precision) as "c0" from "users" as "u"',
     );
@@ -161,12 +161,17 @@ describe("a typed value beside a column of another type in arithmetic (owner dec
       ["add", "+"],
       ["sub", "-"],
       ["mul", "*"],
-      ["mod", "%"],
     ] as const) {
       expect(compile(selecting(binary(op, col("u", "age"), floatValue(2)))).sql).toContain(
         `"u"."age" ${sign} cast($1 as double precision)`,
       );
     }
+  });
+
+  test("% leaves the value to the column: Postgres has no % for floats", () => {
+    expect(compile(selecting(binary("mod", col("u", "age"), floatValue(2)))).sql).toBe(
+      'select "u"."age" % $1 as "c0" from "users" as "u"',
+    );
   });
 
   test("through the builder, in where, select and set, and as a named parameter", () => {
@@ -198,7 +203,7 @@ describe("a typed value beside a column of another type in arithmetic (owner dec
     expect(sqlOf(sqliteDialect)).toBe('select "p"."author_id" + ? as "c0" from "posts" as "p"');
   });
 
-  test("a column of a custom type: the same custom type is left bare, another is cast", () => {
+  test("a custom type is outside the numeric order: left bare beside a column, on every dialect", () => {
     const cents = defineType<number>({
       name: "cents",
       db: { kind: "custom", sql: "numeric(10, 2)" },
@@ -207,30 +212,48 @@ describe("a typed value beside a column of another type in arithmetic (owner dec
     class Price extends Schema("prices", { id: t.integer().primaryKey(), amount: t.type(cents) }) {}
     const prices = from(Price, "x").ast;
     const select = (node: ExprNode) => rebuild(prices, { select: selectOne(node) });
-    expect(compile(select(binary("add", col("x", "amount"), value(1, cents)))).sql).toBe(
-      'select "x"."amount" + $1 as "c0" from "prices" as "x"',
+    const on = (dialect: Parameters<typeof createCompiler>[0], node: ExprNode) =>
+      createCompiler(dialect).compile(select(node), "all", undefined).sql;
+    // A custom column beside a float, and an integer column beside a custom value.
+    expect(on(postgresDialect, binary("mul", col("x", "amount"), floatValue(1.5)))).toBe(
+      'select "x"."amount" * $1 as "c0" from "prices" as "x"',
     );
-    expect(compile(select(binary("mul", col("x", "amount"), floatValue(1.5)))).sql).toBe(
-      'select "x"."amount" * cast($1 as double precision) as "c0" from "prices" as "x"',
+    expect(on(postgresDialect, binary("div", col("x", "id"), value(2, cents)))).toBe(
+      'select "x"."id" / $1 as "c0" from "prices" as "x"',
     );
-    const rate = defineType<number>({
-      name: "rate",
-      db: { kind: "custom", sql: "numeric(12, 4)" },
-      cast: (v) => ({ success: true, data: Number(v) }),
-    });
-    expect(compile(select(binary("mul", col("x", "amount"), value(1.5, rate)))).sql).toBe(
-      'select "x"."amount" * cast($1 as numeric(12, 4)) as "c0" from "prices" as "x"',
+    // MySQL's CAST takes few type names (`numeric(10, 2)` is a parse error there).
+    expect(on(mysqlDialect, binary("div", col("x", "id"), value(2, cents)))).toBe(
+      "select `x`.`id` / ? as `c0` from `prices` as `x`",
+    );
+    expect(on(mysqlDialect, binary("div", value(2, cents), col("x", "id")))).toBe(
+      "select ? / `x`.`id` as `c0` from `prices` as `x`",
     );
   });
 
-  test("beside a column whose type is not known it is left bare, as before", () => {
+  test("beside a column whose type is not known it is cast: a redundant cast is harmless", () => {
     const values = rebuild(bareQuery({ kind: "values", columns: ["a"], rows: [[typed(1)]], alias: "v" }), {
       select: selectOne(binary("div", col("v", "a"), floatValue(2)), float),
     });
-    expect(compile(values).sql).toContain('select "v"."a" / $1 as "c0"');
+    expect(compile(values).sql).toContain('select "v"."a" / cast($1 as double precision) as "c0"');
     // A column node whose column is not its field's gives no type either.
     expect(compile(selecting(binary("div", col("u", "other", "age"), floatValue(2)))).sql).toBe(
-      'select "u"."other" / $1 as "c0" from "users" as "u"',
+      'select "u"."other" / cast($1 as double precision) as "c0" from "users" as "u"',
+    );
+    // A custom value is still left bare there.
+    const money = defineType<number>({
+      name: "money",
+      db: { kind: "custom", sql: "money" },
+      cast: (v) => ({ success: true, data: Number(v) }),
+    });
+    expect(compile(selecting(binary("add", col("u", "other", "age"), value(1, money)))).sql).toBe(
+      'select "u"."other" + $1 as "c0" from "users" as "u"',
+    );
+  });
+
+  test("a column of a type outside the numeric order leaves the value to it", () => {
+    // Not reachable through the builder's types (arithmetic takes numbers), so hand-built.
+    expect(compile(selecting(binary("add", col("u", "email"), floatValue(1)))).sql).toBe(
+      'select "u"."email" + $1 as "c0" from "users" as "u"',
     );
   });
 

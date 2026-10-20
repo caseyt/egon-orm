@@ -53,6 +53,7 @@ import {
   startNary,
   unaryNode,
 } from "./ast.js";
+import { widerType } from "./widen.js";
 
 // ---------------------------------------------------------------------------
 // Type-level helpers
@@ -972,7 +973,9 @@ export class Expr<out T, in P = NoParams> {
   // --- arithmetic -----------------------------------------------------------
 
   /**
-   * `+`. The result keeps the operand's type and is nullable when either side is.
+   * `+`. The result is read as the wider of the two operands' types (integer < bigint <
+   * decimal < float; a plain value takes this operand's type) and is nullable when either
+   * side is. The same holds for `sub`, `mul` and `div`; `mod` keeps this operand's type.
    *
    * @example
    * ```ts
@@ -1754,8 +1757,15 @@ function compare(op: BinaryOp, left: AnyExpr, right: unknown): AnyExpr {
   return operate(op, left, right, left.type, left.redact, BOOLEAN, false, op, false, true);
 }
 
+/**
+ * Arithmetic: a plain value takes the left side's type. The result is read as the wider of
+ * the two operands' types (`widerType`: integer < bigint < decimal < float), except for
+ * `%`, which keeps the left side's type: the compiler leaves a value beside a column of
+ * another type to it there (Postgres has no `%` for floats).
+ */
 function arithmetic<R>(op: BinaryOp, left: AnyExpr, right: unknown): R {
-  return operate(op, left, right, left.type, left.redact, left.type, left.redact, op, false);
+  const type = op !== "mod" && right instanceof Expr ? widerType(left.type, right.type) : left.type;
+  return operate(op, left, right, left.type, left.redact, type, left.redact, op, false);
 }
 
 /**

@@ -7,7 +7,7 @@
 
 import { createTestDatabase, Membership, Post, type TestDatabaseHandle, User } from "@egon-orm/test-support";
 import type { Repo } from "egon-orm";
-import { caseWhen, coalesce, createRepo, from, lit, param, t, val } from "egon-orm";
+import { caseWhen, coalesce, createRepo, defineType, from, lit, param, subquery, t, val } from "egon-orm";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { postgres } from "../src/index.js";
 
@@ -309,6 +309,49 @@ describe("a typed value beside a column of another type in arithmetic keeps its 
         .select(({ p }) => p.title),
     );
     expect(rows).toEqual(["First", "Second"]);
+  });
+
+  test("the result is read as the wider type: a bigint, or a float beside a bigint column (review round 1)", async () => {
+    const [row] = await repo.all(
+      from(Post, "p")
+        .where(({ p }) => p.id.eq(1))
+        .select(({ p }) => ({
+          // int4 + int8 is int8, which pg returns as text: read as the bigint, a number.
+          wide: p.views.add(val(1, t.bigint({ mode: "number" }))),
+          // A bigint({ mode: "number" }) column halved: a float, not an unsafe integer.
+          keyHalf: p.authorId.div(val(2, t.float())),
+        })),
+    );
+    expect(row).toEqual({ wide: 8, keyHalf: 0.5 });
+    expect(typeof row?.wide).toBe("number");
+    expect(typeof row?.keyHalf).toBe("number");
+  });
+
+  test("a custom numeric type has no place in the order: left to the column, as before (review round 1)", async () => {
+    const cents = defineType<number, string | number>({
+      name: "cents",
+      db: { kind: "custom", sql: "numeric(10, 2)" },
+      cast: (v) => ({ success: true, data: Number(v) }),
+      fromDb: (v) => Number(v),
+      toDb: (v) => v,
+    });
+    const by = val(2, t.type(cents));
+    const q = from(Post, "p").where(({ p }) => p.id.eq(1));
+    expect(repo.toSql(q.select(({ p }) => p.views.div(by))).sql).toContain('"p"."views" / $1');
+    // The value takes the column's type: integer division, read as an integer.
+    expect(await repo.all(q.select(({ p }) => p.views.div(by)))).toEqual([3]);
+    // The guide's workaround: cast the column.
+    const [half] = await repo.all(q.select(({ p }) => p.views.cast(t.float()).div(by)));
+    expect(half).toBe(3.5);
+    expect(typeof half).toBe("number");
+  });
+
+  test("beside a column of a subquery that selects values the value is cast too (review round 1)", async () => {
+    const inner = from(Post, "x")
+      .where(({ x }) => x.id.eq(1))
+      .select(({ x }) => ({ k: x.views }));
+    const [half] = await repo.all(from(subquery(inner), "s").select(({ s }) => s.k.div(val(2, t.float()))));
+    expect(half).toBe(3.5);
   });
 
   test("in set", async () => {

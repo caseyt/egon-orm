@@ -182,4 +182,60 @@ describe.runIf(tier2Enabled())("mysql", () => {
       }),
     ).rejects.toThrow("An onConflict target is not supported by mysql.");
   });
+
+  test("a t.integer() field over a bigint column reads numbers: mysql2 sends one as a number", async () => {
+    // The blog keys are bigint AUTO_INCREMENT; pg would send them as text (see the Postgres suite).
+    class LooseUser extends Schema("users", {
+      id: t.integer().primaryKey().dbGenerated(),
+      email: t.string(),
+    }) {}
+    const rows = await repo.all(from(LooseUser, "u").where(({ u }) => u.id.eq(1)));
+    expect(rows.map((row) => row.id)).toEqual([1]);
+    await handle.db.query("create table measures (id integer primary key, amount decimal(10, 2) not null)");
+    await handle.db.query("insert into measures values (1, 1.50)");
+    // A decimal arrives as text; the float codec reads numeric text as a number.
+    class Measure extends Schema("measures", { id: t.integer().primaryKey(), amount: t.float() }) {}
+    expect((await repo.all(from(Measure, "m"))).map((m) => m.amount)).toEqual([1.5]);
+  });
+
+  test("integer division with / returns a decimal on MySQL, which a t.integer() result refuses", async () => {
+    // Pinned as it stands (status 03, follow-up, known gaps): MySQL's / returns DECIMAL text
+    // ("3.5000"), where Postgres and SQLite divide integers to an integer. Whether integer
+    // div should compile to MySQL's DIV is an open owner question.
+    await handle.db.query("create table halves (id integer primary key, n integer not null)");
+    await handle.db.query("insert into halves values (1, 7)");
+    class Half extends Schema("halves", { id: t.integer().primaryKey(), n: t.integer() }) {}
+    await expect(repo.all(from(Half, "h").select(({ h }) => ({ d: h.n.div(2) })))).rejects.toThrow(
+      '"d" is declared t.integer(), but the database returned a string for it, not a number',
+    );
+    // Other integer arithmetic reads numbers.
+    expect(await repo.all(from(Half, "h").select(({ h }) => ({ m: h.n.mul(2), s: h.n.add(1) })))).toEqual([
+      { m: 14, s: 8 },
+    ]);
+  });
+
+  test("an insert whose read-back row fails to decode says that the write was applied", async () => {
+    // MySQL has no RETURNING: the row is read back after the insert, by an ordinary read.
+    await handle.db.query(
+      "create table tallies (id integer primary key auto_increment, label text not null, score decimal(10, 2) not null default 1.50)",
+    );
+    class Tally extends Schema("tallies", {
+      id: t.integer().primaryKey().dbGenerated(),
+      label: t.string(),
+      score: t.integer().dbGenerated(),
+    }) {}
+    await expect(repo.insert(change(Tally, { label: "first" }))).rejects.toThrow(
+      /^Tally\.score is declared t\.integer\(\), but the database returned a string.* The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction\.$/,
+    );
+    // The row is there: the insert ran before the read-back failed.
+    expect(await repo.count(from(Tally, "t"))).toBe(1);
+    // An upsert and its read-back are one unit: the failed read-back undoes the upsert, and
+    // the error says so.
+    await expect(
+      repo.insert(change(Tally, { label: "second" }), { onConflict: { update: ["label"] } }),
+    ).rejects.toThrow(
+      /^Tally\.score is declared t\.integer\(\).* The write was undone: an upsert and its read-back run as one unit\.$/,
+    );
+    expect(await repo.count(from(Tally, "t"))).toBe(1);
+  });
 });

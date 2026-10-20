@@ -54,8 +54,11 @@ argument other than the subcommand `create` (below).
 
 Writes a new, empty migration file, `<version>_<name>.ts`, in the migrations directory, and
 prints its path. The version is the current UTC time, `YYYYMMDDHHMMSS`; the name is
-lower-case letters, digits and underscores, at most 100 characters. The file exports an
-empty reversible migration, `defineMigration({ change(m) {} })`, for you to fill in.
+lower-case letters, digits and underscores, at most 100 characters. The file's default
+export is `defineMigration({ up(m) { … }, down(m) { … } })` with both bodies empty but for
+a comment: fill `up` with the change and `down` with what undoes it, or leave a `// noop`
+comment in `down` when there is nothing to undo ([Up and
+down](/guide/migrations#up-and-down)). Both functions are required.
 
 It never overwrites a file: if a migration with the same version already exists (two runs
 in the same second), it exits with 1 and asks you to run it again a second later.
@@ -70,7 +73,8 @@ a directory, there is no directory to write to: `--dir` is then required.
 
 ### `egon rollback`
 
-Rolls back applied migrations, newest first. Without a flag, the latest one.
+Rolls back applied migrations, newest first, by running each one's `down`. Without a flag,
+the latest one.
 
 | Flag | Meaning |
 |---|---|

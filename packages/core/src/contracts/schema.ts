@@ -803,18 +803,19 @@ type NestedPreload<P, K> = P extends readonly (infer E)[]
       : never;
 
 /**
- * {@link Loaded} without the constraint on `P`: the result type for a generic function
- * that has already validated its spec with {@link ValidPreload}. Constraining `P` again
- * there (`P & PreloadSpec<S>`) makes the compiler expand `PreloadSpec` through every cycle
- * of associations and fail with "excessively deep". `Loaded` itself is defined with it,
- * checking `P` once at the top, which covers every nested level.
+ * A row of `S` with the associations of preload spec `P` loaded: what `repo.all` and the
+ * other reads return for a query with nested preloads. It is the type {@link Loaded} names
+ * for you, without checking `P` (the query already did), and it is the name that appears in
+ * the inferred types (and emitted declarations) of such queries and their results. Write
+ * `Loaded` yourself; you rarely need this name.
+ *
+ * (Internally it is `Loaded` without the constraint on `P`: checking `P` again at every
+ * nested level makes the compiler expand the spec through every cycle of associations.)
  *
  * @example
  * ```ts
- * declare function preload<S extends AnySchema, const P>(
- *   schema: S,
- *   spec: P & ValidPreload<S, P>,
- * ): LoadedUnchecked<S, P>;
+ * declare const Post: AnySchema & { author: Assoc<"belongsTo", AnySchema> };
+ * type PostWithAuthor = LoadedUnchecked<typeof Post, "author">; // Row<typeof Post> & { author: … }
  * ```
  */
 export type LoadedUnchecked<S extends AnySchema, P> = Row<S> & {

@@ -27,7 +27,7 @@ protocol and the pull request and review loop that every change follows.
 | `pnpm test:watch` | Unit tests in watch mode |
 | `pnpm build` | ESM + declarations for every package (`tsup`). There is no CommonJS build (decision D14). |
 | `pnpm lint:packages` | `publint --strict` and `@arethetypeswrong/cli` on the built packages. attw runs with `--profile esm-only`: the packages have no CommonJS build, so its two CommonJS resolution modes (`node10`, `node16-cjs`) are reported but not failed. The ESM and bundler modes must be clean. |
-| `pnpm smoke` | Loads the built packages from an ES module and, with `require()`, from a CommonJS script (`examples/smoke`) |
+| `pnpm smoke` | Loads the built packages from an ES module and, with `require()`, from a CommonJS script; then packs them, installs the tarballs with their peer dependencies outside the workspace, and type-checks a consumer project with `declaration: true` and `skipLibCheck: false` (`examples/smoke`). `node examples/smoke/check-types.mjs --typescript <version>` runs that check on another TypeScript. |
 | `pnpm bench [filter]` | Builds, runs the benchmarks, writes `benchmarks/results/<git-sha>.json` |
 | `pnpm docs:dev` / `pnpm docs:build` | VitePress site in `docs/site` |
 | `pnpm db:up` / `db:down` / `db:reset` | Start / stop / recreate Postgres (`db:up:tier2` adds MySQL) |
@@ -49,7 +49,7 @@ packages/zod         "@egon-orm/zod"
 packages/sqlite, mysql, cli              private placeholders until steps 17 / 18
 packages/core/test/support               shared test helpers, importable as "@egon-orm/test-support"
 benchmarks/          micro/<area>.bench.ts, harness in src/
-examples/smoke       an ESM consumer and a CommonJS consumer (require of the ES module)
+examples/smoke       an ESM consumer, a CommonJS consumer (require of the ES module), and a type-checked consumer
 docs/plan            the plan (frozen; workers add only status/NN.md)
 docs/adr             architecture decision records
 docs/site            VitePress site; docs/site/examples holds the type-checked example sources

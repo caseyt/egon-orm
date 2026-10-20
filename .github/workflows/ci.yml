@@ -93,7 +93,9 @@ jobs:
       - run: node scripts/check-bench-dist-guard.mjs
       - run: pnpm build
       - run: pnpm lint:packages
-      # An ESM consumer, and a CommonJS consumer that require()s the ES modules (examples/smoke).
+      # An ESM consumer, a CommonJS consumer that require()s the ES modules, and a consumer
+      # project type-checked against the packed packages (examples/smoke). The type check
+      # installs the tarballs and their pinned peers from the registry, so it needs network access.
       - run: pnpm smoke
       # Keeps the benchmark harness working. Numbers from shared runners are not meaningful;
       # regression gating is step 19.

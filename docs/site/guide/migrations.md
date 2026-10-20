@@ -8,7 +8,7 @@ and the runner applies the pending ones and records what it applied.
 
 The file name holds the version and the name: `20261012093000_create_users.ts` is version
 `20261012093000` (a UTC timestamp, `YYYYMMDDHHMMSS`) named `create_users`. `egon migrate
-create create_users` writes such a file, with an empty `change` for you to fill in
+create create_users` writes such a file, with an empty `up` and `down` for you to fill in
 ([CLI reference](/reference/cli#egon-migrate-create-name)).
 
 If you come from Prisma Migrate or drizzle-kit: there is no schema diffing. You write the
@@ -33,51 +33,52 @@ From code, with `createMigrator` from `egon-orm/migration`:
 
 The migrator takes the **adapter**, the same one you give `createRepo` (or one of its own).
 
-## Reversible migrations and up/down
+## Up and down
 
-A migration is either **reversible**, with `change(m)`, or written in **both directions**,
-with `up(m)` and `down(m)`.
+Every migration has two functions, and both are required:
 
-With `change`, the runner rolls the migration back by running the inverse of each
-operation, last first: `createTable` becomes `dropTable`, `rename(a, b)` becomes
-`rename(b, a)`, `add` becomes `remove`, and so on. Some operations do not hold what their
-inverse needs; they are accepted when the migration is applied and refused with
-`MigrationError` **when it is rolled back**, with the fix in the message:
+- `up(m)` makes the change;
+- `down(m)` undoes it. Rolling back always runs `down`.
 
-| Operation in `change` | Why it cannot be rolled back | The fix |
-|---|---|---|
-| `t.remove("age")` | the column's type is unknown | `t.remove("age", "integer")` |
-| `t.modify("age", "bigint")` | the previous type is unknown | `t.modify("age", "bigint", { from: "integer" })` (with `notNull` and `default` in `from` when you change them) |
-| `m.execute(sql)` | there is no statement that undoes it | `m.execute(up, down)` |
-| `m.dropTable("users")` | there is no definition to create it from | `m.dropTable("users", (t) => { … })` |
-| `m.dropConstraint(table, name)` | there is no definition | pass `{ check }` or `{ exclude }` |
-| anything with `ifNotExists` / `ifExists`, `cascade`, `dropExtension` | the inverse could destroy something the migration did not create, or cannot restore what it dropped | write `up` and `down` |
-
-Use `up`/`down` for data changes and anything the inverses cannot express:
+When there is nothing to undo, as for a backfill, `down` is an empty function. Write a
+`// noop` comment in it, so a reader knows it is empty on purpose:
 
 <<< @/examples/migrations.ts#up-down
 
-A migration with `up` and no `down` cannot be rolled back; trying is a `MigrationError`.
+A migration without `up` or without `down` is a type error. Loading a file that lacks one
+(for example a JavaScript file, or a cast) fails with a `MigrationError` that names the file
+and the missing function. Nothing runs then: not `egon migrate`, `egon rollback` or `egon
+migrations`.
+
+`down` lists the undoing operations in the reverse order of `up`: drop what `up` created,
+and recreate what it dropped. `m.dropTable`, `table.remove` and `m.dropConstraint` take only
+names. So to bring back what `up` removed, `down` defines it again: the column's type, the
+table's columns or the constraint's check.
 
 ## Operations
 
+The `createTable` and `alterTable` callbacks receive a table builder. These pages call it
+`table` rather than `t`, so it does not shadow the `t` imported from `egon-orm`.
+
 | Operation | Options |
 |---|---|
-| `m.createTable(name, (t) => …, options?)` | `schema`, `ifNotExists`, `primaryKey: false` |
-| `m.alterTable(name, (t) => …, options?)` | `schema` |
-| `m.dropTable(name, define?, options?)` | `schema`, `ifExists`, `cascade` |
+| `m.createTable(name, (table) => …, options?)` | `schema`, `ifNotExists`, `primaryKey: false` |
+| `m.alterTable(name, (table) => …, options?)` | `schema` |
+| `m.dropTable(name, options?)` | `schema`, `ifExists`, `cascade` |
 | `m.renameTable(from, to, options?)` | `schema` |
-| `m.createIndex(table, columns, options?)` / `m.dropIndex(…)` | `unique`, `name`, `where`, `using`, `include`, `concurrently`, `schema`, `ifNotExists` / `ifExists` |
-| `m.createConstraint(table, name, options)` / `m.dropConstraint(…)` | `check` or `exclude` (a fragment), `using`, `schema`; `ifExists` on drop |
-| `m.execute(up, down?)` | two fragments; their interpolations are bound parameters |
+| `m.createIndex(table, columns, options?)` | `unique`, `name`, `where`, `using`, `include`, `concurrently`, `schema`, `ifNotExists` |
+| `m.dropIndex(table, columns, options?)` | `unique`, `name` (these and the columns name the index, as in `createIndex`), `concurrently`, `schema`, `ifExists` |
+| `m.createConstraint(table, name, options)` | `check` or `exclude` (a fragment), `using`, `schema` |
+| `m.dropConstraint(table, name, options?)` | `schema`, `ifExists` |
+| `m.execute(sql)` | a fragment; its interpolations are bound parameters |
 | `m.createSchema(name)` / `m.dropSchema(name)` | `ifNotExists` / `ifExists`, `cascade` (a database schema) |
 | `m.createExtension(name)` / `m.dropExtension(name)` | `ifNotExists`, `schema` / `ifExists` |
 
-A table must have a primary key: `t.id()`, or `.primaryKey()` on its key columns (several
+A table must have a primary key: `table.id()`, or `.primaryKey()` on its key columns (several
 make a composite key). Pass `{ primaryKey: false }` for a table that has none on purpose.
 
-Inside `alterTable`, the column methods add columns, and `modify`, `remove` and `rename`
-change existing ones:
+Inside `alterTable`, the column methods add columns, and `modify(name, type, { notNull,
+default })`, `remove(name)` and `rename(from, to)` change existing ones:
 
 <<< @/examples/migrations.ts#alter
 
@@ -86,16 +87,16 @@ change existing ones:
 The column methods are named after the column types (`DbType`): `integer`, `bigint`,
 `float`, `decimal`, `boolean`, `text` (also `string`), `uuid`, `binary`, `date`, `time`,
 `timestamp`, `timestamptz`, `json`, `jsonb`, `array(name, of)` and `custom(name, sql)`.
-`t.add(name, type)` takes any type, such as `{ kind: "decimal", precision: 10, scale: 2 }`.
+`table.add(name, type)` takes any type, such as `{ kind: "decimal", precision: 10, scale: 2 }`.
 
 The helpers:
 
 | Helper | Column |
 |---|---|
-| `t.id()` | `"id" bigserial primary key` (`{ type: "integer" }` for `serial`) |
-| `t.references(column, table, options?)` | a `bigint` (or `type`) with a foreign key to `table` (`column`, `onDelete`, `onUpdate`, `schema`, `name`) |
-| `t.enumText(column, values)` | `text` with a check constraint allowing only `values` |
-| `t.timestamps()` | `created_at` and `updated_at`, `timestamptz not null default now()` |
+| `table.id()` | `"id" bigserial primary key`; `table.id("id", { type: "integer" })` for `serial` (the first argument is the column name) |
+| `table.references(column, target, options?)` | a `bigint` (or `type`) with a foreign key to the table `target` (`column`, `onDelete`, `onUpdate`, `schema`, `name`) |
+| `table.enumText(column, values)` | `text` with a check constraint allowing only `values` |
+| `table.timestamps()` | `created_at` and `updated_at`, `timestamptz not null default now()` |
 
 Each returns a column builder: `.notNull()`, `.nullable()`, `.default(value)`,
 `.primaryKey()`, `.unique()`.
@@ -116,8 +117,8 @@ database error becomes a changeset error without either side naming anything:
 | Created by | Default name | Matched by default by |
 |---|---|---|
 | `m.createIndex(table, cols, { unique: true })`, `.unique()` | `<table>_<columns>_key` | `uniqueConstraint(fields)` |
-| `t.references(column, …)` | `<table>_<column>_fkey` | `foreignKeyConstraint`, `assocConstraint`, `noAssocConstraint` |
-| `t.enumText(column, …)` | `<table>_<column>_check` | `checkConstraint(field, { name })` |
+| `table.references(column, …)` | `<table>_<column>_fkey` | `foreignKeyConstraint`, `assocConstraint`, `noAssocConstraint` |
+| `table.enumText(column, …)` | `<table>_<column>_check` | `checkConstraint(field, { name })` |
 | `m.createIndex(table, cols)` | `<table>_<columns>_index` | (not a constraint) |
 
 <<< @/examples/migrations.ts#changeset-pairing
@@ -203,8 +204,8 @@ Pass `name` to choose your own; then give the same name to the changeset functio
   transaction, so the migration needs `transaction: false` (the runner refuses otherwise).
   Keep such a migration to that one operation: without a transaction, a failure leaves the
   earlier statements applied.
-- Add a column as nullable (or with a default), backfill it in an `up`/`down` migration,
-  and add `notNull` in a later one.
+- Add a column as nullable (or with a default), backfill it in a migration of its own (its
+  `down` a `// noop`), and add `notNull` in a later one.
 - Rename in steps: add the new column, write to both, then drop the old one.
 
 ## Running in CI and deploys
@@ -248,5 +249,5 @@ its timestamp column if it is not `created_at`:
   `jsonb`.
 - Nothing is inferred from your schema classes when migrations run: a migration describes
   the database, and the schema classes describe your code.
-- Rolling back a `change` migration that created a table drops it, with its rows.
+- Rolling back runs `down` as you wrote it: a `down` that drops a table drops its rows too.
 :::

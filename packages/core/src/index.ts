@@ -121,8 +121,10 @@ export type {
   AssocKind,
   AssocMeta,
   AssocOrderMeta,
+  DefaultFieldFlags,
   EmbedMeta,
   FieldBuilder,
+  FieldFlags,
   FieldMeta,
   FieldNames,
   FieldsShape,
@@ -131,6 +133,7 @@ export type {
   JoinThroughMeta,
   Loaded,
   LoadedAs,
+  LoadedUnchecked,
   OnReplace,
   PreloadSpec,
   PrimaryKeyOf,
@@ -139,6 +142,7 @@ export type {
   RowState,
   SchemaClass,
   SchemaMeta,
+  WithFlag,
   Writable,
 } from "./contracts/schema.js";
 export type {

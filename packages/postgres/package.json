@@ -39,11 +39,15 @@
     "lint:package": "publint --strict && attw --pack . --profile esm-only"
   },
   "peerDependencies": {
+    "@types/pg": "^8.23.0",
     "egon-orm": "workspace:^",
     "pg": "^8.23.0",
     "pg-cursor": "^2.22.0"
   },
   "peerDependenciesMeta": {
+    "@types/pg": {
+      "optional": true
+    },
     "pg-cursor": {
       "optional": true
     }

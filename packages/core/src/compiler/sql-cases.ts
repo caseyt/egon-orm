@@ -4,7 +4,7 @@
 // Step 17 adds the expected output of MySQL and SQLite next to `postgres`.
 //
 // Imported by tests only.
-import { Comment, Post, Profile, Tag, User } from "../../test/support/blog.js";
+import { Comment, Membership, Post, Profile, Tag, User } from "../../test/support/blog.js";
 import {
   and,
   arrayAgg,
@@ -500,7 +500,7 @@ export const WHERE_CASES: readonly SqlCase[] = [
       )
       .select(({ p }) => p.views.neg()),
     {
-      sql: 'select -"p"."views" as "c0" from "posts" as "p" where ("p"."views" + $1) * $2 > ("p"."views" - "p"."views" % $3) / $4',
+      sql: 'select -"p"."views" as "c0" from "posts" as "p" where ("p"."views" + $1) * cast($2 as integer) > ("p"."views" - "p"."views" % $3) / cast($4 as integer)',
       params: [1, 2, 3, 4],
     },
   ),
@@ -1541,6 +1541,221 @@ export const WRITE_CASES: readonly SqlCase[] = [
   }),
 ];
 
+// ---------------------------------------------------------------------------
+// Casts: bound values typed by an operator's other operand or by a column
+// ---------------------------------------------------------------------------
+
+const memberships = from(Membership, "m");
+const int = (n: number) => val(n, t.integer());
+const orgKey = "00000000-0000-4000-8000-000000000001";
+
+export const CAST_CASES: readonly SqlCase[] = [
+  queryCase(
+    "arithmetic of a typed value and a plain one in where: both are cast",
+    posts.where(({ p }) => p.views.eq(int(3).add(4))).select(({ p }) => p.id),
+    {
+      sql: 'select "p"."id" as "c0" from "posts" as "p" where "p"."views" = cast($1 as integer) + cast($2 as integer)',
+      params: [3, 4],
+    },
+  ),
+  queryCase(
+    "every arithmetic operator, and unary minus, on typed values in a select",
+    users
+      .select(() => ({
+        add: int(7).add(2),
+        sub: int(7).sub(2),
+        mul: int(7).mul(2),
+        div: int(7).div(2),
+        mod: int(7).mod(2),
+        neg: int(7).neg(),
+      }))
+      .limit(1),
+    {
+      sql: 'select cast($1 as integer) + cast($2 as integer) as "c0", cast($3 as integer) - cast($4 as integer) as "c1", cast($5 as integer) * cast($6 as integer) as "c2", cast($7 as integer) / cast($8 as integer) as "c3", cast($9 as integer) % cast($10 as integer) as "c4", -cast($11 as integer) as "c5" from "users" as "u" limit $12',
+      params: [7, 2, 7, 2, 7, 2, 7, 2, 7, 2, 7, 1],
+    },
+  ),
+  queryCase(
+    "arithmetic of typed values nested and beside a column: only bound pairs are cast",
+    posts
+      .where(({ p }) => p.views.lt(int(2).mul(3).add(p.views)))
+      .where(({ p }) => p.views.gt(p.views.sub(int(1).add(2))))
+      .select(({ p }) => p.id),
+    {
+      sql: 'select "p"."id" as "c0" from "posts" as "p" where "p"."views" < cast($1 as integer) * cast($2 as integer) + "p"."views" and "p"."views" > "p"."views" - (cast($3 as integer) + cast($4 as integer))',
+      params: [2, 3, 1, 2],
+    },
+  ),
+  queryCase(
+    "a typed named parameter in arithmetic is cast",
+    posts.where(({ p }) => p.views.gte(param("base", t.integer()).add(1))).select(({ p }) => p.id),
+    {
+      sql: 'select "p"."id" as "c0" from "posts" as "p" where "p"."views" >= cast($1 as integer) + cast($2 as integer)',
+      params: [5, 1],
+    },
+    { named: { base: 5 } },
+  ),
+  queryCase(
+    "a typed value in a CASE beside a column in arithmetic is cast",
+    posts.select(({ p }) => ({ n: p.views.add(caseWhen(p.published, int(10)).else(0)) })),
+    {
+      sql: 'select "p"."views" + case when "p"."published" then cast($1 as integer) else cast($2 as integer) end as "c0" from "posts" as "p"',
+      params: [10, 0],
+    },
+  ),
+  queryCase(
+    "updateAll sets a typed arithmetic value",
+    posts.where(({ p }) => p.id.eq(1)).set(() => ({ views: int(3).add(1) })),
+    {
+      sql: 'update "posts" as "p" set "views" = cast($1 as integer) + cast($2 as integer) where "p"."id" = $3',
+      params: [3, 1, 1],
+    },
+    { operation: "updateAll" },
+  ),
+  statementCase(
+    "an insert cell of typed arithmetic",
+    (c) =>
+      c.compileInsert(
+        meta(Post),
+        [field(meta(Post), "authorId"), field(meta(Post), "title"), field(meta(Post), "views")],
+        {
+          source: {
+            kind: "cells",
+            rows: [[{ kind: "value" }, { kind: "value" }, { kind: "expr", expr: int(3).add(1).node }]],
+          },
+          returning: [],
+          onConflict: undefined,
+        },
+        undefined,
+      ),
+    [1, "Cast", 3, 1],
+    {
+      sql: 'insert into "posts" ("author_id", "title", "views") values ($1, $2, cast($3 as integer) + cast($4 as integer))',
+      params: [1, "Cast", 3, 1],
+    },
+  ),
+  queryCase(
+    "a CASE of untyped values compared with a column takes the column's type, on either side",
+    posts
+      .where(({ p }) => p.authorId.eq(caseWhen(p.published, 1).else(2)))
+      .where(({ p }) => caseWhen(p.published, 1).else(2).neq(p.authorId))
+      .select(({ p }) => p.id),
+    {
+      sql: 'select "p"."id" as "c0" from "posts" as "p" where "p"."author_id" = cast(case when "p"."published" then $1 else $2 end as bigint) and cast(case when "p"."published" then $3 else $4 end as bigint) <> "p"."author_id"',
+      params: [1, 2, 1, 2],
+    },
+  ),
+  queryCase(
+    "a coalesce of untyped values compared with a column takes the column's type",
+    posts.where(({ p }) => p.authorId.gte(coalesce(val(1), val(2)))).select(({ p }) => p.id),
+    {
+      sql: 'select "p"."id" as "c0" from "posts" as "p" where "p"."author_id" >= cast(coalesce($1, $2) as bigint)',
+      params: [1, 2],
+    },
+  ),
+  queryCase(
+    "between with an untyped CASE takes the column's type",
+    posts
+      .where(({ p }) => p.authorId.between(caseWhen(p.published, 1).else(0), 5))
+      .where(({ p }) => caseWhen(p.published, 1).else(0).between(p.authorId, p.id))
+      .select(({ p }) => p.id),
+    {
+      sql: 'select "p"."id" as "c0" from "posts" as "p" where "p"."author_id" between cast(case when "p"."published" then $1 else $2 end as bigint) and $3 and cast(case when "p"."published" then $4 else $5 end as bigint) between "p"."author_id" and "p"."id"',
+      params: [1, 0, 5, 1, 0],
+    },
+  ),
+  queryCase(
+    "in and not in an untyped coalesce take an array of the column's type",
+    posts
+      .where(({ p }) => p.authorId.in(coalesce(val([1, 2]), val([3]))))
+      .where(({ p }) => p.authorId.notIn(coalesce(val([9]), val([8]))))
+      .select(({ p }) => p.id),
+    {
+      sql: 'select "p"."id" as "c0" from "posts" as "p" where "p"."author_id" = any(cast(coalesce($1, $2) as bigint[])) and "p"."author_id" <> all(cast(coalesce($3, $4) as bigint[]))',
+      params: [[1, 2], [3], [9], [8]],
+    },
+  ),
+  queryCase(
+    "an untyped CASE in an array column takes the element type",
+    posts.where(({ p }) => caseWhen(p.published, "ts").else("sql").in(p.tagList)).select(({ p }) => p.id),
+    {
+      sql: 'select "p"."id" as "c0" from "posts" as "p" where cast(case when "p"."published" then $1 else $2 end as text) = any("p"."tags")',
+      params: ["ts", "sql"],
+    },
+  ),
+  queryCase(
+    "a uuid column compared with an untyped CASE",
+    memberships.where(({ m }) => m.orgId.eq(caseWhen(lit(true), val(orgKey)))).select(({ m }) => m.userId),
+    {
+      sql: 'select "m"."user_id" as "c0" from "memberships" as "m" where "m"."org_id" = cast(case when true then $1 end as uuid)',
+      params: [orgKey],
+    },
+  ),
+  queryCase(
+    "a CASE with a typed value compared with a column: the typed values are cast",
+    posts
+      .where(({ p }) => p.authorId.eq(caseWhen(p.published, val(1, t.bigint({ mode: "number" }))).else(2)))
+      .select(({ p }) => p.id),
+    {
+      sql: 'select "p"."id" as "c0" from "posts" as "p" where "p"."author_id" = case when "p"."published" then cast($1 as bigint) else cast($2 as bigint) end',
+      params: [1, 2],
+    },
+  ),
+  queryCase(
+    "a CASE with a column in it, or a bare value, is left to the column",
+    posts
+      .where(({ p }) => p.authorId.eq(caseWhen(p.published, p.authorId).else(0)))
+      .where(({ p }) => p.authorId.eq(val(1)))
+      .select(({ p }) => p.id),
+    {
+      sql: 'select "p"."id" as "c0" from "posts" as "p" where "p"."author_id" = case when "p"."published" then "p"."author_id" else $1 end and "p"."author_id" = $2',
+      params: [0, 1],
+    },
+  ),
+  queryCase(
+    "a typed value beside arithmetic keeps its own type (review round 1)",
+    users
+      .select(() => ({
+        half: val(7.5, t.float()).div(int(2).add(1)),
+        big: val(2 ** 40, t.bigint({ mode: "number" })).add(int(1).add(1)),
+      }))
+      .limit(1),
+    {
+      sql: 'select cast($1 as double precision) / (cast($2 as integer) + cast($3 as integer)) as "c0", cast($4 as bigint) + (cast($5 as integer) + cast($6 as integer)) as "c1" from "users" as "u" limit $7',
+      params: [7.5, 2, 1, 2 ** 40, 1, 1, 1],
+    },
+  ),
+  queryCase(
+    "a CASE or coalesce with no typed value beside a typed value takes its type (review round 1)",
+    users
+      .where(() => int(3).eq(int(1).add(coalesce(val(null as number | null), val(2)))))
+      .where(() =>
+        caseWhen(lit(true), int(1))
+          .add(caseWhen(lit(true), 2))
+          .eq(3),
+      )
+      .where(() => int(1).eq(coalesce(val(null as number | null), val(1))))
+      .where(() => caseWhen(lit(true), int(1)).eq(caseWhen(lit(true), 1)))
+      .where(() => int(1).between(caseWhen(lit(true), 0), caseWhen(lit(true), 5)))
+      .select(({ u }) => u.id),
+    {
+      sql: 'select "u"."id" as "c0" from "users" as "u" where $1 = cast($2 as integer) + cast(coalesce($3, $4) as integer) and case when true then cast($5 as integer) end + cast(case when true then $6 end as integer) = $7 and cast($8 as integer) = cast(coalesce($9, $10) as integer) and case when true then cast($11 as integer) end = cast(case when true then $12 end as integer) and cast($13 as integer) between cast(case when true then $14 end as integer) and cast(case when true then $15 end as integer)',
+      params: [3, 1, null, 2, 1, 2, 3, 1, null, 1, 1, 1, 1, 0, 5],
+    },
+  ),
+  queryCase(
+    "untyped values of a widened type compared: text with text, a number with a column",
+    users
+      .where(() => val("b").gt("a"))
+      .where(({ u }) => val(34).eq(u.age))
+      .select(({ u }) => u.id),
+    {
+      sql: 'select "u"."id" as "c0" from "users" as "u" where cast($1 as text) > cast($2 as text) and $3 = "u"."age"',
+      params: ["b", "a", 34],
+    },
+  ),
+];
+
 /** Every matrix, for the execution test. */
 export const ALL_CASES: readonly (readonly [string, readonly SqlCase[]])[] = [
   ["select", SELECT_CASES],
@@ -1551,4 +1766,5 @@ export const ALL_CASES: readonly (readonly [string, readonly SqlCase[]])[] = [
   ["nested", NESTED_CASES],
   ["bulk", BULK_CASES],
   ["writes", WRITE_CASES],
+  ["casts", CAST_CASES],
 ];

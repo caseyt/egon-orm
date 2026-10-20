@@ -165,7 +165,20 @@ it yourself:
 In a `select`, a value with no type is read back as text, so only a string or `null` may
 go without one: `val(5)`, `val(true)` and `caseWhen(c, 1)` in a `select` do not compile
 (and throw `QueryError` if the types are bypassed). Give the value a type,
-`val(5, t.integer())`, or give the `CASE` a typed first branch.
+`val(5, t.integer())`, or give the `CASE` a typed first branch: the plain values of later
+branches then take its type. A `null` branch needs no type wherever it is, since a typed
+branch or a column beside it types it: `caseWhen(u.age.gt(20), null).else(u.age)`.
+
+Outside a `select` the same rule holds wherever both sides of an operator are values you
+pass: `val(10, t.integer()).gt(9)` and `val(3, t.integer()).add(1)` work, while
+`val(10).gt(9)`, `val(3).add(1)` and `val(3).neg()` do not compile. A column of a schema
+on the other side of a comparison is enough: `u.age.eq(val(5))` and
+`p.authorId.eq(caseWhen(p.published, 1).else(2))` take the column's type. A column of a
+`subquery` or `cte` source that selects values rather than whole rows does not give a
+type yet: there, type the value. Without a
+type, `val` infers the value's plain TypeScript type (`val(5)` is an `Expr<number>`), so
+`val("b").gt("a")` compiles, and next to an enum column given a list
+(`t.enum(["admin", "member"])`) `val("admin")` is checked against the enum's values.
 
 A type is always a field type, `t.integer()`, the same one you use in a schema. `cast`
 keeps the operand's `null`: `u.age.cast(t.string())` is `string | null` because `age` is

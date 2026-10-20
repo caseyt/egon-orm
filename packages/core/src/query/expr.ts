@@ -169,6 +169,39 @@ export type Comparable<S, O> = [S] extends [NoType]
     : unknown
   : unknown;
 
+/**
+ * What the operand `O` of arithmetic on `S` must also satisfy: when neither has a type,
+ * the database cannot choose an operator for them (and text has no arithmetic), so it does
+ * not compile. An error type then, `unknown` otherwise.
+ *
+ * @example
+ * ```ts
+ * declare const three: Expr<number> & Untyped;
+ * // three.add(1) does not compile: Calculable<typeof three, 1> is an error type
+ * ```
+ */
+export type Calculable<S, O> = [S] extends [NoType]
+  ? HasNoType<O> extends true
+    ? UntypedArithmetic
+    : unknown
+  : unknown;
+
+/**
+ * What the operand `S` of unary minus must also satisfy: an error type when it has no
+ * type ({@link Calculable}), `unknown` otherwise.
+ *
+ * @example
+ * ```ts
+ * declare const three: Expr<number> & Untyped;
+ * // three.neg() does not compile
+ * ```
+ */
+export type Negatable<S> = [S] extends [NoType] ? UntypedArithmetic : unknown;
+
+interface UntypedArithmetic {
+  readonly "~error": "no operand of this arithmetic has a type, so the database cannot choose an operator: give one a type, val(value, t.integer())";
+}
+
 interface UntypedComparison {
   readonly "~error": "neither side of this comparison has a type, so the database would compare them as text: give one a type, val(value, t.integer())";
 }
@@ -922,9 +955,9 @@ export class Expr<out T, in P = NoParams> {
    *
    * @throws QueryError when given `null` or `undefined`.
    */
-  add<S extends number | bigint | null, O extends Operand<S>>(
-    this: Expr<S, SomeParams>,
-    other: O & Checked<P, O>,
+  add<S extends number | bigint | null, O extends Operand<S>, X extends Expr<S, SomeParams>>(
+    this: X & Expr<S, SomeParams>,
+    other: O & Checked<P, O> & Calculable<X, O>,
   ): Expr<Numeric<S> | NullOf<S> | NullOf<ValueOf<O>>, MergeParams<P, ParamsOf<O>>> {
     return arithmetic("add", this, other);
   }
@@ -939,9 +972,9 @@ export class Expr<out T, in P = NoParams> {
    *
    * @throws QueryError when given `null` or `undefined`.
    */
-  sub<S extends number | bigint | null, O extends Operand<S>>(
-    this: Expr<S, SomeParams>,
-    other: O & Checked<P, O>,
+  sub<S extends number | bigint | null, O extends Operand<S>, X extends Expr<S, SomeParams>>(
+    this: X & Expr<S, SomeParams>,
+    other: O & Checked<P, O> & Calculable<X, O>,
   ): Expr<Numeric<S> | NullOf<S> | NullOf<ValueOf<O>>, MergeParams<P, ParamsOf<O>>> {
     return arithmetic("sub", this, other);
   }
@@ -956,9 +989,9 @@ export class Expr<out T, in P = NoParams> {
    *
    * @throws QueryError when given `null` or `undefined`.
    */
-  mul<S extends number | bigint | null, O extends Operand<S>>(
-    this: Expr<S, SomeParams>,
-    other: O & Checked<P, O>,
+  mul<S extends number | bigint | null, O extends Operand<S>, X extends Expr<S, SomeParams>>(
+    this: X & Expr<S, SomeParams>,
+    other: O & Checked<P, O> & Calculable<X, O>,
   ): Expr<Numeric<S> | NullOf<S> | NullOf<ValueOf<O>>, MergeParams<P, ParamsOf<O>>> {
     return arithmetic("mul", this, other);
   }
@@ -973,9 +1006,9 @@ export class Expr<out T, in P = NoParams> {
    *
    * @throws QueryError when given `null` or `undefined`.
    */
-  div<S extends number | bigint | null, O extends Operand<S>>(
-    this: Expr<S, SomeParams>,
-    other: O & Checked<P, O>,
+  div<S extends number | bigint | null, O extends Operand<S>, X extends Expr<S, SomeParams>>(
+    this: X & Expr<S, SomeParams>,
+    other: O & Checked<P, O> & Calculable<X, O>,
   ): Expr<Numeric<S> | NullOf<S> | NullOf<ValueOf<O>>, MergeParams<P, ParamsOf<O>>> {
     return arithmetic("div", this, other);
   }
@@ -990,9 +1023,9 @@ export class Expr<out T, in P = NoParams> {
    *
    * @throws QueryError when given `null` or `undefined`.
    */
-  mod<S extends number | bigint | null, O extends Operand<S>>(
-    this: Expr<S, SomeParams>,
-    other: O & Checked<P, O>,
+  mod<S extends number | bigint | null, O extends Operand<S>, X extends Expr<S, SomeParams>>(
+    this: X & Expr<S, SomeParams>,
+    other: O & Checked<P, O> & Calculable<X, O>,
   ): Expr<Numeric<S> | NullOf<S> | NullOf<ValueOf<O>>, MergeParams<P, ParamsOf<O>>> {
     return arithmetic("mod", this, other);
   }
@@ -1005,7 +1038,9 @@ export class Expr<out T, in P = NoParams> {
    * p.views.neg();
    * ```
    */
-  neg<S extends number | bigint | null>(this: Expr<S, SomeParams>): Expr<Numeric<S> | NullOf<S>, P> {
+  neg<S extends number | bigint | null, X extends Expr<S, SomeParams>>(
+    this: X & Expr<S, SomeParams> & Negatable<X>,
+  ): Expr<Numeric<S> | NullOf<S>, P> {
     return unary("neg", this, this.type, this.redact) as never;
   }
 

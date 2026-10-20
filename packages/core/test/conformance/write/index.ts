@@ -994,9 +994,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         // A value of 400 bound parameters, so that 200 rows take two statements; the first
         // and the last row also sleep 0.6 s, so each statement alone fits a 1 s budget.
         const wide = (sleep: boolean) => {
-          // Cast in the fragment: the compiler sends a typed value in arithmetic without a
-          // cast, which Postgres refuses (status note 13, Requests, step 10).
-          const one = () => fragment`${1}::integer`.as<number>();
+          const one = () => val(1, t.integer());
           let sum = one();
           for (let i = 0; i < 399; i++) sum = sum.add(one());
           return sleep

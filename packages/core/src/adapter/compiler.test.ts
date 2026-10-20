@@ -57,7 +57,8 @@ describe("createStatementCompiler", () => {
 
   const ast = {} as QueryAst;
   const meta = {} as SchemaMeta;
-  const stub = createStatementCompiler({ ...options, dialect: "mysql" });
+  // Every dialect of the Dialect type has a table; an unknown name stands for one that would not.
+  const stub = createStatementCompiler({ ...options, dialect: "oracle" as never });
 
   test.each([
     ["compile", () => stub.compile(ast, "all", undefined)],
@@ -77,7 +78,7 @@ describe("createStatementCompiler", () => {
     ["compileDelete", () => stub.compileDelete(meta, [], [], undefined)],
   ])("%s throws QueryError for a dialect without a SQL table yet", (method, call) => {
     expect(call).toThrow(QueryError);
-    expect(call).toThrow(`adapter.${method}() cannot compile for mysql`);
+    expect(call).toThrow(`adapter.${method}() cannot compile for oracle`);
   });
 
   test("reports the plan cache's counters, all zero for a dialect without a SQL table", () => {

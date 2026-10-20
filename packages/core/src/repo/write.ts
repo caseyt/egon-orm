@@ -1065,7 +1065,9 @@ export async function insertRow(
       return failure(handleViolation(prepared, error, "insert", identifierLimit(core)));
     throw error;
   }
-  if (result.rowCount === 0) {
+  // An upsert read back has its row even when the database reports none written (MySQL
+  // counts an existing row that the update left as it was as no row).
+  if (result.rowCount === 0 && reread === undefined) {
     if (settings.onConflict === "nothing") return success(null);
     throw new QueryError(`The insert into ${schemaMeta.name} reported no row written.`);
   }
@@ -1137,7 +1139,7 @@ async function insertThenRead(
       decodeWritten,
       undefined,
     );
-    if (result.rowCount === 0) return [result, undefined];
+    if (result.rowCount === 0 && !isUpsert(settings.onConflict)) return [result, undefined];
     const generated = insertIdRow(schemaMeta, result.insertId);
     const key: Record<string, unknown> = {};
     for (const field of schemaMeta.primaryKey) {
@@ -1156,7 +1158,15 @@ async function insertThenRead(
       context: settings.options?.context,
     };
     const rows = await load(reader, "insert", query.ast, undefined, options);
-    return [result, rows[0] as Readonly<Record<string, unknown>> | undefined];
+    const row = rows[0] as Readonly<Record<string, unknown>> | undefined;
+    if (row === undefined && isUpsert(settings.onConflict)) {
+      // The update hit a row with another key (a conflict on another unique field), and a
+      // database without RETURNING does not say which.
+      throw new QueryError(
+        `The upsert into ${schemaMeta.name} updated a row that could not be read back by the key it was given: the conflict was on another unique field, and ${core.adapter.dialect} does not report which row it updated. Upsert by the key, or read the row by the conflicting field afterwards.`,
+      );
+    }
+    return [result, row];
   } finally {
     if (connection !== undefined) await connection.release();
   }

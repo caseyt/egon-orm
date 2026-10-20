@@ -409,11 +409,13 @@ export async function insertAll(
 
   // The cells of every row, with its values; one instant for every timestamp of the call.
   const expandLists = !core.adapter.capabilities.arrayParams;
+  const defaultInValues = core.adapter.capabilities.defaultInValues;
   const stamps: unknown[] = [];
   const names: NamedParamNode[] = [];
   const prepared: PreparedRow[] = [];
   let plain = true;
-  for (const given of source as readonly Readonly<Record<string, unknown>>[]) {
+  for (let r = 0; r < source.length; r++) {
+    const given = source[r] as Readonly<Record<string, unknown>>;
     const cells: InsertCell[] = [];
     const values: unknown[] = [];
     let params = 0;
@@ -427,6 +429,7 @@ export async function insertAll(
         else if (field.autogenerate !== undefined) value = generate(table.shares, field, index, stamps);
       }
       if (value === undefined) {
+        if (!defaultInValues) throw raggedRows(core.adapter.dialect, schemaMeta, r, field, columns);
         cells.push(DEFAULT_CELL);
         plain = false;
         continue;
@@ -482,6 +485,24 @@ export async function insertAll(
     return { count, rows };
   };
   return sizes.length > 1 ? atomically(core, settings.options, deadline, run) : run(core.executor);
+}
+
+/**
+ * The error for rows of different fields on a database that cannot write `DEFAULT` in a
+ * `VALUES` list (`capabilities.defaultInValues`): the rows cannot share one statement,
+ * and splitting them would be a different statement per row. Names the row, the fields it
+ * lacks and the fields the call writes, never a value.
+ */
+function raggedRows(
+  dialect: string,
+  schemaMeta: SchemaMeta,
+  row: number,
+  field: FieldMeta,
+  columns: readonly FieldMeta[],
+): QueryError {
+  return new QueryError(
+    `repo.insertAll(): row ${row} has no value for ${schemaMeta.name}.${field.name}, which other rows give, and ${dialect} cannot write DEFAULT in a VALUES list. Give every row the same fields (${columns.map((column) => column.name).join(", ")}), or insert the rows in groups of the same fields.`,
+  );
 }
 
 /**

@@ -28,6 +28,14 @@ export const POSTGRES_CAPABILITIES: Capabilities = Object.freeze({
   updateJoin: true,
   cteMaterialized: true,
   insertDefaultValues: true,
+  defaultInValues: true,
+  aggregateFilter: true,
+  cancel: true,
+  readOnlyTransactions: true,
+  deferrableTransactions: true,
+  multipleConnections: true,
+  serializationFailures: true,
+  nonFiniteFloats: true,
   // Every clause lock() writes: the four modes, each alone or with SKIP LOCKED or NOWAIT.
   lockModes: Object.freeze(
     ["FOR UPDATE", "FOR NO KEY UPDATE", "FOR SHARE", "FOR KEY SHARE"].flatMap((mode) => [

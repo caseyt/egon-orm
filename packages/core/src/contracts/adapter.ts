@@ -316,6 +316,42 @@ export interface Capabilities {
   readonly cteMaterialized: boolean;
   /** `INSERT … DEFAULT VALUES`. */
   readonly insertDefaultValues: boolean;
+  /**
+   * The keyword `DEFAULT` as a value in an `INSERT … VALUES` list, which is how rows with
+   * different sets of fields share one statement (`insertAll`). SQLite has no such form.
+   */
+  readonly defaultInValues: boolean;
+  /** `aggregate(…) FILTER (WHERE …)`. */
+  readonly aggregateFilter: boolean;
+  /**
+   * A running statement can be stopped by its `signal` or `timeoutMs`. Without it (SQLite,
+   * whose driver runs a statement synchronously) both bound only the wait for the
+   * connection, and the time between the batches of a stream.
+   */
+  readonly cancel: boolean;
+  /** `begin({ readOnly: true })`: a transaction that refuses writes. */
+  readonly readOnlyTransactions: boolean;
+  /** `begin({ deferrable })`. */
+  readonly deferrableTransactions: boolean;
+  /**
+   * The adapter holds several connections at a time, each a session of its own on the
+   * database server. Without it (SQLite) there is one handle, which one caller uses at a
+   * time: a second caller, a pooled statement included, waits until the transaction or
+   * stream that holds it ends, and there is no server session to end from outside.
+   */
+  readonly multipleConnections: boolean;
+  /**
+   * A transaction under `repeatable read` or `serializable` that loses a conflict with
+   * another fails with a serialization failure (retryable). Without it (MySQL) conflicts
+   * are resolved with row locks: the other transaction waits, or one of the two fails with
+   * a deadlock.
+   */
+  readonly serializationFailures: boolean;
+  /**
+   * A float column stores `NaN`, `Infinity` and `-Infinity`. Without it (MySQL has none of
+   * them, SQLite stores `NaN` as `NULL`) writing one throws `CastError`.
+   */
+  readonly nonFiniteFloats: boolean;
   /** The lock clauses `lock()` accepts as plain strings, upper case: `"FOR UPDATE"`, … Empty when none. */
   readonly lockModes: readonly string[];
   /** The isolation levels `begin` accepts. Empty when the dialect has none to choose from. */
@@ -349,8 +385,9 @@ export type IsolationLevel = "read committed" | "repeatable read" | "serializabl
  */
 export interface BeginOptions {
   readonly isolation?: IsolationLevel;
+  /** Where `capabilities.readOnlyTransactions` holds. */
   readonly readOnly?: boolean;
-  /** Postgres: `DEFERRABLE`, meaningful with `serializable` and `readOnly`. */
+  /** Postgres: `DEFERRABLE`, meaningful with `serializable` and `readOnly` (`capabilities.deferrableTransactions`). */
   readonly deferrable?: boolean;
 }
 

@@ -159,8 +159,20 @@ export class Compiler {
         throw new QueryError(`explain's format option is not supported by ${this.dialect.name}.`);
       parts.push(`format ${format}`);
     }
+    let prefix: string;
+    switch (this.dialect.explain) {
+      case "keywords":
+        // MySQL: `explain analyze format=json …`; its text format with analyze is the tree.
+        prefix = `explain ${analyze ? "analyze " : ""}${format === undefined ? "" : `format=${format === "json" ? "json" : "tree"} `}`;
+        break;
+      case "queryPlan":
+        prefix = "explain query plan ";
+        break;
+      default:
+        prefix = `explain ${parts.length === 0 ? "" : `(${parts.join(", ")}) `}`;
+    }
     const plan: CompiledQuery = {
-      sql: `explain ${parts.length === 0 ? "" : `(${parts.join(", ")}) `}${base.sql}`,
+      sql: `${prefix}${base.sql}`,
       slots: base.slots,
       output: undefined,
       schema: base.schema,

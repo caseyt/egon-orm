@@ -33,6 +33,25 @@ export async function truncateAll(db: TestDatabase, options: TruncateOptions = {
     return tables;
   }
 
+  if (db.dialect === "sqlite") {
+    const rows = await db.query<{ name: string }>(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY name",
+    );
+    const tables = rows.map((row) => row.name).filter((name) => !except.has(name));
+    if (tables.length > 0) {
+      await db.exec("PRAGMA foreign_keys = OFF");
+      try {
+        await db.exec(tables.map((name) => `DELETE FROM ${quotePostgres(name)};`).join(" "));
+        // Integer keys declared AUTOINCREMENT count on in sqlite_sequence.
+        const sequence = await db.query("SELECT name FROM sqlite_master WHERE name = 'sqlite_sequence'");
+        if (sequence.length > 0) await db.exec("DELETE FROM sqlite_sequence");
+      } finally {
+        await db.exec("PRAGMA foreign_keys = ON");
+      }
+    }
+    return tables;
+  }
+
   const rows = await db.query<{ name: string }>(
     "SELECT table_name AS name FROM information_schema.tables " +
       "WHERE table_schema = DATABASE() AND table_type = 'BASE TABLE' ORDER BY table_name",

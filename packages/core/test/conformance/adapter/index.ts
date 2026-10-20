@@ -11,10 +11,11 @@ import type {
   AdapterEvents,
   ConstraintViolationType,
   DatabaseAdapter,
+  Executor,
   PoolEvent,
   QueryEvent,
 } from "egon-orm";
-import { ConstraintError, DatabaseError, isEgonError } from "egon-orm";
+import { CastError, ConstraintError, DatabaseError, isEgonError } from "egon-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 import { IDENTITY } from "../../../src/contracts/type.js";
 import { resolveCodec } from "../../../src/types/index.js";
@@ -161,7 +162,15 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
         const connection = await a.acquire();
         expect(connects).toHaveLength(1);
         expect(connects[0]?.size).toBe(1);
-        await connection.destroy();
+        if (a.capabilities.multipleConnections) {
+          await connection.destroy();
+        } else {
+          // The one shared handle is not closed by destroy (a transaction left on it is
+          // rolled back instead); it is closed with the adapter.
+          await connection.destroy();
+          expect(disconnects).toHaveLength(0);
+          await a.close();
+        }
         await eventually(() => disconnects.length === 1);
         expect(disconnects[0]?.size).toBe(0);
       });
@@ -172,6 +181,15 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
         const columnType = profile.columnType(roundTrip.type);
         if (columnType === undefined) return skip("the database has no column type for it");
         const a = adapter();
+        const requires = roundTrip.requires;
+        if (requires !== undefined && !a.capabilities[requires]) {
+          // The values are refused before they reach the database (checked).
+          const codec = resolveCodec(roundTrip.type, a);
+          for (const value of roundTrip.values) {
+            if (value !== null) expect(() => codec.toDb(value)).toThrow(CastError);
+          }
+          return skip(`capability ${requires} is false`);
+        }
         const table = `rt_${roundTrip.label.replace(/[^a-z]+/g, "_")}`;
         await db.exec(
           `drop table if exists ${table}; create table ${table} (k integer primary key, v ${columnType})`,
@@ -249,8 +267,9 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
         }
       });
 
-      test("a lost update under repeatable read is a retryable serialization failure", async () => {
+      test("a lost update under repeatable read is a retryable serialization failure", async ({ skip }) => {
         const a = adapter();
+        if (!a.capabilities.serializationFailures) return skip("capability serializationFailures is false");
         const first = await a.acquire();
         const second = await a.acquire();
         try {
@@ -269,8 +288,9 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
         }
       });
 
-      test("a deadlock is a retryable DatabaseError", async () => {
+      test("a deadlock is a retryable DatabaseError", async ({ skip }) => {
         const a = adapter();
+        if (!a.capabilities.multipleConnections) return skip("capability multipleConnections is false");
         const first = await a.acquire();
         const second = await a.acquire();
         try {
@@ -301,7 +321,7 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
     });
 
     describe("transactions", () => {
-      async function value(a: DatabaseAdapter, id: number): Promise<unknown> {
+      async function value(a: Executor, id: number): Promise<unknown> {
         const { rows } = await a.execute(`select value from counters where id = ${p(1)}`, [id]);
         return rows[0]?.value;
       }
@@ -309,17 +329,20 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
       test("commit keeps the work and rollback discards it", async () => {
         const a = adapter();
         const connection = await a.acquire();
+        // Without a second connection, the values are read on the transaction's own.
+        const outside: Executor = a.capabilities.multipleConnections ? a : connection;
         try {
           await connection.execute(`update counters set value = ${p(1)} where id = 1`, [0]);
           await connection.begin();
           await connection.execute(`update counters set value = ${p(1)} where id = 1`, [5]);
-          expect(await value(a, 1)).toBe(0); // not visible outside before commit
+          // Not visible outside before commit: only where there is an outside.
+          if (a.capabilities.multipleConnections) expect(await value(a, 1)).toBe(0);
           await connection.commit();
-          expect(await value(a, 1)).toBe(5);
+          expect(await value(outside, 1)).toBe(5);
           await connection.begin();
           await connection.execute(`update counters set value = ${p(1)} where id = 1`, [9]);
           await connection.rollback();
-          expect(await value(a, 1)).toBe(5);
+          expect(await value(outside, 1)).toBe(5);
         } finally {
           await connection.release();
         }
@@ -338,7 +361,7 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
           await connection.execute(`update counters set value = value + ${p(1)} where id = 2`, [10]);
           await connection.releaseSavepoint('quoted "name"');
           await connection.commit();
-          expect(await value(a, 2)).toBe(11);
+          expect(await value(connection, 2)).toBe(11);
         } finally {
           await connection.release();
         }
@@ -377,8 +400,19 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
         },
       );
 
-      test("a read-only transaction refuses writes; deferrable is accepted with serializable read only", async () => {
+      test("a read-only transaction refuses writes; deferrable is accepted with serializable read only", async ({
+        skip,
+      }) => {
         const a = adapter();
+        if (!a.capabilities.readOnlyTransactions) {
+          const refusing = await a.acquire();
+          try {
+            expect(() => refusing.begin({ readOnly: true })).toThrow(/not supported by this database/);
+          } finally {
+            await refusing.release();
+          }
+          return skip("capability readOnlyTransactions is false: begin({ readOnly: true }) is refused (checked)");
+        }
         const connection = await a.acquire();
         try {
           await connection.begin({ readOnly: true });
@@ -386,7 +420,15 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
             connection.execute("update counters set value = 0 where id = 1", []),
           ).rejects.toBeInstanceOf(DatabaseError);
           await connection.rollback();
-          await connection.begin({ isolation: "serializable", readOnly: true, deferrable: true });
+          // Deferrable only where the capability says so; otherwise begin refuses it (checked).
+          if (a.capabilities.deferrableTransactions) {
+            await connection.begin({ isolation: "serializable", readOnly: true, deferrable: true });
+          } else {
+            expect(() => connection.begin({ readOnly: true, deferrable: true })).toThrow(
+              /not supported by this database/,
+            );
+            await connection.begin({ isolation: "serializable", readOnly: true });
+          }
           expect((await connection.execute("select 1 as one", [])).rows).toEqual([{ one: 1 }]);
           await connection.commit();
         } finally {
@@ -402,8 +444,12 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
         await connection.begin();
         await connection.execute("update counters set value = 77 where id = 1", []);
         await connection.release();
-        const after = (await a.execute(profile.backendId, [])).rows[0]?.id;
-        expect(after).not.toEqual(before);
+        // With one shared handle there is no other session to hand out: the transaction left
+        // on it is rolled back instead, which the value below shows.
+        if (a.capabilities.multipleConnections) {
+          const after = (await a.execute(profile.backendId, [])).rows[0]?.id;
+          expect(after).not.toEqual(before);
+        }
         expect(await value(a, 1)).not.toBe(77);
       });
 
@@ -433,8 +479,9 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
         expect(a.poolStats().size).toBeLessThanOrEqual(2);
       });
 
-      test("concurrent statements up to the pool size run at the same time", async () => {
+      test("concurrent statements up to the pool size run at the same time", async ({ skip }) => {
         const a = adapter({ poolMax: 4 });
+        if (!a.capabilities.multipleConnections) return skip("capability multipleConnections is false");
         const started = Date.now();
         await Promise.all(Array.from({ length: 4 }, () => a.execute(profile.sleep(0.3), [])));
         expect(Date.now() - started).toBeLessThan(1_100);
@@ -538,8 +585,9 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
     });
 
     describe("cancellation", () => {
-      test("an AbortSignal cancels a running statement on the server", async () => {
+      test("an AbortSignal cancels a running statement on the server", async ({ skip }) => {
         const a = adapter({ poolMax: 1 });
+        if (!a.capabilities.cancel) return skip("capability cancel is false");
         const controller = new AbortController();
         const started = Date.now();
         const running = a.execute(profile.sleep(10), [], { signal: controller.signal });
@@ -552,8 +600,9 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
         expect((await a.execute("select 1 as one", [])).rows).toEqual([{ one: 1 }]);
       });
 
-      test("timeoutMs cancels a statement that runs too long", async () => {
+      test("timeoutMs cancels a statement that runs too long", async ({ skip }) => {
         const a = adapter({ poolMax: 1 });
+        if (!a.capabilities.cancel) return skip("capability cancel is false");
         const started = Date.now();
         const error = await rejection(a.execute(profile.sleep(10), [], { timeoutMs: 150 }));
         expect(error).toMatchObject({ code: "timeout" });
@@ -597,8 +646,11 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
         expect((await a.execute("select 1 as one", [])).rows).toEqual([{ one: 1 }]);
       });
 
-      test("timeoutMs on a dedicated connection inside a transaction cancels the statement only", async () => {
+      test("timeoutMs on a dedicated connection inside a transaction cancels the statement only", async ({
+        skip,
+      }) => {
         const a = adapter();
+        if (!a.capabilities.cancel) return skip("capability cancel is false");
         const connection = await a.acquire();
         try {
           await connection.begin();
@@ -653,8 +705,11 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
     });
 
     describe("broken connections", () => {
-      test("a connection whose server process was terminated fails with code connection and is evicted", async () => {
+      test("a connection whose server process was terminated fails with code connection and is evicted", async ({
+        skip,
+      }) => {
         const a = adapter({ poolMax: 2 });
+        if (!a.capabilities.multipleConnections) return skip("capability multipleConnections is false");
         const connection = await a.acquire();
         const id = (await connection.execute(profile.backendId, [])).rows[0]?.id;
         // `terminate` returns once the server process has ended. Waiting a little more lets
@@ -671,8 +726,11 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
         expect(next).not.toEqual(id);
       });
 
-      test("an idle pooled connection that dies is dropped, and the next statement gets a new one", async () => {
+      test("an idle pooled connection that dies is dropped, and the next statement gets a new one", async ({
+        skip,
+      }) => {
         const a = adapter({ poolMax: 1 });
+        if (!a.capabilities.multipleConnections) return skip("capability multipleConnections is false");
         const disconnects: PoolEvent[] = [];
         a.on("disconnect", (event) => disconnects.push(event));
         const id = (await a.execute(profile.backendId, [])).rows[0]?.id;
@@ -724,14 +782,19 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
         const sqls: string[] = [];
         a.on("query", (event) => sqls.push(event.sql));
         const connection = await a.acquire();
-        await connection.begin({ isolation: "serializable" });
+        // A database that starts a transaction with more than one statement reports each.
+        const levels = a.capabilities.isolationLevels.includes("serializable");
+        await connection.begin(levels ? { isolation: "serializable" } : undefined);
+        const begun = sqls.length;
         await connection.savepoint("s");
         await connection.releaseSavepoint("s");
         await connection.commit();
         await connection.release();
-        expect(sqls).toHaveLength(4);
-        expect(sqls[0]).toMatch(/^begin/);
-        expect(sqls[3]).toBe("commit");
+        expect(begun).toBeGreaterThanOrEqual(1);
+        expect(sqls).toHaveLength(begun + 3);
+        expect(sqls.slice(0, begun).join("; ")).toMatch(/\b(begin|start transaction)\b/);
+        if (levels) expect(sqls.slice(0, begun).join("; ")).toMatch(/serializable/);
+        expect(sqls[begun + 2]).toBe("commit");
       });
     });
   });

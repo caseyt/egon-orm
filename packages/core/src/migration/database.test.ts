@@ -30,7 +30,8 @@ describe("createDatabase and dropDatabase", () => {
 
   test("refuse a dialect this build has no table for", async () => {
     const adapter = createAdapter({
-      dialect: "sqlite",
+      // Every dialect of the Dialect type has a table; an unknown name stands for one that would not.
+      dialect: "oracle" as never,
       capabilities: POSTGRES_CAPABILITIES,
       quoteIdentifier: (name) => `"${name}"`,
       driver: () => {

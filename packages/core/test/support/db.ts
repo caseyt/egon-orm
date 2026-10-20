@@ -1,9 +1,17 @@
 import { randomBytes } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import Sqlite from "better-sqlite3";
 import { type Connection, createConnection } from "mysql2/promise";
 import pg from "pg";
 import { onTestFinished } from "vitest";
-import { type ConnectionSettings, connectionSettings, connectionUrl, type Dialect } from "./env.js";
+import {
+  type ConnectionSettings,
+  connectionSettings,
+  connectionUrl,
+  type Dialect,
+  type ServerDialect,
+} from "./env.js";
 
 /** One row as the driver returns it. */
 export type Row = Record<string, unknown>;
@@ -19,7 +27,8 @@ export interface TestDatabase {
   readonly url: string;
   /**
    * Runs one statement on the helper's own connection and returns its rows.
-   * Placeholders are the driver's: `$1` for Postgres, `?` for MySQL.
+   * Placeholders are the driver's: `$1` for Postgres, `?` for MySQL and SQLite. On SQLite a
+   * boolean parameter is bound as 1 or 0, and integers are read as numbers.
    */
   query<T extends Row = Row>(sql: string, params?: readonly unknown[]): Promise<T[]>;
   /** Runs a script of one or more `;`-separated statements without parameters. */
@@ -94,21 +103,26 @@ export function parseDatabaseName(name: string): TestDatabaseName | undefined {
   return Number.isNaN(createdAt.getTime()) ? undefined : { runId, createdAt };
 }
 
-/** Reads `fixtures/<name>.sql`. */
-export function readFixture(name: string): Promise<string> {
+/**
+ * Reads the fixture `name` for `dialect`: `fixtures/<name>.sql` for Postgres,
+ * `fixtures/<name>.mysql.sql` and `fixtures/<name>.sqlite.sql` for the others. The
+ * variants describe the same tables, columns and constraint names.
+ */
+export function readFixture(name: string, dialect: Dialect = "postgres"): Promise<string> {
   if (!/^[\w-]+$/.test(name)) throw new Error(`invalid fixture name ${JSON.stringify(name)}`);
-  return readFile(new URL(`./fixtures/${name}.sql`, import.meta.url), "utf8");
+  const file = dialect === "postgres" ? `${name}.sql` : `${name}.${dialect}.sql`;
+  return readFile(new URL(`./fixtures/${file}`, import.meta.url), "utf8");
 }
 
-/** Loads `fixtures/<name>.sql` into `db`. */
+/** Loads the fixture `name` for `db`'s dialect into `db`. */
 export async function loadFixture(db: TestDatabase, name: string): Promise<void> {
-  await db.exec(await readFixture(name));
+  await db.exec(await readFixture(name, db.dialect));
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** The error thrown when a test server does not accept connections; names the command that starts it. */
-export function unreachable(dialect: Dialect, settings: ConnectionSettings, cause: unknown): Error {
+export function unreachable(dialect: ServerDialect, settings: ConnectionSettings, cause: unknown): Error {
   const hint = dialect === "postgres" ? "pnpm db:up" : "pnpm db:up:tier2";
   return new Error(
     `Cannot reach the ${dialect} test server at ${settings.host}:${settings.port}. Start it with \`${hint}\`.`,
@@ -224,6 +238,47 @@ async function createMysql(name: string, server: ConnectionSettings): Promise<Te
 }
 
 /**
+ * A SQLite database: a file `<name>.sqlite` in a directory of its own under
+ * `server.database` (the system's temporary directory by default), which `drop()` removes.
+ * The helper's handle runs in WAL mode, so that the adapter under test, which opens the
+ * same file, can read while the helper holds it.
+ */
+async function createSqlite(name: string, server: ConnectionSettings): Promise<TestDatabaseHandle> {
+  const directory = await mkdtemp(join(server.database, `${name}-`));
+  const file = join(directory, `${name}.sqlite`);
+  const handle = new Sqlite(file);
+  handle.pragma("journal_mode = WAL");
+  handle.pragma("foreign_keys = ON");
+  const settings = { ...server, database: file };
+  const bindable = (params: readonly unknown[]): unknown[] =>
+    params.map((value) => (value === true ? 1 : value === false ? 0 : value));
+  let dropped = false;
+  return {
+    db: {
+      dialect: "sqlite",
+      name,
+      settings,
+      url: connectionUrl("sqlite", settings),
+      async query<T extends Row>(sql: string, params: readonly unknown[] = []) {
+        const statement = handle.prepare(sql);
+        if (statement.reader) return statement.all(bindable(params)) as T[];
+        statement.run(bindable(params));
+        return [];
+      },
+      async exec(sql) {
+        handle.exec(sql);
+      },
+    },
+    async drop() {
+      if (dropped) return;
+      dropped = true;
+      handle.close();
+      await rm(directory, { recursive: true, force: true });
+    },
+  };
+}
+
+/**
  * Creates a uniquely named database on the `dialect` test server and connects to it.
  * The caller must call `drop()`; prefer {@link withDatabase}, or pair this with
  * `beforeAll`/`afterAll` when one database should serve a whole file. If the process dies
@@ -246,7 +301,11 @@ export async function createTestDatabase(
   const server = options.settings ?? connectionSettings(dialect);
   const name = uniqueDatabaseName(options.label);
   const handle =
-    dialect === "postgres" ? await createPostgres(name, server) : await createMysql(name, server);
+    dialect === "postgres"
+      ? await createPostgres(name, server)
+      : dialect === "mysql"
+        ? await createMysql(name, server)
+        : await createSqlite(name, server);
   try {
     for (const fixture of options.fixtures ?? []) await loadFixture(handle.db, fixture);
   } catch (error) {

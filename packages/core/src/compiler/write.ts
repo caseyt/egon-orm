@@ -198,7 +198,12 @@ export function emitInsert(
     default:
       throw new QueryError("An insert's source is values, cells or a query.");
   }
-  if (options.onConflict !== undefined) sql += onConflict(ctx, meta, columns, options.onConflict, schema);
+  if (options.onConflict !== undefined) {
+    sql +=
+      ctx.dialect.upsert === "onDuplicateKey"
+        ? onDuplicateKey(ctx, meta, columns, options.onConflict, source.kind === "query")
+        : onConflict(ctx, meta, columns, options.onConflict, schema);
+  }
   const back = returning(ctx, meta, options.returning);
   return { sql: sql + back.sql, output: back.output, schema: target.schema };
 }
@@ -216,9 +221,12 @@ function insertValues(
     if (rows === 1) {
       if (!ctx.dialect.capabilities.insertDefaultValues)
         throw unsupported(ctx.dialect, "INSERT … DEFAULT VALUES");
-      return " default values";
+      return ctx.dialect.defaultValues;
     }
     // Several rows of defaults: name one column and give it its default in every row.
+    if (!ctx.dialect.capabilities.defaultInValues) {
+      throw unsupported(ctx.dialect, "DEFAULT in a VALUES list (several rows of defaults)");
+    }
     const first = meta.persisted[0];
     if (first === undefined) throw new QueryError(`${meta.name} has no column to insert defaults into.`);
     let text = ` (${quoteIdentifier(ctx.dialect, first.column)}) values `;
@@ -262,6 +270,9 @@ function insertCells(
           text += inlineValue(ctx, field.type, field.redact);
           break;
         case "default":
+          if (!ctx.dialect.capabilities.defaultInValues) {
+            throw unsupported(ctx.dialect, "DEFAULT in a VALUES list (rows with different fields)");
+          }
           text += "default";
           break;
         case "expr":
@@ -312,6 +323,62 @@ function onConflict(
   for (let i = 0; i < fields.length; i++) {
     const column = quoteIdentifier(ctx.dialect, (fields[i] as FieldMeta).column);
     text += `${i > 0 ? ", " : ""}${column} = ${quoteIdentifier(ctx.dialect, "excluded")}.${column}`;
+  }
+  return text;
+}
+
+/** The name of the row alias that stands for the row an upsert tried to insert, as `excluded` does on the others. */
+const EXCLUDED = "excluded";
+
+/**
+ * MySQL's upsert: `as excluded on duplicate key update …`. It takes no conflict target:
+ * any unique index applies.
+ *
+ * - `"nothing"` sets the first key column to itself, which changes no row: a conflict is
+ *   then reported as no row written.
+ * - With `update`, each column takes the value of the row alias `excluded`. When the table
+ *   has a single key the database generates, the key is also set to
+ *   `last_insert_id(key)`, which makes the result report the key of the row that was
+ *   updated (as it does for a row inserted), so that the repo can read that row back.
+ */
+function onDuplicateKey(
+  ctx: EmitContext,
+  meta: SchemaMeta,
+  columns: readonly FieldMeta[],
+  conflict: OnConflict,
+  fromQuery: boolean,
+): string {
+  if (!ctx.dialect.capabilities.onConflict) throw unsupported(ctx.dialect, "onConflict");
+  if (conflict === "nothing") {
+    const first = meta.primaryKey[0] ?? columns[0] ?? meta.persisted[0];
+    if (first === undefined) throw new QueryError(`${meta.name} has no column to write onConflict with.`);
+    const column = quoteIdentifier(ctx.dialect, first.column);
+    return ` on duplicate key update ${column} = ${column}`;
+  }
+  if (typeof conflict !== "object" || conflict === null) {
+    throw new QueryError('onConflict is "nothing" or { target, update }.');
+  }
+  if (conflict.target !== undefined && !ctx.dialect.capabilities.conflictTarget) {
+    throw unsupported(ctx.dialect, "An onConflict target");
+  }
+  if (fromQuery) throw unsupported(ctx.dialect, "onConflict with update on an insert from a query");
+  const fields = updatedFields(meta, columns, conflict.update);
+  if (fields.length === 0) {
+    throw new QueryError(
+      'onConflict\'s update leaves no column to update; use onConflict: "nothing" instead.',
+    );
+  }
+  const excluded = quoteIdentifier(ctx.dialect, EXCLUDED);
+  let text = ` as ${excluded} on duplicate key update `;
+  const key = meta.primaryKey.length === 1 ? (meta.primaryKey[0] as FieldMeta) : undefined;
+  const kind = key?.type.db.kind;
+  if (key !== undefined && key.dbGenerated && (kind === "integer" || kind === "bigint") && !fields.includes(key)) {
+    const column = quoteIdentifier(ctx.dialect, key.column);
+    text += `${column} = last_insert_id(${column}), `;
+  }
+  for (let i = 0; i < fields.length; i++) {
+    const column = quoteIdentifier(ctx.dialect, (fields[i] as FieldMeta).column);
+    text += `${i > 0 ? ", " : ""}${column} = ${excluded}.${column}`;
   }
   return text;
 }

@@ -114,6 +114,75 @@ describe("validations run only when the field has a change", () => {
   });
 });
 
+describe("a field that already has an error gets no more: the first failure stands", () => {
+  test("each built-in validation leaves a field with an error alone", () => {
+    const params = { title: "x", slug: "taken", seats: "0", labels: ["z"] };
+    const cs = cast(Event, params, ["title", "slug", "seats", "labels"])
+      .addError("title", "first")
+      .addError("slug", "first")
+      .addError("seats", "first")
+      .addError("labels", "first")
+      .validateLength("title", { min: 3 })
+      .validateFormat("title", /^[A-Z]/)
+      .validateInclusion("slug", ["free"])
+      .validateExclusion("slug", ["taken"])
+      .validateNumber("seats", { greaterThan: 0 })
+      .validateSubset("labels", ["a"])
+      .validateChange("title", () => "is dropped");
+    expect(cs.errorMessages()).toEqual({
+      title: ["first"],
+      slug: ["first"],
+      seats: ["first"],
+      labels: ["first"],
+    });
+    // Each validation is still recorded.
+    expect(cs.validations).toHaveLength(7);
+
+    const keyed = cast(User, { password: "secret", passwordConfirmation: "other", terms: "no" }, ["password"])
+      .addError("passwordConfirmation", "first")
+      .addError("terms", "first")
+      .validateConfirmation("password")
+      .validateAcceptance("terms");
+    expect(keyed.errorMessages()).toEqual({ passwordConfirmation: ["first"], terms: ["first"] });
+  });
+
+  test("two validations of one field: only the first failure is reported", () => {
+    const cs = cast(Event, { title: "x" }, ["title"])
+      .validateLength("title", { min: 3 })
+      .validateFormat("title", /^[A-Z]/);
+    expect(cs.errorMessages()).toEqual({ title: ["should be at least 3 character(s)"] });
+    // Without the first failure, the second is reported.
+    expect(
+      cast(Event, { title: "xyz" }, ["title"])
+        .validateLength("title", { min: 3 })
+        .validateFormat("title", /^[A-Z]/)
+        .errorMessages(),
+    ).toEqual({ title: ["has invalid format"] });
+  });
+
+  test("validateChange does not call its function for a field with an error", () => {
+    let calls = 0;
+    const cs = cast(Event, { title: "x" }, ["title"])
+      .validateLength("title", { min: 3 })
+      .validateChange("title", () => {
+        calls++;
+        return "is dropped";
+      });
+    expect(calls).toBe(0);
+    expect(cs.errorMessages()).toEqual({ title: ["should be at least 3 character(s)"] });
+  });
+
+  test("an error on one field does not stop validations of another", () => {
+    const cs = cast(Event, { title: "x", slug: "a b" }, ["title", "slug"])
+      .validateLength("title", { min: 3 })
+      .validateFormat("slug", /^\S+$/);
+    expect(cs.errorMessages()).toEqual({
+      title: ["should be at least 3 character(s)"],
+      slug: ["has invalid format"],
+    });
+  });
+});
+
 describe("validateFormat", () => {
   test("adds has invalid format when the change does not match", () => {
     const cs = cast(User, { email: "not an address" }, ["email"]).validateFormat(

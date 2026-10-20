@@ -83,6 +83,26 @@ describe("validateField", () => {
     expect(fn).not.toHaveBeenCalled();
   });
 
+  test("is skipped when the field already has an error: the field keeps its first message", () => {
+    const fn = vi.fn(() => [{ path: [], message: "is dropped" }]);
+    const cs = cast(row(), { email: "nope" }, ["email"]).validateField("email", emailSchema);
+    const again = cs.validateField("email", fn);
+    expect(fn).not.toHaveBeenCalled();
+    expect(again.errorMessages()).toEqual({ email: ["is not an email address"] });
+    expect(again.validations).toEqual([
+      ["email", { schema: emailSchema }],
+      ["email", { schema: fn }],
+    ]);
+    // Another field is still validated.
+    const other = cast(row(), { email: "nope", name: "R" }, ["email", "name"])
+      .validateLength("email", { min: 10 })
+      .validateField("name", () => [{ path: [], message: "is too short" }]);
+    expect(other.errorMessages()).toEqual({
+      email: ["should be at least 10 character(s)"],
+      name: ["is too short"],
+    });
+  });
+
   test("a function receives the value and the context", () => {
     const cs = change(row(), { email: "radia@example.com" });
     const checked = cs.validateField("email", (email, { isChanged, data }) =>
@@ -148,6 +168,15 @@ describe("validateFieldAsync", () => {
     );
     expect(viaSync.errorMessages()).toEqual({ email: ["is not an email address"] });
     expect(viaAsync.errorMessages()).toEqual({ email: ["is not an email address"] });
+  });
+
+  test("is skipped when the field already has an error, so a remote check is not made", async () => {
+    const remote = vi.fn(async () => [{ path: [], message: "is not allowed" }]);
+    const cs = await cast(User, { email: "nope" }, ["email"])
+      .validateFormat("email", /@/)
+      .validateFieldAsync("email", remote);
+    expect(remote).not.toHaveBeenCalled();
+    expect(cs.errorMessages()).toEqual({ email: ["has invalid format"] });
   });
 
   test("is skipped without a change, and rejects on misuse", async () => {

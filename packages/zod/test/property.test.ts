@@ -32,12 +32,17 @@ const formParams = fc.record(
 test("cast + validate(toZod(insert)): an issue on a field exactly when its value breaks the field's type or nullability", () => {
   fc.assert(
     fc.property(formParams, (params) => {
-      const cs = cast(User, params, ["email", "name", "age", "role", "password"]).validate(UserInsert);
+      const before = cast(User, params, ["email", "name", "age", "role", "password"]);
+      const cs = before.validate(UserInsert);
       // cast turns what it accepts into values of the right type and records nothing it
       // rejects, so the only value left that breaks its field is a missing email (required,
       // no default); name and age are nullable, role has a default, password is virtual.
-      const expected = typeof cs.changes.email === "string" ? [] : ["email"];
+      // An email cast already reported (blank, or not a string) keeps cast's message alone.
+      const expected =
+        typeof cs.changes.email === "string" || Object.hasOwn(before.errors, "email") ? [] : ["email"];
       expect(schemaErrorKeys(cs.errors)).toEqual(expected);
+      // One message per field.
+      for (const list of Object.values(cs.errors)) expect(list).toHaveLength(1);
     }),
   );
 });
@@ -78,9 +83,11 @@ test("change + validate(toZod(insert)): an issue on a field exactly when its val
         for (const field of Object.keys(fits)) {
           const given = Object.hasOwn(values, field);
           const value = (values as Record<string, unknown>)[field];
-          if (!given || (value === null && !nullable.has(field))) {
-            // No value (a null on a field that is not nullable is refused by change()):
-            // only a field without a default is then missing.
+          // A null on a field that is not nullable is refused by change(), which reports
+          // can't be blank; that field gets no second error from the schema.
+          if (given && value === null && !nullable.has(field)) continue;
+          if (!given) {
+            // No value: only a field without a default is then missing.
             if (!defaulted.has(field) && !nullable.has(field)) expected.push(field);
             continue;
           }

@@ -766,6 +766,32 @@ describe("nested errors and validators", () => {
     expect(cs.errorMessages()).toEqual({ pages: [{ text: ["kept"] }] });
   });
 
+  test("a routed issue on a child field that already has an error is dropped; the child's other fields keep theirs", () => {
+    const Book = bookWith("delete");
+    const book = loaded(Book, { id: 7, title: "B" }, { pages: [] });
+    const cs = cast(book, { pages: [{ text: "" }, { text: "fine" }] }, [])
+      .castAssoc("pages")
+      .validate(() => [
+        { path: ["pages", 0, "text"], message: "is dropped" },
+        { path: ["pages", 0, "bookId"], message: "is kept" },
+        { path: ["pages", 1, "text"], message: "is kept too" },
+      ]);
+    expect(cs.errorMessages()).toEqual({
+      pages: [{ text: ["can't be blank"], bookId: ["is kept"] }, { text: ["is kept too"] }],
+    });
+
+    const event = cast(Event, { venue: { name: "", spot: { lat: "north", lng: 2 } } }, [])
+      .castEmbed("venue")
+      .validate(() => [
+        { path: ["venue", "name"], message: "is dropped" },
+        { path: ["venue", "spot", "lat"], message: "is dropped" },
+        { path: ["venue", "spot", "lng"], message: "is kept" },
+      ]);
+    expect(event.errorMessages()).toEqual({
+      venue: { name: ["can't be blank"], spot: { lat: ["is invalid"], lng: ["is kept"] } },
+    });
+  });
+
   test("a nested change replaced by a valid one leaves the parent valid", () => {
     const Book = bookWith("delete");
     const book = loaded(Book, { id: 7, title: "B" }, { pages: [] });

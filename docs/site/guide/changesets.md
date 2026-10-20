@@ -81,7 +81,10 @@ works on nullable fields.
 
 Each validation runs only when its field has a change (a change to `null` is not
 validated). The exceptions are `validateRequired`, which also checks the existing data,
-and `validateAcceptance`, which checks the params whatever changed.
+and `validateAcceptance`, which checks the params whatever changed. A validation adds
+nothing to a field (or key) that already has an error, so each field shows one message,
+the first failure: `validateLength("name", { min: 2 })` followed by
+`validateFormat("name", ...)` reports only the length.
 
 <<< @/examples/changesets.ts#validations
 

@@ -476,7 +476,7 @@ describe("explain", () => {
     const plain: SqlDialect = {
       ...postgresDialect,
       name: "sqlite",
-      explainOptions: { analyze: false, format: false },
+      capabilities: { ...postgresDialect.capabilities, explainOptions: false },
     };
     const compiler = createCompiler(plain);
     const ast = from(User, "u").ast;

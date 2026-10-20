@@ -236,11 +236,18 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
 
       test("every type is written and read back", async () => {
         const r = await repo();
+        const capabilities = adapter().capabilities;
+        // A case that needs a capability the database lacks is written as NULL (its values are
+        // refused before they are sent; the adapter suite checks that).
+        const valueFor = (each: (typeof typeCases)[number], row: number): unknown =>
+          each.requires !== undefined && !capabilities[each.requires]
+            ? null
+            : each.values[row % each.values.length];
         const longest = Math.max(...typeCases.map((each) => each.values.length));
         for (let row = 0; row < longest; row++) {
           const values: Record<string, unknown> = { id: row + 1 };
           typeCases.forEach((each, i) => {
-            values[`v${i}`] = each.values[row % each.values.length];
+            values[`v${i}`] = valueFor(each, row);
           });
           await r.insertOrThrow(change(Everything, values as never));
         }
@@ -251,7 +258,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         expect(stored).toHaveLength(longest);
         stored.forEach((row, index) => {
           typeCases.forEach((each, i) => {
-            const expected = each.values[index % each.values.length];
+            const expected = valueFor(each, index);
             const actual = row[`v${i}`];
             if (expected === null) expect(actual, each.label).toBeNull();
             else expect(each.type.equal(actual, expected), `${each.label}: ${String(expected)}`).toBe(true);
@@ -271,8 +278,10 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         const plain = await r.insertOrThrow(change(Stamp, { label: "a" }));
         expect(plain.code).toBe("db-code");
         expect(plain.madeAt).toBeInstanceOf(Date);
-        // note has a database default the schema does not declare: not read back unless asked.
-        expect(plain.note).toBeNull();
+        // note has a database default the schema does not declare: not read back unless asked,
+        // where rows come back from the write itself. Without RETURNING the repo reads the
+        // whole row back, note included.
+        expect(plain.note).toBe(adapter().capabilities.returning ? null : "db-note");
         expect((await r.getOrThrow(Stamp, plain.id)).note).toBe("db-note");
         const asked = await r.insertOrThrow(change(Stamp, { label: "b" }), { returning: ["note"] });
         expect(asked.note).toBe("db-note");
@@ -341,9 +350,10 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         const updated = ok(await r.update(cast(user, { name: "Ada L." }, ["name", "age"])));
         expect(events).toHaveLength(1);
         expect(events[0]?.operation).toBe("update");
-        expect(events[0]?.sql).toContain('"name"');
-        expect(events[0]?.sql).not.toContain('"age"');
-        expect(events[0]?.sql).not.toContain('"email"');
+        // Identifiers are quoted with " or `, by the database.
+        expect(events[0]?.sql).toMatch(/["`]name["`]/);
+        expect(events[0]?.sql).not.toMatch(/["`]age["`]/);
+        expect(events[0]?.sql).not.toMatch(/["`]email["`]/);
         expect(updated.name).toBe("Ada L.");
         expect(updated.age).toBe(36);
         expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(user.updatedAt.getTime());
@@ -563,9 +573,24 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         expect((other as ConstraintError).message).toContain('.uniqueConstraint("email")');
       });
 
-      test("a foreign key: declared on the field, on the association, and not at all", async () => {
+      /**
+       * Where a foreign-key violation names no constraint, nothing declared can match it: the
+       * write throws a ConstraintError of type foreignKey (checked), and the test ends there.
+       */
+      async function unnamedForeignKey(write: () => Promise<unknown>): Promise<boolean> {
+        if (adapter().capabilities.foreignKeyNames) return false;
+        const error = await rejection(write());
+        expect(error).toBeInstanceOf(ConstraintError);
+        expect(error).toMatchObject({ type: "foreignKey", constraint: undefined });
+        return true;
+      }
+
+      test("a foreign key: declared on the field, on the association, and not at all", async (context) => {
         const r = await repo();
         const missing = cast(Post, { authorId: 999, title: "Orphan" }, ["authorId", "title"]);
+        if (await unnamedForeignKey(() => r.insert(missing.foreignKeyConstraint("authorId")))) {
+          return context.skip("capability foreignKeyNames is false");
+        }
         const onField = await r.insert(missing.foreignKeyConstraint("authorId"));
         if (onField.success) fail("expected a failure");
         expect(onField.error.errorMessages()).toEqual({ authorId: ["does not exist"] });
@@ -582,10 +607,13 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         );
       });
 
-      test("deleting a parent that still has children: noAssocConstraint, or the message", async () => {
+      test("deleting a parent that still has children: noAssocConstraint, or the message", async (context) => {
         const r = await repo();
         const user = await seedUser(r);
         await seedPost(r, user.id);
+        if (await unnamedForeignKey(() => r.delete(change(user).noAssocConstraint("posts")))) {
+          return context.skip("capability foreignKeyNames is false");
+        }
         const handled = await r.delete(change(user).noAssocConstraint("posts"));
         if (handled.success) fail("expected a failure");
         expect(handled.error.action).toBe("delete");
@@ -636,14 +664,17 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         );
       });
 
-      test("only one constraint error is reported per attempt", async () => {
+      test("only one constraint error is reported per attempt", async (context) => {
         const r = await repo();
         await seedUser(r);
-        const result = await r.insert(
-          cast(Post, { authorId: 999, title: "x" }, ["authorId", "title"])
-            .foreignKeyConstraint("authorId")
-            .uniqueConstraint("title", { name: "posts_title_key" }),
-        );
+        const attempt = () =>
+          r.insert(
+            cast(Post, { authorId: 999, title: "x" }, ["authorId", "title"])
+              .foreignKeyConstraint("authorId")
+              .uniqueConstraint("title", { name: "posts_title_key" }),
+          );
+        if (await unnamedForeignKey(attempt)) return context.skip("capability foreignKeyNames is false");
+        const result = await attempt();
         if (result.success) fail("expected a failure");
         expect(Object.keys(result.error.errors)).toEqual(["authorId"]);
       });
@@ -674,16 +705,18 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
 
       test("update all, a list of fields, or all except some, on a field target", async () => {
         const r = await repo();
+        // A database that takes no conflict target (MySQL) updates on any unique key.
+        const target = adapter().capabilities.conflictTarget ? { target: ["email" as const] } : {};
         const ada = await seedUser(r, "ada@example.com", { name: "Ada", age: 36 });
         const all = await r.insertOrThrow(change(User, { email: "ada@example.com", name: "All", age: 1 }), {
-          onConflict: { target: ["email"], update: "all" },
+          onConflict: { ...target, update: "all" },
         });
         expect(all.id).toBe(ada.id);
         expect([all.name, all.age]).toEqual(["All", 1]);
         const listed = await r.insertOrThrow(
           change(User, { email: "ada@example.com", name: "Listed", age: 2 }),
           {
-            onConflict: { target: ["email"], update: ["name"] },
+            onConflict: { ...target, update: ["name"] },
           },
         );
         // The whole row is read back: age keeps the stored value.
@@ -691,7 +724,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         const except = await r.insertOrThrow(
           change(User, { email: "ada@example.com", name: "Except", age: 3 }),
           {
-            onConflict: { target: ["email"], update: { except: ["createdAt", "age"] } },
+            onConflict: { ...target, update: { except: ["createdAt", "age"] } },
           },
         );
         expect([except.name, except.age]).toEqual(["Except", 1]);
@@ -700,13 +733,25 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         expect(await r.count(User)).toBe(1);
       });
 
-      test("a constraint target and a fragment target", async () => {
+      test("a constraint target and a fragment target", async (context) => {
         const r = await repo();
+        const capabilities = adapter().capabilities;
         await seedUser(r, "ada@example.com", { name: "Ada" });
-        const named = await r.insertOrThrow(change(User, { email: "ada@example.com", name: "Named" }), {
-          onConflict: { target: { constraint: "users_email_key" }, update: ["name"] },
-        });
-        expect(named.name).toBe("Named");
+        const byName = () =>
+          r.insertOrThrow(change(User, { email: "ada@example.com", name: "Named" }), {
+            onConflict: { target: { constraint: "users_email_key" }, update: ["name"] },
+          });
+        if (!capabilities.conflictTarget) {
+          // Any target is refused when the insert is compiled (capability conflictTarget).
+          await expect(byName()).rejects.toThrow(QueryError);
+          return context.skip("capability conflictTarget is false");
+        }
+        if (capabilities.conflictConstraint) {
+          expect((await byName()).name).toBe("Named");
+        } else {
+          // A constraint target is refused when the insert is compiled (capability conflictConstraint).
+          await expect(byName()).rejects.toThrow(QueryError);
+        }
         const fragmentTarget = await r.insertOrThrow(
           change(User, { email: "ada@example.com", name: "Fragment" }),
           {
@@ -717,11 +762,16 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         expect(await r.count(User)).toBe(1);
       });
 
-      test("an update without a target is refused before anything is sent", async () => {
+      test("an update without a target is refused before anything is sent", async (context) => {
         const { repo: r, events } = await watched();
-        const error = await rejection(
-          r.insert(change(User, { email: "ada@example.com" }), { onConflict: { update: "all" } }),
-        );
+        const write = () =>
+          r.insert(change(User, { email: "ada@example.com" }), { onConflict: { update: "all" } });
+        if (!adapter().capabilities.conflictTarget) {
+          // Without targets, an update without one is the only form, and is accepted.
+          expect((await write()).success).toBe(true);
+          return context.skip("capability conflictTarget is false");
+        }
+        const error = await rejection(write());
         expect(error).toBeInstanceOf(QueryError);
         expect(events).toEqual([]);
       });
@@ -732,10 +782,24 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
     describe("insertAll", () => {
       test("one row, with defaults and timestamps, and its rows back", async () => {
         const { repo: r, events } = await watched();
-        const { count, rows } = await r.insertAll(User, [{ email: "ada@example.com" }], { returning: true });
-        expect(count).toBe(1);
-        expect(events.map((event) => event.operation)).toEqual(["insertAll"]);
-        const [user] = rows;
+        let user: User | undefined;
+        if (adapter().capabilities.returning) {
+          const { count, rows } = await r.insertAll(User, [{ email: "ada@example.com" }], {
+            returning: true,
+          });
+          expect(count).toBe(1);
+          expect(events.map((event) => event.operation)).toEqual(["insertAll"]);
+          [user] = rows;
+        } else {
+          // Rows come back only through RETURNING: asking for them is refused (capability
+          // returning), and the row is read instead.
+          await expect(
+            r.insertAll(User, [{ email: "ada@example.com" }], { returning: true }),
+          ).rejects.toThrow(QueryError);
+          expect(await r.insertAll(User, [{ email: "ada@example.com" }])).toEqual({ count: 1, rows: null });
+          expect(events.map((event) => event.operation)).toEqual(["insertAll"]);
+          user = await r.getByOrThrow(User, { email: "ada@example.com" });
+        }
         expect(user).toBeInstanceOf(User);
         expect(isRow(user)).toBe(true);
         expect(user?.role).toBe("member");
@@ -747,22 +811,33 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
       test("without returning, rows is null; with a list, plain objects of those fields", async () => {
         const r = await repo();
         expect(await r.insertAll(Tag, [{ name: "a" }, { name: "b" }])).toEqual({ count: 2, rows: null });
+        expect(await r.insertAll(Tag, [])).toEqual({ count: 0, rows: null });
+        if (!adapter().capabilities.returning) {
+          await expect(r.insertAll(Tag, [{ name: "c" }], { returning: ["name"] })).rejects.toThrow(
+            QueryError,
+          );
+          return;
+        }
         const listed = await r.insertAll(Tag, [{ name: "c" }], { returning: ["name"] });
         expect(listed).toEqual({ count: 1, rows: [{ name: "c" }] });
-        expect(await r.insertAll(Tag, [])).toEqual({ count: 0, rows: null });
       });
 
-      test("ragged rows share one column list; a field left out gets the database default", async () => {
+      test("ragged rows share one column list; a field left out gets the database default", async (context) => {
         const r = await repo();
+        const capabilities = adapter().capabilities;
         const user = await seedUser(r);
-        const { rows } = await r.insertAll(
-          Post,
-          [
-            { authorId: user.id, title: "with body", body: "text" },
-            { authorId: user.id, title: "without body" },
-          ],
-          { returning: true },
-        );
+        const ragged = [
+          { authorId: user.id, title: "with body", body: "text" },
+          { authorId: user.id, title: "without body" },
+        ];
+        if (!capabilities.defaultInValues) {
+          // Refused before anything is sent, naming the row and the field (capability defaultInValues).
+          await expect(r.insertAll(Post, ragged)).rejects.toThrow(/row 1 has no value for Post\.body/);
+          return context.skip("capability defaultInValues is false");
+        }
+        const rows = capabilities.returning
+          ? (await r.insertAll(Post, ragged, { returning: true })).rows
+          : await r.insertAll(Post, ragged).then(() => r.all(from(Post, "p").orderBy(({ p }) => p.id)));
         expect(rows.map((post) => post.body)).toEqual(["text", null]);
         expect(rows.map((post) => post.published)).toEqual([false, false]);
       });
@@ -790,22 +865,33 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         const r = await repo();
         const user = await seedUser(r);
         const when = new Date("2026-05-01T12:00:00.000Z");
-        const { rows } = await r.insertAll(
-          Post,
-          [
-            {
-              authorId: scalar(
-                from(User, "u")
-                  .where({ email: "ada@example.com" })
-                  .select(({ u }) => u.id),
-              ).as<number>(),
-              title: "by subquery",
-              publishedAt: param("when", t.timestamp()),
-            },
-            { authorId: user.id, title: "by expression", publishedAt: now() },
-          ],
-          { returning: ["authorId", "publishedAt"], placeholders: { when } },
-        );
+        const values = [
+          {
+            authorId: scalar(
+              from(User, "u")
+                .where({ email: "ada@example.com" })
+                .select(({ u }) => u.id),
+            ).as<number>(),
+            title: "by subquery",
+            publishedAt: param("when", t.timestamp()),
+          },
+          { authorId: user.id, title: "by expression", publishedAt: now() },
+        ];
+        // Without RETURNING the rows are read back.
+        const rows = adapter().capabilities.returning
+          ? (
+              await r.insertAll(Post, values, {
+                returning: ["authorId", "publishedAt"],
+                placeholders: { when },
+              })
+            ).rows
+          : await r.insertAll(Post, values, { placeholders: { when } }).then(() =>
+              r.all(
+                from(Post, "p")
+                  .orderBy(({ p }) => p.id)
+                  .select(({ p }) => ({ authorId: p.authorId, publishedAt: p.publishedAt })),
+              ),
+            );
         expect(rows[0]).toEqual({ authorId: user.id, publishedAt: when });
         expect(rows[1]?.authorId).toBe(user.id);
         expect(rows[1]?.publishedAt).toBeInstanceOf(Date);
@@ -822,14 +908,19 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         const r = await repo();
         await r.insertAll(Tag, [{ name: "one" }, { name: "two" }]);
         const user = await seedUser(r);
-        const { count, rows } = await r.insertAll(
-          Post,
-          from(Tag, "g").select(({ g }) => ({
-            title: g.name,
-            authorId: val(user.id, t.bigint({ mode: "number" })),
-          })),
-          { returning: ["title", "authorId"] },
-        );
+        const source = from(Tag, "g").select(({ g }) => ({
+          title: g.name,
+          authorId: val(user.id, t.bigint({ mode: "number" })),
+        }));
+        // Without RETURNING the rows are read back.
+        const { count, rows } = adapter().capabilities.returning
+          ? await r.insertAll(Post, source, { returning: ["title", "authorId"] })
+          : await r.insertAll(Post, source).then(async ({ count: inserted }) => ({
+              count: inserted,
+              rows: await r.all(
+                from(Post, "p").select(({ p }) => ({ title: p.title, authorId: p.authorId })),
+              ),
+            }));
         expect(count).toBe(2);
         expect(rows.map((row) => `${row.title} ${row.authorId}`).sort()).toEqual([
           `one ${user.id}`,
@@ -855,6 +946,42 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         await seedPost(r, user.id, "b", { views: 5, tagList: ["y"] });
         const literal = await r.updateAll(from(Post, "p").where({ title: "a" }).set({ published: true }));
         expect(literal).toEqual({ count: 1, rows: null });
+        const capabilities = adapter().capabilities;
+        if (!capabilities.arrays) {
+          // The array changes are refused when compiled (capability arrays); arithmetic is not.
+          await expect(
+            r.updateAll(from(Post, "p").set(({ p }) => ({ tagList: p.tagList.append("z") }))),
+          ).rejects.toThrow(QueryError);
+          await expect(
+            r.updateAll(from(Post, "p").set(({ p }) => ({ tagList: p.tagList.remove("y") }))),
+          ).rejects.toThrow(QueryError);
+          const added = r.updateAll(
+            from(Post, "p")
+              .set(({ p }) => ({ views: p.views.add(10) }))
+              .returning(({ p }) => ({ title: p.title, views: p.views })),
+          );
+          if (capabilities.returning) {
+            const { count, rows } = await added;
+            expect(count).toBe(2);
+            expect(rows?.sort((x, y) => x.title.localeCompare(y.title))).toEqual([
+              { title: "a", views: 11 },
+              { title: "b", views: 15 },
+            ]);
+          } else {
+            // RETURNING on a bulk write is refused when compiled (capability returning).
+            await expect(added).rejects.toThrow(QueryError);
+            expect(await r.updateAll(from(Post, "p").set(({ p }) => ({ views: p.views.add(10) })))).toEqual({
+              count: 2,
+              rows: null,
+            });
+          }
+          const stored = await r.all(from(Post, "p").orderBy(({ p }) => p.title));
+          expect(stored.map((post) => [post.published, post.views, post.tagList])).toEqual([
+            [true, 11, ["x", "y"]],
+            [false, 15, ["y"]],
+          ]);
+          return;
+        }
         const { count, rows } = await r.updateAll(
           from(Post, "p")
             .set(({ p }) => ({ views: p.views.add(10), tagList: p.tagList.append("z") }))
@@ -891,14 +1018,32 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
           { postId: post.id, body: "another" },
         ]);
         events.splice(0);
-        const joined = await r.deleteAll(
-          from(Post, "p")
-            .join(User, "u", ({ p, u }) => p.authorId.eq(u.id))
-            .where(({ u }) => u.email.eq("grace@example.com"))
-            .returning(({ p }) => ({ id: p.id })),
-        );
-        expect(joined.count).toBe(1);
-        expect(joined.rows).toHaveLength(1);
+        const capabilities = adapter().capabilities;
+        const graces = from(Post, "p")
+          .join(User, "u", ({ p, u }) => p.authorId.eq(u.id))
+          .where(({ u }) => u.email.eq("grace@example.com"));
+        if (!capabilities.updateJoin) {
+          // A join in deleteAll is refused when compiled (capability updateJoin); a subquery does it.
+          await expect(r.deleteAll(graces)).rejects.toThrow(QueryError);
+          const bySubquery = await r.deleteAll(
+            from(Post, "p").where(({ p }) =>
+              p.authorId.in(
+                from(User, "u")
+                  .where(({ u }) => u.email.eq("grace@example.com"))
+                  .select(({ u }) => u.id),
+              ),
+            ),
+          );
+          expect(bySubquery.count).toBe(1);
+        } else if (!capabilities.returning) {
+          // RETURNING on a bulk write is refused when compiled (capability returning).
+          await expect(r.deleteAll(graces.returning(({ p }) => ({ id: p.id })))).rejects.toThrow(QueryError);
+          expect(await r.deleteAll(graces)).toEqual({ count: 1, rows: null });
+        } else {
+          const joined = await r.deleteAll(graces.returning(({ p }) => ({ id: p.id })));
+          expect(joined.count).toBe(1);
+          expect(joined.rows).toHaveLength(1);
+        }
         expect(events.map((event) => event.operation)).toEqual(["deleteAll"]);
         expect(await r.deleteAll(Comment)).toEqual({ count: 2, rows: null });
         expect(await r.count(Post)).toBe(1);
@@ -993,7 +1138,9 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         anotherColumnNameThatIsLong: t.string(),
       }) {}
 
-      test("still matches the declaration made with the default name", async () => {
+      test("still matches the declaration made with the default name", async (context) => {
+        if (!adapter().capabilities.longIdentifiers)
+          return context.skip("capability longIdentifiers is false");
         await db.exec(
           "create table if not exists ver_table_with_a_very_long_name_for_tests (id integer primary key, some_extremely_long_column_name_number_one text not null, another_column_name_that_is_long text not null, unique (some_extremely_long_column_name_number_one, another_column_name_that_is_long))",
         );
@@ -1016,7 +1163,8 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
     // --- budgets ------------------------------------------------------------------------
 
     describe("timeoutMs and signal", () => {
-      test("timeoutMs is one budget for every chunk of an insertAll", async () => {
+      test("timeoutMs is one budget for every chunk of an insertAll", async (context) => {
+        if (!adapter().capabilities.cancel) return context.skip("capability cancel is false");
         const r = await repo();
         const user = await seedUser(r);
         // A value of 400 bound parameters, so that 200 rows take two statements; the first
@@ -1025,9 +1173,7 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
           const one = () => val(1, t.integer());
           let sum = one();
           for (let i = 0; i < 399; i++) sum = sum.add(one());
-          return sleep
-            ? sum.add(fragment`(select 0 from pg_sleep(${val(0.6, t.float())}))`.as<number>())
-            : sum;
+          return sleep ? sum.add(profile.sleep(0.6)) : sum;
         };
         const rows = Array.from({ length: 200 }, (_, i) => ({
           authorId: user.id,

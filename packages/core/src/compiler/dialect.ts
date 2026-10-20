@@ -99,8 +99,6 @@ export interface SqlDialect {
   readonly jsonPath: "pathArray" | "arrows" | "pathOperators" | "pathFunctions";
   /** An `ON CONFLICT … DO UPDATE` needs a conflict target (Postgres and SQLite do; MySQL takes none). */
   readonly conflictUpdateNeedsTarget: boolean;
-  /** The `EXPLAIN` options this dialect accepts. */
-  readonly explainOptions: Readonly<{ analyze: boolean; format: boolean }>;
   /**
    * How `EXPLAIN` is written: `"options"` is `explain (analyze, format json) …`,
    * `"keywords"` is `explain analyze format=json …` (MySQL), `"queryPlan"` is
@@ -142,10 +140,10 @@ export interface SqlDialect {
   readonly singleTuple: "row" | "parenthesized";
   /**
    * How a values source is written: `(values (…), …) as v (a, b)`, the same with `row(…)`
-   * (MySQL), or `(select … as a, … as b union all select …) as v` (SQLite, which takes no
-   * column list after the alias).
+   * (MySQL), or `(select column1 as a, column2 as b from (values (…), …)) as v` (SQLite,
+   * which takes no column list after the alias and names the columns of `values` itself).
    */
-  readonly valuesSource: "values" | "valuesRow" | "unionSelect";
+  readonly valuesSource: "values" | "valuesRow" | "valuesSelect";
   /** How an insert without columns is written: ` default values`, or ` () values ()` (MySQL). */
   readonly defaultValues: string;
   /**
@@ -159,6 +157,11 @@ export interface SqlDialect {
    * `delete a from t as a inner join …`).
    */
   readonly updateJoin: "fromUsing" | "joinClause";
+  /**
+   * How `RETURNING` of `updateAll` and `deleteAll` names the target's columns: by the
+   * target's alias (`"p"."title"`), or bare (`"title"`: SQLite does not know the alias there).
+   */
+  readonly returningColumns: "qualified" | "bare";
   /**
    * Functions without arguments that are written as fixed text, by the name the query layer
    * uses (SQLite has no `now()`). For a call without arguments it is looked up before
@@ -232,6 +235,12 @@ export const POSTGRES_CAPABILITIES: Capabilities = Object.freeze({
   multipleConnections: true,
   serializationFailures: true,
   nonFiniteFloats: true,
+  exactDecimals: true,
+  explainOptions: true,
+  limitExpressions: true,
+  foreignKeyNames: true,
+  conflictConstraint: true,
+  longIdentifiers: true,
   lockModes: Object.freeze(Object.keys(POSTGRES_LOCKS)),
   isolationLevels: Object.freeze(["read committed", "repeatable read", "serializable"] as const),
   savepoints: true,
@@ -326,7 +335,6 @@ export const postgresDialect: SqlDialect = Object.freeze({
   }),
   jsonPath: "pathArray",
   conflictUpdateNeedsTarget: true,
-  explainOptions: Object.freeze({ analyze: true, format: true }),
   explain: "options",
   identifierMaxBytes: 63,
   concat: "operator",
@@ -340,6 +348,7 @@ export const postgresDialect: SqlDialect = Object.freeze({
   defaultValues: " default values",
   upsert: "onConflict",
   updateJoin: "fromUsing",
+  returningColumns: "qualified",
   niladic: Object.freeze({}),
 });
 
@@ -422,6 +431,13 @@ export const MYSQL_CAPABILITIES: Capabilities = Object.freeze({
   multipleConnections: true,
   serializationFailures: false,
   nonFiniteFloats: false,
+  exactDecimals: false,
+  explainOptions: true,
+  // LIMIT and OFFSET take a value or a placeholder only.
+  limitExpressions: false,
+  foreignKeyNames: true,
+  conflictConstraint: false,
+  longIdentifiers: false,
   lockModes: Object.freeze(Object.keys(MYSQL_LOCKS)),
   isolationLevels: Object.freeze(["read committed", "repeatable read", "serializable"] as const),
   savepoints: true,
@@ -464,6 +480,12 @@ export const SQLITE_CAPABILITIES: Capabilities = Object.freeze({
   multipleConnections: false,
   serializationFailures: false,
   nonFiniteFloats: false,
+  exactDecimals: false,
+  explainOptions: false,
+  limitExpressions: true,
+  foreignKeyNames: false,
+  conflictConstraint: false,
+  longIdentifiers: true,
   lockModes: Object.freeze([]),
   isolationLevels: Object.freeze([]),
   savepoints: true,
@@ -533,7 +555,6 @@ export const mysqlDialect: SqlDialect = Object.freeze({
   }),
   jsonPath: "pathFunctions",
   conflictUpdateNeedsTarget: false,
-  explainOptions: Object.freeze({ analyze: true, format: true }),
   explain: "keywords",
   // MySQL refuses an identifier longer than 64 characters instead of shortening it.
   identifierMaxBytes: undefined,
@@ -548,6 +569,7 @@ export const mysqlDialect: SqlDialect = Object.freeze({
   defaultValues: " () values ()",
   upsert: "onDuplicateKey",
   updateJoin: "joinClause",
+  returningColumns: "qualified",
   niladic: Object.freeze({ now: "current_timestamp(6)" }),
 });
 
@@ -610,7 +632,6 @@ export const sqliteDialect: SqlDialect = Object.freeze({
   }),
   jsonPath: "pathOperators",
   conflictUpdateNeedsTarget: true,
-  explainOptions: Object.freeze({ analyze: false, format: false }),
   explain: "queryPlan",
   // SQLite keeps identifiers of any length.
   identifierMaxBytes: undefined,
@@ -621,10 +642,11 @@ export const sqliteDialect: SqlDialect = Object.freeze({
   offsetWithoutLimit: "-1",
   setOperand: "subquery",
   singleTuple: "parenthesized",
-  valuesSource: "unionSelect",
+  valuesSource: "valuesSelect",
   defaultValues: " default values",
   upsert: "onConflict",
   updateJoin: "fromUsing",
+  returningColumns: "bare",
   // A timestamp as the adapter stores one: ISO 8601 text in UTC, with milliseconds.
   niladic: Object.freeze({ now: "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')" }),
 });

@@ -32,8 +32,8 @@ import {
   type PlanCacheStats,
   postgresDialect,
   quoteIdentifier,
-  sqliteDialect,
   type SqlDialect,
+  sqliteDialect,
 } from "../compiler/index.js";
 import type { Adapter, Capabilities, Dialect } from "../contracts/adapter.js";
 import { QueryError } from "../errors.js";

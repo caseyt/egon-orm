@@ -411,7 +411,9 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
           } finally {
             await refusing.release();
           }
-          return skip("capability readOnlyTransactions is false: begin({ readOnly: true }) is refused (checked)");
+          return skip(
+            "capability readOnlyTransactions is false: begin({ readOnly: true }) is refused (checked)",
+          );
         }
         const connection = await a.acquire();
         try {

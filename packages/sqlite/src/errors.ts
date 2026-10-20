@@ -67,7 +67,9 @@ function violation(
     // databases are rebuilt from them: <table>_pkey, <table>_<columns>_key.
     if (type === "unique" && table !== undefined && failed.columns.length > 0) {
       constraint =
-        error.code === "SQLITE_CONSTRAINT_PRIMARYKEY" ? `${table}_pkey` : `${table}_${failed.columns.join("_")}_key`;
+        error.code === "SQLITE_CONSTRAINT_PRIMARYKEY"
+          ? `${table}_pkey`
+          : `${table}_${failed.columns.join("_")}_key`;
     }
   } else if (type === "check") {
     const reported = COLUMNS_FAILED.exec(error.message)?.[1];

@@ -10,9 +10,11 @@ const COLUMN_TYPES: Readonly<Record<Exclude<DbType["kind"], "array" | "custom">,
   float: "double",
   decimal: "decimal(65, 30)",
   boolean: "boolean",
-  text: "text",
+  // text cannot be part of a key or take a default on MySQL; the suites store short text.
+  text: "varchar(255)",
   uuid: "char(36)",
-  binary: "longblob",
+  // A key column needs a length; the suites store short byte strings.
+  binary: "varbinary(1024)",
   date: "date",
   time: "time(6)",
   timestamp: "datetime(6)",

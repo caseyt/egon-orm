@@ -6,8 +6,8 @@
  * @module
  */
 import type { createAdapter, PoolEvent, RawResult } from "egon-orm";
-import mysql2 from "mysql2";
 import type { Connection, ExecuteValues, Pool, PoolConnection, PoolOptions, ResultSetHeader } from "mysql2";
+import mysql2 from "mysql2";
 import type { PoolSettings } from "./options.js";
 
 /** The driver interface of the shared adapter (not exported by name from `egon-orm`). */
@@ -221,8 +221,9 @@ export class MysqlDriver implements DriverWrapper {
   private adopt(connection: PoolConnection): void {
     connection.on("error", () => undefined);
     connection.query("set time_zone = '+00:00'", () => undefined);
-    const stream = (connection as unknown as { stream?: { once(event: "close", listener: () => void): void } })
-      .stream;
+    const stream = (
+      connection as unknown as { stream?: { once(event: "close", listener: () => void): void } }
+    ).stream;
     stream?.once("close", () => this.hooks.disconnected());
     this.hooks.connected();
   }
@@ -311,7 +312,8 @@ export class MysqlDriver implements DriverWrapper {
     for (const [key, value] of Object.entries(this.settings.config)) {
       if (!POOL_ONLY.has(key)) config[key] = value;
     }
-    const timeoutMs = this.settings.waitTimeoutMs > 0 ? this.settings.waitTimeoutMs : DEFAULT_CANCEL_TIMEOUT_MS;
+    const timeoutMs =
+      this.settings.waitTimeoutMs > 0 ? this.settings.waitTimeoutMs : DEFAULT_CANCEL_TIMEOUT_MS;
     return new Promise<void>((resolve, reject) => {
       const killer = this.runtime.createConnection(config as PoolOptions);
       let settled = false;

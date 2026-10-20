@@ -1,4 +1,5 @@
 // The Postgres profile of the write conformance suite.
+import { fragment, t, val } from "egon-orm";
 import type { WriteConformanceProfile } from "../../core/test/conformance/write/index.js";
 import { POSTGRES_PROFILE } from "./profile.js";
 import { POSTGRES_READ_PROFILE } from "./read-profile.js";
@@ -19,4 +20,5 @@ export const POSTGRES_WRITE_PROFILE: WriteConformanceProfile = {
   `,
   rangeType: "int4range",
   copyTableInto: POSTGRES_READ_PROFILE.copyTableInto,
+  sleep: (seconds) => fragment`(select 0 from pg_sleep(${val(seconds, t.float())}))`.as<number>(),
 };

@@ -1276,7 +1276,11 @@ describe("dedicated connections", () => {
 
 describe("beginStatements", () => {
   test.each([
-    ["postgres", { isolation: "serializable", readOnly: true }, ["begin isolation level serializable, read only"]],
+    [
+      "postgres",
+      { isolation: "serializable", readOnly: true },
+      ["begin isolation level serializable, read only"],
+    ],
     ["mysql", undefined, ["start transaction"]],
     ["mysql", { readOnly: true }, ["start transaction read only"]],
     ["mysql", { readOnly: false }, ["start transaction read write"]],
@@ -1289,14 +1293,30 @@ describe("beginStatements", () => {
     ["sqlite", undefined, ["begin"]],
     ["sqlite", { readOnly: false, deferrable: false }, ["begin"]],
   ] as const)("%s, %o: %o", (dialect, options, statements) => {
-    const capabilities = { postgres: POSTGRES_CAPABILITIES, mysql: MYSQL_CAPABILITIES, sqlite: SQLITE_CAPABILITIES };
+    const capabilities = {
+      postgres: POSTGRES_CAPABILITIES,
+      mysql: MYSQL_CAPABILITIES,
+      sqlite: SQLITE_CAPABILITIES,
+    };
     expect(beginStatements(dialect, options, capabilities[dialect])).toEqual(statements);
   });
 
   test.each([
-    ["mysql", { deferrable: true }, "A deferrable transaction (deferrable: true) is not supported by this database."],
-    ["sqlite", { readOnly: true }, "A read-only transaction (readOnly: true) is not supported by this database."],
-    ["sqlite", { isolation: "serializable" }, 'The isolation level "serializable" is not supported by this database.'],
+    [
+      "mysql",
+      { deferrable: true },
+      "A deferrable transaction (deferrable: true) is not supported by this database.",
+    ],
+    [
+      "sqlite",
+      { readOnly: true },
+      "A read-only transaction (readOnly: true) is not supported by this database.",
+    ],
+    [
+      "sqlite",
+      { isolation: "serializable" },
+      'The isolation level "serializable" is not supported by this database.',
+    ],
   ] as const)("%s refuses %o with QueryError", (dialect, options, message) => {
     const capabilities = dialect === "mysql" ? MYSQL_CAPABILITIES : SQLITE_CAPABILITIES;
     expect(() => beginStatements(dialect, options, capabilities)).toThrow(QueryError);

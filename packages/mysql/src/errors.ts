@@ -16,7 +16,10 @@ interface MysqlErrorFields {
 }
 
 /** Error numbers of constraint violations, by the kind they report. */
-const CONSTRAINT_ERRORS: ReadonlyMap<number, ConstraintViolationType> = new Map<number, ConstraintViolationType>([
+const CONSTRAINT_ERRORS: ReadonlyMap<number, ConstraintViolationType> = new Map<
+  number,
+  ConstraintViolationType
+>([
   [1062, "unique"], // ER_DUP_ENTRY
   [1586, "unique"], // ER_DUP_ENTRY_WITH_KEY_NAME
   [1451, "foreignKey"], // ER_ROW_IS_REFERENCED_2
@@ -166,7 +169,10 @@ export function normalizeMysqlError(error: unknown, sql: string | undefined): un
   const withSql = <T extends object>(details: T): T & { readonly sql?: string } =>
     sql === undefined ? details : { ...details, sql };
 
-  if ((code !== undefined && CONNECTION_CODES.has(code)) || CONNECTION_MESSAGES.some((p) => p.test(error.message))) {
+  if (
+    (code !== undefined && CONNECTION_CODES.has(code)) ||
+    CONNECTION_MESSAGES.some((p) => p.test(error.message))
+  ) {
     return new DatabaseError(
       `Could not reach the database, or lost the connection to it (${code ?? error.message}). Check that it is running and that the connection settings are right.`,
       withSql({ code: "connection" as const, cause: error }),

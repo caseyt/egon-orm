@@ -102,7 +102,8 @@ export function resolveOptions(options: SqliteOptions | undefined): OpenSettings
   const pragmas: string[] = [];
   const entries = given === undefined ? [] : Object.entries(given);
   // Foreign keys are on unless the options say otherwise (SQLite's own default is off).
-  if (!entries.some(([name]) => name.toLowerCase() === "foreign_keys")) pragmas.push("pragma foreign_keys = ON");
+  if (!entries.some(([name]) => name.toLowerCase() === "foreign_keys"))
+    pragmas.push("pragma foreign_keys = ON");
   for (const [name, value] of entries) {
     if (value === undefined) continue;
     pragmas.push(pragmaStatement(name, value));

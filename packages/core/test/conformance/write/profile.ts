@@ -1,7 +1,7 @@
 // What a dialect package tells the write conformance suite about its database: how to make
 // the adapter under test, and the few statements the suite cannot write in a
 // dialect-independent way. Everything the suite checks is behaviour of the repo's writes.
-import type { AnyFieldType, DatabaseAdapter } from "egon-orm";
+import type { AnyFieldType, DatabaseAdapter, Expr } from "egon-orm";
 import type { TestDatabase } from "../../support/index.js";
 
 /** Options of {@link WriteConformanceProfile.makeAdapter}. */
@@ -37,4 +37,6 @@ export interface WriteConformanceProfile {
   readonly rangeType: string | undefined;
   /** DDL creating the database schema `schema` with a copy of the blog table `table`; `undefined` without database schemas. */
   readonly copyTableInto: ((schema: string, table: string) => string) | undefined;
+  /** An integer expression, written with the `fragment` tag, that takes `seconds` to evaluate and is 0. */
+  readonly sleep: (seconds: number) => Expr<number>;
 }

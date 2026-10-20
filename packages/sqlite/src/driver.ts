@@ -88,6 +88,23 @@ function insertedKey(rowid: number | bigint): number | bigint {
   return typeof rowid === "bigint" && rowid <= MAX_SAFE && rowid >= MIN_SAFE ? Number(rowid) : rowid;
 }
 
+/**
+ * The parameters as better-sqlite3 binds them: it takes no booleans, so a boolean with no
+ * type to convert it (an untyped value, `val(true)`) is bound as 1 or 0, as SQLite stores
+ * one. The array is copied only when it holds one.
+ */
+function bindable(params: readonly unknown[]): unknown[] {
+  let copy: unknown[] | undefined;
+  for (let i = 0; i < params.length; i++) {
+    const value = params[i];
+    if (typeof value === "boolean") {
+      if (copy === undefined) copy = params.slice();
+      copy[i] = value ? 1 : 0;
+    }
+  }
+  return copy ?? (params as unknown[]);
+}
+
 /** Whether `error` is better-sqlite3's refusal to prepare several statements at once. */
 function isStatementList(error: unknown): boolean {
   return error instanceof RangeError && /more than one statement/.test(error.message);
@@ -213,7 +230,7 @@ export class SqliteDriver implements DriverWrapper {
     // A stream left open (its connection released midway) would keep the handle busy.
     for (const cursor of [...this.cursors]) await cursor.close();
     const database = this.database;
-    if (destroy && database !== undefined && database.open && database.inTransaction) {
+    if (destroy && database?.open === true && database.inTransaction) {
       try {
         database.exec("rollback");
       } catch {
@@ -229,7 +246,7 @@ export class SqliteDriver implements DriverWrapper {
     const database = this.database;
     this.database = undefined;
     this.statements.clear();
-    if (database !== undefined && database.open) {
+    if (database?.open === true) {
       database.close();
       this.hooks.disconnected();
     }
@@ -286,7 +303,7 @@ export class SqliteDriver implements DriverWrapper {
       }
       this.statements.set(sql, statement);
     }
-    const values = params as unknown[];
+    const values = bindable(params);
     if (statement.reader) {
       const rows = statement.all(values);
       numbersWhereSafe(rows);
@@ -301,6 +318,6 @@ export class SqliteDriver implements DriverWrapper {
   /** Opens an iterator over the rows of one statement, prepared for it alone. */
   iterate(sql: string, params: readonly unknown[]): DriverCursor {
     const statement = this.handle().prepare<unknown[], Record<string, unknown>>(sql);
-    return new SqliteCursor(statement.iterate(params as unknown[]), this.cursors);
+    return new SqliteCursor(statement.iterate(bindable(params)), this.cursors);
   }
 }

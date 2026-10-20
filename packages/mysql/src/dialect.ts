@@ -43,6 +43,15 @@ export const MYSQL_CAPABILITIES: Capabilities = Object.freeze({
   // InnoDB resolves conflicts with row locks: a lock wait, or a deadlock.
   serializationFailures: false,
   nonFiniteFloats: false,
+  // A decimal column has a fixed scale: 1.0 is read back as 1.00 from a decimal(10, 2).
+  exactDecimals: false,
+  explainOptions: true,
+  // LIMIT and OFFSET take a value or a placeholder only.
+  limitExpressions: false,
+  foreignKeyNames: true,
+  conflictConstraint: false,
+  // MySQL refuses an identifier longer than 64 characters.
+  longIdentifiers: false,
   lockModes: Object.freeze(
     ["FOR UPDATE", "FOR SHARE"].flatMap((mode) => [mode, `${mode} SKIP LOCKED`, `${mode} NOWAIT`]),
   ),

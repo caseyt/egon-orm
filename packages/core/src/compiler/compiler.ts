@@ -150,19 +150,25 @@ export class Compiler {
     if (found !== undefined) return found;
     const parts: string[] = [];
     if (analyze) {
-      if (!this.dialect.explainOptions.analyze)
+      if (!this.dialect.capabilities.explainOptions)
         throw new QueryError(`explain's analyze option is not supported by ${this.dialect.name}.`);
       parts.push("analyze");
     }
     if (format !== undefined) {
-      if (!this.dialect.explainOptions.format)
+      if (!this.dialect.capabilities.explainOptions)
         throw new QueryError(`explain's format option is not supported by ${this.dialect.name}.`);
       parts.push(`format ${format}`);
     }
     let prefix: string;
     switch (this.dialect.explain) {
       case "keywords":
-        // MySQL: `explain analyze format=json …`; its text format with analyze is the tree.
+        // MySQL: `explain format=json …` and `explain analyze …`; its text format is the
+        // tree. MySQL 8.4 runs `explain analyze` in the tree format only.
+        if (analyze && format === "json") {
+          throw new QueryError(
+            `explain with both analyze and format "json" is not supported by ${this.dialect.name}.`,
+          );
+        }
         prefix = `explain ${analyze ? "analyze " : ""}${format === undefined ? "" : `format=${format === "json" ? "json" : "tree"} `}`;
         break;
       case "queryPlan":

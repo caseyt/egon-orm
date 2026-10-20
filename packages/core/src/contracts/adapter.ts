@@ -352,6 +352,35 @@ export interface Capabilities {
    * them, SQLite stores `NaN` as `NULL`) writing one throws `CastError`.
    */
   readonly nonFiniteFloats: boolean;
+  /**
+   * A decimal column keeps a number as it was given, its scale included, and compares by
+   * value (`1.0` equals `1.00`, and reads back as written). Without it a decimal column has
+   * a fixed scale (MySQL reads `1.0` back from a `decimal(10, 2)` as `1.00`), or is stored
+   * as the text it was given and compares as text (SQLite).
+   */
+  readonly exactDecimals: boolean;
+  /** `explain` takes the `analyze` and `format` options. */
+  readonly explainOptions: boolean;
+  /**
+   * `LIMIT` and `OFFSET` take an expression. Without it (MySQL) they take a value only,
+   * and `first()` of a query whose limit is a named parameter is refused.
+   */
+  readonly limitExpressions: boolean;
+  /**
+   * A foreign-key violation names its constraint, so that a declared `foreignKeyConstraint`
+   * or `noAssocConstraint` can match it. SQLite names none (nor the table): the violation
+   * is then a `ConstraintError` of type `foreignKey` whatever the changeset declares.
+   */
+  readonly foreignKeyNames: boolean;
+  /** An upsert's conflict target may name a constraint (`{ constraint: "users_email_key" }`). */
+  readonly conflictConstraint: boolean;
+  /**
+   * Identifiers longer than 64 bytes can be used: kept whole (SQLite), or shortened to the
+   * database's limit (Postgres), which the repo allows for when it matches a constraint's
+   * default name. MySQL refuses an identifier longer than 64 characters: a default name
+   * that long cannot exist there, so name such a constraint and declare it with `{ name }`.
+   */
+  readonly longIdentifiers: boolean;
   /** The lock clauses `lock()` accepts as plain strings, upper case: `"FOR UPDATE"`, … Empty when none. */
   readonly lockModes: readonly string[];
   /** The isolation levels `begin` accepts. Empty when the dialect has none to choose from. */

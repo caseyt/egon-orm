@@ -110,7 +110,8 @@ export function formatDatetime(value: Date): string {
   const time = value.getTime();
   if (Number.isNaN(time)) throw new CastError("An invalid Date cannot be written to a timestamp column.");
   const year = value.getUTCFullYear();
-  if (year < 0 || year > 9999) throw new CastError("MySQL stores datetimes with a four-digit year: 0000 to 9999.");
+  if (year < 0 || year > 9999)
+    throw new CastError("MySQL stores datetimes with a four-digit year: 0000 to 9999.");
   return `${pad(year, 4)}-${pad(value.getUTCMonth() + 1, 2)}-${pad(value.getUTCDate(), 2)} ${pad(
     value.getUTCHours(),
     2,

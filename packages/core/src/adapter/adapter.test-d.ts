@@ -30,7 +30,10 @@ describe("createAdapter", () => {
     // @ts-expect-error driver fixes are keyed by column kind; a custom type has none
     createAdapter({ ...definition, driverCodecs: { custom: { fromDb: (value: unknown) => value } } });
     // A database without array columns stores an array as one value, with a fix of its own.
-    createAdapter({ ...definition, driverCodecs: { array: { toDb: (value: unknown) => JSON.stringify(value) } } });
+    createAdapter({
+      ...definition,
+      driverCodecs: { array: { toDb: (value: unknown) => JSON.stringify(value) } },
+    });
   });
 });
 

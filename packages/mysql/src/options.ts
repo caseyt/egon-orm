@@ -126,7 +126,7 @@ const FIXED: PoolOptions = {
   bigNumberStrings: false,
   decimalNumbers: false,
   timezone: "Z",
-  charset: "UTF8MB4_UNICODE_CI",
+  charset: "UTF8MB4_0900_AI_CI",
   multipleStatements: false,
   flags: ["-FOUND_ROWS"],
 };
@@ -155,14 +155,16 @@ export function resolveOptions(options: MysqlOptions | undefined): PoolSettings 
   if (database !== undefined) config.database = database;
   const ssl: unknown = given.ssl;
   if (ssl !== undefined) {
-    if (typeof ssl !== "string" && !isPlainObject(ssl)) fail("ssl must be a profile name or an object of TLS options.");
+    if (typeof ssl !== "string" && !isPlainObject(ssl))
+      fail("ssl must be a profile name or an object of TLS options.");
     config.ssl = ssl as string | SslOptions;
   }
   let max = 10;
   let waitTimeoutMs = 0;
   const pool: unknown = given.pool;
   if (pool !== undefined) {
-    if (!isPlainObject(pool)) fail("pool must be pool settings ({ max, idleTimeoutMs, connectionTimeoutMs }).");
+    if (!isPlainObject(pool))
+      fail("pool must be pool settings ({ max, idleTimeoutMs, connectionTimeoutMs }).");
     checkUnknown(pool, POOL_KEYS, " in pool");
     const poolMax = optionalCount(pool.max, "pool.max", 1, 100_000);
     if (poolMax !== undefined) max = poolMax;

@@ -39,7 +39,9 @@ function readNumber(value: unknown): unknown {
 /** SQLite stores NaN as NULL: a value that is not finite is refused rather than lost. */
 function writeFloat(value: unknown): unknown {
   if (typeof value === "number" && !Number.isFinite(value)) {
-    throw new CastError("SQLite cannot store NaN, Infinity or -Infinity in a float column without losing it.");
+    throw new CastError(
+      "SQLite cannot store NaN, Infinity or -Infinity in a float column without losing it.",
+    );
   }
   return value;
 }
@@ -134,7 +136,8 @@ function jsonReplacer(this: unknown, key: string, item: unknown): unknown {
   if (typeof item === "bigint") return item.toString();
   // JSON.stringify calls toJSON (a Buffer's) before the replacer: look at the original.
   const original = (this as Record<string, unknown>)[key];
-  if (original instanceof Uint8Array) return Buffer.from(original.buffer, original.byteOffset, original.byteLength).toString("base64");
+  if (original instanceof Uint8Array)
+    return Buffer.from(original.buffer, original.byteOffset, original.byteLength).toString("base64");
   return item;
 }
 

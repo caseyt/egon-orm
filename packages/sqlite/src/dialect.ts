@@ -43,6 +43,13 @@ export const SQLITE_CAPABILITIES: Capabilities = Object.freeze({
   multipleConnections: false,
   serializationFailures: false,
   nonFiniteFloats: false,
+  exactDecimals: false,
+  explainOptions: false,
+  limitExpressions: true,
+  // A foreign-key violation names neither the constraint nor the table.
+  foreignKeyNames: false,
+  conflictConstraint: false,
+  longIdentifiers: true,
   lockModes: Object.freeze([]),
   isolationLevels: Object.freeze([]),
   savepoints: true,

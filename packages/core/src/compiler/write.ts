@@ -372,7 +372,7 @@ function onDuplicateKey(
   let text = ` as ${excluded} on duplicate key update `;
   const key = meta.primaryKey.length === 1 ? (meta.primaryKey[0] as FieldMeta) : undefined;
   const kind = key?.type.db.kind;
-  if (key !== undefined && key.dbGenerated && (kind === "integer" || kind === "bigint") && !fields.includes(key)) {
+  if (key?.dbGenerated === true && (kind === "integer" || kind === "bigint") && !fields.includes(key)) {
     const column = quoteIdentifier(ctx.dialect, key.column);
     text += `${column} = last_insert_id(${column}), `;
   }
@@ -398,6 +398,9 @@ function conflictTarget(
   const node = target as Exclude<ConflictTarget, readonly FieldMeta[]>;
   if ("kind" in node && node.kind === "fragment") return ` ${emitLooseExpr(ctx, node, schema)}`;
   if ("constraint" in node && typeof node.constraint === "string" && node.constraint !== "") {
+    if (!ctx.dialect.capabilities.conflictConstraint) {
+      throw unsupported(ctx.dialect, "An onConflict target that names a constraint ({ constraint })");
+    }
     return ` on constraint ${quoteIdentifier(ctx.dialect, node.constraint)}`;
   }
   throw new QueryError("onConflict's target is a list of fields, { constraint: name } or a fragment.");

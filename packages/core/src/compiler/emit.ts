@@ -224,6 +224,8 @@ interface Frame {
   readonly schema: string | undefined;
   /** The output names of the query's select list, once planned: what `selectedAs("name")` may refer to. */
   outputs: ReadonlySet<string> | undefined;
+  /** A binding whose columns are written without it (the target in SQLite's RETURNING). */
+  readonly bare: string | undefined;
 }
 
 /**
@@ -401,6 +403,7 @@ function expr(ctx: Ctx, frame: Frame, node: ExprNode): string {
   switch (node.kind) {
     case "column":
       checkColumn(frame.scope, node);
+      if (frame.bare === node.binding) return quote(ctx, node.column);
       return `${quote(ctx, node.binding)}.${quote(ctx, node.column)}`;
     case "param":
       return inlineValue(ctx, node.type, node.redact);
@@ -1143,7 +1146,8 @@ function pathText(ctx: Ctx, path: readonly ExprNode[]): string {
       ctx.index = index + 1;
       steps.push(placeholder(ctx, { kind: "inline", index, toDb: jsonPathStep, redact: key.redact }));
     } else if (key.kind === "namedParam") {
-      if (typeof key.name !== "string" || key.name === "") throw new QueryError("A named parameter has no name.");
+      if (typeof key.name !== "string" || key.name === "")
+        throw new QueryError("A named parameter has no name.");
       steps.push(placeholder(ctx, { kind: "named", name: key.name, toDb: jsonPathStep, redact: key.redact }));
     } else {
       throw new QueryError(
@@ -1171,7 +1175,7 @@ export function jsonPathStep(key: unknown): string {
   if (typeof key === "string") {
     if (key.includes('"') || key.includes("\\")) {
       throw new QueryError(
-        'A key of a JSON path holds a double quote or a backslash, which this database cannot read in a path.',
+        "A key of a JSON path holds a double quote or a backslash, which this database cannot read in a path.",
       );
     }
     return `."${key}"`;
@@ -1286,7 +1290,12 @@ function query(
 ): Written {
   const base = ctx.index;
   const start = starts(ast, base);
-  const frame: Frame = { scope: newScope(parent), schema: ast.schema ?? inherited, outputs: undefined };
+  const frame: Frame = {
+    scope: newScope(parent),
+    schema: ast.schema ?? inherited,
+    outputs: undefined,
+    bare: undefined,
+  };
   if (operation !== "all" && operation !== "updateAll" && operation !== "deleteAll") {
     throw new QueryError(`Unknown query operation "${String(operation)}".`);
   }
@@ -1419,6 +1428,18 @@ function select(
         : orderList(ctx, frame, ast.orderBys),
     )}`;
   }
+  if (!ctx.dialect.capabilities.limitExpressions) {
+    for (const bound of [ast.limit, ast.offset]) {
+      if (
+        bound !== undefined &&
+        bound.kind !== "param" &&
+        bound.kind !== "namedParam" &&
+        bound.kind !== "literal"
+      ) {
+        throw unsupported(ctx.dialect, "A limit or offset that is an expression (not a value)");
+      }
+    }
+  }
   if (ast.limit !== undefined) {
     const limit = ast.limit;
     sql += ` limit ${at(ctx, start[LIMIT] as number, () => operand(ctx, frame, limit, PRECEDENCE.fragment))}`;
@@ -1445,7 +1466,7 @@ function selectList(ctx: Ctx, frame: Frame, items: readonly SelectItem[]): strin
     text +=
       item.kind === "expr"
         ? `${selectedValue(ctx, frame, item.expr, "the select list")} as ${quote(ctx, item.alias)}`
-        : `${quote(ctx, item.binding)}.${quote(ctx, item.column)} as ${quote(ctx, item.alias)}`;
+        : `${item.binding === frame.bare ? "" : `${quote(ctx, item.binding)}.`}${quote(ctx, item.column)} as ${quote(ctx, item.alias)}`;
   }
   return text;
 }
@@ -1560,9 +1581,7 @@ function source(ctx: Ctx, frame: Frame, node: SourceNode, lateral = false): stri
     case "values": {
       if (node.rows.length === 0) throw new QueryError(`The values source "${node.alias}" has no rows.`);
       const style = ctx.dialect.valuesSource;
-      // SQLite takes no column list after the alias: the rows are selects, the first naming the columns.
-      const selects = style === "unionSelect";
-      let text = selects ? "(" : "(values ";
+      let text = "(values ";
       for (let r = 0; r < node.rows.length; r++) {
         const row = node.rows[r] as readonly ExprNode[];
         if (row.length !== node.columns.length) {
@@ -1572,14 +1591,18 @@ function source(ctx: Ctx, frame: Frame, node: SourceNode, lateral = false): stri
         }
         // A cell is typed by nothing around it, so its parameters are cast as in a select list.
         let cells = "";
-        for (let c = 0; c < row.length; c++) {
+        for (let c = 0; c < row.length; c++)
           cells += `${c > 0 ? ", " : ""}${selectedValue(ctx, frame, row[c] as ExprNode, "a values list")}`;
-          if (selects && r === 0) cells += ` as ${quote(ctx, node.columns[c] as string)}`;
-        }
-        if (selects) text += `${r > 0 ? " union all " : ""}select ${cells}`;
-        else text += `${r > 0 ? ", " : ""}${style === "valuesRow" ? "row" : ""}(${cells})`;
+        text += `${r > 0 ? ", " : ""}${style === "valuesRow" ? "row" : ""}(${cells})`;
       }
-      if (selects) return `${text}) as ${alias}`;
+      if (style === "valuesSelect") {
+        // SQLite takes no column list after the alias; its values name their columns column1, column2, ….
+        let names = "";
+        for (let c = 0; c < node.columns.length; c++) {
+          names += `${c > 0 ? ", " : ""}${quote(ctx, `column${c + 1}`)} as ${quote(ctx, node.columns[c] as string)}`;
+        }
+        return `(select ${names} from ${text})) as ${alias}`;
+      }
       return `${text}) as ${alias} (${node.columns.map((column) => quote(ctx, column)).join(", ")})`;
     }
     case "fragmentSource": {
@@ -1677,7 +1700,9 @@ function modify(
       return text;
     })}`;
   } else {
-    sql = joinClause ? `delete ${quote(ctx, ast.from.alias)} from ${target}${joined}` : `delete from ${target}`;
+    sql = joinClause
+      ? `delete ${quote(ctx, ast.from.alias)} from ${target}${joined}`
+      : `delete from ${target}`;
   }
   // Joins become a FROM (UPDATE) or USING (DELETE) list, and their conditions part of WHERE.
   const conditions: string[] = [];
@@ -1700,8 +1725,11 @@ function modify(
     conditions.push(at(ctx, start[WHERES] as number, () => operand(ctx, frame, condition, PRECEDENCE.and)));
   }
   if (conditions.length > 0) sql += ` where ${conditions.join(" and ")}`;
-  if (items.length > 0)
-    sql += ` returning ${at(ctx, start[SELECT] as number, () => selectList(ctx, frame, items))}`;
+  if (items.length > 0) {
+    const returning: Frame =
+      ctx.dialect.returningColumns === "bare" ? { ...frame, bare: ast.from.alias } : frame;
+    sql += ` returning ${at(ctx, start[SELECT] as number, () => selectList(ctx, returning, items))}`;
+  }
   return sql;
 }
 
@@ -1746,7 +1774,11 @@ export function finish(
  * @throws QueryError when the fragment refers to a binding (a statement has none).
  */
 export function emitFragmentStatement(ctx: EmitContext, node: FragmentNode): string {
-  return fragment(ctx, { scope: newScope(undefined), schema: undefined, outputs: undefined }, node);
+  return fragment(
+    ctx,
+    { scope: newScope(undefined), schema: undefined, outputs: undefined, bare: undefined },
+    node,
+  );
 }
 
 /**
@@ -1761,7 +1793,7 @@ export function emitFragmentStatement(ctx: EmitContext, node: FragmentNode): str
  * ```
  */
 export function emitLooseExpr(ctx: EmitContext, node: ExprNode, schema: string | undefined): string {
-  return expr(ctx, { scope: newScope(undefined), schema, outputs: undefined }, node);
+  return expr(ctx, { scope: newScope(undefined), schema, outputs: undefined, bare: undefined }, node);
 }
 
 /**

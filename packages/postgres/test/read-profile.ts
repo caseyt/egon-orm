@@ -17,6 +17,7 @@ export const POSTGRES_READ_PROFILE: ReadConformanceProfile = {
       pool: { max: poolMax },
     }),
   param: (n) => `$${n}`,
+  quoteIdentifier: (name) => `"${name.replaceAll('"', '""')}"`,
   columnType: POSTGRES_PROFILE.columnType,
   copyTableInto: (schema, table) =>
     `create schema if not exists ${schema}; create table ${schema}.${table} (like public.${table} including all)`,

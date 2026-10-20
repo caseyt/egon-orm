@@ -218,7 +218,9 @@ export function beginStatements(
   const { isolation, readOnly } = checkBegin(options, capabilities);
   if (dialect === "sqlite") return ["begin"];
   const start =
-    readOnly === undefined ? "start transaction" : `start transaction ${readOnly ? "read only" : "read write"}`;
+    readOnly === undefined
+      ? "start transaction"
+      : `start transaction ${readOnly ? "read only" : "read write"}`;
   return isolation === undefined ? [start] : [`set transaction ${ISOLATION_SQL.get(isolation)}`, start];
 }
 

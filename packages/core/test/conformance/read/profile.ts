@@ -19,6 +19,8 @@ export interface ReadConformanceProfile {
   readonly makeAdapter: (db: TestDatabase, options: MakeReadAdapterOptions) => DatabaseAdapter;
   /** The placeholder of the n-th parameter, counting from 1. */
   readonly param: (n: number) => string;
+  /** Quotes an identifier, for the suite's own DDL and inserts (a table may be named like a keyword). */
+  readonly quoteIdentifier: (name: string) => string;
   /** The column type that stores values of `type`; `undefined` when the database has none. */
   readonly columnType: (type: AnyFieldType) => string | undefined;
   /**

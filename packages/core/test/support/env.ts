@@ -54,7 +54,13 @@ function readPort(env: Env, key: string, fallback: number): number {
 export function connectionSettings(dialect: Dialect, env: Env = process.env): ConnectionSettings {
   switch (dialect) {
     case "sqlite":
-      return { host: "", port: 0, user: "", password: "", database: readString(env, "EGON_SQLITE_DIR", tmpdir()) };
+      return {
+        host: "",
+        port: 0,
+        user: "",
+        password: "",
+        database: readString(env, "EGON_SQLITE_DIR", tmpdir()),
+      };
     case "postgres":
       return {
         host: readString(env, "EGON_PG_HOST", "127.0.0.1"),

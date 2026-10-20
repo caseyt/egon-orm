@@ -26,6 +26,12 @@ describe("POSTGRES_CAPABILITIES", () => {
       multipleConnections: true,
       serializationFailures: true,
       nonFiniteFloats: true,
+      exactDecimals: true,
+      explainOptions: true,
+      limitExpressions: true,
+      foreignKeyNames: true,
+      conflictConstraint: true,
+      longIdentifiers: true,
       lockModes: [
         "FOR UPDATE",
         "FOR UPDATE SKIP LOCKED",

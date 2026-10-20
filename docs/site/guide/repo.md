@@ -151,14 +151,7 @@ inside `repo.transaction`, stream on `tx`.
 
 Writes take a changeset and return a **result**:
 
-```ts
-const result = await repo.insert(User.changeset(User, input));
-
-if (!result.success) {
-  return result.error.errorMessages();    // result.error is the changeset
-}
-const user = result.data;                 // User
-```
+<<< @/examples/repo-write.ts#result
 
 ```ts
 type Result<T, E> = { success: true; data: T } | { success: false; error: E };
@@ -174,36 +167,64 @@ type Result<T, E> = { success: true; data: T } | { success: false; error: E };
 The `OrThrow` methods return the row and throw `InvalidChangesetError`, which carries the
 changeset.
 
-A result is returned for the failures you should expect: invalid input and declared
-[constraints](/guide/constraints). Everything else throws: a lost connection, an
-undeclared constraint, a stale row.
+A result is returned for the failures you should expect: invalid input, a required field
+without a value, a declared [constraint](/guide/constraints), and (when you ask for it) a
+stale row. Everything else throws: a lost connection, an undeclared constraint, a stale
+row by default, a changeset of the wrong kind.
+
+Every write takes the read options (`schema`, `timeoutMs`, `signal`, `context`). For a
+write, the per-call `schema` is the strongest place a database schema can come from: an
+insert goes to it, else to the schema class's own, else to the repo's default; an update
+or delete goes where the row was read from. `timeoutMs` is one budget for the whole call,
+however many statements it runs.
 
 ### Insert
 
+<<< @/examples/repo-write.ts#insert
+
+- Takes a changeset of a new record (`cast(User, …)`, `change(User, …)`). A changeset of a
+  loaded row is refused (use `update`, or `insertOrUpdate`); the types refuse it too.
 - An invalid changeset is returned as a failure **without touching the database**.
-- A required field with no value is reported as `can't be blank`.
-- Values written: the changes, then field defaults, then generated values (`createdAt`,
-  `updatedAt`, UUID keys). A field with no value is left out of the statement, so a
-  database default applies.
-- The returned row includes what the database generated. `{ returning: true }`, or a list
-  of fields, also reads back columns that a trigger or default changed.
+- The [`prepareChanges`](/guide/changesets#hooks-for-the-repo) functions run next, in
+  order, on the changeset with `repo` and `action` set.
+- Values written: the changes, then field defaults (a function default is called), then
+  generated values (`createdAt` and `updatedAt` share one instant; UUID keys). A field with
+  no value is left out of the statement, so a database default applies; `null` is written
+  as `NULL`. A field declared `writable("never")` is never written.
+- A non-nullable field that is left without a value (or set to `null`), and that the
+  database does not generate, is reported as `can't be blank` before any SQL is sent.
+- The returned row has the values written and what the database returned: the primary
+  key, `dbGenerated()` fields and `writable("never")` fields. A database default on a
+  column whose field declares no default is not read back: pass `{ returning: ["field"] }`,
+  or `{ returning: true }` for every field. Virtual fields keep their changes.
 
 ### Update
 
+<<< @/examples/repo-write.ts#update
+
 - Needs a changeset of a loaded row.
-- Writes only the columns that changed. **With no changes it runs no query** and returns
-  the row; pass `{ force: true }` to update anyway.
+- Writes only the columns that changed, plus `updatedAt`. **With no changes it runs no
+  query** and returns the row; pass `{ force: true }` to update anyway (only `updatedAt`
+  then). A field declared `writable("insert")` or `writable("never")` is not updated.
 - If no row matched, because it was deleted or because an
   [optimistic lock](/guide/changesets#hooks-for-the-repo) failed, it throws
-  `StaleEntryError`. `{ allowStale: true }` ignores that, and
-  `{ staleError: { field: "lockVersion" } }` reports it on the changeset instead.
+  `StaleEntryError`. `{ allowStale: true }` treats the row as updated, and
+  `{ staleError: { field, message? } }` reports it on the changeset instead (default
+  message `is stale`).
+- The returned row keeps the row's preloaded associations.
 
 ### Delete
 
-Deletes by primary key and returns the row. Pass a changeset when you want to declare a
-constraint, such as `noAssocConstraint`.
+<<< @/examples/repo-write.ts#delete
+
+Deletes by primary key (and the optimistic-lock value, if the changeset declares one) and
+returns the row in the `deleted` state. Pass a changeset when you want to declare a
+constraint, such as `noAssocConstraint`. It takes `staleError` and `allowStale` as update
+does.
 
 ### Insert or update
+
+<<< @/examples/repo-write.ts#insert-or-update
 
 `insertOrUpdate` chooses from the changeset: one built from a class is inserted, one built
 from a loaded row is updated. It is **not** an upsert; the database is not asked whether
@@ -214,42 +235,62 @@ the row exists.
 `onConflict` tells the database what to do when the insert collides with an existing row.
 Without it, a conflict is an error.
 
-```ts
-repo.insert(cs, { onConflict: "nothing" });
-repo.insert(cs, { onConflict: { target: ["email"], update: "all" } });
-repo.insert(cs, { onConflict: { target: ["email"], update: ["name"] } });
-repo.insert(cs, { onConflict: { target: { constraint: "users_email_key" }, update: { except: ["createdAt"] } } });
-```
+<<< @/examples/repo-write.ts#upsert
 
-- `target` is the conflicting columns, a constraint name, or a `fragment`. MySQL cannot
-  take one, so leave it out there.
-- `update` is `"all"`, a list of fields, or `{ except: [...] }`.
+- `target` is the conflicting fields, `{ constraint: name }`, or a `fragment` (an index
+  expression, written with its parentheses). Postgres needs a target for an update: there
+  is no guessing from the primary key. MySQL cannot take one, so leave it out there.
+- `update` is `"all"` (every inserted column), a list of fields, or `{ except: [...] }`.
 - With `"nothing"`, a conflict means no row was inserted: the result is
-  `{ success: true, data: null }`.
+  `{ success: true, data: null }` (and `insertOrThrow` returns `null`). The type of `data`
+  includes `null` only when the call passes `onConflict: "nothing"`.
+- An upsert that updates reads the whole row back, since the row it updated may hold other
+  values than the ones you sent.
 
 ### Bulk writes
 
 Bulk writes skip changesets and validation.
 
-```ts
-const { count, rows } = await repo.insertAll(User, [{ email: "a@b.c" }, { email: "d@e.f" }], { returning: true });
+<<< @/examples/repo-write.ts#bulk
 
-await repo.updateAll(from(Post, "p").where({ authorId: 1 }).set({ published: true }));
+- **`insertAll(Schema, rows, opts?)`** applies field defaults, timestamps (one instant for
+  the whole call) and generated values (a UUID per row) to every row. Every row is written
+  with the same column list; a field a row leaves out is written as `DEFAULT`, so the
+  database default applies. Large inserts are split under the database's parameter limit
+  (65,535 on Postgres) **inside one transaction**: a failure in any chunk inserts nothing.
+  It accepts `onConflict` (with `"nothing"`, `count` leaves out the skipped rows) and
+  `returning`: `true` returns rows of the schema, a list of fields returns plain objects of
+  those fields.
+- A field's value may be an expression of the field's type, a subquery written
+  `scalar(query)`, or a named parameter `param(name, type)` whose value the `placeholders`
+  option gives once for every row. A scalar subquery is typed `T | null`, so for a field
+  that is not nullable say it cannot be null, `scalar(query).as<number>()`, or give a
+  fallback, `coalesce(scalar(query), 0)`. A query in place of `rows` is
+  `INSERT ... SELECT`: its select's keys are the fields to fill.
+- The target column gives a value its type, as in `set`: a plain value and `val(x)` are
+  bound with the field's type, and a `caseWhen` or `coalesce` made only of values and
+  `null` is cast to it, in the rows and in the select of `INSERT ... SELECT`.
 
-await repo.deleteAll(from(Post, "p").where({ published: false }));
-```
+<<< @/examples/repo-write.ts#bulk-values
 
-- **`insertAll(Schema, rows, opts?)`** applies field defaults, timestamps and generated
-  values to every row, and splits large inserts under the database's parameter limit
-  inside one transaction. It accepts `onConflict` and `returning` (`true` or a list of
-  fields), and a query in place of `rows` for `INSERT ... SELECT`. A field's value may be
-  an expression or a subquery, and the `placeholders` option binds a value once and reuses
-  it across rows.
-- **`updateAll(query)`** needs a query with [`.set(...)`](/guide/queries-advanced#bulk-updates-and-deletes).
-- **`deleteAll(queryable)`** deletes every row the query matches. `repo.deleteAll(User)`
-  deletes every user; there is no guard.
+- **`updateAll(query, params?, opts?)`** needs a query with
+  [`.set(...)`](/guide/queries-advanced#bulk-updates-and-deletes); there is no options
+  shorthand. **`deleteAll(queryable, params?, opts?)`** deletes every row the query
+  matches. Joins become `UPDATE ... FROM` and `DELETE ... USING`.
 - All three return `{ count, rows }`. `rows` is `null` unless the write asked for rows
   back, with `returning` or `.returning(...)`.
+
+<<< @/examples/repo-write.ts#bulk-update
+
+::: warning Good to know
+- `repo.deleteAll(User)` deletes every user, and an `updateAll` without `where` updates
+  every row. There is no guard: check the query before you run it.
+- A write never validates by itself: validation is what the changeset did before. The repo
+  checks only that required fields have a value.
+- One constraint error is reported per attempt: the database stops at the first violation.
+- Nested changes (associations given to `cast`) are not written yet; a changeset that holds
+  them is refused with a `QueryError`.
+:::
 
 ## Logging and events
 
@@ -260,7 +301,9 @@ await repo.deleteAll(from(Post, "p").where({ published: false }));
 - A `query` event is one statement the repo ran: the adapter's report (`sql`,
   `paramCount`, `durationMs`, `queueMs`, `rowCount`, `error`) plus `operation` (the method:
   `"all"`, `"one"`, `"first"`, `"get"`, `"getBy"`, `"exists"`, `"aggregate"` for `count` too,
-  `"stream"`, `"reload"`, `"explain"`, `"raw"`; a throwing twin reports its base method),
+  `"stream"`, `"reload"`, `"explain"`, `"raw"`, `"insert"`, `"update"`, `"delete"`,
+  `"insertAll"` (one event per chunk), `"updateAll"`, `"deleteAll"`; a throwing twin
+  reports its base method, and `insertOrUpdate` the write it made),
   `source` (the table the query reads from), `decodeMs` (the time spent turning result rows
   into rows; for a stream, the total) and `context`. A stream reports one event, when it
   ends.

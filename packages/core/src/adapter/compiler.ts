@@ -63,6 +63,19 @@ export interface StatementCompilerOptions {
 /** The compiler's SQL syntax table for each dialect that has one (step 17 adds MySQL and SQLite). */
 const SYNTAX: Readonly<Partial<Record<Dialect, SqlDialect>>> = Object.freeze({ postgres: postgresDialect });
 
+/**
+ * The compiler's SQL table for `dialect`, or `undefined` when this build has none. For the
+ * repo, which needs a dialect value that is not a capability (the identifier limit).
+ *
+ * @example
+ * ```ts
+ * sqlDialectOf("postgres")?.identifierMaxBytes; // 63
+ * ```
+ */
+export function sqlDialectOf(dialect: Dialect): SqlDialect | undefined {
+  return SYNTAX[dialect];
+}
+
 function unavailable(method: string, dialect: Dialect): never {
   throw new QueryError(
     `adapter.${method}() cannot compile for ${dialect}: this build of egon-orm has no SQL dialect table for it. Run SQL text with adapter.execute() instead.`,

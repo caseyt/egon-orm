@@ -92,6 +92,12 @@ export interface SqlDialect {
   readonly conflictUpdateNeedsTarget: boolean;
   /** The `EXPLAIN` options this dialect accepts, written into `explain (…)`. */
   readonly explainOptions: Readonly<{ analyze: boolean; format: boolean }>;
+  /**
+   * The longest identifier the database keeps, in bytes; a longer one is cut to it (Postgres:
+   * 63, `NAMEDATALEN - 1`). `undefined` when names are not shortened. The repo uses it to
+   * match a constraint whose default name the database shortened.
+   */
+  readonly identifierMaxBytes: number | undefined;
 }
 
 /**
@@ -246,6 +252,7 @@ export const postgresDialect: SqlDialect = Object.freeze({
   jsonPath: "pathArray",
   conflictUpdateNeedsTarget: true,
   explainOptions: Object.freeze({ analyze: true, format: true }),
+  identifierMaxBytes: 63,
 });
 
 /**

@@ -18,7 +18,8 @@ import { collectParams } from "../query/ast.js";
 /**
  * What a repo method reports in its `query` events as `operation`: the method that ran the
  * statement. A throwing twin reports the method it is the twin of (`oneOrThrow` is
- * `"one"`), and `count` is `"aggregate"`.
+ * `"one"`), `count` is `"aggregate"`, and `insertOrUpdate` reports the write it made
+ * (`"insert"` or `"update"`).
  *
  * @example
  * ```ts
@@ -36,7 +37,13 @@ export type RepoOperation =
   | "stream"
   | "reload"
   | "explain"
-  | "raw";
+  | "raw"
+  | "insert"
+  | "update"
+  | "delete"
+  | "insertAll"
+  | "updateAll"
+  | "deleteAll";
 
 /**
  * One statement the repo ran, as its `query` listeners receive it: the adapter's

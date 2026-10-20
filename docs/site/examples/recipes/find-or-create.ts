@@ -24,7 +24,7 @@ class Tag extends Schema("tags", {
 const tables = defineMigration({
   up(m) {
     m.createTable("tags", (table) => {
-      table.id("id", { type: "integer" });
+      table.id({ type: "integer" });
       table.text("name").notNull().unique(); // tags_name_key: what onConflict needs
     });
   },

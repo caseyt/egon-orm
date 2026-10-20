@@ -65,14 +65,14 @@ const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATA
 const tables = defineMigration({
   up(m) {
     m.createTable("users", (table) => {
-      table.id("id", { type: "integer" }); //              serial: an integer, as User.id says
+      table.id({ type: "integer" }); //              serial: an integer, as User.id says
       table.text("email").notNull().unique(); //           @unique (users_email_key)
       table.text("name");
       table.text("role").notNull().default("member"); //   @default("member")
       table.timestamps();
     });
     m.createTable("posts", (table) => {
-      table.id("id", { type: "integer" });
+      table.id({ type: "integer" });
       table.references("author_id", "users", { type: "integer" }).notNull();
       table.text("title").notNull();
       table.boolean("published").notNull().default(false);

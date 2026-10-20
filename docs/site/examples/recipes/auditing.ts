@@ -22,12 +22,12 @@ class Account extends Schema("accounts", {
 const tables = defineMigration({
   up(m) {
     m.createTable("accounts", (table) => {
-      table.id("id", { type: "integer" });
+      table.id({ type: "integer" });
       table.text("email").notNull();
       table.text("plan").notNull().default("free");
     });
     m.createTable("audit_entries", (table) => {
-      table.id("id", { type: "integer" });
+      table.id({ type: "integer" });
       table.integer("actor_id").notNull();
       table.text("action").notNull();
       table.text("table_name").notNull();

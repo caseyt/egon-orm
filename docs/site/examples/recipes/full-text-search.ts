@@ -19,7 +19,7 @@ const repo = createRepo({ adapter });
 export const articles = defineMigration({
   up(m) {
     m.createTable("articles", (table) => {
-      table.id("id", { type: "integer" });
+      table.id({ type: "integer" });
       table.text("title").notNull();
       table.text("body").notNull();
     });

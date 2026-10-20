@@ -12,7 +12,7 @@ const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATA
 const tables = defineMigration({
   up(m) {
     m.createTable("products", (table) => {
-      table.id("id", { type: "integer" });
+      table.id({ type: "integer" });
       table.text("name").notNull();
       table.decimal("price", { precision: 12, scale: 2 }).notNull();
     });

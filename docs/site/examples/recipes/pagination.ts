@@ -18,7 +18,7 @@ const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATA
 const tables = defineMigration({
   up(m) {
     m.createTable("posts", (table) => {
-      table.id("id", { type: "integer" });
+      table.id({ type: "integer" });
       table.text("title").notNull();
       table.timestamptz("created_at").notNull();
     });

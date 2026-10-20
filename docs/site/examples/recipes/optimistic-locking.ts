@@ -12,7 +12,7 @@ const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATA
 const tables = defineMigration({
   up(m) {
     m.createTable("pages", (table) => {
-      table.id("id", { type: "integer" });
+      table.id({ type: "integer" });
       table.text("body").notNull();
       table.integer("lock_version").notNull().default(1);
     });

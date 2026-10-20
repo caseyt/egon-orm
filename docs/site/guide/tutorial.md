@@ -38,18 +38,15 @@ Add a `tsconfig.json`:
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
-    "skipLibCheck": true,
     "noEmit": true
   },
   "include": ["src", "test", "vitest.config.ts"]
 }
 ```
 
-`tsx` and Vitest run the TypeScript; `npx tsc` checks its types. `skipLibCheck` is
-required today (without it, `tsc` reports `TS2637` inside the library's own declaration
-files), and declaration output does not work yet for files that export schema classes
-(`TS2883`); both are known problems, being fixed. The imports between your own files end
-in `.js`, as Node.js expects.
+`tsx` and Vitest run the TypeScript; `npx tsc` checks its types (`@types/pg` is for `tsc`:
+the adapter's types refer to `pg`'s). The imports between your own files end in `.js`, as
+Node.js expects.
 
 Start a database and tell the application where it is:
 

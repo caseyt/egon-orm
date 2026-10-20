@@ -69,10 +69,11 @@ Run it once, before the rest:
 <<< @/examples/coming-from.ts#migrate
 
 ::: warning Match the key types
-Declare each key with the type of its column. `table.id("id", { type: "integer" })` is a
-32-bit `serial`, for `t.integer()`, as here. A bare `table.id()` is a 64-bit `bigserial`, for
+Declare each key with the type of its column. `table.id({ type: "integer" })` is a 32-bit
+`serial`, for `t.integer()`, as here. A bare `table.id()` is a 64-bit `bigserial`, for
 `t.bigint({ mode: "number" })` (or `t.bigint()`). The types cannot see a mismatch between a
-schema class and its table: an integer field over a `bigint` column reads its values wrongly.
+schema class and its table; at run time, a `t.integer()` field over a `bigint` column
+throws `CastError` when a row is read. See [Types](/guide/types#built-in-types).
 :::
 
 ## Common tasks

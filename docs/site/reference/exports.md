@@ -25,6 +25,7 @@ Guide: [Schemas and associations](/guide/schemas).
 | [`AssocWhere`](/api/reference/egon-orm/type-aliases/AssocWhere) | type | A condition that an association always applies to its target. |
 | [`belongsTo`](/api/reference/egon-orm/functions/belongsTo) | function | Declares that this schema holds a foreign key to `target`. |
 | [`BelongsToOptions`](/api/reference/egon-orm/interfaces/BelongsToOptions) | interface | Options of `belongsTo`. |
+| [`DefaultFieldFlags`](/api/reference/egon-orm/interfaces/DefaultFieldFlags) | interface | The flags of a field with no modifier applied. |
 | [`EmbeddedSchema`](/api/reference/egon-orm/functions/EmbeddedSchema) | function | Defines an embedded schema. |
 | [`EmbeddedSchemaOptions`](/api/reference/egon-orm/interfaces/EmbeddedSchemaOptions) | interface | Options of `EmbeddedSchema`. |
 | [`EmbedFieldBuilder`](/api/reference/egon-orm/interfaces/EmbedFieldBuilder) | interface | The builder of an embed field, as the types see it. |
@@ -32,6 +33,7 @@ Guide: [Schemas and associations](/guide/schemas).
 | [`EmbedOnReplace`](/api/reference/egon-orm/type-aliases/EmbedOnReplace) | type | What a nested write does with an embed that the new value replaces. |
 | [`EmbedOptions`](/api/reference/egon-orm/interfaces/EmbedOptions) | interface | Options of `t.embedOne` and `t.embedMany`. |
 | [`FieldBuilder`](/api/reference/egon-orm/interfaces/FieldBuilder) | interface | A field declaration. |
+| [`FieldFlags`](/api/reference/egon-orm/interfaces/FieldFlags) | interface | The facts about a field that the type system tracks, as a record of booleans. |
 | [`FieldMeta`](/api/reference/egon-orm/interfaces/FieldMeta) | interface | Everything known about one field of a schema. |
 | [`fieldNames`](/api/reference/egon-orm/functions/fieldNames) | function | The field names of a schema class, in declaration order. |
 | [`FieldNames`](/api/reference/egon-orm/type-aliases/FieldNames) | type | The field names of a schema class. |
@@ -51,6 +53,7 @@ Guide: [Schemas and associations](/guide/schemas).
 | [`KeyFields`](/api/reference/egon-orm/type-aliases/KeyFields) | type | A field name, or several for a composite key. |
 | [`Loaded`](/api/reference/egon-orm/type-aliases/Loaded) | type | A row of schema `S` with the associations in `P` loaded. |
 | [`LoadedAs`](/api/reference/egon-orm/type-aliases/LoadedAs) | type | A row of schema `S` with association `K` loaded as elements of type `E`, whatever `E` is. |
+| [`LoadedUnchecked`](/api/reference/egon-orm/type-aliases/LoadedUnchecked) | type | A row of `S` with the associations of preload spec `P` loaded. |
 | [`manyToMany`](/api/reference/egon-orm/functions/manyToMany) | function | Declares that rows of `target` are linked to this schema through a join table. |
 | [`ManyToManySchemaOptions`](/api/reference/egon-orm/interfaces/ManyToManySchemaOptions) | interface | Options of `manyToMany` when the join table has a schema class of its own. |
 | [`ManyToManyTableOptions`](/api/reference/egon-orm/interfaces/ManyToManyTableOptions) | interface | Options of `manyToMany` when the join table is given by name. |
@@ -73,6 +76,7 @@ Guide: [Schemas and associations](/guide/schemas).
 | [`TimestampFields`](/api/reference/egon-orm/type-aliases/TimestampFields) | type | The fields `timestamps` returns. |
 | [`timestamps`](/api/reference/egon-orm/functions/timestamps) | function | The two bookkeeping fields, to spread into a schema's fields. |
 | [`TimestampsOptions`](/api/reference/egon-orm/interfaces/TimestampsOptions) | interface | Options of `timestamps`. |
+| [`WithFlag`](/api/reference/egon-orm/type-aliases/WithFlag) | type | `F` with the flag `K` set to `true`. |
 | [`Writable`](/api/reference/egon-orm/type-aliases/Writable) | type | When a field may be written. |
 
 ### Types
@@ -391,6 +395,7 @@ Guide: [The package](/guide/).
 | [`dropDatabase`](/api/reference/egon-orm/migration/functions/dropDatabase) | function | Runs `DROP DATABASE [IF EXISTS] name` through `adapter`, which must be connected to another database of the same server. |
 | [`DropIndexOptions`](/api/reference/egon-orm/migration/interfaces/DropIndexOptions) | interface | Options of `MigrationBuilder.dropIndex`. |
 | [`DropTableOptions`](/api/reference/egon-orm/migration/interfaces/DropTableOptions) | interface | Options of `MigrationBuilder.dropTable`. |
+| [`IdOptions`](/api/reference/egon-orm/migration/interfaces/IdOptions) | interface | Options of `ColumnAdder.id`. |
 | [`IndexOptions`](/api/reference/egon-orm/migration/interfaces/IndexOptions) | interface | Options of `MigrationBuilder.createIndex`. |
 | [`JsonValue`](/api/reference/egon-orm/migration/type-aliases/JsonValue) | type | A JSON value, for the default of a `json` or `jsonb` column. |
 | [`Migration`](/api/reference/egon-orm/migration/interfaces/Migration) | interface | A migration, as `defineMigration` returns it. |

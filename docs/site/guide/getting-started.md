@@ -27,22 +27,16 @@ Add a `tsconfig.json`:
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
-    "skipLibCheck": true,
     "noEmit": true
   }
 }
 ```
 
-`tsx` runs the TypeScript files, and `npx tsc` checks their types. Two settings matter
-today:
-
-- **`skipLibCheck: true` is required.** Without it, `tsc` reports `TS2637` inside the
-  library's own declaration files.
-- **Declaration output does not work yet.** With `declaration: true`, a file that exports a
-  schema class fails with `TS2883`. An application does not need declarations; keep
-  `noEmit` (or leave `declaration` off).
-
-Both are known problems of the library, being fixed.
+`tsx` runs the TypeScript files, and `npx tsc` checks their types. `@types/pg` is there
+for `tsc`: the types of `@egon-orm/postgres` refer to `pg`'s, which `pg` does not ship. (It
+is an optional peer dependency: with `skipLibCheck: true` you can leave it out.) A library
+that publishes its schema classes can emit declarations, with `declaration: true` in place
+of `noEmit`.
 
 ## Start Postgres
 
@@ -67,8 +61,8 @@ A schema is a class that describes a table. Its instances are the rows you read.
 - `createdAt` is stored in the column `created_at`: fields are camelCase, columns snake_case.
 - The keys are `bigserial` columns (below), which are 64-bit, so they use
   `t.bigint({ mode: "number" })`, which gives a plain `number`. Declare a key with the
-  type of its column: a `t.integer()` field over a `bigint` column is a mistake (a 32-bit
-  `serial` column is the one for `t.integer()`).
+  type of its column: a `t.integer()` field over a `bigint` column throws `CastError` when
+  a row is read (a 32-bit `serial` column is the one for `t.integer()`).
 - `User.changeset` is a **changeset function**: it says which fields this form may set and
   how to check them.
 

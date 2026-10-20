@@ -9,7 +9,11 @@ SQLite and MySQL support most, and the gaps are listed in
 ```sh
 pnpm add @egon-orm/postgres pg
 pnpm add pg-cursor   # optional: only needed for repo.stream
+pnpm add -D @types/pg  # for tsc: the adapter's types refer to pg's
 ```
+
+`@types/pg` is an optional peer dependency: `tsc` needs it unless `skipLibCheck` is on,
+since `pg` ships no types of its own.
 
 <<< @/examples/adapters.ts#connect
 

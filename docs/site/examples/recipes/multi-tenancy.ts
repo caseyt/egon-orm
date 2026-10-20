@@ -27,7 +27,7 @@ const tenantTables = (schema: string) =>
       m.createTable(
         "projects",
         (table) => {
-          table.id("id", { type: "integer" });
+          table.id({ type: "integer" });
           table.text("name").notNull().unique();
         },
         { schema },

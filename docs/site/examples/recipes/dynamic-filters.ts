@@ -20,7 +20,7 @@ class Post extends Schema("posts", {
 const tables = defineMigration({
   up(m) {
     m.createTable("posts", (table) => {
-      table.id("id", { type: "integer" });
+      table.id({ type: "integer" });
       table.text("title").notNull();
       table.text("status").notNull();
       table.integer("views").notNull();

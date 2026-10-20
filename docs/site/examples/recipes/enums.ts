@@ -30,7 +30,7 @@ export type Status = Post["status"]; // "draft" | "review" | "published"
 export const posts = defineMigration({
   up(m) {
     m.createTable("posts", (table) => {
-      table.id("id", { type: "integer" });
+      table.id({ type: "integer" });
       table.enumText("status", STATUSES).notNull().default("draft"); // text with posts_status_check
       table.integer("priority").notNull().default(2);
     });

@@ -26,11 +26,11 @@ class Post extends Schema("posts", {
 const tables = defineMigration({
   up(m) {
     m.createTable("authors", (table) => {
-      table.id("id", { type: "integer" });
+      table.id({ type: "integer" });
       table.text("name").notNull();
     });
     m.createTable("posts", (table) => {
-      table.id("id", { type: "integer" });
+      table.id({ type: "integer" });
       table.references("author_id", "authors", { type: "integer" }).notNull();
       table.text("title").notNull();
       table.integer("views").notNull();

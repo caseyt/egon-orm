@@ -65,6 +65,8 @@ export const SQLITE_PROFILE: AdapterConformanceProfile = {
     insert into authors values (1, 'ada@example.com');
     insert into counters values (1, 0), (2, 0);
   `,
+  // One writer, and a COMMIT that cannot be cancelled once it runs.
+  slowCommit: undefined,
   violations: {
     // SQLite names the columns; the adapter rebuilds the default name from them.
     unique: {

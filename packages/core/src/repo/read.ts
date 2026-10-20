@@ -189,7 +189,11 @@ export class QueryHub {
   /** The adapter's listener: keeps the event of a statement this repo ran on its call. */
   readonly #receive = (event: QueryEvent): void => {
     const call = event.context;
-    if (call instanceof Call && call.hub === this) call.event = event;
+    if (!(call instanceof Call) || call.hub !== this) return;
+    // A call of several statements (a transaction's `BEGIN` is two on MySQL) reports each:
+    // the one before is reported when the next one arrives.
+    if (call.event !== undefined) this.emit(call, 0, undefined);
+    call.event = event;
   };
 
   /**

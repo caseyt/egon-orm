@@ -20,7 +20,11 @@ import { collectParams } from "../query/ast.js";
  * statement. A throwing twin reports the method it is the twin of (`oneOrThrow` is
  * `"one"`), `count` is `"aggregate"`, and `insertOrUpdate` reports the write it made
  * (`"insert"` or `"update"`). The statements that load preloaded associations (of any
- * read, of `repo.preload` and of `reload`) report `"preload"`.
+ * read, of `repo.preload` and of `reload`) report `"preload"`. The statements that begin
+ * and end a transaction or a nested one (`BEGIN`, `SAVEPOINT`, `RELEASE SAVEPOINT`,
+ * `ROLLBACK TO SAVEPOINT`, `COMMIT`, `ROLLBACK`) report `"transaction"`, with no `source`:
+ * those of `repo.transaction`, and those of the transaction or savepoint a write of several
+ * statements opens.
  *
  * @example
  * ```ts
@@ -45,7 +49,8 @@ export type RepoOperation =
   | "delete"
   | "insertAll"
   | "updateAll"
-  | "deleteAll";
+  | "deleteAll"
+  | "transaction";
 
 /**
  * One statement the repo ran, as its `query` listeners receive it: the adapter's

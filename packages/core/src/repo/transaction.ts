@@ -21,9 +21,12 @@
  * - The root repo's {@link RootScope} knows whether a sandbox has taken the repo over.
  *
  * The transaction statements themselves (`BEGIN`, `SAVEPOINT`, `COMMIT`, ...) are the
- * adapter's `Connection` methods, which write each dialect's syntax. They take no
- * options, so they are not cancelled by `timeoutMs`, and they are not reported as the
- * repo's `query` events (the adapter's own `query` events include them).
+ * adapter's `Connection` methods, which write each dialect's syntax. Each is sent with
+ * what is left of the level's `timeoutMs` budget (a rollback with none: it must not be cut
+ * short by the budget that may have caused it), and with a `Call` as its context, so that
+ * it is one of the repo's `query` events (operation `"transaction"`). The sandbox's own
+ * statements (its `BEGIN` and `ROLLBACK`, the savepoint around each of its statements)
+ * are neither: they are not the application's.
  *
  * @module
  */
@@ -47,9 +50,9 @@ import { failure, type Result, success } from "../contracts/result.js";
 import { DatabaseError, isEgonError, QueryError, RollbackError } from "../errors.js";
 import { isPlainObject } from "../internal/plain-object.js";
 import type { ReadOptions } from "./options.js";
-import { ReadCore } from "./read.js";
+import { Call, type QueryHub, ReadCore } from "./read.js";
 import type { Repo } from "./repo.js";
-import { acquireWithin } from "./write.js";
+import { acquireWithin, overBudget } from "./write.js";
 
 // ---------------------------------------------------------------------------
 // Options
@@ -64,9 +67,10 @@ import { acquireWithin } from "./write.js";
  *   a deadlock (`DatabaseError.retryable`), with a randomised, growing pause in between.
  *   The callback must be safe to run again. Default 0. Not on a nested transaction.
  * - `timeoutMs`: the time budget of the whole call, in milliseconds: the wait for a
- *   connection, every statement and every retry. When it runs out, the running statement
- *   is cancelled, the transaction is rolled back and the call rejects with
- *   `DatabaseError`, code `"timeout"`.
+ *   connection, every statement (`BEGIN`, `SAVEPOINT` and `COMMIT` too) and every retry.
+ *   When it runs out, the running statement is cancelled, the transaction is rolled back
+ *   and the call rejects with `DatabaseError`, code `"timeout"`. The `ROLLBACK` is not cut
+ *   short.
  *
  * @example
  * ```ts
@@ -332,6 +336,8 @@ export class Session {
     readonly connection: Connection,
     /** The repo the session belongs to; `undefined` for a bulk write's own transaction. */
     readonly root: RootScope | undefined,
+    /** The `query` listeners of the repo whose statements run on the session. */
+    readonly hub: QueryHub,
   ) {}
 
   /** Runs a statement now, or when the statements before it are done. */
@@ -376,10 +382,15 @@ export class Session {
     });
   }
 
-  /** Runs `work` (transaction statements) when the connection is free; nothing else runs meanwhile. */
-  control<T>(work: () => Promise<T>): Promise<T> {
+  /**
+   * Runs `work` (transaction statements) when the connection is free; nothing else runs
+   * meanwhile. With `within`, the wait for the connection counts against that level's
+   * budget (or that of the write that opened it): when the budget runs out first, `work`
+   * never runs and the call rejects with the budget's timeout.
+   */
+  control<T>(work: () => Promise<T>, within?: Level): Promise<T> {
     if (!this.busy) return this.#control(work);
-    return this.#wait(undefined, "", NO_PARAMS, undefined, work) as Promise<T>;
+    return this.#wait(within, "", NO_PARAMS, undefined, work) as Promise<T>;
   }
 
   #control<T>(work: () => Promise<T>): Promise<T> {
@@ -447,6 +458,19 @@ export class Session {
           entry.stop();
           reject(waitedTooLong(sql, timeoutMs));
         }, timeoutMs);
+      } else if (work !== undefined && level !== undefined) {
+        // Transaction statements waiting for the connection: the level's budget (or its
+        // owning call's) bounds the wait.
+        const deadline = statementDeadline(level);
+        if (deadline !== undefined) {
+          entry.timer = setTimeout(
+            () => {
+              entry.stop();
+              reject(budgetError(level, undefined, undefined));
+            },
+            Math.max(0, deadline - now()),
+          );
+        }
       }
       this.#queue.push(entry);
     });
@@ -512,6 +536,17 @@ function waitedTooLong(sql: string, timeoutMs: number): DatabaseError {
  */
 type LevelKind = "transaction" | "savepoint" | "checkout" | "sandbox";
 
+/**
+ * The repo call (a write of several statements) that a level was opened for: the
+ * transaction statements of the level carry its signal and context, and stay within its
+ * budget, as its other statements do.
+ */
+interface Owner {
+  readonly options: ReadOptions;
+  /** The call's deadline (`performance.now()` based); `undefined` without `timeoutMs`. */
+  readonly deadline: number | undefined;
+}
+
 /** One scope on a session; the executor of the repo bound to it. */
 export class Level implements Executor {
   /** `closing` once its callback ended: what it issued before still runs, nothing new is accepted. */
@@ -539,6 +574,8 @@ export class Level implements Executor {
     readonly deadline: number | undefined,
     /** The `timeoutMs` that set {@link deadline}, for the messages. */
     readonly timeoutMs: number | undefined,
+    /** The write of several statements this level was opened for, if any (`atomically`). */
+    readonly owner: Owner | undefined = undefined,
   ) {}
 
   /** Whether the repo bound to this level is inside a transaction. */
@@ -876,16 +913,137 @@ async function within(level: Level, running: Promise<Outcome>): Promise<Outcome>
   }
 }
 
-/** The statement that ends a level that commits. */
-function commitOf(level: Level): Promise<void> {
-  const connection = level.session.connection;
-  return level.kind === "savepoint" ? connection.releaseSavepoint(savepointName(level)) : connection.commit();
+/**
+ * The transaction statements a level sends: `BEGIN`, `SAVEPOINT`, `RELEASE SAVEPOINT`,
+ * `COMMIT`, `ROLLBACK TO SAVEPOINT`, `ROLLBACK`.
+ */
+type Statement = "begin" | "savepoint" | "release" | "commit" | "rollbackTo" | "rollback";
+
+/** The execution options of a transaction statement, in one shape. */
+interface StatementOptions {
+  readonly signal: AbortSignal | undefined;
+  readonly timeoutMs: number | undefined;
+  readonly context: Call | undefined;
 }
 
-/** The statement that ends a level that rolls back. */
+/** The deadline a level's transaction statements must keep: its own, or its owner's, whichever is first. */
+function statementDeadline(level: Level): number | undefined {
+  const own = level.deadline;
+  const owner = level.owner?.deadline;
+  if (own === undefined) return owner;
+  return owner === undefined || own <= owner ? own : owner;
+}
+
+/** What is left of a level's budget, in milliseconds (perhaps 0 or less); `undefined` when it has none. */
+function budgetLeft(level: Level): number | undefined {
+  const deadline = statementDeadline(level);
+  return deadline === undefined ? undefined : deadline - now();
+}
+
+/**
+ * The error of a transaction statement the budget stopped (`cause`), or could not start
+ * (`undefined`): the transaction's timeout when the level's own budget ran out (the level
+ * expires), the owning call's when its budget did.
+ */
+function budgetError(level: Level, sql: string | undefined, cause: DatabaseError | undefined): DatabaseError {
+  const owner = level.owner;
+  if (owner === undefined || statementDeadline(level) === level.deadline) {
+    level.expire();
+    return transactionTimeout(level, sql, cause);
+  }
+  const error =
+    cause ??
+    new DatabaseError("The statement was not run: the call's timeoutMs was spent before it could start.", {
+      code: "timeout",
+    });
+  return overBudget(error, owner.options) as DatabaseError;
+}
+
+/**
+ * Whether a statement that was sent and rejected as stopped (`"timeout"` or `"aborted"`)
+ * completed anyway: the cancel came too late, and the adapter then rejects with no `cause`
+ * (the driver's error, when the cancel did stop it).
+ */
+function completedAnyway(error: unknown): boolean {
+  return (isEgonError(error, "timeout") || isEgonError(error, "aborted")) && error.cause === undefined;
+}
+
+/**
+ * Sends one transaction statement of `level` through the adapter's `Connection`, with
+ * `timeoutMs` (what is left of the level's budget; `undefined` for a rollback, which the
+ * budget must not cut short) and, when the repo has `query` listeners, a {@link Call} as
+ * its context: it is then one of the repo's `query` events, operation `"transaction"`. A
+ * level opened for a write of several statements adds that call's signal (not to a
+ * rollback) and context.
+ *
+ * A statement the budget stopped rejects with the budget's error ({@link budgetError}). A
+ * `COMMIT` or `RELEASE` that completed although it was stopped while it ran did commit: it
+ * resolves.
+ */
+async function send(
+  level: Level,
+  statement: Statement,
+  timeoutMs: number | undefined,
+  begin: BeginOptions | undefined,
+): Promise<void> {
+  const session = level.session;
+  const hub = session.hub;
+  const given = level.owner?.options;
+  const call = hub.listening ? new Call(hub, "transaction", undefined, given?.context) : undefined;
+  // A rollback is never stopped: it ends what the signal or the budget stopped.
+  const signal = statement === "rollback" || statement === "rollbackTo" ? undefined : given?.signal;
+  // One shape whatever is set (the adapter reads an `undefined` option as absent).
+  const options =
+    timeoutMs === undefined && call === undefined && signal === undefined
+      ? undefined
+      : ({
+          signal,
+          timeoutMs: timeoutMs === undefined ? undefined : Math.max(0, timeoutMs),
+          context: call,
+        } satisfies StatementOptions as ExecuteOptions);
+  const connection = session.connection;
+  // Whether the adapter will send it: it refuses, with no `cause`, a statement whose
+  // budget is spent or whose signal has fired (checked in the same turn as this).
+  const sent = (timeoutMs === undefined || timeoutMs > 0) && signal?.aborted !== true;
+  try {
+    switch (statement) {
+      case "begin":
+        return await connection.begin(begin, options);
+      case "savepoint":
+        return await connection.savepoint(savepointName(level), options);
+      case "release":
+        return await connection.releaseSavepoint(savepointName(level), options);
+      case "commit":
+        return await connection.commit(options);
+      case "rollbackTo":
+        return await connection.rollbackTo(savepointName(level), options);
+      default:
+        return await connection.rollback(options);
+    }
+  } catch (error) {
+    // A SAVEPOINT that failed in the database aborts the transaction on Postgres (decision 2).
+    if (sent && statement === "savepoint") session.fail(error);
+    if (sent && (statement === "commit" || statement === "release") && completedAnyway(error)) return;
+    if (timeoutMs === undefined || !isEgonError(error, "timeout")) throw error;
+    throw budgetError(level, (error as DatabaseError).sql, error as DatabaseError);
+  } finally {
+    if (call !== undefined) hub.emit(call, 0, undefined);
+  }
+}
+
+/**
+ * The statement that ends a level that commits, with what is left of its budget; `false`
+ * when nothing is left: the level then rolls back instead.
+ */
+function commitOf(level: Level): Promise<void> | false {
+  const left = budgetLeft(level);
+  if (left !== undefined && left <= 0) return false;
+  return send(level, level.kind === "savepoint" ? "release" : "commit", left, undefined);
+}
+
+/** The statement that ends a level that rolls back. It has no budget: it must run to its end. */
 function rollbackOf(level: Level): Promise<void> {
-  const connection = level.session.connection;
-  return level.kind === "savepoint" ? connection.rollbackTo(savepointName(level)) : connection.rollback();
+  return send(level, level.kind === "savepoint" ? "rollbackTo" : "rollback", undefined, undefined);
 }
 
 function savepointName(level: Level): string {
@@ -943,10 +1101,16 @@ async function finish(level: Level, ended: Outcome): Promise<Ended> {
     await session.control(() => {
       if (outcome.kind === "value") {
         if (session.failure === NONE && session.broken === NONE) {
-          action = "commit";
-          return commitOf(level);
+          const committing = commitOf(level);
+          if (committing !== false) {
+            action = "commit";
+            return committing;
+          }
+          // The budget ran out before the COMMIT could be sent: roll back instead.
+          outcome = { kind: "throw", error: budgetError(level, undefined, undefined) };
+        } else {
+          failed = session.failure !== NONE ? session.failure : session.broken;
         }
-        failed = session.failure !== NONE ? session.failure : session.broken;
       }
       level.discard = true;
       return rollbackOf(level);
@@ -962,6 +1126,10 @@ async function finish(level: Level, ended: Outcome): Promise<Ended> {
     }
   } catch (error) {
     endError = error;
+    // A COMMIT that failed may leave the transaction open (SQLite after a busy error, a
+    // COMMIT refused before it was sent because a write's signal fired): roll it back, so
+    // that nothing stays open on a connection that a checkout goes on using.
+    if (action === "commit" && level.kind === "transaction") await rollbackAfterCommit(level, error);
   }
   session.transactions--;
   level.state = "ended";
@@ -1009,6 +1177,21 @@ function withRepo(
   return (level) => watchStorage().run(level, call, repoFor(root, level));
 }
 
+/**
+ * After a failed `COMMIT`: rolls back the transaction when the connection is still inside
+ * it; when that fails too, the connection is closed instead of reused.
+ */
+async function rollbackAfterCommit(level: Level, error: unknown): Promise<void> {
+  const session = level.session;
+  try {
+    if (!session.connection.inTransaction()) return;
+    await session.control(() => rollbackOf(level));
+  } catch (lost) {
+    session.destroy = true;
+    attachSuppressed(error, lost);
+  }
+}
+
 /** Opens a transaction (`BEGIN`) on `session` and runs `call` on the level bound to it. */
 async function runTransaction(
   session: Session,
@@ -1017,14 +1200,15 @@ async function runTransaction(
   begin: BeginOptions | undefined,
   deadline: number | undefined,
   timeoutMs: number | undefined,
+  owner?: Owner,
 ): Promise<Ended> {
-  const level = new Level(session, parent, "transaction", 0, deadline, timeoutMs);
+  const level = new Level(session, parent, "transaction", 0, deadline, timeoutMs, owner);
   if (parent !== undefined) parent.child = level;
   session.endedWith = NONE;
   try {
     session.transactions++;
     try {
-      await session.control(() => session.connection.begin(begin));
+      await session.control(() => send(level, "begin", budgetLeft(level), begin), level);
     } catch (error) {
       session.transactions--;
       level.state = "ended";
@@ -1057,6 +1241,7 @@ async function runSavepoint(
   parent: Level,
   call: (level: Level) => unknown,
   timeoutMs: number | undefined,
+  owner?: Owner,
 ): Promise<Ended> {
   const refused = nestedRefusal(parent);
   if (refused !== undefined) throw refused;
@@ -1077,6 +1262,7 @@ async function runSavepoint(
     parent.depth + 1,
     ownFirst ? own : inherited,
     ownFirst ? timeoutMs : parent.timeoutMs,
+    owner,
   );
   parent.child = level;
   try {
@@ -1087,10 +1273,11 @@ async function runSavepoint(
         // savepoint begun after that failure would erase it from the record.
         const late = parent.sessionRefusal();
         if (late !== undefined) return Promise.reject(late);
-        return session.connection.savepoint(savepointName(level));
-      });
+        return send(level, "savepoint", budgetLeft(level), undefined);
+      }, level);
     } catch (error) {
-      session.fail(error);
+      // A SAVEPOINT the database refused was recorded by `send`; one that never ran (it
+      // waited past the budget, or was refused before it was sent) harms nothing.
       session.transactions--;
       level.state = "ended";
       throw error;
@@ -1137,7 +1324,7 @@ async function onPool(root: RootScope, call: (level: Level) => unknown, settings
   const budget: ReadOptions | undefined = timeoutMs === undefined ? undefined : { timeoutMs };
   for (let attempt = 0; ; attempt++) {
     const connection = await acquireWithin(root.core, budget, deadline, "transaction");
-    const session = new Session(connection, root);
+    const session = new Session(connection, root, root.core.hub);
     let ended: Ended;
     try {
       ended = await runTransaction(session, undefined, call, settings.begin, deadline, timeoutMs);
@@ -1349,7 +1536,7 @@ export async function checkout(scope: Scope, repo: Repo, fn: unknown): Promise<u
   if (scope.sandbox !== undefined) return call(repo);
   warnIfInside(scope);
   const connection = await scope.core.adapter.acquire();
-  const session = new Session(connection, scope);
+  const session = new Session(connection, scope, scope.core.hub);
   const level = new Level(session, undefined, "checkout", 0, undefined, undefined);
   try {
     return await call(repoFor(scope, level));
@@ -1381,22 +1568,24 @@ export async function atomically<T>(
   work: (executor: Executor) => Promise<T>,
 ): Promise<T> {
   const executor = core.executor;
+  // The call's signal, context and budget reach the transaction statements too.
+  const owner: Owner | undefined = options === undefined ? undefined : { options, deadline };
   if (executor instanceof Level) {
     const refused = executor.kind === "sandbox" ? insideCallback(executor) : executor.refusal();
     if (refused !== undefined) throw refused;
     const ended =
       executor.kind === "checkout"
-        ? await runTransaction(executor.session, executor, work, undefined, undefined, undefined)
-        : await runSavepoint(executor, work, undefined);
+        ? await runTransaction(executor.session, executor, work, undefined, undefined, undefined, owner)
+        : await runSavepoint(executor, work, undefined, owner);
     return valueOfEnded(ended) as T;
   }
   if (!core.pooled) return work(executor);
   if (executor instanceof RootWatch) executor.check();
   const connection = await acquireWithin(core, options, deadline);
-  const session = new Session(connection, undefined);
+  const session = new Session(connection, undefined, core.hub);
   let ended: Ended;
   try {
-    ended = await runTransaction(session, undefined, work, undefined, undefined, undefined);
+    ended = await runTransaction(session, undefined, work, undefined, undefined, undefined, owner);
   } finally {
     await giveBack(session);
   }
@@ -1428,7 +1617,7 @@ export interface OpenSandbox {
 export async function beginSandbox(root: RootScope): Promise<OpenSandbox> {
   const core = root.core;
   const connection = await core.adapter.acquire();
-  const session = new Session(connection, root);
+  const session = new Session(connection, root, core.hub);
   const level = new Level(session, undefined, "sandbox", 0, undefined, undefined);
   session.transactions = 1;
   try {

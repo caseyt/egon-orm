@@ -66,8 +66,11 @@ in:
 
 <<< @/examples/testing.ts#count-queries
 
-Each event has `sql`, `operation`, `source` and `durationMs`. The transaction statements
-(`BEGIN`, `SAVEPOINT`, …) are not counted.
+Each event has `sql`, `operation`, `source` and `durationMs`. The statements that begin and
+end a transaction are counted too, with `operation: "transaction"` (in the sandbox they
+are `SAVEPOINT` and `RELEASE`); the sandbox's own statements are not. To count only the
+queries, filter them out:
+`queries.filter((q) => q.operation !== "transaction")`.
 
 ## A database for tests
 

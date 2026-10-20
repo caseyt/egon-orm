@@ -247,9 +247,9 @@ export function runNestedConformance(profile: NestedConformanceProfile): void {
       return { repo, events, adapter };
     }
 
-    /** `operation source` of each statement, in order. */
+    /** `operation source` of each statement, in order (`transaction` for BEGIN, COMMIT, …). */
     function trail(events: readonly RepoQueryEvent[]): string[] {
-      return events.map((event) => `${event.operation} ${event.source ?? ""}`);
+      return events.map((event) => `${event.operation} ${event.source ?? ""}`.trim());
     }
 
     beforeAll(async () => {
@@ -297,7 +297,13 @@ export function runNestedConformance(profile: NestedConformanceProfile): void {
           ),
         );
         assertLoaded(Article, article, "remarks");
-        expect(trail(events)).toEqual(["insert posts", "insert comments", "insert comments"]);
+        expect(trail(events)).toEqual([
+          "transaction",
+          "insert posts",
+          "insert comments",
+          "insert comments",
+          "transaction",
+        ]);
         expect(article.remarks.map((remark) => remark.body)).toEqual(["first!", "lovely"]);
         expect(article.remarks.every((remark) => remark.postId === article.id && isRow(remark))).toBe(true);
         const stored = await repo.all(
@@ -411,7 +417,7 @@ export function runNestedConformance(profile: NestedConformanceProfile): void {
         const saved = await repo.updateOrThrow(
           change(loaded).putAssoc("profile", change(Bio, { bio: "new" })),
         );
-        expect(trail(events)).toEqual(["delete profiles", "insert profiles"]);
+        expect(trail(events)).toEqual(["transaction", "delete profiles", "insert profiles", "transaction"]);
         expect(saved.profile?.bio).toBe("new");
         const stored = await repo.all(from(Bio, "b"));
         expect(stored.map((bio) => bio.bio)).toEqual(["new"]);
@@ -447,7 +453,7 @@ export function runNestedConformance(profile: NestedConformanceProfile): void {
           ),
         );
         assertLoaded(Remark, remark, "post");
-        expect(trail(events)).toEqual(["insert posts", "insert comments"]);
+        expect(trail(events)).toEqual(["transaction", "insert posts", "insert comments", "transaction"]);
         expect(remark.post.title).toBe("Born with a comment");
         expect(remark.postId).toBe(remark.post.id);
         const stored = await repo.getOrThrow(Remark, remark.id);
@@ -462,7 +468,8 @@ export function runNestedConformance(profile: NestedConformanceProfile): void {
         const remark = await repo.insertOrThrow(
           change(Remark, { body: "attached" }).putAssoc("post", article),
         );
-        expect(trail(events)).toEqual(["insert comments"]);
+        // One statement, but the write of a changeset with associations is one transaction.
+        expect(trail(events)).toEqual(["transaction", "insert comments", "transaction"]);
         expect(remark.postId).toBe(article.id);
       });
 

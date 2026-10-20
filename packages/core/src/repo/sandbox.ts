@@ -113,8 +113,9 @@ export async function createSandbox(repo: Repo): Promise<Sandbox> {
 /**
  * Runs `fn` and returns the `query` events of the statements the repo ran meanwhile, in
  * order: those of its transactions too. Use it to pin down how many queries a piece of
- * code runs, so that an N+1 cannot creep in. The transaction statements themselves
- * (`BEGIN`, `SAVEPOINT`, `COMMIT`, …) are not repo `query` events and are not included.
+ * code runs, so that an N+1 cannot creep in. The statements that begin and end its
+ * transactions (`BEGIN`, `SAVEPOINT`, `RELEASE SAVEPOINT`, `COMMIT`, …) are included, with
+ * `operation: "transaction"`; the sandbox's own statements are not.
  *
  * @example
  * ```ts

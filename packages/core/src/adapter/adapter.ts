@@ -241,6 +241,21 @@ function checkSavepointName(method: string, name: unknown): string {
   return name;
 }
 
+/** The parameters of a transaction statement: there are none. */
+const NO_PARAMS: readonly unknown[] = Object.freeze([]);
+
+/**
+ * Checks the execution options of a transaction statement. They are those of `execute`,
+ * except `statementName`: a transaction statement is never prepared.
+ */
+function checkTransactionOptions(method: string, options: ExecuteOptions | undefined): void {
+  if (options?.statementName !== undefined) {
+    throw new TypeError(
+      `connection.${method}(…, options): statementName is not accepted here; transaction statements are never prepared.`,
+    );
+  }
+}
+
 function checkTimeout(timeoutMs: unknown): number | undefined {
   if (timeoutMs === undefined) return undefined;
   if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs < 0) {
@@ -879,39 +894,78 @@ class SharedConnection implements Connection {
     return this.streamRows(sql, params, options);
   }
 
-  begin(options?: BeginOptions): Promise<void> {
+  begin(options?: BeginOptions, execute?: ExecuteOptions): Promise<void> {
     // Checked before anything is sent, as a statement's own arguments are.
     const statements = beginStatements(this.adapter.dialect, options, this.adapter.capabilities);
-    if (statements.length === 1) return this.statement(statements[0] as string);
-    return this.statements(statements);
+    checkTransactionOptions("begin", execute);
+    if (statements.length === 1) return this.statement(statements[0] as string, execute);
+    return this.statements(statements, execute);
   }
 
-  private async statements(statements: readonly string[]): Promise<void> {
-    for (const sql of statements) await this.statement(sql);
+  /**
+   * The statements of one `begin`, in order. `timeoutMs` is one budget for all of them:
+   * each gets what the ones before it left.
+   */
+  private async statements(
+    statements: readonly string[],
+    execute: ExecuteOptions | undefined,
+  ): Promise<void> {
+    const timeoutMs = checkTimeout(execute?.timeoutMs);
+    const deadline = timeoutMs === undefined ? 0 : now() + timeoutMs;
+    for (let i = 0; i < statements.length; i++) {
+      const options =
+        i === 0 || timeoutMs === undefined
+          ? execute
+          : { ...execute, timeoutMs: Math.max(0, deadline - now()) };
+      try {
+        await this.statement(statements[i] as string, options);
+      } catch (error) {
+        // What the statements before it set (MySQL's `set transaction` applies to the next
+        // transaction on the connection) must not reach the next transaction, on this
+        // connection or after it goes back to the pool: `ROLLBACK` clears it (and ends the
+        // transaction, if a statement stopped too late had begun one). When that fails too,
+        // the connection is closed on release instead of reused.
+        if (i > 0) await this.clearPending();
+        throw error;
+      }
+    }
   }
 
-  commit(): Promise<void> {
-    return this.statement("commit");
+  /** After a `begin` that failed part way: `ROLLBACK`, with no options; on failure, the connection is not reused. */
+  private async clearPending(): Promise<void> {
+    try {
+      await this.statement("rollback", undefined);
+    } catch {
+      this.broken = true;
+    }
   }
 
-  rollback(): Promise<void> {
-    return this.statement("rollback");
+  commit(options?: ExecuteOptions): Promise<void> {
+    checkTransactionOptions("commit", options);
+    return this.statement("commit", options);
   }
 
-  savepoint(name: string): Promise<void> {
-    return this.statement(`savepoint ${this.adapter.quote(checkSavepointName("savepoint", name))}`);
+  rollback(options?: ExecuteOptions): Promise<void> {
+    checkTransactionOptions("rollback", options);
+    return this.statement("rollback", options);
   }
 
-  rollbackTo(name: string): Promise<void> {
-    return this.statement(
-      `rollback to savepoint ${this.adapter.quote(checkSavepointName("rollbackTo", name))}`,
-    );
+  savepoint(name: string, options?: ExecuteOptions): Promise<void> {
+    const sql = `savepoint ${this.adapter.quote(checkSavepointName("savepoint", name))}`;
+    checkTransactionOptions("savepoint", options);
+    return this.statement(sql, options);
   }
 
-  releaseSavepoint(name: string): Promise<void> {
-    return this.statement(
-      `release savepoint ${this.adapter.quote(checkSavepointName("releaseSavepoint", name))}`,
-    );
+  rollbackTo(name: string, options?: ExecuteOptions): Promise<void> {
+    const sql = `rollback to savepoint ${this.adapter.quote(checkSavepointName("rollbackTo", name))}`;
+    checkTransactionOptions("rollbackTo", options);
+    return this.statement(sql, options);
+  }
+
+  releaseSavepoint(name: string, options?: ExecuteOptions): Promise<void> {
+    const sql = `release savepoint ${this.adapter.quote(checkSavepointName("releaseSavepoint", name))}`;
+    checkTransactionOptions("releaseSavepoint", options);
+    return this.statement(sql, options);
   }
 
   /** Returns the connection to the pool; it is closed instead when it failed fatally or still has a stream open. */
@@ -932,8 +986,8 @@ class SharedConnection implements Connection {
     this.adapter.finished();
   }
 
-  private async statement(sql: string): Promise<void> {
-    await this.execute(sql, []);
+  private async statement(sql: string, options: ExecuteOptions | undefined): Promise<void> {
+    await this.execute(sql, NO_PARAMS, options);
   }
 
   private usable(sql: string): void {

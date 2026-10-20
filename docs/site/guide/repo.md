@@ -305,7 +305,8 @@ Bulk writes skip changesets and validation.
   `"all"`, `"one"`, `"first"`, `"get"`, `"getBy"`, `"exists"`, `"aggregate"` for `count` too,
   `"stream"`, `"reload"`, `"preload"` (each statement that loads associations, of any
   read, of `repo.preload` and of `reload`), `"explain"`, `"raw"`, `"insert"`, `"update"`, `"delete"`,
-  `"insertAll"` (one event per chunk), `"updateAll"`, `"deleteAll"`; a throwing twin
+  `"insertAll"` (one event per chunk), `"updateAll"`, `"deleteAll"`, and `"transaction"`
+  for `BEGIN`, `SAVEPOINT`, `RELEASE`, `ROLLBACK TO`, `COMMIT` and `ROLLBACK`; a throwing twin
   reports its base method, and `insertOrUpdate` the write it made),
   `source` (the table the query reads from), `decodeMs` (the time spent turning result rows
   into rows; for a stream, the total) and `context`. A stream reports one event, when it

@@ -48,7 +48,7 @@ import type {
   UnaryOp,
   WindowNode,
 } from "../contracts/query.js";
-import type { AnyFieldType } from "../contracts/type.js";
+import type { AnyFieldType, DbType } from "../contracts/type.js";
 import { IDENTITY } from "../contracts/type.js";
 import { QueryError } from "../errors.js";
 import { OUTER_REFS } from "../query/advanced/outer-refs.js";
@@ -78,7 +78,7 @@ import {
 } from "./plan.js";
 import { type EmitApi, PRECEDENCE, registeredEmitter } from "./registry.js";
 import { sameShape } from "./same-shape.js";
-import { textOnly, untypedValue } from "./untyped.js";
+import { textOnly, untypedArithmetic, untypedValue } from "./untyped.js";
 
 // ---------------------------------------------------------------------------
 // Precedence
@@ -409,10 +409,17 @@ function expr(ctx: Ctx, frame: Frame, node: ExprNode): string {
         // Only bound values: the SQL has no type for them unless it is written (see binary).
         const where = "a comparison of values without a type (between())";
         const typed = !hasNoType(node.expr) || !hasNoType(node.low) || !hasNoType(node.high);
-        return `${selectedValue(ctx, frame, node.expr, where, typed)} between ${selectedValue(ctx, frame, node.low, where, typed)} and ${selectedValue(ctx, frame, node.high, where, typed)}`;
+        const type = firstType(node.expr) ?? firstType(node.low) ?? firstType(node.high);
+        return `${boundOperand(ctx, frame, node.expr, where, typed, type)} between ${boundOperand(ctx, frame, node.low, where, typed, type)} and ${boundOperand(ctx, frame, node.high, where, typed, type)}`;
       }
-      const bound = COMPARISON_OPERAND;
-      return `${operand(ctx, frame, node.expr, bound)} between ${operand(ctx, frame, node.low, bound)} and ${operand(ctx, frame, node.high, bound)}`;
+      // A CASE or coalesce of bound values among them takes its type from a column operand.
+      const context =
+        columnType(frame, node.expr) ?? columnType(frame, node.low) ?? columnType(frame, node.high);
+      const range = (item: ExprNode) =>
+        isBoundCompound(item)
+          ? typedCompound(ctx, frame, item, context)
+          : operand(ctx, frame, item, COMPARISON_OPERAND);
+      return `${range(node.expr)} between ${range(node.low)} and ${range(node.high)}`;
     }
     case "nary":
       return nary(ctx, frame, node.op, node.args);
@@ -516,10 +523,15 @@ function custom(ctx: Ctx, frame: Frame, node: never): string {
 }
 
 function typeName(ctx: Ctx, type: AnyFieldType): string {
+  return sqlTypeName(ctx.dialect, dbTypeOf(type));
+}
+
+/** The database type of a field type, checked: a hand-built tree may hold anything. */
+function dbTypeOf(type: AnyFieldType): DbType {
   if (typeof type !== "object" || type === null || typeof type.db !== "object" || type.db === null) {
     throw new QueryError("A cast has no column type to cast to.");
   }
-  return sqlTypeName(ctx.dialect, type.db);
+  return type.db;
 }
 
 function unary(ctx: Ctx, frame: Frame, op: UnaryOp, inner: ExprNode): string {
@@ -527,6 +539,12 @@ function unary(ctx: Ctx, frame: Frame, op: UnaryOp, inner: ExprNode): string {
     case "not":
       return `not ${operand(ctx, frame, inner, PRECEDENCE.atom)}`;
     case "neg":
+      // `-$1` names no type for the database to choose a minus by: a typed value is cast,
+      // and a value without one is refused (as in binary()).
+      if (noSqlType(inner)) {
+        if (hasNoType(inner)) throw untypedArithmetic("neg");
+        return `-${selectedValue(ctx, frame, inner, "arithmetic", true)}`;
+      }
       return `-${operand(ctx, frame, inner, PRECEDENCE.atom)}`;
     case "isNull":
       return `${operand(ctx, frame, inner, COMPARISON_OPERAND)} is null`;
@@ -562,18 +580,103 @@ function binary(ctx: Ctx, frame: Frame, node: BinaryNode): string {
     throw unsupported(ctx.dialect, `The ${op}() operator`);
   }
   const sql = ctx.dialect.operators[op as TableOperator];
-  if (COMPARISONS.has(op) && noSqlType(left) && noSqlType(right)) {
+  const comparison = COMPARISONS.has(op);
+  const typesOperands = comparison || ARITHMETIC.has(op);
+  if (typesOperands && noSqlType(left) && noSqlType(right)) {
     // Only bound values on both sides: the database knows no type for either unless it is
-    // written, and compares two placeholders as text. A typed value is cast to its type
-    // (which then types the other side); with no type on either side, only text is allowed.
-    const where = `a comparison of two values without a type (${op}())`;
+    // written. It compares two placeholders as text, and cannot choose an arithmetic
+    // operator for them at all. A typed value is cast to its type, which types the other
+    // side. With no type on either side, a comparison may only compare text, and
+    // arithmetic is refused (text has no arithmetic).
     const typed = !hasNoType(left) || !hasNoType(right);
-    return `${selectedValue(ctx, frame, left, where, typed)} ${sql} ${selectedValue(ctx, frame, right, where, typed)}`;
+    if (!comparison && !typed) throw untypedArithmetic(op);
+    const where = `a comparison of two values without a type (${op}())`;
+    const type = firstType(left) ?? firstType(right);
+    return `${boundOperand(ctx, frame, left, where, typed, type)} ${sql} ${boundOperand(ctx, frame, right, where, typed, type)}`;
   }
   const p = spec.precedence;
   const leftMin = p <= PRECEDENCE.like ? COMPARISON_OPERAND : p;
   const rightMin = p <= PRECEDENCE.like ? COMPARISON_OPERAND : p + 1;
-  return `${operand(ctx, frame, left, leftMin)} ${sql} ${operand(ctx, frame, right, rightMin)}`;
+  if (!typesOperands) {
+    return `${operand(ctx, frame, left, leftMin)} ${sql} ${operand(ctx, frame, right, rightMin)}`;
+  }
+  // A CASE or coalesce of bound values beside an expression that has a type: written as
+  // it is, the database reads it as text (see typedCompound). In arithmetic, a typed value
+  // keeps its type unless a column is on the other side (see typedArithmeticValue).
+  const context = comparison ? columnType(frame, isBoundCompound(left) ? right : left) : undefined;
+  const l = isBoundCompound(left)
+    ? typedCompound(ctx, frame, left, context)
+    : comparison
+      ? operand(ctx, frame, left, leftMin)
+      : typedArithmeticValue(ctx, frame, left, right, leftMin);
+  const r = isBoundCompound(right)
+    ? typedCompound(ctx, frame, right, context)
+    : comparison
+      ? operand(ctx, frame, right, rightMin)
+      : typedArithmeticValue(ctx, frame, right, left, rightMin);
+  return `${l} ${sql} ${r}`;
+}
+
+/**
+ * An operand of arithmetic whose other operand is not a bound value. A typed value is
+ * cast to its type unless the other operand is a column: written bare, it would take the
+ * type of the other side (`$1 / (cast($2 as integer) + …)` reads a float as an integer).
+ * Beside a column it is left to the column, as before (status note 10, Known gaps).
+ */
+function typedArithmeticValue(ctx: Ctx, frame: Frame, node: ExprNode, other: ExprNode, min: number): string {
+  if (
+    (node.kind === "param" || node.kind === "namedParam") &&
+    node.type !== undefined &&
+    other.kind !== "column"
+  ) {
+    return `cast(${expr(ctx, frame, node)} as ${typeName(ctx, node.type)})`;
+  }
+  return operand(ctx, frame, node, min);
+}
+
+/**
+ * One operand of an operator whose operands are all bound values. A `CASE` or `coalesce`
+ * with no typed value in it is cast to `type`, the type of the first typed value among the
+ * operands: that value is the type context, and the database would read the `CASE` as text
+ * otherwise. Anything else is written as {@link selectedValue} writes it.
+ */
+function boundOperand(
+  ctx: Ctx,
+  frame: Frame,
+  node: ExprNode,
+  where: string,
+  typed: boolean,
+  type: DbType | undefined,
+): string {
+  if (type !== undefined && isBoundCompound(node) && hasNoType(node)) {
+    return `cast(${expr(ctx, frame, node)} as ${sqlTypeName(ctx.dialect, type)})`;
+  }
+  return selectedValue(ctx, frame, node, where, typed);
+}
+
+/**
+ * The database type of the first typed value in `node`: a typed parameter or list, or one
+ * among the results of a `CASE` or the arguments of a `coalesce`, at any depth.
+ * `undefined` when it has none.
+ */
+function firstType(node: ExprNode): DbType | undefined {
+  if (node.kind === "param" || node.kind === "namedParam" || node.kind === "list") {
+    return node.type === undefined ? undefined : dbTypeOf(node.type);
+  }
+  if (node.kind === "case") {
+    for (const branch of node.whens) {
+      const type = firstType(branch.result);
+      if (type !== undefined) return type;
+    }
+    return node.else === undefined ? undefined : firstType(node.else);
+  }
+  if (node.kind === "fn" && node.name === "coalesce") {
+    for (const arg of node.args) {
+      const type = firstType(arg);
+      if (type !== undefined) return type;
+    }
+  }
+  return undefined;
 }
 
 function inExpr(ctx: Ctx, frame: Frame, positive: boolean, left: ExprNode, right: ExprNode): string {
@@ -587,7 +690,7 @@ function inExpr(ctx: Ctx, frame: Frame, positive: boolean, left: ExprNode, right
       ctx.index += valuesIn(left) + 1;
       return positive ? "false" : "true";
     }
-    const subject = selectedValue(ctx, frame, left, where, typed);
+    const subject = boundOperand(ctx, frame, left, where, typed, firstType(left) ?? firstType(right));
     if (ctx.dialect.capabilities.arrayParams) {
       const list = listValue(ctx, right, textWhere);
       return positive ? `${subject} = any(${list})` : `${subject} <> all(${list})`;
@@ -615,8 +718,20 @@ function inExpr(ctx: Ctx, frame: Frame, positive: boolean, left: ExprNode, right
     return `${subject} ${positive ? "in" : "not in"} (${nestedQuery(ctx, frame, right.query)})`;
   }
   if (!ctx.dialect.capabilities.arrays) throw unsupported(ctx.dialect, "in() with an array expression");
-  const subject = operand(ctx, frame, left, COMPARISON_OPERAND);
-  const array = operand(ctx, frame, right, PRECEDENCE.fragment);
+  // A CASE or coalesce of bound values takes its type from a column on the other side: an
+  // array of the subject column's type, or the element type of an array column.
+  const subject = isBoundCompound(left)
+    ? typedCompound(ctx, frame, left, elementType(columnType(frame, right)))
+    : operand(ctx, frame, left, COMPARISON_OPERAND);
+  const subjectType = columnType(frame, left);
+  const array = isBoundCompound(right)
+    ? typedCompound(
+        ctx,
+        frame,
+        right,
+        subjectType === undefined ? undefined : { kind: "array", of: subjectType },
+      )
+    : operand(ctx, frame, right, PRECEDENCE.fragment);
   return positive ? `${subject} = any(${array})` : `${subject} <> all(${array})`;
 }
 
@@ -758,8 +873,25 @@ function caseExpr(
 ): string {
   if (node.whens.length === 0) throw new QueryError("A CASE has no WHEN branch.");
   const where = selected === undefined ? undefined : `a result of a CASE in ${selected}`;
+  // A result with a SQL type (a column, an expression, a typed value) types the others, as
+  // a coalesce's arguments do: a bare value or NULL beside it is left to it, and a nested
+  // CASE or coalesce with no typed value is cast to the first typed value's type, or else to
+  // a column result's (see boundOperand).
+  let typed = typedBySibling;
+  let type: DbType | undefined;
+  if (where !== undefined) {
+    type = firstType(node);
+    for (const branch of node.whens) {
+      if (!noSqlType(branch.result) || !hasNoType(branch.result)) typed = true;
+      if (type === undefined) type = columnType(frame, branch.result);
+    }
+    if (node.else !== undefined) {
+      if (!noSqlType(node.else) || !hasNoType(node.else)) typed = true;
+      if (type === undefined) type = columnType(frame, node.else);
+    }
+  }
   const result = (value: ExprNode) =>
-    where === undefined ? expr(ctx, frame, value) : selectedValue(ctx, frame, value, where, typedBySibling);
+    where === undefined ? expr(ctx, frame, value) : boundOperand(ctx, frame, value, where, typed, type);
   let text = "case";
   for (const branch of node.whens) {
     text += ` when ${expr(ctx, frame, branch.when)} then ${result(branch.result)}`;
@@ -796,9 +928,12 @@ function selectedValue(
   if (node.kind === "fn" && node.name === "coalesce" && node.args.length > 0 && node.args.every(noSqlType)) {
     const name = lookup(ctx.dialect.functions, node.name) as string;
     const typed = typedBySibling || !node.args.every(hasNoType);
+    // An argument that is a CASE or coalesce with no typed value takes the type of the
+    // first typed argument: the database would read it as text otherwise.
+    const type = firstType(node);
     let args = "";
     for (let i = 0; i < node.args.length; i++) {
-      args += `${i > 0 ? ", " : ""}${selectedValue(ctx, frame, node.args[i] as ExprNode, `coalesce() in ${where}`, typed)}`;
+      args += `${i > 0 ? ", " : ""}${boundOperand(ctx, frame, node.args[i] as ExprNode, `coalesce() in ${where}`, typed, type)}`;
     }
     return `${name}(${args})`;
   }
@@ -835,6 +970,46 @@ const COMPARISONS: ReadonlySet<string> = new Set([
   "notLike",
   "ilike",
 ]);
+
+/** The arithmetic operators: with no typed operand, the database cannot choose one. */
+const ARITHMETIC: ReadonlySet<string> = new Set(["add", "sub", "mul", "div", "mod"]);
+
+/**
+ * Whether `node` is a `CASE` or a `coalesce` made only of bound values and `NULL`s (see
+ * {@link noSqlType}). The database reads one as text, whatever its placeholders hold.
+ */
+function isBoundCompound(node: ExprNode): boolean {
+  return (node.kind === "case" || node.kind === "fn") && noSqlType(node);
+}
+
+/**
+ * A `CASE` or `coalesce` of bound values only (see {@link isBoundCompound}) beside an
+ * operand that has a type. Its typed values are cast to their types, which types the
+ * rest. With no typed value in it, it is cast to `context`, the type of the column on the
+ * other side: the column is the type context, as it is for a bare value (owner decision,
+ * 2026-10-19). With neither, it is written as it is.
+ */
+function typedCompound(ctx: Ctx, frame: Frame, node: ExprNode, context: DbType | undefined): string {
+  if (!hasNoType(node)) return selectedValue(ctx, frame, node, "an operand with a type", true);
+  const text = expr(ctx, frame, node);
+  return context === undefined ? text : `cast(${text} as ${sqlTypeName(ctx.dialect, context)})`;
+}
+
+/**
+ * The database type of a column of a schema's field, when `node` is one: what a value
+ * compared with it is cast to. `undefined` for anything else, and for a column of a
+ * source with no schema.
+ */
+function columnType(frame: Frame, node: ExprNode): DbType | undefined {
+  if (node.kind !== "column") return undefined;
+  const field = resolveBinding(frame.scope, node.binding)?.entry.meta?.fieldsByName.get(node.field);
+  return field !== undefined && field.column === node.column ? field.type.db : undefined;
+}
+
+/** The element type of an array type; `undefined` for any other. */
+function elementType(type: DbType | undefined): DbType | undefined {
+  return type?.kind === "array" ? type.of : undefined;
+}
 
 /**
  * Whether `node` is made of bound values only, so that the SQL itself says nothing of its

@@ -47,6 +47,22 @@ where "u"."age" >= $1 order by "u"."created_at" desc limit $2
   fragment. A value with no type at all may only be a string or `null` there (cast to
   `text`); anything else is refused with `QueryError` naming the place, and `val(5)` in a
   `select` does not compile: give it a type, `val(5, t.integer())`.
+- **Bound values on both sides of an operator are cast where they have a type.** Two
+  placeholders compared (`cast($1 as integer) > $2`) or in arithmetic
+  (`cast($1 as integer) + cast($2 as integer)`, and `-cast($1 as integer)`) give the
+  database nothing to choose an operator by, so each typed one is cast to its type, which
+  also types the other. With no type on either side a comparison may only compare text,
+  as above, and arithmetic is refused (text has no arithmetic).
+- **In arithmetic, a typed value keeps its type** unless the other operand is a column:
+  `cast($1 as double precision) / (cast($2 as integer) + …)`. Beside a column it is left to
+  the column, `"p"."views" + $1`.
+- **A `CASE` or `coalesce` made only of bound values and `NULL`s** is read by the database
+  as text whatever it holds. Its typed values are cast. With none, it takes the type of a
+  typed value on the other side of the operator, or, in a comparison with a column of a
+  schema, the column's type (`"p"."author_id" = cast(case … end as bigint)`, an array of
+  it for `in`). A column of a `subquery` or `cte` source that selects values rather than whole
+  rows gives no type yet. In `set` it is
+  cast to the field's type.
 - **An `exists(…)` subquery selects `1`** when it has no select of its own.
 
 ### Database schemas

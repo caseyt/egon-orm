@@ -6,15 +6,15 @@ import { caseWhen, coalesce, from, lit, t, val } from "../index.js";
 import type { Expr, NoType, Untyped } from "./expr.js";
 
 const users = from(User, "u");
-// Widened, so that other values of the type fit next to them (`val(1)` alone is typed `1`).
+// Plain values held in variables, as an application has them.
 const one: number = 1;
 const a: string = "a";
 
 describe("untyped values in a select", () => {
   test("val() of a non-text value is marked; of text, null or with a type it is not", () => {
-    expectTypeOf(val(5)).toEqualTypeOf<Expr<5> & Untyped>();
-    expectTypeOf(val(true)).toEqualTypeOf<Expr<true> & Untyped>();
-    expectTypeOf(val("member")).toEqualTypeOf<Expr<"member"> & NoType>();
+    expectTypeOf(val(5)).toEqualTypeOf<Expr<number> & Untyped>();
+    expectTypeOf(val(true)).toEqualTypeOf<Expr<boolean> & Untyped>();
+    expectTypeOf(val("member")).toEqualTypeOf<Expr<string> & NoType>();
     expectTypeOf(val(null)).toEqualTypeOf<Expr<null> & NoType>();
     expectTypeOf(val(5, t.integer())).toEqualTypeOf<Expr<number>>();
   });
@@ -113,5 +113,36 @@ describe("comparisons where neither side has a type (review round 2)", () => {
     users.where(() => val(one).gt(val(9, t.integer())));
     users.where(() => val(5, t.integer()).between(1, 9));
     users.where(() => val(a).in(["a", "b"]));
+  });
+});
+
+describe("arithmetic where no operand has a type (review round 1)", () => {
+  test("does not compile", () => {
+    // @ts-expect-error: neither operand has a type
+    val(3).add(1);
+    // @ts-expect-error: sub
+    val(3).sub(val(1));
+    // @ts-expect-error: mul
+    val(3).mul(2);
+    // @ts-expect-error: div
+    val(3).div(2);
+    // @ts-expect-error: mod
+    val(3).mod(2);
+    // @ts-expect-error: unary minus of a value without a type
+    val(3).neg();
+    // @ts-expect-error: a CASE without a type
+    users.where(({ u }) => caseWhen(u.age.lt(18), 1).add(2).eq(u.age));
+    // @ts-expect-error: in a where too
+    users.where(({ u }) => val(5).add(1).eq(u.age));
+  });
+
+  test("compiles when an operand has a type", () => {
+    expectTypeOf(val(3, t.integer()).add(1)).toEqualTypeOf<Expr<number>>();
+    expectTypeOf(val(3, t.integer()).neg()).toEqualTypeOf<Expr<number>>();
+    val(3).add(val(1, t.integer()));
+    users.where(({ u }) => val(3).add(u.age).gt(u.age));
+    users.where(({ u }) => u.age.add(val(3)).gt(1));
+    users.where(({ u }) => u.age.neg().lt(0));
+    users.where(({ u }) => caseWhen(u.age.lt(18), 1).add(u.age).gt(0));
   });
 });

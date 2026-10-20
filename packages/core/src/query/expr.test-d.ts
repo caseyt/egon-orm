@@ -375,11 +375,31 @@ describe("functions", () => {
   });
 
   test("val keeps the value's type, or takes the field type's", () => {
-    expectTypeOf(val("member")).toEqualTypeOf<Expr<"member", NoParams> & NoType>();
+    expectTypeOf(val("member")).toEqualTypeOf<Expr<string, NoParams> & NoType>();
     expectTypeOf(val(new Date(), t.timestamp())).toEqualTypeOf<Expr<Date, NoParams>>();
     u.role.eq(val("member"));
     // @ts-expect-error the value does not fit the field type
     val("x", t.integer());
+  });
+
+  test("val infers the widened type, not the literal one", () => {
+    expectTypeOf(val(5)).toEqualTypeOf<Expr<number, NoParams> & Untyped>();
+    expectTypeOf(val(5n)).toEqualTypeOf<Expr<bigint, NoParams> & Untyped>();
+    expectTypeOf(val(true)).toEqualTypeOf<Expr<boolean, NoParams> & Untyped>();
+    expectTypeOf(val(["a", "b"])).toEqualTypeOf<Expr<string[], NoParams> & Untyped>();
+    expectTypeOf(val(null)).toEqualTypeOf<Expr<null, NoParams> & NoType>();
+    // Another value of the same type fits beside it.
+    expectTypeOf(val("b").gt("a")).toEqualTypeOf<Expr<boolean, NoParams>>();
+    expectTypeOf(val(5).eq(u.age)).toEqualTypeOf<Expr<boolean, NoParams>>();
+    expectTypeOf(val(5, t.integer()).add(1).lt(u.age)).toEqualTypeOf<Expr<boolean, NoParams>>();
+    // Beside an enum column the value keeps its literal type, so it must be one of the enum's.
+    u.role.eq(val("admin"));
+    // @ts-expect-error not a role
+    u.role.eq(val("guest"));
+    // @ts-expect-error still a number
+    val(5).eq(u.email);
+    // @ts-expect-error still a string
+    val("b").gt(1);
   });
 
   test("lit takes only the safe literal kinds", () => {

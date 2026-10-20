@@ -847,7 +847,9 @@ export function exists<Q extends SubqueryOperand<unknown, SomeParams>>(query: Q)
 /**
  * An explicit bound parameter, for a value whose type cannot come from the other side of
  * an operator (in a `select`, in a fragment, as the first argument). Pass a field type to
- * dump the value with it.
+ * dump the value with it. Without one, the expression has the value's plain TypeScript
+ * type (`val(5)` is an `Expr<number>`), or a literal one where the other side asks for it
+ * (`u.role.eq(val("admin"))`).
  *
  * @example
  * ```ts
@@ -858,7 +860,7 @@ export function exists<Q extends SubqueryOperand<unknown, SomeParams>>(query: Q)
  * @throws QueryError when `value` is `undefined`, or `type` is not a field type.
  */
 export function val<T, F extends FieldFlags>(value: NoInfer<T>, type: FieldBuilder<T, F>): Expr<T>;
-export function val<const T>(value: T): Expr<T> & ([T] extends [string | null] ? NoType : Untyped);
+export function val<T>(value: T): Expr<T> & ([T] extends [string | null] ? NoType : Untyped);
 export function val(value: unknown, type?: unknown): AnyExpr {
   if (value === undefined) throw new QueryError("val() was given undefined. Pass a value, or null.");
   const fieldType = type === undefined ? undefined : typeArgument(type, "val");

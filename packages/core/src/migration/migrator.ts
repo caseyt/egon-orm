@@ -61,7 +61,8 @@ export interface MigratorOptions {
  * - `migrating`: a migration is about to run.
  * - `migrated`: it ran and its version was recorded (or, going down, removed).
  * - `warning`: something to know about that did not stop the run, such as a pending
- *   migration older than the latest applied one.
+ *   migration older than the latest applied one, or (SQLite) a run waiting for another
+ *   runner's claim.
  *
  * @example
  * ```ts
@@ -109,6 +110,11 @@ export interface MigrationRun {
  * The state of one migration: `up` (applied), `down` (pending), or `missing` (recorded
  * as applied, but no migration with that version is known; it has no name then).
  *
+ * `claimed` is not a migration: on SQLite, a runner records a claim (version `-1`, no name)
+ * while it runs a migration without a transaction. Outside a run, a claim means a runner
+ * stopped in the middle of such a migration: every later run waits for it until it is
+ * deleted (check what the migration did first).
+ *
  * @example
  * ```ts
  * const row: MigrationStatus = { version: 20261012093000, name: "create_users", state: "up" };
@@ -117,7 +123,7 @@ export interface MigrationRun {
 export interface MigrationStatus {
   readonly version: number;
   readonly name: string | undefined;
-  readonly state: "up" | "down" | "missing";
+  readonly state: "up" | "down" | "missing" | "claimed";
 }
 
 /**
@@ -414,12 +420,13 @@ class DatabaseMigrator implements Migrator {
   async status(): Promise<MigrationStatus[]> {
     const known = await this.#sources();
     const connection = await this.#settings.adapter.acquire();
-    let applied: readonly number[];
+    let recorded: readonly number[];
     try {
-      applied = await this.#applied(connection, false);
+      recorded = await this.#recorded(connection, false);
     } finally {
       await connection.release();
     }
+    const applied = recorded.filter((version) => version !== CLAIM);
     const done = new Set(applied);
     const rows: MigrationStatus[] = known.map((source) => ({
       version: source.version,
@@ -430,6 +437,7 @@ class DatabaseMigrator implements Migrator {
     for (const version of applied) {
       if (!names.has(version)) rows.push({ version, name: undefined, state: "missing" });
     }
+    if (recorded.includes(CLAIM)) rows.push({ version: CLAIM, name: undefined, state: "claimed" });
     return rows.sort((a, b) => a.version - b.version);
   }
 
@@ -546,7 +554,15 @@ class DatabaseMigrator implements Migrator {
         try {
           await this.#statement(connection, dialect.lock.acquire, [], undefined);
           if (ownClaim || !(await this.#claimed(connection))) return;
-          // Another runner is running a migration without a transaction: wait for it.
+          // Another runner is running a migration without a transaction: wait for it. Say so
+          // once, since without lockTimeoutMs the wait has no end when that runner is gone.
+          if (!claimSeen) {
+            this.#emit({
+              kind: "warning",
+              message: `Waiting for a claim in the tracking table "${this.#settings.table.name}" (the row with version ${CLAIM}): another runner is running a migration without a transaction. If no runner is running, one stopped in the middle of such a migration; check what that migration did, then delete the row with version ${CLAIM}, and this run carries on.`,
+              version: undefined,
+            });
+          }
           claimSeen = true;
           await this.#statement(connection, dialect.lock.abandon ?? "rollback", [], undefined);
         } catch (error) {
@@ -616,6 +632,12 @@ class DatabaseMigrator implements Migrator {
 
   /** The applied versions, oldest first. With `create`, the tracking table is created when it is missing. */
   async #applied(connection: Connection, create: boolean): Promise<readonly number[]> {
+    // A claim is not an applied version.
+    return (await this.#recorded(connection, create)).filter((version) => version !== CLAIM);
+  }
+
+  /** Every version in the tracking table, a claim included, oldest first. */
+  async #recorded(connection: Connection, create: boolean): Promise<readonly number[]> {
     const { dialect, table, timestampColumn } = this.#settings;
     const name = tableSql(table, this.#ddl);
     const exists = await this.#statement(
@@ -662,8 +684,7 @@ class DatabaseMigrator implements Migrator {
       }
       return version;
     });
-    // A claim is not an applied version.
-    return versions.filter((version) => version !== CLAIM);
+    return versions;
   }
 
   /** The operations and statements of one migration in one direction. */

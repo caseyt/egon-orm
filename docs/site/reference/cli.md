@@ -75,7 +75,10 @@ Rolls back applied migrations, newest first. Without a flag, the latest one.
 ### `egon migrations`
 
 Lists every migration with its state: `up` (applied), `down` (pending) or `missing`
-(recorded as applied, but its file is gone). `--json` prints them as JSON.
+(recorded as applied, but its file is gone). On SQLite a row `claimed` (version `-1`) means a
+runner is running a migration without a transaction, or stopped in the middle of one: every
+run waits while it is there (see [Migrations](/guide/migrations#how-the-runner-works)).
+`--json` prints them as JSON.
 
 ### `egon db create | drop | reset`
 

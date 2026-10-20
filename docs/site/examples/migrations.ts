@@ -83,6 +83,28 @@ export const bookingRules = defineMigration({
 });
 // #endregion constraints
 
+// #region sqlite-rebuild
+// migrations/20261101090000_require_post_title.ts (SQLite)
+export const requirePostTitle = defineMigration({
+  transaction: false, // the foreign_keys pragma does nothing inside a transaction
+  up(m) {
+    m.execute(fragment`pragma foreign_keys = off`);
+    m.execute(fragment`create table posts_new (id integer primary key, title text not null default '')`);
+    m.execute(fragment`insert into posts_new (id, title) select id, coalesce(title, '') from posts`);
+    m.execute(fragment`drop table posts`);
+    m.execute(fragment`alter table posts_new rename to posts`);
+    // The adapter's one handle keeps the pragma after the migration: turn it back on.
+    m.execute(fragment`pragma foreign_keys = on`);
+    // pragma foreign_key_check lists the rows that break a foreign key; counting them into a
+    // column that must be 0 makes the migration fail when there are any.
+    m.execute(fragment`drop table if exists temp.fk_violations`);
+    m.execute(fragment`create temp table fk_violations (n integer check (n = 0))`);
+    m.execute(fragment`insert into fk_violations select count(*) from pragma_foreign_key_check`);
+    m.execute(fragment`drop table fk_violations`);
+  },
+});
+// #endregion sqlite-rebuild
+
 // #region changeset-pairing
 class User extends Schema("users", {
   id: t.bigint({ mode: "number" }).primaryKey().dbGenerated(),

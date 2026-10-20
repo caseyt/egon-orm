@@ -22,7 +22,7 @@ From the command line, with the configuration in [`egon.config.ts`](/reference/c
 egon migrate                 # apply every pending migration
 egon migrate --dry-run       # print the SQL, run nothing
 egon rollback                # roll back the latest one
-egon migrations              # list them: up, down or missing
+egon migrations              # list them: up, down or missing (claimed: see SQLite below)
 ```
 
 From code, with `createMigrator` from `egon-orm/migration`:
@@ -157,9 +157,22 @@ Pass `name` to choose your own; then give the same name to the changeset functio
   3. it takes the lock again, removes the claim and records the version.
 
   Another runner that gets the lock while the claim is there gives it back and waits, so
-  two runners never both run it. If the process dies in step 2, the claim stays: later
-  runs wait for it (with `lockTimeoutMs`, they give up and say so). Check what the migration
-  did, then delete the row with version `-1`.
+  two runners never both run it.
+
+  If the process dies in step 2, the claim stays behind:
+  - `egon migrations` (`status()`) lists it as `claimed`, version `-1`;
+  - a later run warns once (a `warning` event, which `egon migrate` prints), then waits for
+    the claim to go;
+  - with `lockTimeoutMs`, it gives up instead.
+
+  Check what the migration did, then delete the row with version `-1`; a waiting run then
+  carries on.
+
+  A table rebuild ends by turning foreign keys back on (the adapter's one handle keeps the
+  pragma) and checking the rows against them:
+
+  <<< @/examples/migrations.ts#sqlite-rebuild
+
 - **Tracking.** Applied versions are rows of `schema_migrations (version bigint primary key,
   created_at timestamp(0))`, created by the first `up` or `down` that is not a dry run
   (`status` and dry runs never create it), with `created_at` in UTC.

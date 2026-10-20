@@ -147,14 +147,7 @@ For Zod and other schema validators, see [Validation](/guide/validation).
 
 ## Errors
 
-```ts
-type ChangesetError = {
-  message: string;                       // may contain {placeholders}
-  validation?: string;                   // "required", "length", "cast", ...
-  constraint?: string;                   // "unique", "foreignKey", ...
-  meta: Record<string, unknown>;         // { count: 12, kind: "min" }
-};
-```
+<<< @/examples/shapes.ts#changeset-error
 
 <<< @/examples/changesets.ts#error-shape
 
@@ -261,3 +254,11 @@ generate forms.
 - **Changesets are immutable.** Every method returns a new changeset; keep the one it
   returns.
 :::
+
+## See also
+
+- [Validation](/guide/validation): Zod, other schema libraries and functions.
+- [Constraints](/guide/constraints): database errors as field errors.
+- [Nested changesets](/guide/nested-changesets)
+- [Translating error messages](/recipes/translating-errors) and
+  [Showing form errors](/recipes/form-errors).

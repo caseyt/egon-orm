@@ -85,9 +85,7 @@ a change.
 
 ## Custom types
 
-```ts
-import { defineType, t } from "egon-orm";
-```
+<<< @/examples/types.ts#imports
 
 <<< @/examples/types.ts#custom-type
 
@@ -133,10 +131,6 @@ input.
 `parameterized` builds a type from options and remembers the result per option set. The
 built-in `enum`, `array` and `decimal` are made this way.
 
-```ts
-import { defineType, parameterized } from "egon-orm";
-```
-
 <<< @/examples/types.ts#parameterized
 
 <<< @/examples/types.ts#parameterized-field
@@ -151,3 +145,9 @@ themselves are refused.
 SQLite and MySQL store some of these differently (booleans as `0`/`1`, JSON as text, no
 array columns). The adapter converts for you; the TypeScript type is the same everywhere.
 See [Dialect support](/reference/dialect-support).
+
+## See also
+
+- [Schemas](/guide/schemas#fields): field modifiers such as `.nullable()` and `.default()`.
+- [Money](/recipes/money) and [Enums](/recipes/enums) recipes.
+- [Dialect support](/reference/dialect-support)

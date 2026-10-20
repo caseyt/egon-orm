@@ -85,3 +85,16 @@ There is no factory helper. A plain function is enough, and `insertOrThrow` make
 fixture fail loudly:
 
 <<< @/examples/testing-app.ts#factory
+
+::: tip Good to know
+- **Nothing is committed.** Each test runs in a transaction that is rolled back; there is
+  no cleanup to write.
+- **Your application's repo is the one under test.** The sandbox routes it through the
+  test's transaction, so code that imports the repo itself works unchanged.
+- **Code that opens its own connection** is outside the sandbox.
+:::
+
+## See also
+
+- [Transactions](/guide/transactions)
+- The [tutorial](/guide/tutorial#_10-test-it)'s tests.

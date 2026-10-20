@@ -3,23 +3,54 @@ layout: home
 hero:
   name: Egon ORM
   text: Typed data access for TypeScript
-  tagline: Schemas, changesets, composable queries and a repo, typed end to end with no code generation.
+  tagline: Schemas, changesets, composable queries and a repo, typed end to end with no code generation. For Postgres, SQLite and MySQL.
   actions:
     - theme: brand
-      text: Introduction
-      link: /guide/
-    - theme: alt
-      text: Getting started
+      text: Get started
       link: /guide/getting-started
+    - theme: alt
+      text: Tutorial
+      link: /guide/tutorial
+    - theme: alt
+      text: Why Egon
+      link: /guide/
 features:
-  - title: Data, changes, queries and execution are separate
-    details: Rows are plain typed objects, changes are described by changesets, queries are immutable values, and a repo runs them.
-  - title: Types from the schema
-    details: Row types, preloaded associations and select results are all inferred from the schema definition.
+  - title: Typed end to end
+    details: Row types, preloaded associations and select results are inferred from the schema classes. There is no generate step and no schema file to keep in sync.
+  - title: Changes are values
+    details: A changeset holds the permitted input, its validation errors and the constraints to expect. Writes return a result, so a rejected form is an expected outcome, not an exception.
+  - title: Queries are values
+    details: Build a query in one function, extend it in another, run it with the repo. Nothing runs until you ask, and every value is a bound parameter.
   - title: Nothing implicit
-    details: No lazy loading, no hidden transactions, no query you did not write. Every value in SQL is a bound parameter.
+    details: No lazy loading, no hidden transactions, no save() on rows. A missing preload is a compile error, not an extra query.
 ---
 
 ::: warning Work in progress
-Egon ORM is under construction and nothing is published yet.
+Egon ORM is under construction and nothing is published to npm yet.
 :::
+
+## Install
+
+```sh
+pnpm add egon-orm @egon-orm/postgres pg
+```
+
+Node.js 22.12 or later. For SQLite use `@egon-orm/sqlite` with `better-sqlite3`, for MySQL
+`@egon-orm/mysql` with `mysql2`.
+
+## In thirty lines
+
+<<< @/examples/home.ts#example
+
+- A **schema** class describes a table; its instances are rows.
+- A **changeset** (`User.changeset`) filters and validates input, and declares that a
+  duplicate email is a form error.
+- A **query** (`from(User, "u")…`) is an immutable value; `preload` loads associations
+  without N+1 queries.
+- The **repo** runs queries and writes changesets. `insert` returns
+  `{ success: true, data }` or `{ success: false, error }`.
+
+Next: [Getting started](/guide/getting-started) in five minutes, or the
+[Tutorial](/guide/tutorial) in thirty. Coming from another ORM? Read the page for
+[Prisma](/guide/coming-from-prisma), [Drizzle](/guide/coming-from-drizzle) or
+[Sequelize](/guide/coming-from-sequelize).

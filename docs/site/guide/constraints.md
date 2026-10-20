@@ -25,9 +25,7 @@ Options: `name`, `match` (`"exact"`, `"suffix"` or `"prefix"`), `message`, and `
 The error a declaration produces carries the declared type and name, for code that wants
 to tell constraint errors apart from validation errors:
 
-```ts
-{ message: "has already been taken", constraint: "unique", meta: { constraint: "unique", constraintName: "users_email_key" } }
-```
+<<< @/examples/shapes.ts#constraint-error
 
 ## How a violation is matched
 
@@ -115,3 +113,18 @@ thrown as a `ConstraintError`.
 SQLite reports a unique violation by its columns, not by an index name. The adapter turns
 that into the default name, so `uniqueConstraint("email")` works. A custom `name` cannot be
 matched there.
+
+::: tip Good to know
+- **Declare what you expect.** An undeclared violation throws `ConstraintError`, whose
+  message gives the declaration to add.
+- **Names must match.** A declaration matches the constraint's name; the defaults are
+  Postgres's own (`users_email_key`), which the [migrations](/guide/migrations) of this
+  library also use.
+- **One error per write.** The database stops at the first violation.
+:::
+
+## See also
+
+- [Changesets](/guide/changesets#constraints)
+- [Migrations: index and constraint names](/guide/migrations#index-and-constraint-names)
+- [Errors](/reference/errors)

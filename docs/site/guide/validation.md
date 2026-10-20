@@ -52,14 +52,7 @@ A rule that compares fields reports on the field the user should fix:
 
 A function receives the values and a context, and returns a list of issues, or nothing:
 
-```ts
-type ValidatorFn<T> = (
-  values: Readonly<T>,
-  ctx: { changes: Readonly<Partial<T>>; data: Readonly<T>; isChanged(field: keyof T): boolean; action: Action | null },
-) => ValidationIssue[] | void | Promise<ValidationIssue[] | void>;
-
-type ValidationIssue = { path: PropertyKey | readonly PropertyKey[]; message: string; meta?: Record<string, unknown> };
-```
+<<< @/examples/shapes.ts#validator-fn
 
 `path` is a field name, or a list whose first element is the field name. `meta` is
 merged into the error's `meta`, so it can fill `{placeholders}` in the message.
@@ -236,3 +229,8 @@ Type it with `ValidatorFn<T>` for the fields it needs:
 - **Errors are plain data.** A schema error is `{ message, validation: "schema", meta: { path } }`,
   serialisable like every other changeset error.
 :::
+
+## See also
+
+- [Changesets: validations](/guide/changesets#validations): the built-in rules.
+- [Filters from a query string](/recipes/dynamic-filters): validating input without a table.

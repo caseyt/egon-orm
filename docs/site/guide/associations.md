@@ -244,3 +244,9 @@ number of rows. To keep it that way, assert it in your tests: every statement is
 `query` event, and preload statements report the operation `"preload"`.
 
 <<< @/examples/associations.ts#count
+
+## See also
+
+- [Nested changesets](/guide/nested-changesets): saving a parent with its children.
+- [Queries](/guide/queries#joins-and-nullability): joins.
+- [Top N per parent](/recipes/top-n-per-parent)

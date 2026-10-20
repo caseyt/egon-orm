@@ -3,11 +3,11 @@
 A schema is a class that describes one table. Its instances are the rows you get back
 from the database.
 
-```ts
-import { Schema, t, timestamps, type Row, type InsertShape } from "egon-orm";
-```
-
 <<< @/examples/schemas.ts#user
+
+The examples on this page import these:
+
+<<< @/examples/schemas.ts#imports
 
 `Schema(table, fields, options?)` returns a base class to extend. The class name is the
 row type: a function that takes a `User` takes a row of the `users` table.
@@ -207,8 +207,10 @@ static members lazily. The class also gives the row type a name, `User`, and a p
 getters and methods. The decision and the experiment behind it are recorded in
 [ADR 0001](https://github.com/caseyt/ectype-orm/blob/main/docs/adr/0001-schema-classes.md).
 
-Next:
+## See also
 
 - [Types](/guide/types)
 - [Associations and preloading](/guide/associations)
 - [Embeds](/guide/embeds) for nested objects stored in one JSON column.
+- [Changesets](/guide/changesets): creating and changing records.
+- [Migrations](/guide/migrations): creating the tables.

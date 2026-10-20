@@ -289,3 +289,10 @@ error from the database:
 ```
 QueryError: FULL JOIN is not supported by mysql
 ```
+
+## See also
+
+- [Repo](/guide/repo): the options of every call.
+- [Dialect support](/reference/dialect-support)
+- [Configuration](/reference/configuration)
+- [Framework integration](/guide/frameworks): pools in servers and serverless functions.

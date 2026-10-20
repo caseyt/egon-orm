@@ -223,6 +223,30 @@ describe("column types", () => {
   });
 });
 
+describe("t.id() with its options first", () => {
+  // Each message comes from the options-first branch: without it, the object would be
+  // refused as a column name instead.
+  test.each<[string, (m: MigrationBuilder) => void, string]>([
+    [
+      "a type other than bigint or integer",
+      (m) => m.createTable("t", (t) => t.id({ type: "uuid" } as never)),
+      'createTable("t"): id(): the option "type" must be "bigint" or "integer".',
+    ],
+    [
+      "an unknown option",
+      (m) => m.createTable("t", (t) => t.id({ name: "key" } as never)),
+      'createTable("t"): id(): unknown option "name". The options are "type".',
+    ],
+    [
+      "options given twice",
+      (m) => m.createTable("t", (t) => loose(t).id?.({ type: "integer" }, { type: "bigint" })),
+      'createTable("t"): id(): give the options once, as t.id(options) or t.id(name, options).',
+    ],
+  ])("refuses %s with the options' own message", (_name, define, message) => {
+    expect(() => record(define)).toThrow(new TypeError(message));
+  });
+});
+
 describe("arguments refused when recorded", () => {
   test.each<[string, (m: MigrationBuilder) => void]>([
     ["an empty table name", (m) => m.createTable("", (t) => t.id())],
@@ -237,6 +261,7 @@ describe("arguments refused when recorded", () => {
     ["a non-boolean flag", (m) => m.createTable("t", (t) => t.id(), { ifNotExists: "yes" } as never)],
     ["an empty schema", (m) => m.createTable("t", (t) => t.id(), { schema: "" })],
     ["an id of another type", (m) => m.createTable("t", (t) => t.id("id", { type: "uuid" } as never))],
+    ["an id named by null", (m) => m.createTable("t", (t) => t.id(null as never))],
     [
       "a bad reference action",
       (m) => m.createTable("t", (t) => t.id() && t.references("o", "orgs", { onDelete: "drop" } as never)),

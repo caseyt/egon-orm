@@ -2,10 +2,10 @@
   "name": "@egon-orm/example-smoke",
   "version": "0.0.0",
   "private": true,
-  "description": "Smoke test: the built ESM-only packages load from an ES module and, through require(), from a CommonJS script.",
+  "description": "Smoke test: the built ESM-only packages load from an ES module and, through require(), from a CommonJS script; a consumer project type-checks against the packed packages.",
   "license": "MIT",
   "scripts": {
-    "smoke": "node esm.mjs && node require-esm.cjs"
+    "smoke": "node esm.mjs && node require-esm.cjs && node check-types.mjs"
   },
   "dependencies": {
     "@egon-orm/mysql": "workspace:*",

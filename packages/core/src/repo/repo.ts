@@ -443,8 +443,8 @@ export interface Repo {
    * A fresh copy of a row, read again from the table (and database schema) it was read
    * from, or `null` when it is gone. Given an array, the copies in the same order.
    * What the row was preloaded with is loaded again, callbacks and named values
-   * included, at every depth (a join preload by a separate query). A row that remembers
-   * no preloads (one a write returned) is reloaded with the associations it shows.
+   * included, at every depth (a join preload by a separate query); a row a write
+   * returned remembers the preloads of the row it was given.
    *
    * The database matches the keys, with its own equality. Two limits:
    * - a key value the row could not hold exactly no longer equals the stored one, so such

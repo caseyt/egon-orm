@@ -37,6 +37,7 @@ import type { AnyFieldType } from "../contracts/type.js";
 import { QueryError } from "../errors.js";
 import { isRow, isSchema } from "../schema/guards.js";
 import { meta } from "../schema/schema.js";
+import { canonicalDecimal } from "../types/scalars.js";
 import { binaryNode, collectParams, columnNode, naryNode, shapeOf, shapeOfColumn } from "./ast.js";
 import { from, type PreloadQuery } from "./builder.js";
 import { type AnyExpr, Col, Expr, NONE } from "./expr.js";
@@ -624,24 +625,12 @@ function primitiveOf(type: AnyFieldType, value: unknown): { readonly found: bool
   const kind = type.db.kind;
   if (PRIMITIVE_KINDS.has(kind) && typeof value !== "object") return { found: true, key: value };
   if (DATE_KINDS.has(kind) && value instanceof Date) return { found: true, key: value.getTime() };
-  if (kind === "decimal" && typeof value === "string") return { found: true, key: decimalKey(value) };
+  // The decimal type's own canonical form, so that the key and its `equal` agree.
+  if (kind === "decimal" && typeof value === "string") return { found: true, key: canonicalDecimal(value) };
   if (kind === "binary" && value instanceof Uint8Array) return { found: true, key: hexOf(value) };
   if (typeof value !== "object" && kind !== "decimal" && kind !== "custom")
     return { found: true, key: value };
   return FOUND_NOT;
-}
-
-const DECIMAL = /^([+-]?)(\d*)(?:\.(\d*))?$/;
-
-/** The digits of a decimal without leading zeros, trailing fractional zeros or the sign of zero. */
-function decimalKey(value: string): string {
-  const match = DECIMAL.exec(value.trim());
-  if (match === null) return value;
-  // The integer part always matches (`\d*`); the fraction only after a point.
-  const whole = (match[2] as string).replace(/^0+/, "");
-  const fraction = (match[3] ?? "").replace(/0+$/, "");
-  if (whole === "" && fraction === "") return "0";
-  return `${match[1] === "-" ? "-" : ""}${whole === "" ? "0" : whole}${fraction === "" ? "" : `.${fraction}`}`;
 }
 
 const HEX = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));

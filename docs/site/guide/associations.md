@@ -176,7 +176,8 @@ multiply each other.
 A `limit` or `offset` on the query counts the joined rows, not the parents, so it is
 refused (a `QueryError` before anything is sent) on a query with a to-many join preload,
 and so is `repo.first`, which adds a limit. Preload such an association with a separate
-query, whose per-parent limit is its own.
+query, whose per-parent limit is its own. The same holds one level down: a callback's
+`limit` or `offset` is refused when the callback join-preloads a to-many association.
 
 ### After the fact
 
@@ -196,10 +197,10 @@ takes values, not named parameters.
 `repo.reload` loads again what a row was loaded with: a row read by a query, by
 `repo.preload` or by a preload remembers its preloads, callbacks (filter, order, limit,
 select) and named values included, and gets exactly those again, at every depth, also
-below a level that was loaded empty. A join preload is loaded again by a separate query
-(the join's own conditions are not kept). A row that remembers nothing, such as one a
-write returned with its associations kept, is reloaded with the associations it shows,
-by name.
+below a level that was loaded empty, and from the database schema the call used. A
+join preload is loaded again by a separate query (the join's own conditions, and the
+query's `where` on the joined binding, are not kept). A row a write returned remembers
+what the row it was given remembered.
 
 ### The `Loaded` type
 

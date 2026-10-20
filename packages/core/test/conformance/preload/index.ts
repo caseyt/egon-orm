@@ -13,6 +13,7 @@
 import {
   assoc,
   belongsTo,
+  change,
   createRepo,
   type DatabaseAdapter,
   DatabaseError,
@@ -1045,6 +1046,13 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
       const again = await repo.preload(AuthUser, await repo.all(AuthUser), "posts", { force: true });
       expect(again[0]?.posts.map((post) => post.id)).toEqual([10, 11, 12]);
       expect(events).toHaveLength(4);
+      // With the query's own schema, the children come from it, and a reload reads there too.
+      await db.exec(profile.copyTableInto("tenant", "posts"));
+      await db.exec("insert into tenant.posts (id, author_id, title) values (77, 1, 'Tenant post')");
+      const [inTenant] = await repo.all(from(AuthUser, "u").schema("tenant").preload("posts"));
+      expect(inTenant?.posts.map((post) => post.title)).toEqual(["Tenant post"]);
+      const reloaded = await repo.reloadOrThrow(inTenant as AuthUser & { posts: Post[] });
+      expect(reloaded.posts.map((post) => post.title)).toEqual(["Tenant post"]);
     });
 
     test("reload loads a level that was loaded empty with what is below it", async () => {
@@ -1062,6 +1070,39 @@ export function runPreloadConformance(profile: PreloadConformanceProfile): void 
       } finally {
         await db.exec("delete from posts where id = 50");
       }
+    });
+
+    test("a row an update returned reloads with the preloads it was loaded with", async () => {
+      const { repo } = watched();
+      const linus = await repo.oneOrThrow(
+        from(User, "u")
+          .where(({ u }) => u.id.eq(3))
+          .preload({ posts: "comments" }),
+      );
+      const updated = await repo.updateOrThrow(change(linus, { name: "Linus" }));
+      await db.exec("insert into posts (id, author_id, title) values (51, 3, 'Drivers')");
+      try {
+        const fresh = await repo.reloadOrThrow(updated);
+        expect(fresh.posts.map((post) => [post.title, post.comments])).toEqual([["Drivers", []]]);
+      } finally {
+        await db.exec("delete from posts where id = 51; update users set name = null where id = 3");
+      }
+    });
+
+    test("a per-parent limit in a callback that join-preloads a to-many association is refused", async () => {
+      const { repo, events } = watched();
+      await expect(
+        repo.all(
+          from(User, "u").preload("posts", (q) =>
+            q
+              .leftJoinAssoc("posts", "comments", "c")
+              .preload({ comments: "c" })
+              .orderBy(({ posts }) => posts.id)
+              .limit(2),
+          ),
+        ),
+      ).rejects.toThrow('its callback preloads "comments" from a join');
+      expect(events).toEqual([]);
     });
 
     test("repo.first and a limit refuse a to-many join preload, before anything runs", async () => {

@@ -383,7 +383,7 @@ export async function runPreloads(
   );
   const merged = hasJoin(nodes) ? dedupe(rows as object[], leaf.meta, nodes, true) : (rows as object[]);
   await loadNodes(run, merged, leaf.meta, nodes);
-  const record: PreloadRecord = { nodes, named: context.named };
+  const record: PreloadRecord = { nodes, named: context.named, schema: run.schema };
   for (const row of merged) records.set(row, record);
   return merged;
 }
@@ -395,6 +395,22 @@ export async function runPreloads(
 interface PreloadRecord {
   readonly nodes: readonly PreloadNode[];
   readonly named: Readonly<Record<string, unknown>> | undefined;
+  /** The call's own database schema ({@link Run.schema}). */
+  readonly schema: string | undefined;
+}
+
+/**
+ * Gives `to`, a row a write built from `from` with `from`'s loaded associations kept, the
+ * preload record of `from`, so that a reload of it loads the same again.
+ *
+ * @example
+ * ```ts
+ * keepPreloads(previousRow, updatedRow);
+ * ```
+ */
+export function keepPreloads(from: object, to: object): void {
+  const record = records.get(from);
+  if (record !== undefined) records.set(to, record);
 }
 
 /**
@@ -520,9 +536,10 @@ export function preloadNodesOf(
  * The second half of `repo.reload`: loads again, on each fresh row, what its given row
  * was loaded with. A row loaded by a query, by `repo.preload` or by a preload carries a
  * record of its preloads, callbacks included (and the call's named values), and gets
- * exactly those again; a join preload is loaded by a separate query. A row without a
- * record (one a write returned, with its associations kept) is reloaded with what it
- * shows loaded, by name, to the depth its loaded rows show.
+ * exactly those again, with the call's database schema; a join preload is loaded by a
+ * separate query. A row a write returned keeps the record of the row it was built from.
+ * A row without a record (associations put on it by hand) is reloaded with what it shows
+ * loaded, by name, to the depth its loaded rows show.
  *
  * @example
  * ```ts
@@ -570,7 +587,13 @@ export async function reloadPreloads(
               group.indexes.map((i) => given[i] as object),
             )
           : separately(group.record.nodes);
-      const run = newRun(core, group.record?.named, options, deadline, options?.schema ?? core.schema);
+      const run = newRun(
+        core,
+        group.record?.named,
+        options,
+        deadline,
+        options?.schema ?? group.record?.schema ?? core.schema,
+      );
       const rebuilt = await preloadInto(
         run,
         group.indexes.map((i) => fresh[i] as object),
@@ -761,6 +784,8 @@ async function preloadInto(
           force,
         ),
         named: before?.named ?? run.named,
+        // What this call loads was read with its schema; a reload reads with the same.
+        schema: run.schema,
       };
       if (before !== undefined) merged.set(before, record);
     }
@@ -913,7 +938,7 @@ async function loadGroup(
       }
     }
     await loadNodes(run, rows, route.targetMeta, node.nested);
-    const record: PreloadRecord = { nodes: node.nested, named: run.named };
+    const record: PreloadRecord = { nodes: node.nested, named: run.named, schema: run.schema };
     for (const row of rows) records.set(row, record);
   }
   attach(parents, route, children, childKeys);
@@ -1031,6 +1056,12 @@ function buildLevel(route: AssocRoute, node: PreloadNode): Level {
     if (route.targetMeta.primaryKey.length === 0) {
       throw new QueryError(
         `${label}: limit and offset apply per parent, which needs ${route.targetMeta.name} to have a primary key to rank its rows by.`,
+      );
+    }
+    const many = toManyJoin(route.targetMeta, node.nested);
+    if (many !== undefined) {
+      throw new QueryError(
+        `${label}: its callback preloads "${many}" from a join, and its limit or offset would count the joined rows, not the rows of ${route.targetMeta.name}, giving a parent fewer than it asks for. Preload "${many}" with a separate query instead (preload("${many}") in the callback).`,
       );
     }
   }
@@ -1408,7 +1439,6 @@ function copyRow(row: object): object {
         )
   ) as Record<string, unknown>;
   for (const field of schemaMeta.fields) if (field.virtual) out[field.name] = copyValue(source[field.name]);
-  const record = records.get(row);
-  if (record !== undefined) records.set(out, record);
+  keepPreloads(row, out);
   return out;
 }

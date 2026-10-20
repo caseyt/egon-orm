@@ -1620,3 +1620,171 @@ describe("review round 1", () => {
     }
   });
 });
+
+// --- review round 2 -------------------------------------------------------------------
+
+/**
+ * Answers a `reload` statement of `schema` (its rows looked up by id in `rows`, the
+ * position after its persisted fields), and anything else with `rest`.
+ */
+function reloading(
+  schema: AnySchema,
+  rows: readonly Record<string, unknown>[],
+  rest: (sql: string) => readonly Record<string, unknown>[],
+): (sql: string, params: readonly unknown[]) => readonly Record<string, unknown>[] {
+  const width = meta(schema).persisted.length;
+  return (sql, params) =>
+    sql.includes('"$keys"')
+      ? (params[0] as number[]).map((id, i) => ({
+          ...raw(schema, rows.find((row) => row.id === id) ?? {}),
+          [`c${width}`]: i + 1,
+        }))
+      : rest(sql);
+}
+
+describe("review round 2", () => {
+  test("a per-parent limit in a callback that join-preloads a to-many association is refused", async () => {
+    const { repo, driver } = fake();
+    await expect(
+      repo.all(
+        from(Author, "a").preload("books", (q) =>
+          q
+            .leftJoinAssoc("books", "chapters", "ch")
+            .preload({ chapters: "ch" })
+            .orderBy(({ books }) => books.id)
+            .limit(2),
+        ),
+      ),
+    ).rejects.toThrow(
+      'its callback preloads "chapters" from a join, and its limit or offset would count the joined rows',
+    );
+    expect(driver.statements).toEqual([]);
+    const authors = await repo.all(from(Author, "a"));
+    await expect(
+      repo.preload(Author, authors, "books", (q) =>
+        q
+          .leftJoinAssoc("books", "chapters", "ch")
+          .preload({ chapters: "ch" })
+          .orderBy(({ books }) => books.id)
+          .offset(1),
+      ),
+    ).rejects.toThrow(QueryError);
+    // A to-one join preload below a limited preload is fine.
+    driver.statements.length = 0;
+    await repo.all(
+      from(Author, "a").preload("books", (q) =>
+        q
+          .leftJoinAssoc("books", "author", "au")
+          .preload({ author: "au" })
+          .orderBy(({ books }) => books.id)
+          .limit(1),
+      ),
+    );
+    expect(tables(driver)).toEqual(["authors", "books"]);
+  });
+
+  test("a reload reads with the call's database schema the rows were loaded with", async () => {
+    const { repo, driver } = fake();
+    driver.respond = reloading(AuthAuthor, [{ id: 1 }], (sql) =>
+      tableOf(sql) === "authors" ? [{ c0: 1 }] : [],
+    );
+    const [author] = await repo.all(from(AuthAuthor, "a").schema("tenant").preload("books"));
+    expect(driver.statements[1]?.sql).toContain('from "tenant"."books"');
+    driver.statements.length = 0;
+    await repo.reloadOrThrow(author as AuthAuthor);
+    expect(driver.statements[1]?.sql).toContain('from "tenant"."books"');
+    driver.statements.length = 0;
+    await repo.reloadOrThrow(author as AuthAuthor, { schema: "other" });
+    expect(driver.statements[1]?.sql).toContain('from "other"."books"');
+    // Loaded again by repo.preload (with the repo's schema), it reloads with that one.
+    const again = await repo.preload(AuthAuthor, author as AuthAuthor, "books", { force: true });
+    driver.statements.length = 0;
+    await repo.reloadOrThrow(again);
+    expect(driver.statements[1]?.sql).toContain('from "books" as "books"');
+  });
+
+  test("a copy given to a later parent reloads with its original's record", async () => {
+    const { repo, driver } = fake();
+    let withBooks = false;
+    driver.respond = reloading(Author, DATA.authors ?? [], (sql) => {
+      if (tableOf(sql) === "books") {
+        return withBooks
+          ? [raw(Book, { id: 40, authorId: 1, title: "New" })]
+          : [
+              raw(Book, { id: 10, authorId: 1, title: "Engines" }),
+              raw(Book, { id: 11, authorId: 1, title: "Notes" }),
+            ];
+      }
+      if (tableOf(sql) === "authors") return [raw(Author, { id: 1, name: "Ada" })];
+      return [];
+    });
+    const books = await repo.all(from(Book, "b").preload({ author: { notes: "author" } }));
+    // Both books share author 1: the second gets a copy, whose notes were loaded empty.
+    const copy = books[1]?.author as Author & { notes: unknown[] };
+    expect(copy.notes).toEqual([]);
+    withBooks = true;
+    driver.respond = reloading(Author, DATA.authors ?? [], (sql) =>
+      tableOf(sql) === "notes"
+        ? [{ c0: 1, c1: "n" }]
+        : tableOf(sql) === "authors"
+          ? [raw(Author, { id: 1, name: "Ada" })]
+          : [],
+    );
+    const fresh = (await repo.reloadOrThrow(copy)) as Author & { notes: { author: unknown }[] };
+    expect(fresh.notes[0]?.author).toBeDefined();
+  });
+
+  test("a nested row reloads with its own preloads, its callback included", async () => {
+    const { repo, driver } = fake();
+    const authors = await repo.all(
+      from(Author, "a").preload("books", (q) =>
+        q.preload("chapters", (c) => c.where(({ chapters }) => chapters.n.gt(1))),
+      ),
+    );
+    driver.respond = reloading(Book, DATA.books ?? [], answer);
+    driver.statements.length = 0;
+    await repo.reloadOrThrow(authors[0]?.books[0] as Book);
+    expect(tables(driver)).toEqual(["books", "chapters"]);
+    expect(driver.statements[1]?.sql).toContain('"chapters"."n" > $1');
+  });
+
+  test("a row loaded with nested join preloads reloads both levels by separate queries", async () => {
+    const { repo, driver } = fake();
+    driver.respond = () => [
+      {
+        ...raw(Author, { id: 1, name: "Ada" }),
+        ...raw(Book, DATA.books?.[0] ?? {}, 2),
+        ...raw(Chapter, { id: 100, bookId: 10, n: 1, draft: false }, 6),
+      },
+    ];
+    const [ada] = await repo.all(
+      from(Author, "a")
+        .leftJoinAssoc("a", "books", "b")
+        .leftJoinAssoc("b", "chapters", "ch")
+        .preload({ books: { $from: "b", chapters: "ch" } }),
+    );
+    driver.respond = reloading(Author, DATA.authors ?? [], answer);
+    driver.statements.length = 0;
+    const fresh = await repo.reloadOrThrow(ada as Author & { books: (Book & { chapters: Chapter[] })[] });
+    expect(tables(driver)).toEqual(["authors", "books", "chapters"]);
+    expect(fresh.books[0]?.chapters.map((chapter) => chapter.id)).toEqual([100, 101]);
+  });
+
+  test("keepPreloads gives a row the record of another", async () => {
+    const { keepPreloads } = await import("./preload.js");
+    const { repo, driver } = fake();
+    driver.respond = reloading(Author, DATA.authors ?? [], answer);
+    const [ada] = await repo.all(from(Author, "a").preload({ books: "chapters" }));
+    const authorMeta = meta(Author);
+    const rebuilt = authorMeta.createWith(["books"])(
+      [1, "Ada"],
+      [[]],
+      authorMeta.rowMeta("loaded", undefined),
+    );
+    keepPreloads(ada as object, rebuilt);
+    driver.statements.length = 0;
+    const fresh = (await repo.reloadOrThrow(rebuilt)) as { books: { chapters: unknown[] }[] };
+    expect(fresh.books[0]?.chapters).toHaveLength(2);
+    keepPreloads({}, rebuilt);
+  });
+});

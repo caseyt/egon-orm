@@ -1,6 +1,6 @@
 # 0005 — Execution options for the transaction statements of `Connection`
 
-- **Status:** proposed
+- **Status:** accepted (option 2, by the owner on 2026-10-20; to be implemented in a follow-up)
 - **Date:** 2026-10-20
 - **Step:** 16 (raised in the review of PR #36, finding 7; not implemented)
 - **Affects:** the frozen `Connection` contract (`packages/core/src/contracts/adapter.ts`:

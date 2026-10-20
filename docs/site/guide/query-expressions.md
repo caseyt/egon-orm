@@ -167,6 +167,14 @@ go without one: `val(5)`, `val(true)` and `caseWhen(c, 1)` in a `select` do not 
 (and throw `QueryError` if the types are bypassed). Give the value a type,
 `val(5, t.integer())`, or give the `CASE` a typed first branch.
 
+Outside a `select` the same rule holds wherever both sides of an operator are values you
+pass: `val(10, t.integer()).gt(9)` and `val(3, t.integer()).add(1)` work, `val(10).gt(9)`
+does not compile and `val(3).add(1)` throws `QueryError`. A column on the other side is
+enough: `u.age.eq(val(5))` and `p.authorId.eq(caseWhen(p.published, 1).else(2))` take the
+column's type. Without a type, `val` infers the value's plain TypeScript type
+(`val(5)` is an `Expr<number>`), so `val("b").gt("a")` compiles, and next to an enum
+column `val("admin")` is checked against the enum's values.
+
 A type is always a field type, `t.integer()`, the same one you use in a schema. `cast`
 keeps the operand's `null`: `u.age.cast(t.string())` is `string | null` because `age` is
 nullable.

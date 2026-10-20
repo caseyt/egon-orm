@@ -47,6 +47,17 @@ where "u"."age" >= $1 order by "u"."created_at" desc limit $2
   fragment. A value with no type at all may only be a string or `null` there (cast to
   `text`); anything else is refused with `QueryError` naming the place, and `val(5)` in a
   `select` does not compile: give it a type, `val(5, t.integer())`.
+- **Bound values on both sides of an operator are cast where they have a type.** Two
+  placeholders compared (`cast($1 as integer) > $2`) or in arithmetic
+  (`cast($1 as integer) + cast($2 as integer)`, and `-cast($1 as integer)`) give the
+  database nothing to choose an operator by, so each typed one is cast to its type, which
+  also types the other. With no type on either side only text is allowed, as above. A
+  column operand types a bare value by itself: `"p"."views" + $1` has no cast.
+- **A `CASE` or `coalesce` made only of bound values and `NULL`s** is read by the database
+  as text whatever it holds. Beside an operand with a type, its typed values are cast; with
+  none, compared with a column it is cast to the column's type
+  (`"p"."author_id" = cast(case … end as bigint)`, an array of it for `in`). In `set` it is
+  cast to the field's type.
 - **An `exists(…)` subquery selects `1`** when it has no select of its own.
 
 ### Database schemas

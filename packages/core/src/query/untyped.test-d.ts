@@ -6,15 +6,15 @@ import { caseWhen, coalesce, from, lit, t, val } from "../index.js";
 import type { Expr, NoType, Untyped } from "./expr.js";
 
 const users = from(User, "u");
-// Widened, so that other values of the type fit next to them (`val(1)` alone is typed `1`).
+// Plain values held in variables, as an application has them.
 const one: number = 1;
 const a: string = "a";
 
 describe("untyped values in a select", () => {
   test("val() of a non-text value is marked; of text, null or with a type it is not", () => {
-    expectTypeOf(val(5)).toEqualTypeOf<Expr<5> & Untyped>();
-    expectTypeOf(val(true)).toEqualTypeOf<Expr<true> & Untyped>();
-    expectTypeOf(val("member")).toEqualTypeOf<Expr<"member"> & NoType>();
+    expectTypeOf(val(5)).toEqualTypeOf<Expr<number> & Untyped>();
+    expectTypeOf(val(true)).toEqualTypeOf<Expr<boolean> & Untyped>();
+    expectTypeOf(val("member")).toEqualTypeOf<Expr<string> & NoType>();
     expectTypeOf(val(null)).toEqualTypeOf<Expr<null> & NoType>();
     expectTypeOf(val(5, t.integer())).toEqualTypeOf<Expr<number>>();
   });

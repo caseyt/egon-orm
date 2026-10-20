@@ -48,7 +48,7 @@ import type {
   UnaryOp,
   WindowNode,
 } from "../contracts/query.js";
-import type { AnyFieldType } from "../contracts/type.js";
+import type { AnyFieldType, DbType } from "../contracts/type.js";
 import { IDENTITY } from "../contracts/type.js";
 import { QueryError } from "../errors.js";
 import { OUTER_REFS } from "../query/advanced/outer-refs.js";
@@ -411,8 +411,14 @@ function expr(ctx: Ctx, frame: Frame, node: ExprNode): string {
         const typed = !hasNoType(node.expr) || !hasNoType(node.low) || !hasNoType(node.high);
         return `${selectedValue(ctx, frame, node.expr, where, typed)} between ${selectedValue(ctx, frame, node.low, where, typed)} and ${selectedValue(ctx, frame, node.high, where, typed)}`;
       }
-      const bound = COMPARISON_OPERAND;
-      return `${operand(ctx, frame, node.expr, bound)} between ${operand(ctx, frame, node.low, bound)} and ${operand(ctx, frame, node.high, bound)}`;
+      // A CASE or coalesce of bound values among them takes its type from a column operand.
+      const context =
+        columnType(frame, node.expr) ?? columnType(frame, node.low) ?? columnType(frame, node.high);
+      const range = (item: ExprNode) =>
+        isBoundCompound(item)
+          ? typedCompound(ctx, frame, item, context)
+          : operand(ctx, frame, item, COMPARISON_OPERAND);
+      return `${range(node.expr)} between ${range(node.low)} and ${range(node.high)}`;
     }
     case "nary":
       return nary(ctx, frame, node.op, node.args);
@@ -527,6 +533,11 @@ function unary(ctx: Ctx, frame: Frame, op: UnaryOp, inner: ExprNode): string {
     case "not":
       return `not ${operand(ctx, frame, inner, PRECEDENCE.atom)}`;
     case "neg":
+      // `-$1` names no type for the database to choose a minus by: a typed value is cast,
+      // and an untyped one may only be text (as in binary()).
+      if (noSqlType(inner)) {
+        return `-${selectedValue(ctx, frame, inner, "arithmetic on a value without a type (neg())", !hasNoType(inner))}`;
+      }
       return `-${operand(ctx, frame, inner, PRECEDENCE.atom)}`;
     case "isNull":
       return `${operand(ctx, frame, inner, COMPARISON_OPERAND)} is null`;
@@ -562,17 +573,34 @@ function binary(ctx: Ctx, frame: Frame, node: BinaryNode): string {
     throw unsupported(ctx.dialect, `The ${op}() operator`);
   }
   const sql = ctx.dialect.operators[op as TableOperator];
-  if (COMPARISONS.has(op) && noSqlType(left) && noSqlType(right)) {
+  const comparison = COMPARISONS.has(op);
+  const typesOperands = comparison || ARITHMETIC.has(op);
+  if (typesOperands && noSqlType(left) && noSqlType(right)) {
     // Only bound values on both sides: the database knows no type for either unless it is
-    // written, and compares two placeholders as text. A typed value is cast to its type
-    // (which then types the other side); with no type on either side, only text is allowed.
-    const where = `a comparison of two values without a type (${op}())`;
+    // written. It compares two placeholders as text, and cannot choose an arithmetic
+    // operator for them at all. A typed value is cast to its type (which then types the
+    // other side); with no type on either side, only text is allowed.
+    const where = comparison
+      ? `a comparison of two values without a type (${op}())`
+      : `arithmetic on values without a type (${op}())`;
     const typed = !hasNoType(left) || !hasNoType(right);
     return `${selectedValue(ctx, frame, left, where, typed)} ${sql} ${selectedValue(ctx, frame, right, where, typed)}`;
   }
   const p = spec.precedence;
   const leftMin = p <= PRECEDENCE.like ? COMPARISON_OPERAND : p;
   const rightMin = p <= PRECEDENCE.like ? COMPARISON_OPERAND : p + 1;
+  if (typesOperands && (isBoundCompound(left) || isBoundCompound(right))) {
+    // A CASE or coalesce of bound values beside an expression that has a type: written as
+    // it is, the database reads it as text (see typedCompound).
+    const context = comparison ? columnType(frame, isBoundCompound(left) ? right : left) : undefined;
+    const l = isBoundCompound(left)
+      ? typedCompound(ctx, frame, left, context)
+      : operand(ctx, frame, left, leftMin);
+    const r = isBoundCompound(right)
+      ? typedCompound(ctx, frame, right, context)
+      : operand(ctx, frame, right, rightMin);
+    return `${l} ${sql} ${r}`;
+  }
   return `${operand(ctx, frame, left, leftMin)} ${sql} ${operand(ctx, frame, right, rightMin)}`;
 }
 
@@ -615,8 +643,20 @@ function inExpr(ctx: Ctx, frame: Frame, positive: boolean, left: ExprNode, right
     return `${subject} ${positive ? "in" : "not in"} (${nestedQuery(ctx, frame, right.query)})`;
   }
   if (!ctx.dialect.capabilities.arrays) throw unsupported(ctx.dialect, "in() with an array expression");
-  const subject = operand(ctx, frame, left, COMPARISON_OPERAND);
-  const array = operand(ctx, frame, right, PRECEDENCE.fragment);
+  // A CASE or coalesce of bound values takes its type from a column on the other side: an
+  // array of the subject column's type, or the element type of an array column.
+  const subject = isBoundCompound(left)
+    ? typedCompound(ctx, frame, left, elementType(columnType(frame, right)))
+    : operand(ctx, frame, left, COMPARISON_OPERAND);
+  const subjectType = columnType(frame, left);
+  const array = isBoundCompound(right)
+    ? typedCompound(
+        ctx,
+        frame,
+        right,
+        subjectType === undefined ? undefined : { kind: "array", of: subjectType },
+      )
+    : operand(ctx, frame, right, PRECEDENCE.fragment);
   return positive ? `${subject} = any(${array})` : `${subject} <> all(${array})`;
 }
 
@@ -835,6 +875,46 @@ const COMPARISONS: ReadonlySet<string> = new Set([
   "notLike",
   "ilike",
 ]);
+
+/** The arithmetic operators: with no typed operand, the database cannot choose one. */
+const ARITHMETIC: ReadonlySet<string> = new Set(["add", "sub", "mul", "div", "mod"]);
+
+/**
+ * Whether `node` is a `CASE` or a `coalesce` made only of bound values and `NULL`s (see
+ * {@link noSqlType}). The database reads one as text, whatever its placeholders hold.
+ */
+function isBoundCompound(node: ExprNode): boolean {
+  return (node.kind === "case" || node.kind === "fn") && noSqlType(node);
+}
+
+/**
+ * A `CASE` or `coalesce` of bound values only (see {@link isBoundCompound}) beside an
+ * operand that has a type. Its typed values are cast to their types, which types the
+ * rest. With no typed value in it, it is cast to `context`, the type of the column on the
+ * other side: the column is the type context, as it is for a bare value (owner decision,
+ * 2026-10-19). With neither, it is written as it is.
+ */
+function typedCompound(ctx: Ctx, frame: Frame, node: ExprNode, context: DbType | undefined): string {
+  if (!hasNoType(node)) return selectedValue(ctx, frame, node, "an operand with a type", true);
+  const text = expr(ctx, frame, node);
+  return context === undefined ? text : `cast(${text} as ${sqlTypeName(ctx.dialect, context)})`;
+}
+
+/**
+ * The database type of a column of a schema's field, when `node` is one: what a value
+ * compared with it is cast to. `undefined` for anything else, and for a column of a
+ * source with no schema.
+ */
+function columnType(frame: Frame, node: ExprNode): DbType | undefined {
+  if (node.kind !== "column") return undefined;
+  const field = resolveBinding(frame.scope, node.binding)?.entry.meta?.fieldsByName.get(node.field);
+  return field !== undefined && field.column === node.column ? field.type.db : undefined;
+}
+
+/** The element type of an array type; `undefined` for any other. */
+function elementType(type: DbType | undefined): DbType | undefined {
+  return type?.kind === "array" ? type.of : undefined;
+}
 
 /**
  * Whether `node` is made of bound values only, so that the SQL itself says nothing of its

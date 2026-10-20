@@ -250,10 +250,10 @@ describe("comparisons where neither side has a type (review round 2)", () => {
     expect(bindParams(plan.slots, empty.params)).toEqual([1]);
   });
 
-  test("a CASE compared with a column is written as it is: the column types it", () => {
+  test("an untyped CASE compared with a column is cast to the column's type", () => {
     const untypedCase = caseNode([{ when: literalNode(true), result: untyped(1) }], untyped(2));
     expect(compile(where(binary("eq", untypedCase, col("u", "age")))).sql).toContain(
-      'where case when true then $1 else $2 end = "u"."age"',
+      'where cast(case when true then $1 else $2 end as integer) = "u"."age"',
     );
   });
 

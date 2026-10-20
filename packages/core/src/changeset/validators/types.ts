@@ -34,7 +34,8 @@ export interface ValidateOptions<S = AnySchema> {
    * Which issues become errors. `"all"` (the default) keeps every issue, so a rule that
    * compares two fields is never dropped because the field it reports on did not change.
    * `"changed"` keeps only issues on fields that have a change, and issues on the record
-   * as a whole.
+   * as a whole. Under either scope, an issue on a field that already has an error is
+   * dropped: the field keeps its first message.
    */
   readonly scope?: "all" | "changed";
   /**

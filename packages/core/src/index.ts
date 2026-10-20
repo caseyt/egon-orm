@@ -111,6 +111,7 @@ export type {
   JoinKeyMeta,
   JoinThroughMeta,
   Loaded,
+  LoadedAs,
   OnReplace,
   PreloadSpec,
   PrimaryKeyOf,
@@ -182,12 +183,15 @@ export {
   rowNumber,
 } from "./query/advanced/windows.js";
 export type { CteOptions } from "./query/advanced/with-cte.js";
+// Step 14: associations: querying them and checking what is loaded.
+export { assoc, isLoaded } from "./query/assoc.js";
 // Step 08: the query builder. `Query` is public as a type only: a query starts with `from`.
 export type { Binding } from "./query/bindings.js";
 export type {
   ExcludableClause,
   LockMode,
   LockOptions,
+  PreloadQuery,
   Query,
   Queryable,
   QueryLike,
@@ -235,6 +239,7 @@ export type {
   RepoQueryEvent,
   StreamReadOptions,
 } from "./repo/options.js";
+export type { PreloadOptions } from "./repo/preload.js";
 export type { AggregateFunction, RawRows } from "./repo/read.js";
 export type { ReadArgs, Repo, ResultOf, RootSchemaOf, SqlAndParams } from "./repo/repo.js";
 export { createRepo } from "./repo/repo.js";

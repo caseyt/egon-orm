@@ -583,13 +583,29 @@ export type QueryWith<Bs extends { readonly [alias: string]: AnySchema } = Recor
   string
 >;
 
-/** The query a preload callback receives: rooted at the association's target, with the association's name as its alias. */
-type PreloadQuery<S, K extends string> = K extends keyof S
+/**
+ * The query a preload callback receives, and what `assoc()` returns: rooted at the
+ * association's target, with the association's name as its alias.
+ *
+ * @example
+ * ```ts
+ * type PostsQuery = PreloadQuery<typeof User, "posts">;
+ * ```
+ */
+export type PreloadQuery<S, K extends string> = K extends keyof S
   ? Query<{ readonly [N in K]: Binding<Target<S, K>> }, Row<Target<S, K>>, NoParams, K>
   : never;
 
-/** Refuses a preload callback whose select lacks the association's key. */
-type PreloadCheck<S, K extends string, Q extends QueryLike> = K extends keyof S
+/**
+ * Refuses a preload callback whose select lacks the association's key: `unknown` when the
+ * callback's query is fine, an object with an `"~error"` member otherwise.
+ *
+ * @example
+ * ```ts
+ * type Ok = PreloadCheck<typeof User, "posts", typeof postsQuery>; // unknown
+ * ```
+ */
+export type PreloadCheck<S, K extends string, Q extends QueryLike> = K extends keyof S
   ? [PreloadElement<S, K, QueryResult<Q>>] extends [never]
     ? {
         readonly "~error": `preload "${K}" selects without its key: add ${PreloadKey<S, K> & string} to the select`;
@@ -2766,6 +2782,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     }
     let preloads = this.ast.preloads;
     for (const node of nodes) preloads = mergePreload(preloads, node);
+    preloads = sortPreloads(rootMeta, preloads);
     return this.#next(
       PRELOADS,
       preloads,
@@ -3280,6 +3297,29 @@ function mergePreload(list: readonly PreloadNode[], node: PreloadNode): readonly
   const merged = preloadNode(node.assoc, node.from, existing.query ?? node.query, nested);
   const out = list.slice();
   out[at] = merged;
+  return out;
+}
+
+/**
+ * The preloads in the order the schema declares its associations, at every level (step
+ * 14): rows that carry one set of associations then have one shape, whatever order the
+ * preloads were asked for in. Returns `list` itself when it is in that order already.
+ */
+function sortPreloads(schemaMeta: SchemaMeta, list: readonly PreloadNode[]): readonly PreloadNode[] {
+  const assocs = schemaMeta.assocs();
+  const order = [...assocs.keys()];
+  let changed = false;
+  const out = list.map((node) => {
+    const nested =
+      node.nested.length === 0
+        ? node.nested
+        : sortPreloads(meta((assocs.get(node.assoc) as AssocMeta).target()), node.nested);
+    if (nested === node.nested) return node;
+    changed = true;
+    return preloadNode(node.assoc, node.from, node.query, nested);
+  });
+  out.sort((a, b) => order.indexOf(a.assoc) - order.indexOf(b.assoc));
+  if (!changed && out.every((node, i) => node === list[i])) return list;
   return out;
 }
 

@@ -294,12 +294,6 @@ describe("all", () => {
     expect(await interpreted.repo.all(q)).toStrictEqual(await generated.repo.all(q));
   });
 
-  test("a query with preloads cannot run yet", async () => {
-    const { repo } = fake(() => [ADA]);
-    await expect(repo.all(from(User, "u").preload("posts"))).rejects.toThrow(/preloads associations/);
-    await expect(repo.first(from(User, "u").preload("posts"))).rejects.toThrow(/preloads associations/);
-  });
-
   test("a table whose name starts with $ is read under another alias", async () => {
     class Odd extends Schema("$odd", { id: t.integer().primaryKey() }) {}
     const { repo, statements } = fake(() => [{ c0: 1 }]);

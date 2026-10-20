@@ -19,7 +19,8 @@ import { collectParams } from "../query/ast.js";
  * What a repo method reports in its `query` events as `operation`: the method that ran the
  * statement. A throwing twin reports the method it is the twin of (`oneOrThrow` is
  * `"one"`), `count` is `"aggregate"`, and `insertOrUpdate` reports the write it made
- * (`"insert"` or `"update"`).
+ * (`"insert"` or `"update"`). The statements that load preloaded associations (of any
+ * read, of `repo.preload` and of `reload`) report `"preload"`.
  *
  * @example
  * ```ts
@@ -36,6 +37,7 @@ export type RepoOperation =
   | "aggregate"
   | "stream"
   | "reload"
+  | "preload"
   | "explain"
   | "raw"
   | "insert"
@@ -148,6 +150,12 @@ export interface ReadOptions {
   readonly signal?: AbortSignal | undefined;
   /** Anything to pass through to this call's `query` events, as `event.context`. */
   readonly context?: Readonly<Record<string, unknown>> | undefined;
+  /**
+   * How many preload statements of this call may run at once (sibling associations).
+   * Default 1: one at a time, so a call holds one connection. Inside a transaction they
+   * always run one at a time, on its connection.
+   */
+  readonly maxConcurrency?: number | undefined;
 }
 
 /**
@@ -190,6 +198,7 @@ export const READ_OPTION_KEYS: readonly string[] = Object.freeze([
   "timeoutMs",
   "signal",
   "context",
+  "maxConcurrency",
 ]);
 export const STREAM_OPTION_KEYS: readonly string[] = Object.freeze([...READ_OPTION_KEYS, "batchSize"]);
 export const EXPLAIN_OPTION_KEYS: readonly string[] = Object.freeze([

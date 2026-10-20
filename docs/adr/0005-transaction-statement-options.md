@@ -1,9 +1,9 @@
 # 0005 — Execution options for the transaction statements of `Connection`
 
-- **Status:** accepted (option 2, by the owner on 2026-10-20); implemented in PR #PR_NUMBER
+- **Status:** accepted (option 2, by the owner on 2026-10-20); implemented in PR #43
   (branch `adr/0005-transaction-statement-options`; see "Implementation" below)
 - **Date:** 2026-10-20
-- **Step:** 16 (raised in the review of PR #36, finding 7; not implemented)
+- **Step:** 16 (raised in the review of PR #36, finding 7; implemented in the follow-up, PR #43)
 - **Affects:** the frozen `Connection` contract (`packages/core/src/contracts/adapter.ts`:
   `begin`, `commit`, `rollback`, `savepoint`, `rollbackTo`, `releaseSavepoint`); the shared
   adapter (`packages/core/src/adapter/adapter.ts`, `SharedConnection`); the transactions of

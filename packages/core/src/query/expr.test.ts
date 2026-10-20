@@ -60,7 +60,7 @@ describe("columns", () => {
       column: "password_hash",
     });
     expect(col.binding).toBe("u");
-    expect(col.field).toBe(field);
+    expect(col.fieldMeta).toBe(field);
     expect(col.type).toBe(field!.type);
     expect(col.redact).toBe(true);
     expect(col.params).toEqual([]);
@@ -539,7 +539,7 @@ describe("immutability", () => {
     const keys = (value: object) => Object.keys(value).join(",");
     expect(keys(u.age.gte(1))).toBe(keys(u.email.lower()));
     expect(keys(u.age.gte(1))).toBe("node,type,redact,params,lists,named,shape");
-    expect(keys(u.age)).toBe("node,type,redact,params,lists,named,shape,binding,field");
+    expect(keys(u.age)).toBe("node,type,redact,params,lists,named,shape,binding,fieldMeta");
     expect(keys(u.age.asc())).toBe("node,params,lists,named,shape,exprShape");
     expect(u.age.gte(1)).toBeInstanceOf(Expr);
   });

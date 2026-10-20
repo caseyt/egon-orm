@@ -23,6 +23,7 @@ export type {
 } from "./assoc.js";
 export { belongsTo, hasMany, hasOne, manyToMany } from "./assoc.js";
 export type {
+  EmbedFieldBuilder,
   EmbedOnReplace,
   EmbedOptions,
   FieldState,

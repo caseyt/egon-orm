@@ -55,6 +55,25 @@ export type {
   ValidationEntry,
 } from "./changeset/index.js";
 export { applyAction, Changeset, cast, change, traverseErrors } from "./changeset/index.js";
+// Step 15: nested changesets. The methods are on `Changeset`; `buildAssoc` and the types
+// of nested changes are public with them.
+export { buildAssoc } from "./changeset/nested/index.js";
+export type {
+  AnyChildChangeset,
+  AssocChange,
+  AssocTarget,
+  CastNestedArgs,
+  CastNestedOptions,
+  EmbedName,
+  EmbedTarget,
+  FieldChange,
+  LooseNestedOptions,
+  PutAssocValue,
+  PutEmbedValue,
+  PutItem,
+  PutObject,
+  WithFunction,
+} from "./changeset/nested/types.js";
 // Step 06: schema and function validators. The contract types a developer names when
 // writing a validator are public with them.
 export type { FieldValidator, FieldValidatorFn, ValidateOptions } from "./changeset/validators/index.js";
@@ -259,6 +278,7 @@ export type {
   AssocWhere,
   BelongsToOptions,
   EmbeddedSchemaOptions,
+  EmbedFieldBuilder,
   EmbedOnReplace,
   EmbedOptions,
   FieldTypes,

@@ -16,6 +16,7 @@ import type {
   RowOf,
   SchemaStatic,
 } from "../contracts/schema.js";
+import type { AssocChange, AssocChanges, FieldChange } from "./nested/types.js";
 
 /**
  * A changeset without a schema class: the data it starts from and the type of each
@@ -86,13 +87,15 @@ export type FieldOfType<S, T> =
 /**
  * The `changes` of a changeset: the changed fields and their new values. A field that is
  * not nullable never has a `null` change (a `null` is refused with `can't be blank`).
+ * An embed field and an association changed through `castEmbed` / `castAssoc` /
+ * `putEmbed` / `putAssoc` hold child changesets ({@link FieldChange}, {@link AssocChange}).
  *
  * @example
  * ```ts
  * type UserChanges = Changes<typeof User>; // { email?: string; name?: string | null; … }
  * ```
  */
-export type Changes<S> = { readonly [K in FieldName<S>]?: FieldValues<S>[K] };
+export type Changes<S> = { readonly [K in FieldName<S>]?: FieldChange<S, K> } & AssocChanges<S>;
 
 /**
  * The association names of `S`: none for a changeset without a schema class, and any

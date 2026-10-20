@@ -1042,7 +1042,8 @@ describe("embedded schemas", () => {
     const m = meta(Contact);
     expect(m.fields.map((f) => f.name)).toEqual(["id", "address", "phones"]);
     expect(m.persisted.map((f) => f.column)).toEqual(["id", "address", "phone_list"]);
-    expect(field(Contact, "address")).toMatchObject({ type: jsonType(), nullable: true });
+    expect(field(Contact, "address")).toMatchObject({ nullable: true });
+    expect(field(Contact, "address").type.db).toEqual({ kind: "jsonb" });
     expect(m.embeds).toHaveLength(2);
     expect(m.embeds[0]).toMatchObject({
       name: "address",

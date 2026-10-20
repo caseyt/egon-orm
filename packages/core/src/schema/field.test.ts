@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { IDENTITY } from "../contracts/type.js";
 import { SchemaDefinitionError } from "../errors.js";
+import { embedTypeInfo } from "../types/embed.js";
 import {
   arrayType,
   bigintType,
@@ -258,7 +259,9 @@ describe("embeds", () => {
 
   test("an embed is a JSON field that remembers its schema", () => {
     const one = state(t.embedOne(() => Address));
-    expect(one.type).toBe(jsonType());
+    expect(one.type.db).toEqual({ kind: "jsonb" });
+    expect(embedTypeInfo(one.type)).toMatchObject({ cardinality: "one", onReplace: "error" });
+    expect(embedTypeInfo(one.type)?.schema()).toBe(Address);
     expect(one.embed?.cardinality).toBe("one");
     expect(one.embed?.schema()).toBe(Address);
     expect(one.embed?.onReplace).toBe("error");

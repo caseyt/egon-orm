@@ -291,8 +291,9 @@ Bulk writes skip changesets and validation.
 - A write never validates by itself: validation is what the changeset did before. The repo
   checks only that required fields have a value.
 - One constraint error is reported per attempt: the database stops at the first violation.
-- Nested changes (associations given to `cast`) are not written yet; a changeset that holds
-  them is refused with a `QueryError`.
+- A changeset that holds changes of associations (`castAssoc`, `putAssoc`) is written
+  with its children in one transaction; see [Nested changesets](/guide/nested-changesets#saving).
+  Embed changes are written with the row.
 :::
 
 ## Logging and events

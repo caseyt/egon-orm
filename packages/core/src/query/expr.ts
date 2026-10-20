@@ -19,6 +19,8 @@ import type { FieldBuilder, FieldFlags, FieldMeta } from "../contracts/schema.js
 import type { AnyFieldType } from "../contracts/type.js";
 import { QueryError } from "../errors.js";
 import { fieldState } from "../schema/field.js";
+import { meta } from "../schema/schema.js";
+import { embedTypeInfo } from "../types/embed.js";
 import { booleanType, elementTypeOf, jsonType, stringType } from "../types/index.js";
 import {
   betweenNode,
@@ -404,6 +406,22 @@ type JsonKey = string | number;
 
 /** Types that are never JSON documents, so `path` is refused on them at compile time. */
 type NotJson = string | number | bigint | boolean | Date | Uint8Array;
+
+/** `this` for `field`: an expression that may hold one embedded row (not a list). */
+type EmbedExpr<T> = [NonNullable<T>] extends [NotJson | readonly unknown[]] ? never : Expr<T, SomeParams>;
+
+/** The field names of the embedded row type `T`: its properties that are not functions. */
+type EmbedKey<T> = {
+  [K in keyof NonNullable<T>]-?: NonNullable<T>[K] extends (...args: never[]) => unknown ? never : K;
+}[keyof NonNullable<T>] &
+  string;
+
+/** The value of field `K` of the embedded row type `T`; nullable when the embed is. */
+type EmbedFieldValue<T, K> = unknown extends T
+  ? unknown
+  : K extends keyof NonNullable<T>
+    ? NonNullable<T>[K] | (null extends T ? null : never)
+    : unknown;
 
 /** `this` for `path` / `pathText`: an expression that may hold a JSON document. */
 type JsonExpr<T> = [NonNullable<T>] extends [NotJson] ? never : Expr<T, SomeParams>;
@@ -1202,6 +1220,27 @@ export class Expr<out T, in P = NoParams> {
     return jsonPath(this as AnyExpr, keys, true, STRING, "pathText") as never;
   }
 
+  /**
+   * A field of an embedded row, typed from the embedded schema: `u.address.field("city")`
+   * is an `Expr<string>`. It reads the field's JSON key (`#>>`, cast to the field's type
+   * where that is not text; `#>` for a nested embed or JSON field, so that `field` can
+   * be chained). The key is a bound parameter. A row stored without the key gives `null`.
+   *
+   * @example
+   * ```ts
+   * from(User, "u").where(({ u }) => u.address.field("city").eq("Oslo"));
+   * ```
+   *
+   * @throws QueryError when the expression is not of an embed of one row, or the
+   * embedded schema has no stored field `name`.
+   */
+  field<S, const K extends string>(
+    this: EmbedExpr<S>,
+    name: K & EmbedKey<S>,
+  ): Expr<EmbedFieldValue<S, K>, P> {
+    return embedField(this as AnyExpr, name) as never;
+  }
+
   // --- typing ---------------------------------------------------------------
 
   /**
@@ -1304,8 +1343,8 @@ type InOperand<T> =
 export class Col<T> extends Expr<T, NoParams> {
   /** The alias of the binding. */
   readonly binding: string;
-  /** The field the column belongs to. */
-  readonly field: FieldMeta;
+  /** The field the column belongs to. (Not `field`, which is the method that reads a field of an embed.) */
+  readonly fieldMeta: FieldMeta;
 
   /**
    * Internal: columns are made by the query builder's bindings.
@@ -1326,7 +1365,7 @@ export class Col<T> extends Expr<T, NoParams> {
       shapeOfColumn(binding, field.column),
     );
     this.binding = binding;
-    this.field = field;
+    this.fieldMeta = field;
   }
 }
 
@@ -1938,6 +1977,45 @@ function membership(op: "in" | "notIn", left: AnyExpr, values: unknown): AnyExpr
 }
 
 const JSON_KINDS: ReadonlySet<string> = new Set(["json", "jsonb", "custom"]);
+
+/** The kinds a JSON text value reads as without a cast. */
+const TEXT_KINDS: ReadonlySet<string> = new Set(["text"]);
+
+function embedField(value: AnyExpr, name: unknown): AnyExpr {
+  const info = value.type === undefined ? undefined : embedTypeInfo(value.type);
+  if (info === undefined || info.cardinality !== "one") {
+    throw new QueryError(
+      `field() reads a field of an embedded row, and this expression is ${value.type === undefined ? "of no known type" : info === undefined ? `of the type ${value.type.name}` : "a list of embedded rows"}. Use it on a t.embedOne() field; for other JSON use path() or pathText().`,
+    );
+  }
+  const embedded = meta(info.schema());
+  const field = typeof name === "string" ? embedded.fieldsByName.get(name) : undefined;
+  if (field === undefined || field.virtual) {
+    throw new QueryError(
+      `field(): ${embedded.name} has no stored field ${typeof name === "string" ? `"${name}"` : String(name)}. Its fields are: ${embedded.persisted.map((each) => each.name).join(", ")}.`,
+    );
+  }
+  const kind = field.type.db.kind;
+  const redact = value.redact || field.redact;
+  const json = JSON_KINDS.has(kind) && kind !== "custom";
+  const read = jsonPath(
+    value,
+    [field.column],
+    !json,
+    json || TEXT_KINDS.has(kind) ? field.type : STRING,
+    "field",
+  );
+  const cast = !json && !TEXT_KINDS.has(kind);
+  return new Expr(
+    cast ? castNode(read.node, field.type) : read.node,
+    field.type,
+    redact,
+    read.params,
+    read.lists,
+    read.named,
+    cast ? shapeOfCast(read.shape, field.type) : read.shape,
+  );
+}
 
 function jsonPath(
   value: AnyExpr,

@@ -105,10 +105,19 @@ describe("errorMessages and traverseErrors", () => {
       comments: [{}, { body: ["can't be blank"] }],
       author: { email: ["can't be blank"] },
     });
-    // A key with its own errors and a nested changeset with errors shows the nested tree
-    // only (nested changesets are refined by step 15).
-    const both = rebuild(parent, { errors: { author: [{ message: "is invalid", meta: {} }] } });
-    expect(both.errorMessages().author).toEqual({ email: ["can't be blank"] });
+    // A key with its own errors and nested changesets with errors keeps both: the key's
+    // own under $errors, a list of children under $items.
+    const both = rebuild(parent, {
+      errors: {
+        author: [{ message: "is invalid", meta: {} }],
+        comments: [{ message: "should have at least {count} item(s)", meta: { count: 3 } }],
+      },
+    });
+    expect(both.errorMessages().author).toEqual({ email: ["can't be blank"], $errors: ["is invalid"] });
+    expect(both.errorMessages().comments).toEqual({
+      $errors: ["should have at least 3 item(s)"],
+      $items: [{}, { body: ["can't be blank"] }],
+    });
     const clean = rebuild(change(post), { changes: { comments: [goodComment], author: goodComment } });
     expect(clean.errorMessages()).toEqual({});
   });

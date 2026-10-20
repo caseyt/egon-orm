@@ -17,6 +17,7 @@ import {
 } from "egon-orm/migration";
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
+import { migrationDialectOf } from "../../../src/migration/dialect.js";
 import { Post, type TestDatabase, User, withDatabase } from "../../support/index.js";
 import { BLOG_MIGRATIONS, BLOG_TABLES } from "./blog.js";
 import type { MigrationConformanceProfile } from "./profile.js";
@@ -41,6 +42,17 @@ function creates(table: string): Migration {
 }
 
 export function runMigrationConformance(profile: MigrationConformanceProfile): void {
+  // The DDL features of the database, as the migration table declares them (step 18,
+  // decision 2: the DDL features are core's table): cases are skipped by these.
+  const migrationTable = migrationDialectOf(profile.server);
+  const features = migrationTable.features;
+  /** A row's value as text: drivers give integers as numbers or as strings. */
+  const text = (value: unknown): string => String(value);
+  /** A boolean as the driver gives it: `true`, or 1 where booleans are integers. */
+  const truthy = (value: unknown): boolean => value === true || value === 1 || value === "1";
+  /** JSON as the driver gives it: parsed, or (SQLite) its text. */
+  const parsed = (value: unknown): unknown => (typeof value === "string" ? JSON.parse(value) : value);
+
   describe(`migration conformance: ${profile.label}`, () => {
     /** Runs `fn` with a fresh database and adapters on it, closing the adapters afterwards. */
     function withAdapters<T>(
@@ -88,16 +100,18 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
             "comments_author_id_index",
           ]),
         );
-        expect(await names(db, profile.listConstraints)).toEqual(
-          expect.arrayContaining([
-            "users_role_check",
-            "profiles_user_id_fkey",
-            "profiles_user_id_key",
-            "posts_author_id_fkey",
-            "tags_name_key",
-            "memberships_org_id_fkey",
-          ]),
-        );
+        if (profile.listConstraints !== undefined) {
+          expect(await names(db, profile.listConstraints)).toEqual(
+            expect.arrayContaining([
+              "users_role_check",
+              "profiles_user_id_fkey",
+              "profiles_user_id_key",
+              "posts_author_id_fkey",
+              "tags_name_key",
+              "memberships_org_id_fkey",
+            ]),
+          );
+        }
         expect((await blog.status()).every((row) => row.state === "up")).toBe(true);
 
         // The repo writes to the migrated tables with the blog schema classes.
@@ -123,7 +137,8 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
     test("migration names are the ones the changeset constraint defaults look for", () =>
       withAdapters("migrate_names", async (_db, adapter) => {
         await migrator(adapter(), BLOG_MIGRATIONS).up();
-        const repo = createRepo({ adapter: adapter() });
+        const writing = adapter();
+        const repo = createRepo({ adapter: writing });
         const user = await repo.insertOrThrow(cast(User, { email: "grace@example.com" }, ["email"]));
 
         const duplicate = await repo.insert(
@@ -134,12 +149,15 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
           email: ["has already been taken"],
         });
 
-        const orphan = await repo.insert(
-          cast(Post, { authorId: user.id + 1000, title: "x" }, ["authorId", "title"]).assocConstraint(
-            "author",
-          ),
-        );
-        expect(!orphan.success && orphan.error.errorMessages()).toEqual({ author: ["does not exist"] });
+        // Where a foreign-key violation names its constraint (capability foreignKeyNames).
+        if (writing.capabilities.foreignKeyNames) {
+          const orphan = await repo.insert(
+            cast(Post, { authorId: user.id + 1000, title: "x" }, ["authorId", "title"]).assocConstraint(
+              "author",
+            ),
+          );
+          expect(!orphan.success && orphan.error.errorMessages()).toEqual({ author: ["does not exist"] });
+        }
 
         // A schema whose role is any string, so that the value reaches the enumText check.
         class AnyRole extends Schema("users", {
@@ -163,8 +181,11 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
         expect(allowed.success).toBe(true);
       }));
 
-    test("a name longer than the database keeps is shortened so that the changeset default still matches", () =>
+    test("a name longer than the database keeps is shortened so that the changeset default still matches", (context) =>
       withAdapters("migrate_long", async (_db, adapter) => {
+        // MySQL refuses an identifier this long (capability longIdentifiers).
+        if (!adapter().capabilities.longIdentifiers)
+          return context.skip("capability longIdentifiers is false");
         const table = `t${"a".repeat(39)}`;
         const column = `c${"b".repeat(39)}`;
         await migrator(adapter(), [
@@ -199,8 +220,9 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
         });
       }));
 
-    test("two runners at once apply each version once, 50 times in a row", () =>
+    test("two runners at once apply each version once, 50 times in a row", (context) =>
       withAdapters("migrate_race", async (db, adapter) => {
+        if (!migrationTable.locks) return context.skip("the migration table of this database has no lock");
         const one = adapter();
         const two = adapter();
         for (let i = 0; i < 50; i++) {
@@ -220,8 +242,9 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
         }
       }));
 
-    test("a runner waits for the lock, and gives up after lockTimeoutMs", () =>
+    test("a runner waits for the lock, and gives up after lockTimeoutMs", (context) =>
       withAdapters("migrate_lock", async (db, adapter) => {
+        if (!migrationTable.locks) return context.skip("the migration table of this database has no lock");
         const held = gate();
         const started = gate();
         const slow: MigrationSource[] = [
@@ -251,8 +274,12 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
         expect(await db.query("select version from schema_migrations")).toHaveLength(1);
       }));
 
-    test("a lock timeout never leaves the lock held, even when the lock was granted as the time ran out", () =>
+    test("a lock timeout never leaves the lock held, even when the lock was granted as the time ran out", (context) =>
       withAdapters("migrate_lock_zero", async (db, adapter) => {
+        const lockCount = profile.lockCount;
+        if (!migrationTable.locks || lockCount === undefined) {
+          return context.skip("the migration table of this database has no lock");
+        }
         // With lockTimeoutMs: 0 the timer fires while the (uncontended) lock is being granted.
         // One adapter: a connection that went back to its pool still holding the lock would
         // make every later attempt wait, and the check below would see the lock.
@@ -262,12 +289,7 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
             .up()
             .catch(() => undefined);
         }
-        const advisory = async (): Promise<number> =>
-          (
-            await db.query(
-              "select count(*)::int as n from pg_locks where locktype = 'advisory' and database = (select oid from pg_database where datname = current_database())",
-            )
-          )[0]?.n as number;
+        const advisory = async (): Promise<number> => Number((await db.query(lockCount))[0]?.n);
         // A destroyed session ends on the server shortly after the client closes it.
         for (let wait = 0; wait < 50 && (await advisory()) > 0; wait++) {
           await new Promise((resolve) => setTimeout(resolve, 20));
@@ -294,13 +316,21 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
           },
           { version: 20260103000000, name: "create_never", migration: creates("never") },
         ];
-        const error = await migrator(adapter(), migrations)
+        const made = adapter();
+        const error = await migrator(made, migrations)
           .up()
           .catch((e: unknown) => e);
         expect(error).toBeInstanceOf(MigrationError);
         expect((error as MigrationError).version).toBe(20260102000000);
         expect((error as MigrationError).sql).toBe("insert into doomed (id) values (1)");
-        expect(await names(db, profile.listTables)).toEqual(["kept", "schema_migrations"]);
+        if (made.capabilities.ddlTransactions) {
+          expect(await names(db, profile.listTables)).toEqual(["kept", "schema_migrations"]);
+        } else {
+          // DDL commits at once (capability ddlTransactions false: MySQL): the statements
+          // before the failing one stay, and the error says so.
+          expect((error as Error).message).toContain("ran without a transaction");
+          expect(await names(db, profile.listTables)).toEqual(["doomed", "kept", "schema_migrations"]);
+        }
         expect(
           (await db.query<{ version: unknown }>("select version from schema_migrations")).map((row) =>
             String(row.version),
@@ -367,7 +397,7 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
       withAdapters("migrate_dry", async (db, adapter) => {
         const runs = await migrator(adapter(), BLOG_MIGRATIONS).up({ dryRun: true });
         expect(runs).toHaveLength(BLOG_MIGRATIONS.length);
-        expect(runs[0]?.statements[0]?.sql).toMatch(/^create table "users"/);
+        expect(runs[0]?.statements[0]?.sql).toMatch(/^create table ["`]users["`]/);
         expect(await names(db, profile.listTables)).toEqual([]);
       }));
 
@@ -418,18 +448,24 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
           const [row] = await db.query("select * from literals");
           for (const [i, value] of strings.entries()) expect(row?.[`s${i}`]).toBe(value);
           expect(row?.n).toBe(-42);
-          expect(row?.b).toBe(true);
-          expect(row?.j).toEqual({ quote: "it's", slash: "a\\b", line: "\n'" });
+          expect(truthy(row?.b)).toBe(true);
+          expect(parsed(row?.j)).toEqual({ quote: "it's", slash: "a\\b", line: "\n'" });
           expect(row?.kind).toBe("back\\slash");
-          await db.query("insert into literals (id, kind) values (2, $1)", ["it's"]);
-          await expect(db.query("insert into literals (id, kind) values (3, $1)", ["other"])).rejects.toThrow(
-            /literals_kind_check/,
-          );
+          const p1 = profile.param(1);
+          await db.query(`insert into literals (id, kind) values (2, ${p1})`, ["it's"]);
+          await expect(
+            db.query(`insert into literals (id, kind) values (3, ${p1})`, ["other"]),
+          ).rejects.toThrow(/literals_kind_check/);
         }));
     }
 
     test("every operation runs, and rolling back undoes all of it", () =>
       withAdapters("migrate_ops", async (db, adapter) => {
+        // Each operation the database's DDL lacks (its migration table's features) is left
+        // out; the emitter refuses it (the unit tests of ddl.ts check that). The notes table
+        // goes into a schema of its own where the suite may create one.
+        const inSchema = features.schemas && profile.ownSchemas;
+        const extra = inSchema ? { schema: "extra" } : {};
         const everything: MigrationSource[] = [
           { version: 20260101000000, name: "create_base", migration: creates("base") },
           {
@@ -437,7 +473,7 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
             name: "everything",
             migration: defineMigration({
               change(m) {
-                m.createSchema("extra");
+                if (inSchema) m.createSchema("extra");
                 m.createTable(
                   "notes",
                   (t) => {
@@ -447,34 +483,41 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
                     t.array("labels", "text");
                     t.references("base_id", "base", { onDelete: "setNull" });
                   },
-                  { schema: "extra" },
+                  extra,
                 );
                 m.alterTable("base", (t) => {
                   t.text("title");
-                  t.integer("rank");
+                  t.integer("tier");
                   t.decimal("price", { precision: 8, scale: 2 }).default("1.50");
                 });
                 m.alterTable("base", (t) => {
-                  t.modify("rank", "bigint", {
-                    notNull: true,
-                    default: 0,
-                    from: { type: "integer", notNull: false, default: null },
-                  });
+                  if (features.modifyColumn !== "none") {
+                    t.modify("tier", "bigint", {
+                      notNull: true,
+                      default: 0,
+                      from: { type: "integer", notNull: false, default: null },
+                    });
+                  }
                   t.rename("title", "heading");
                 });
-                m.createIndex("base", ["heading"], { unique: true, where: fragment`heading is not null` });
+                m.createIndex("base", ["heading"], {
+                  unique: true,
+                  ...(features.partialIndexes ? { where: fragment`heading is not null` } : {}),
+                });
                 m.createIndex("base", [fragment`lower(${fragment.ident("heading")})`], {
                   name: "base_lower_heading",
                 });
-                m.createIndex("base", ["rank"], { include: ["price"] });
-                m.createIndex("notes", ["body"], { schema: "extra" });
+                m.createIndex("base", ["tier"], features.includeColumns ? { include: ["price"] } : {});
+                m.createIndex("notes", ["body"], extra);
                 if (profile.arrayIndexMethod !== undefined) {
-                  m.createIndex("notes", ["labels"], { schema: "extra", using: profile.arrayIndexMethod });
+                  m.createIndex("notes", ["labels"], { ...extra, using: profile.arrayIndexMethod });
                 }
-                m.createConstraint("base", "base_rank_check", { check: fragment`rank >= 0` });
+                if (features.alterConstraints) {
+                  m.createConstraint("base", "base_tier_check", { check: fragment`tier >= 0` });
+                }
                 m.renameTable("base", "bases");
                 m.execute(
-                  fragment`insert into bases (id, rank) values (${1}, ${2})`,
+                  fragment`insert into bases (id, tier) values (${1}, ${2})`,
                   fragment`delete from bases where id = ${1}`,
                 );
               },
@@ -518,16 +561,29 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
         const runner = migrator(adapter(), everything);
         await runner.up();
         expect(await names(db, profile.listIndexes)).toEqual(
-          expect.arrayContaining(["base_heading_key", "base_lower_heading", "base_rank_index"]),
+          expect.arrayContaining(["base_heading_key", "base_lower_heading", "base_tier_index"]),
         );
         expect(await names(db, profile.listTables)).toEqual(
-          ["bases", "schema_migrations", ...(profile.exclusion === undefined ? [] : ["bookings"])].sort(),
+          [
+            "bases",
+            "schema_migrations",
+            ...(profile.exclusion === undefined ? [] : ["bookings"]),
+            ...(inSchema ? [] : ["notes"]),
+          ].sort(),
         );
-        expect(await db.query("select id, rank from bases")).toEqual([{ id: "1", rank: "2" }]);
-        await expect(db.query("insert into bases (id, rank) values (2, -1)")).rejects.toThrow(
-          /base_rank_check/,
-        );
-        expect(await db.query("select count(*)::int as n from extra.notes")).toEqual([{ n: 0 }]);
+        const based = await db.query<{ id: unknown; tier: unknown }>("select id, tier from bases");
+        expect(based.map((row) => ({ id: text(row.id), tier: text(row.tier) }))).toEqual([
+          { id: "1", tier: "2" },
+        ]);
+        if (features.alterConstraints) {
+          await expect(db.query("insert into bases (id, tier) values (2, -1)")).rejects.toThrow(
+            /base_tier_check/,
+          );
+        }
+        const notes = inSchema ? "extra.notes" : "notes";
+        expect(
+          (await db.query<{ n: unknown }>(`select count(*) as n from ${notes}`)).map((row) => Number(row.n)),
+        ).toEqual([0]);
 
         await runner.down({ to: 20260102000000 });
         expect(await names(db, profile.listTables)).toEqual(["base", "schema_migrations"]);
@@ -535,24 +591,27 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
         for (const name of [
           "base_heading_key",
           "base_lower_heading",
-          "base_rank_index",
+          "base_tier_index",
           "notes_body_index",
         ]) {
           expect(indexes).not.toContain(name);
         }
-        expect(
-          await db.query("select column_name from information_schema.columns where table_name = 'base'"),
-        ).toEqual([{ column_name: "id" }]);
-        expect(
-          await db.query("select schema_name from information_schema.schemata where schema_name = 'extra'"),
-        ).toEqual([]);
+        expect(await names(db, profile.listColumns("base"))).toEqual(["id"]);
+        if (inSchema) {
+          expect(
+            await db.query("select schema_name from information_schema.schemata where schema_name = 'extra'"),
+          ).toEqual([]);
+        }
         // And up again.
         await runner.up();
         expect(await names(db, profile.listTables)).toContain("bases");
       }));
 
-    test("a concurrent index needs transaction: false, and then builds", () =>
+    test("a concurrent index needs transaction: false, and then builds", (context) =>
       withAdapters("migrate_concurrent", async (db, adapter) => {
+        if (!features.concurrentIndexes) {
+          return context.skip("the migration table of this database has no concurrent indexes");
+        }
         const index = (transaction: boolean): Migration =>
           defineMigration({
             transaction,

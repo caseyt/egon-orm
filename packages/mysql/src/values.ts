@@ -10,7 +10,7 @@
  * | `boolean` | `tinyint(1)` | `boolean` (from `0` / `1`) |
  * | `bigint` | `bigint` | `bigint` (from a number or digit text) |
  * | `decimal` | `decimal(p, s)` | `string` |
- * | `uuid` | `char(36)` | `string` |
+ * | `uuid` | `char(36)`, written in lowercase | `string` |
  * | `timestamp`, `timestamptz` | `datetime(6)`, written and read as UTC | `Date` |
  * | `json`, `jsonb` | `json` | the parsed value |
  * | `binary` | `blob`, `binary` | `Uint8Array` |
@@ -164,12 +164,19 @@ function writeBytes(value: unknown): unknown {
   return value;
 }
 
+/**
+ * A uuid is written in lowercase, as Postgres stores one: two spellings of one uuid are
+ * one key, and a key read back compares equal to the one given in either case.
+ */
+const writeUuid = (value: unknown): unknown => (typeof value === "string" ? value.toLowerCase() : value);
+
 /** Where `mysql2`'s values (with the adapter's connection settings) differ from the canonical driver values. */
 export const MYSQL_DRIVER_CODECS: DriverCodecs = Object.freeze({
   integer: Object.freeze({ fromDb: readInteger }),
   float: Object.freeze({ fromDb: readFloat, toDb: writeFloat }),
   bigint: Object.freeze({ fromDb: readBigint }),
   decimal: Object.freeze({ fromDb: readDecimal }),
+  uuid: Object.freeze({ toDb: writeUuid }),
   boolean: Object.freeze({ fromDb: readBoolean, toDb: writeBoolean }),
   binary: Object.freeze({ fromDb: readBytes, toDb: writeBytes }),
   time: Object.freeze({ fromDb: readTime }),

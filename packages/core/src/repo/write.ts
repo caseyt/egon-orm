@@ -87,6 +87,7 @@ import { writeNested } from "./nested.js";
 import { checkReadOptions, READ_OPTION_KEYS, type ReadOptions, type RepoOperation } from "./options.js";
 import { keepPreloads } from "./preload.js";
 import { Call, isFragment, load, ReadCore } from "./read.js";
+import { atomically } from "./transaction.js";
 
 /** A changeset of any schema, as the repo handles it. */
 export type AnyChangeset = Changeset<AnySchema, boolean>;
@@ -1112,7 +1113,10 @@ function insertIdRow(
 
 /**
  * On a dialect without `RETURNING`: runs the insert and reads the row back by its key on
- * the same connection (a generated key is reported for that connection only).
+ * the same connection (a generated key is reported for that connection only). An upsert
+ * and its read-back are one unit (a transaction, or a savepoint inside one): when the
+ * updated row cannot be read back by the key it was given, the update is undone before
+ * the error is thrown.
  */
 async function insertThenRead(
   core: ReadCore,
@@ -1124,52 +1128,70 @@ async function insertThenRead(
   written: readonly unknown[],
 ): Promise<[Written, Readonly<Record<string, unknown>> | undefined]> {
   const deadline = deadlineOf(settings.options);
+  const args = [model, schemaMeta, plan, bound, settings, written, deadline] as const;
+  if (isUpsert(settings.onConflict)) {
+    return atomically(core, settings.options, deadline, (executor) => writeThenRead(core, executor, ...args));
+  }
   const connection = core.pooled ? await acquireWithin(core, settings.options, deadline) : undefined;
-  const executor: Executor = connection ?? core.executor;
   try {
-    const result = await runWrite(
-      core,
-      executor,
-      "insert",
-      schemaMeta.source as string,
-      plan,
-      bound,
-      settings.options,
-      deadline,
-      decodeWritten,
-      undefined,
-    );
-    if (result.rowCount === 0 && !isUpsert(settings.onConflict)) return [result, undefined];
-    const generated = insertIdRow(schemaMeta, result.insertId);
-    const key: Record<string, unknown> = {};
-    for (const field of schemaMeta.primaryKey) {
-      key[field.name] =
-        generated !== undefined && hasOwn(generated, field.name)
-          ? generated[field.name]
-          : written[writeTable(schemaMeta).positions.get(field) as number];
-    }
-    let query = from(model, "t").where(key as never);
-    if (plan.schema !== undefined) query = query.schema(plan.schema);
-    const reader = new ReadCore(core.adapter, executor, core.schema, core.codegen, core.hub);
-    const options: ReadOptions = {
-      schema: undefined,
-      timeoutMs: remaining(settings.options, deadline),
-      signal: settings.options?.signal,
-      context: settings.options?.context,
-    };
-    const rows = await load(reader, "insert", query.ast, undefined, options);
-    const row = rows[0] as Readonly<Record<string, unknown>> | undefined;
-    if (row === undefined && isUpsert(settings.onConflict)) {
-      // The update hit a row with another key (a conflict on another unique field), and a
-      // database without RETURNING does not say which.
-      throw new QueryError(
-        `The upsert into ${schemaMeta.name} updated a row that could not be read back by the key it was given: the conflict was on another unique field, and ${core.adapter.dialect} does not report which row it updated. Upsert by the key, or read the row by the conflicting field afterwards.`,
-      );
-    }
-    return [result, row];
+    return await writeThenRead(core, connection ?? core.executor, ...args);
   } finally {
     if (connection !== undefined) await connection.release();
   }
+}
+
+/** The insert and the read-back of {@link insertThenRead}, on one executor. */
+async function writeThenRead(
+  core: ReadCore,
+  executor: Executor,
+  model: AnySchema,
+  schemaMeta: SchemaMeta,
+  plan: CompiledQuery,
+  bound: readonly unknown[],
+  settings: WriteSettings,
+  written: readonly unknown[],
+  deadline: number | undefined,
+): Promise<[Written, Readonly<Record<string, unknown>> | undefined]> {
+  const result = await runWrite(
+    core,
+    executor,
+    "insert",
+    schemaMeta.source as string,
+    plan,
+    bound,
+    settings.options,
+    deadline,
+    decodeWritten,
+    undefined,
+  );
+  if (result.rowCount === 0 && !isUpsert(settings.onConflict)) return [result, undefined];
+  const generated = insertIdRow(schemaMeta, result.insertId);
+  const key: Record<string, unknown> = {};
+  for (const field of schemaMeta.primaryKey) {
+    key[field.name] =
+      generated !== undefined && hasOwn(generated, field.name)
+        ? generated[field.name]
+        : written[writeTable(schemaMeta).positions.get(field) as number];
+  }
+  let query = from(model, "t").where(key as never);
+  if (plan.schema !== undefined) query = query.schema(plan.schema);
+  const reader = new ReadCore(core.adapter, executor, core.schema, core.codegen, core.hub);
+  const options: ReadOptions = {
+    schema: undefined,
+    timeoutMs: remaining(settings.options, deadline),
+    signal: settings.options?.signal,
+    context: settings.options?.context,
+  };
+  const rows = await load(reader, "insert", query.ast, undefined, options);
+  const row = rows[0] as Readonly<Record<string, unknown>> | undefined;
+  if (row === undefined && isUpsert(settings.onConflict)) {
+    // The update hit a row with another key (a conflict on another unique field), and a
+    // database without RETURNING does not say which.
+    throw new QueryError(
+      `The upsert into ${schemaMeta.name} met a row that could not be read back by the key it was given: the conflict was on another unique field, and ${core.adapter.dialect} does not report which row it updated. Nothing was written. Upsert by the key, or read the row by the conflicting field and update it.`,
+    );
+  }
+  return [result, row];
 }
 
 // ---------------------------------------------------------------------------

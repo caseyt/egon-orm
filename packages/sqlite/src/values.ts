@@ -11,7 +11,8 @@
  * | `bigint` | integer | `bigint` |
  * | `boolean` | `0` / `1` | `boolean` |
  * | `decimal` | text | `string` |
- * | `date`, `time`, `uuid`, `text` | text | `string` |
+ * | `date`, `time`, `text` | text | `string` |
+ * | `uuid` | text, written in lowercase | `string` |
  * | `timestamp`, `timestamptz` | ISO 8601 text in UTC (`2026-01-02T03:04:05.678Z`) | `Date` |
  * | `json`, `jsonb` | JSON text | the parsed value |
  * | `binary` | blob | `Uint8Array` |
@@ -175,6 +176,12 @@ function writeBytes(value: unknown): unknown {
   return value;
 }
 
+/**
+ * A uuid is written in lowercase, as Postgres stores one: two spellings of one uuid are
+ * one key, and a key read back compares equal to the one given in either case.
+ */
+const writeUuid = (value: unknown): unknown => (typeof value === "string" ? value.toLowerCase() : value);
+
 /** Where SQLite's values (read with safe integers) differ from the canonical driver values. */
 export const SQLITE_DRIVER_CODECS: DriverCodecs = Object.freeze({
   integer: Object.freeze({ fromDb: readNumber }),
@@ -183,7 +190,7 @@ export const SQLITE_DRIVER_CODECS: DriverCodecs = Object.freeze({
   decimal: Object.freeze({ fromDb: readDecimal }),
   boolean: Object.freeze({ fromDb: readBoolean, toDb: writeBoolean }),
   text: Object.freeze({ fromDb: readText }),
-  uuid: Object.freeze({ fromDb: readText }),
+  uuid: Object.freeze({ fromDb: readText, toDb: writeUuid }),
   binary: Object.freeze({ fromDb: readBytes, toDb: writeBytes }),
   timestamp: Object.freeze({ fromDb: readTimestamp, toDb: writeTimestamp }),
   timestamptz: Object.freeze({ fromDb: readTimestamp, toDb: writeTimestamptz }),

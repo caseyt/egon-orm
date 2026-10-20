@@ -48,8 +48,18 @@ const IN_TRANSACTION = 0x0001;
 /** How long a `KILL QUERY` may take when the pool sets no `connectionTimeoutMs`. */
 const DEFAULT_CANCEL_TIMEOUT_MS = 10_000;
 
-/** `Rows matched: 3  Changed: 1  Warnings: 0`: what an `UPDATE` reports beside its changed rows. */
-const ROWS_MATCHED = /^Rows matched: (\d+)/;
+/** What every session runs first: UTC, and English messages for {@link ROWS_MATCHED}. */
+const SESSION_SETTINGS = "set time_zone = '+00:00', lc_messages = 'en_US'";
+
+/**
+ * `Rows matched: 3  Changed: 1  Warnings: 0`: what an `UPDATE` reports beside its changed
+ * rows. MySQL translates the words (`lc_messages`) but keeps the order, so the count is the
+ * first number, whatever the language.
+ */
+const ROWS_MATCHED = /^\D*(\d+)\D+\d+\D+\d+\D*$/;
+
+/** An `UPDATE`, alone or after a `WITH`: the only statement whose info text is read. */
+const UPDATE = /^\s*(?:update\b|with\b)/i;
 
 const EMPTY_ROWS: readonly Record<string, unknown>[] = Object.freeze([]);
 
@@ -77,7 +87,7 @@ class MysqlConnection implements DriverConnection {
           reject(error);
           return;
         }
-        resolve(this.result(result));
+        resolve(this.result(sql, result));
       };
       // Without values, the text protocol: it takes every statement (SAVEPOINT, DDL, …).
       // With values, a prepared statement: the values travel apart from the SQL text.
@@ -86,7 +96,7 @@ class MysqlConnection implements DriverConnection {
     });
   }
 
-  private result(result: unknown): RawResult {
+  private result(sql: string, result: unknown): RawResult {
     if (Array.isArray(result)) {
       return { rows: result as Record<string, unknown>[], rowCount: result.length, insertId: undefined };
     }
@@ -96,7 +106,8 @@ class MysqlConnection implements DriverConnection {
     }
     // An UPDATE's affectedRows counts the rows it changed; the rows it matched are the
     // count the other databases report.
-    const matched = typeof header.info === "string" ? ROWS_MATCHED.exec(header.info) : null;
+    const matched =
+      typeof header.info === "string" && UPDATE.test(sql) ? ROWS_MATCHED.exec(header.info) : null;
     const rowCount = matched === null ? header.affectedRows : Number(matched[1]);
     return { rows: EMPTY_ROWS, rowCount, insertId: insertedKey(header.insertId) };
   }
@@ -214,13 +225,18 @@ export class MysqlDriver implements DriverWrapper {
   }
 
   /**
-   * Prepares a new connection: its session is UTC, an error it reports between statements
-   * (the server ended the session) is kept from ending the process, and its socket's close
-   * is reported as a `disconnect`.
+   * Prepares a new connection: its session is UTC and its messages English (an `UPDATE`'s
+   * row count is read from the "Rows matched" text, which MySQL translates), an error it
+   * reports between statements (the server ended the session) is kept from ending the
+   * process, and its socket's close is reported as a `disconnect`. A connection whose session
+   * cannot be set is destroyed: its first statement then fails with the code `"connection"`,
+   * rather than run in the server's time zone.
    */
   private adopt(connection: PoolConnection): void {
     connection.on("error", () => undefined);
-    connection.query("set time_zone = '+00:00'", () => undefined);
+    connection.query(SESSION_SETTINGS, (error: unknown) => {
+      if (error !== null && error !== undefined) connection.destroy();
+    });
     const stream = (
       connection as unknown as { stream?: { once(event: "close", listener: () => void): void } }
     ).stream;

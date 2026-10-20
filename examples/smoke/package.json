@@ -12,7 +12,7 @@
     "@egon-orm/postgres": "workspace:*",
     "@egon-orm/sqlite": "workspace:*",
     "@egon-orm/zod": "workspace:*",
-    "better-sqlite3": "13.0.3",
+    "better-sqlite3": "12.11.1",
     "egon-orm": "workspace:*",
     "mysql2": "3.24.5"
   }

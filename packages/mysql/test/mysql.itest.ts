@@ -1,7 +1,7 @@
 // MySQL specifics the conformance suites do not reach (tier 2: EGON_TEST_TIER2=1): the
 // session time zone and datetime precision, writes read back by a composite key or a
 // client-generated uuid key (MySQL has no RETURNING), and ON DUPLICATE KEY UPDATE on them.
-import { change, createRepo, type DatabaseAdapter, from, type Repo } from "egon-orm";
+import { change, createRepo, type DatabaseAdapter, from, type Repo, Schema, t } from "egon-orm";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
   createTestDatabase,
@@ -13,6 +13,13 @@ import {
   User,
 } from "../../core/test/support/index.js";
 import { makeMysql } from "./profile.js";
+
+/** A table with a client-generated key and another unique column. */
+class Account extends Schema("accounts", {
+  id: t.uuid().primaryKey().autogenerate(),
+  email: t.string(),
+  name: t.string(),
+}) {}
 
 describe.runIf(tier2Enabled())("mysql", () => {
   let handle: TestDatabaseHandle;
@@ -31,14 +38,71 @@ describe.runIf(tier2Enabled())("mysql", () => {
     await handle?.drop();
   });
 
-  test("the session time zone is UTC whatever the server's is", async () => {
+  test("the session time zone is UTC and its messages English, whatever the server's are", async () => {
     const connection = await adapter.acquire();
     try {
-      const { rows } = await connection.execute("select @@session.time_zone as zone", []);
-      expect(rows).toEqual([{ zone: "+00:00" }]);
+      const { rows } = await connection.execute(
+        "select @@session.time_zone as zone, @@session.lc_messages as messages",
+        [],
+      );
+      expect(rows).toEqual([{ zone: "+00:00", messages: "en_US" }]);
     } finally {
       await connection.release();
     }
+  });
+
+  test("an UPDATE counts the rows it matched in any message language", async () => {
+    await handle.db.query("create table counted (id integer primary key, n integer not null)");
+    await handle.db.query("insert into counted values (1, 1), (2, 2), (3, 3)");
+    const connection = await adapter.acquire();
+    try {
+      await connection.execute("set lc_messages = 'de_DE'", []);
+      // Nothing changes, so the count can only come from the rows matched.
+      const result = await connection.execute("update counted set n = n where n > ?", [0]);
+      expect(result.rowCount).toBe(3);
+    } finally {
+      await connection.execute("set lc_messages = 'en_US'", []);
+      await connection.release();
+    }
+  });
+
+  test("an upsert that met a row it cannot read back writes nothing, and says so", async () => {
+    await handle.db.query(
+      "create table accounts (id char(36) primary key, email varchar(255) not null unique, name varchar(255) not null)",
+    );
+    const first = await repo.insertOrThrow(change(Account, { email: "a@example.com", name: "first" }));
+    await expect(
+      repo.insert(change(Account, { email: "a@example.com", name: "second" }), {
+        onConflict: { update: ["name"] },
+      }),
+    ).rejects.toThrow(/could not be read back by the key it was given.*Nothing was written/);
+    expect(await handle.db.query("select id, name from accounts")).toEqual([{ id: first.id, name: "first" }]);
+    // Inside a transaction, a savepoint undoes the upsert and the transaction carries on.
+    await repo.transaction(async (tx) => {
+      await expect(
+        tx.insert(change(Account, { email: "a@example.com", name: "third" }), {
+          onConflict: { update: ["name"] },
+        }),
+      ).rejects.toThrow(/Nothing was written/);
+      await tx.insertOrThrow(change(Account, { email: "b@example.com", name: "kept" }));
+    });
+    expect(await handle.db.query("select name from accounts order by email")).toEqual([
+      { name: "first" },
+      { name: "kept" },
+    ]);
+  });
+
+  test("a uuid is written in lowercase, so either case is one key", async () => {
+    const upper = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE";
+    await repo.insertOrThrow(change(Org, { id: upper, name: "Upper" }));
+    expect(await handle.db.query("select id from orgs where name = 'Upper'")).toEqual([
+      { id: upper.toLowerCase() },
+    ]);
+    expect((await repo.getOrThrow(Org, upper.toLowerCase())).id).toBe(upper.toLowerCase());
+    expect((await repo.getOrThrow(Org, upper)).name).toBe("Upper");
+    await expect(
+      repo.insertOrThrow(change(Org, { id: upper.toLowerCase(), name: "Again" })),
+    ).rejects.toThrow();
   });
 
   test("a datetime(6) is read to the millisecond: the microseconds a Date cannot hold are dropped", async () => {
@@ -90,6 +154,18 @@ describe.runIf(tier2Enabled())("mysql", () => {
     });
     expect(again.id).toBe(first.id);
     expect(again.name).toBe("Two");
+  });
+
+  test("an upsert that changes nothing still reports the key of the row it met", async () => {
+    // MySQL reports no insert id for an update that changed nothing, unless the statement
+    // sets it with last_insert_id(key).
+    const first = await repo.insertOrThrow(change(User, { email: "same@example.com", name: "Same" }));
+    await repo.insertOrThrow(change(User, { email: "later@example.com" }));
+    const again = await repo.insertOrThrow(change(User, { email: "same@example.com", name: "Same" }), {
+      onConflict: { update: ["name"] },
+    });
+    expect(again.id).toBe(first.id);
+    expect(again.name).toBe("Same");
   });
 
   test('onConflict "nothing" leaves the existing row alone', async () => {

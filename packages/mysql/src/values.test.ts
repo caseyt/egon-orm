@@ -39,6 +39,13 @@ describe("MYSQL_DRIVER_CODECS", () => {
     expect(fromDb(null)).toBeNull();
   });
 
+  test("a uuid is written in lowercase", () => {
+    expect(codec("uuid").toDb("AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE")).toBe(
+      "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    );
+    expect(codec("uuid").toDb(null)).toBeNull();
+  });
+
   test("decimals are text", () => {
     expect(codec("decimal").fromDb("1.50")).toBe("1.50");
     expect(codec("decimal").fromDb(2)).toBe("2");

@@ -13,4 +13,6 @@ minimumReleaseAgeStrict: true
 
 # Dependencies allowed to run install scripts (pnpm blocks them by default).
 allowBuilds:
+  # better-sqlite3 12 fetches (or builds) its native module in an install script.
+  better-sqlite3: true
   esbuild: true

@@ -63,6 +63,13 @@ describe("SQLITE_DRIVER_CODECS", () => {
     );
   });
 
+  test("a uuid is written in lowercase", () => {
+    expect(codec("uuid").toDb("AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE")).toBe(
+      "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    );
+    expect(codec("uuid").toDb(null)).toBeNull();
+  });
+
   test("timestamps are ISO 8601 text in UTC, with a zone for timestamptz only", () => {
     const at = new Date("2026-03-29T01:30:05.007Z");
     expect(codec("timestamptz").toDb(at)).toBe("2026-03-29T01:30:05.007Z");

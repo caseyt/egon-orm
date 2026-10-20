@@ -130,16 +130,30 @@ describe("MysqlDriver", () => {
     expect(() => driver.stats()).toThrow(/before init\(\)/);
   });
 
-  test("a new connection's session is UTC, its errors are kept, and its close is reported", () => {
+  test("a new connection's session is UTC and English, its errors are kept, and its close is reported", async () => {
     const { driver, pool, hooks } = setup();
     driver.init();
     const connection = new FakeConnection();
     pool.emit("connection", connection);
-    expect(connection.calls).toEqual([{ kind: "query", sql: "set time_zone = '+00:00'" }]);
+    expect(connection.calls).toEqual([
+      { kind: "query", sql: "set time_zone = '+00:00', lc_messages = 'en_US'" },
+    ]);
+    await Promise.resolve();
+    expect(connection.destroyed).toBe(0);
     expect(hooks.connected).toHaveBeenCalledTimes(1);
     expect(() => connection.emit("error", new Error("server gone"))).not.toThrow();
     connection.stream.emit("close");
     expect(hooks.disconnected).toHaveBeenCalledTimes(1);
+  });
+
+  test("a connection whose session cannot be set is destroyed, never used in the server's zone", async () => {
+    const { driver, pool } = setup();
+    driver.init();
+    const connection = new FakeConnection();
+    connection.answer = { error: new Error("Unknown or incorrect time zone"), result: undefined };
+    pool.emit("connection", connection);
+    await Promise.resolve();
+    expect(connection.destroyed).toBe(1);
   });
 
   test("a statement without values uses the text protocol, one with values a prepared statement", async () => {
@@ -186,6 +200,18 @@ describe("MysqlDriver", () => {
       insertId: undefined,
     });
     expect(connection.inTransaction()).toBe(false);
+    // The words are translated with lc_messages; the order is not.
+    fake.answer = {
+      error: null,
+      result: { affectedRows: 0, insertId: 0, info: "Datensätze gefunden: 4  Geändert: 0  Warnungen: 0" },
+    };
+    expect((await connection.query("update t set v = v", [], undefined)).rowCount).toBe(4);
+    // An insert's info ("Records: 2  Duplicates: 1 …") is not a count of rows written.
+    fake.answer = {
+      error: null,
+      result: { affectedRows: 1, insertId: 9, info: "Records: 2  Duplicates: 1  Warnings: 0" },
+    };
+    expect((await connection.query("insert into t values (?), (?)", [1, 2], undefined)).rowCount).toBe(1);
     fake.answer = { error: null, result: { affectedRows: 1, insertId: "18446744073709551615" } };
     expect((await connection.query("insert into t values (?)", [1], undefined)).insertId).toBe(
       18_446_744_073_709_551_615n,

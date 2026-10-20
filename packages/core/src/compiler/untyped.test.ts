@@ -61,14 +61,18 @@ describe("an untyped value that is not text", () => {
     expect(() => compile(ast)).toThrow("A value without a type is in the select list");
   });
 
-  test("is refused as a CASE result or ELSE in a select", () => {
+  test("is refused as a CASE result or ELSE in a select, unless another result has a type", () => {
     const when = { when: literalNode(true), result: untyped(1) };
     expect(() => compile(selecting(caseNode([when], undefined)))).toThrow(
       "A value without a type is in a result of a CASE in the select list",
     );
-    const typedWhen = { when: literalNode(true), result: value(1, typeOf(t.integer())) };
-    expect(() => compile(selecting(caseNode([typedWhen], untyped(2))))).toThrow(
+    expect(() => compile(selecting(caseNode([when], untyped(2))))).toThrow(
       "A value without a type is in a result of a CASE in the select list",
+    );
+    // A typed result types the others (review round 3 of the casts follow-up).
+    const typedWhen = { when: literalNode(true), result: value(1, typeOf(t.integer())) };
+    expect(compile(selecting(caseNode([typedWhen], untyped(2)))).sql).toBe(
+      'select case when true then cast($1 as integer) else $2 end as "c0" from "users" as "u"',
     );
   });
 
@@ -250,10 +254,10 @@ describe("comparisons where neither side has a type (review round 2)", () => {
     expect(bindParams(plan.slots, empty.params)).toEqual([1]);
   });
 
-  test("a CASE compared with a column is written as it is: the column types it", () => {
+  test("an untyped CASE compared with a column is cast to the column's type", () => {
     const untypedCase = caseNode([{ when: literalNode(true), result: untyped(1) }], untyped(2));
     expect(compile(where(binary("eq", untypedCase, col("u", "age")))).sql).toContain(
-      'where case when true then $1 else $2 end = "u"."age"',
+      'where cast(case when true then $1 else $2 end as integer) = "u"."age"',
     );
   });
 

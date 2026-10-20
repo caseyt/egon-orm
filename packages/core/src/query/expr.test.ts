@@ -639,8 +639,8 @@ describe("redaction through value-preserving wrappers (review round 2)", () => {
   });
 
   test("a value-preserving wrapper keeps marking; a comparison or aggregate is not entered", () => {
-    const viaNeg = redacted(val(1).neg());
-    expect(show(viaNeg.node)).toBe("(neg $1!)");
+    const viaNeg = redacted(val(1, t.integer()).neg());
+    expect(show(viaNeg.node)).toBe("(neg $1:integer!)");
     const viaPath = redacted(val({ a: "s" }).path("a"));
     expect(viaPath.node.kind === "jsonPath" && viaPath.node.expr).toMatchObject({
       kind: "param",

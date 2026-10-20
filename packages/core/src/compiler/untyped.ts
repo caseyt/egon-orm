@@ -35,6 +35,22 @@ export function untypedValue(where: string, value: unknown): QueryError {
   );
 }
 
+/**
+ * The `QueryError` for arithmetic (`op`, or `neg` for unary minus) none of whose operands
+ * has a type: the database cannot choose an operator for placeholders, and text has no
+ * arithmetic, so no value is allowed there. The message never quotes a value.
+ *
+ * @example
+ * ```ts
+ * throw untypedArithmetic("add");
+ * ```
+ */
+export function untypedArithmetic(op: string): QueryError {
+  return new QueryError(
+    `Arithmetic (${op}()) on values without a type, where nothing gives them one, so the database cannot choose an operator. Give a value a type: val(value, t.integer()) or val(value, t.float()).`,
+  );
+}
+
 /** One checking conversion per place, shared by every plan that needs it. */
 const checkers = new Map<string, (value: unknown) => unknown>();
 

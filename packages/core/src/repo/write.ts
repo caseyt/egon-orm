@@ -90,6 +90,9 @@ import { keepPreloads } from "./preload.js";
 import { Call, isFragment, load, ReadCore } from "./read.js";
 import { atomically } from "./transaction.js";
 
+/** Added to a read-back decoding error of an upsert, which is undone with its read-back. */
+const UNDONE = " The write was undone: an upsert and its read-back run as one unit.";
+
 /** A changeset of any schema, as the repo handles it. */
 export type AnyChangeset = Changeset<AnySchema, boolean>;
 
@@ -1193,8 +1196,12 @@ async function writeThenRead(
     rows = await load(reader, "insert", query.ast, undefined, options);
   } catch (error) {
     // The read plan is an ordinary read's, shared with other queries, so its decoder cannot
-    // say that a write came first: the error is re-thrown here with that said.
-    if (error instanceof CastError) throw new CastError(`${error.message}${WRITTEN}`, error);
+    // say that a write came first: the error is re-thrown here with that said. An upsert and
+    // its read-back are one unit (see insertThenRead), which this error undoes; a plain
+    // insert stays.
+    if (error instanceof CastError) {
+      throw new CastError(`${error.message}${isUpsert(settings.onConflict) ? UNDONE : WRITTEN}`, error);
+    }
     throw error;
   }
   const row = rows[0] as Readonly<Record<string, unknown>> | undefined;

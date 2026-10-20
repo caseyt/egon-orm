@@ -229,5 +229,13 @@ describe.runIf(tier2Enabled())("mysql", () => {
     );
     // The row is there: the insert ran before the read-back failed.
     expect(await repo.count(from(Tally, "t"))).toBe(1);
+    // An upsert and its read-back are one unit: the failed read-back undoes the upsert, and
+    // the error says so.
+    await expect(
+      repo.insert(change(Tally, { label: "second" }), { onConflict: { update: ["label"] } }),
+    ).rejects.toThrow(
+      /^Tally\.score is declared t\.integer\(\).* The write was undone: an upsert and its read-back run as one unit\.$/,
+    );
+    expect(await repo.count(from(Tally, "t"))).toBe(1);
   });
 });

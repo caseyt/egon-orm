@@ -675,6 +675,66 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
         }
       });
 
+      test("timeoutMs cancels a COMMIT that waits; the transaction ends without its work", async ({
+        skip,
+      }) => {
+        const a = adapter();
+        if (!a.capabilities.cancel) return skip("capability cancel is false");
+        const slowCommit = profile.slowCommit;
+        if (slowCommit === undefined) return skip("the profile has no way to make a COMMIT wait");
+        const connection = await a.acquire();
+        try {
+          await connection.begin();
+          const before = (await connection.execute("select value from counters where id = 1", [])).rows;
+          await connection.execute("update counters set value = 77 where id = 1", []);
+          await connection.execute(slowCommit, []);
+          const started = Date.now();
+          const error = await rejection(connection.commit({ timeoutMs: 200 }));
+          expect(Date.now() - started).toBeLessThan(3_000);
+          expect(error).toBeInstanceOf(DatabaseError);
+          expect(error).toMatchObject({ code: "timeout", sql: "commit" });
+          // The database ended the transaction: nothing of it was committed.
+          expect(connection.inTransaction()).toBe(false);
+          expect((await connection.execute("select value from counters where id = 1", [])).rows).toEqual(
+            before,
+          );
+        } finally {
+          await connection.release();
+        }
+      });
+
+      test("a transaction statement whose budget is spent, or whose signal fired, is not sent", async () => {
+        const a = adapter();
+        const sqls: string[] = [];
+        a.on("query", (event) => sqls.push(event.sql));
+        const connection = await a.acquire();
+        try {
+          await expect(connection.begin(undefined, { signal: AbortSignal.abort() })).rejects.toMatchObject({
+            code: "aborted",
+          });
+          expect(connection.inTransaction()).toBe(false);
+          await connection.begin(undefined, { timeoutMs: 5_000 });
+          const before = (await connection.execute("select value from counters where id = 1", [])).rows;
+          await connection.execute("update counters set value = 78 where id = 1", []);
+          await expect(connection.savepoint("s", { timeoutMs: 0 })).rejects.toMatchObject({
+            code: "timeout",
+          });
+          await expect(connection.commit({ timeoutMs: 0 })).rejects.toMatchObject({ code: "timeout" });
+          // The COMMIT was not sent: the transaction is still open, and rolls back.
+          expect(connection.inTransaction()).toBe(true);
+          await connection.rollback({ timeoutMs: 5_000 });
+          expect(connection.inTransaction()).toBe(false);
+          expect((await connection.execute("select value from counters where id = 1", [])).rows).toEqual(
+            before,
+          );
+        } finally {
+          await connection.release();
+        }
+        // The refused statements were reported as failed, but never reached the database.
+        const refused = sqls.filter((sql) => /^(commit|savepoint)/.test(sql));
+        expect(refused.map((sql) => sql.replace(/[`"]/g, ""))).toEqual(["savepoint s", "commit"]);
+      });
+
       test("an abort between stream reads keeps the connection", async () => {
         const a = adapter({ poolMax: 1 });
         const before = (await a.execute(profile.backendId, [])).rows[0]?.id;
@@ -804,6 +864,40 @@ export function runAdapterConformance(profile: AdapterConformanceProfile): void 
         expect(sqls.slice(0, begun).join("; ")).toMatch(/\b(begin|start transaction)\b/);
         if (levels) expect(sqls.slice(0, begun).join("; ")).toMatch(/serializable/);
         expect(sqls[begun + 2]).toBe("commit");
+      });
+
+      test("the context given to a transaction statement reaches the listeners with each of its events, and no parameters", async () => {
+        const a = adapter();
+        const plain: QueryEvent[] = [];
+        const detailed: QueryEvent[] = [];
+        a.on("query", (event) => plain.push(event));
+        a.on("query", (event) => detailed.push(event), { params: true });
+        const levels = a.capabilities.isolationLevels.includes("serializable");
+        const connection = await a.acquire();
+        const context = { step: "transaction" };
+        try {
+          await connection.begin(levels ? { isolation: "serializable" } : undefined, { context });
+          await connection.savepoint("s", { context });
+          await connection.rollbackTo("s", { context });
+          await connection.releaseSavepoint("s", { context });
+          await connection.commit({ context, timeoutMs: 5_000 });
+          await connection.begin(undefined, { context });
+          await connection.rollback({ context });
+        } finally {
+          await connection.release();
+        }
+        expect(plain.length).toBeGreaterThanOrEqual(7);
+        for (const event of plain) {
+          expect(event).toMatchObject({ context, paramCount: 0, params: undefined, error: undefined });
+        }
+        expect(detailed.map((event) => event.params)).toEqual(plain.map(() => []));
+        expect(plain.slice(-5).map((event) => event.sql.replace(/[`"]/g, ""))).toEqual([
+          "rollback to savepoint s",
+          "release savepoint s",
+          "commit",
+          plain.at(-2)?.sql,
+          "rollback",
+        ]);
       });
     });
   });

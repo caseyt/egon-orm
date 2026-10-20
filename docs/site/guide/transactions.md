@@ -110,9 +110,17 @@ work is undone and the outer transaction continues.
 - **Writes that span several statements** (a large `insertAll`, nested changesets) open a
   transaction of their own, or, inside one, a savepoint: their failure undoes only their
   own work.
-- **The transaction statements** (`BEGIN`, `SAVEPOINT`, `COMMIT`, `ROLLBACK`, …) are the
-  adapter's: they are not cancelled by `timeoutMs`, and they are not the repo's `query`
-  events (the adapter's own `query` events include them).
+- **`timeoutMs` covers the transaction statements too.** `BEGIN`, `SAVEPOINT`, `RELEASE`
+  and `COMMIT` get what is left of the budget, and so does their wait behind queries
+  issued before them. A `COMMIT` that waits (a lock, synchronous replication) is
+  cancelled at the deadline and the call rejects with `"timeout"`; a budget already spent
+  when the callback returns sends `ROLLBACK` instead of `COMMIT`. `ROLLBACK` itself is never
+  cut short. A `COMMIT` that completed just as the deadline passed did commit: the call
+  then succeeds.
+- **The transaction statements are `query` events** with `operation: "transaction"` and
+  no `source`: `log: true` prints them and `expectQueries` returns them. In the test
+  sandbox a transaction is a savepoint, so its events are `SAVEPOINT` and `RELEASE`
+  rather than `BEGIN` and `COMMIT`.
 - **`tx.close()`** is refused: it would close the whole pool.
 
 ## A connection without a transaction

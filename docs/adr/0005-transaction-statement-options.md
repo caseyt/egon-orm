@@ -1,6 +1,7 @@
 # 0005 — Execution options for the transaction statements of `Connection`
 
-- **Status:** accepted (option 2, by the owner on 2026-10-20; to be implemented in a follow-up)
+- **Status:** accepted (option 2, by the owner on 2026-10-20); implemented in PR #PR_NUMBER
+  (branch `adr/0005-transaction-statement-options`; see "Implementation" below)
 - **Date:** 2026-10-20
 - **Step:** 16 (raised in the review of PR #36, finding 7; not implemented)
 - **Affects:** the frozen `Connection` contract (`packages/core/src/contracts/adapter.ts`:
@@ -67,8 +68,9 @@ the repo.
 ## Decision
 
 Proposed: **option 2**. It is additive, keeps the SQL in the adapter, and makes both owner
-rules hold for every statement of a transaction. Not implemented: changing a frozen contract
-waits for the owner's acceptance (plan README §9.4).
+rules hold for every statement of a transaction. Changing a frozen contract waited for the
+owner's acceptance (plan README §9.4), given on 2026-10-20; the implementation followed
+(below).
 
 Open points for the owner, should option 2 be accepted:
 
@@ -76,6 +78,20 @@ Open points for the owner, should option 2 be accepted:
   be cut short by the budget that triggered it; a fixed short timeout, or none).
 - Whether the transaction statements become repo `query` events (operation
   `"transaction"`), and whether `expectQueries` counts them or filters them out.
+
+## Implementation
+
+Option 2 as written: the six methods take `execute?: ExecuteOptions` last, and the shared
+adapter passes them on to the `execute` it already used (MySQL's two-statement `BEGIN`
+shares one budget). The open points are built as follows and wait for the owner's
+sign-off. The options and the reasons are in `docs/plan/status/16.md`, "Follow-up: ADR
+0005".
+
+- The `ROLLBACK` (and `ROLLBACK TO`) gets no budget. `BEGIN`, `SAVEPOINT`, `RELEASE` and
+  `COMMIT` get what is left of it, including their wait for the connection.
+- The transaction statements are repo `query` events with operation `"transaction"`, a new
+  `RepoOperation`. `expectQueries` returns them; the sandbox's own statements are not
+  events.
 
 ## Consequences
 

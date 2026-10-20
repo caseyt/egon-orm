@@ -84,6 +84,8 @@ export const MYSQL_PROFILE: AdapterConformanceProfile = {
     insert into authors values (1, 'ada@example.com');
     insert into counters values (1, 0), (2, 0);
   `,
+  // Triggers run with their statement, never at COMMIT: nothing makes a COMMIT wait on its own.
+  slowCommit: undefined,
   violations: {
     unique: {
       sql: "insert into authors values (2, 'ada@example.com')",

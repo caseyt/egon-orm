@@ -12,6 +12,7 @@ import type {
   ConflictUpdate,
   Connection,
   Dialect,
+  ExecuteOptions,
   Executor,
   InsertCell,
   InsertPlanOptions,
@@ -183,6 +184,32 @@ describe("Adapter", () => {
     connection.savepoint();
     // Step 16: a connection whose ROLLBACK failed is destroyed, not returned to the pool.
     expectTypeOf(connection.destroy()).resolves.toBeVoid();
+  });
+
+  test("every transaction method takes execution options last, optionally (ADR 0005)", () => {
+    expectTypeOf(connection.begin).parameter(1).toEqualTypeOf<ExecuteOptions | undefined>();
+    expectTypeOf(connection.commit).parameter(0).toEqualTypeOf<ExecuteOptions | undefined>();
+    expectTypeOf(connection.rollback).parameter(0).toEqualTypeOf<ExecuteOptions | undefined>();
+    expectTypeOf(connection.savepoint).parameter(1).toEqualTypeOf<ExecuteOptions | undefined>();
+    expectTypeOf(connection.rollbackTo).parameter(1).toEqualTypeOf<ExecuteOptions | undefined>();
+    expectTypeOf(connection.releaseSavepoint).parameter(1).toEqualTypeOf<ExecuteOptions | undefined>();
+    const options: ExecuteOptions = { timeoutMs: 1_000, signal: AbortSignal.abort(), context: { id: 1 } };
+    connection.begin(undefined, options);
+    connection.begin({ readOnly: true }, options);
+    connection.commit(options);
+    connection.rollback(options);
+    connection.savepoint("a", options);
+    connection.rollbackTo("a", options);
+    connection.releaseSavepoint("a", options);
+    // Existing callers compile unchanged.
+    connection.commit();
+    connection.savepoint("a");
+    // @ts-expect-error the begin options come first
+    connection.begin(options, { readOnly: true });
+    // @ts-expect-error timeoutMs is a number
+    connection.commit({ timeoutMs: "1s" });
+    // @ts-expect-error the name comes first
+    connection.savepoint(options);
   });
 
   test("typeOverrides answers with a codec or undefined", () => {

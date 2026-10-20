@@ -535,15 +535,27 @@ export interface Executor {
  * ```
  */
 export interface Connection extends Executor {
-  begin(options?: BeginOptions): Promise<void>;
-  commit(): Promise<void>;
-  rollback(): Promise<void>;
+  /**
+   * Starts a transaction, in the dialect's syntax: one statement, or two on MySQL
+   * (`set transaction …`, then `start transaction …`).
+   *
+   * `execute` applies to these statements as {@link Executor.execute}'s options apply to
+   * one: `signal` and `timeoutMs` cancel them (`timeoutMs` is one budget for every
+   * statement of the call) and `context` reaches the `query` listeners with each event.
+   * `statementName` is refused (`TypeError`): transaction statements are never prepared.
+   * The same holds for the `execute` argument of every transaction method below.
+   */
+  begin(options?: BeginOptions, execute?: ExecuteOptions): Promise<void>;
+  /** `COMMIT`. A `COMMIT` cancelled by `execute.signal` or `execute.timeoutMs` rejects with `DatabaseError` (`"aborted"` or `"timeout"`). */
+  commit(execute?: ExecuteOptions): Promise<void>;
+  /** `ROLLBACK`. */
+  rollback(execute?: ExecuteOptions): Promise<void>;
   /** `SAVEPOINT name`. The name is quoted as an identifier. */
-  savepoint(name: string): Promise<void>;
+  savepoint(name: string, execute?: ExecuteOptions): Promise<void>;
   /** `ROLLBACK TO SAVEPOINT name`. */
-  rollbackTo(name: string): Promise<void>;
+  rollbackTo(name: string, execute?: ExecuteOptions): Promise<void>;
   /** `RELEASE SAVEPOINT name`. */
-  releaseSavepoint(name: string): Promise<void>;
+  releaseSavepoint(name: string, execute?: ExecuteOptions): Promise<void>;
   /**
    * Whether a transaction is open on the connection, as the database reports it: also one
    * that a raw statement (`begin`) started, or that a failed statement ended.

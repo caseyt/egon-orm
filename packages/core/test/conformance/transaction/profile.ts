@@ -20,6 +20,12 @@ export interface TransactionConformanceProfile {
   readonly makeAdapter: (db: TestDatabase, options: MakeTransactionAdapterOptions) => DatabaseAdapter;
   /** A statement that sleeps for `seconds` and returns one row. */
   readonly sleep: (seconds: number) => Expr<unknown>;
+  /**
+   * A statement that, run inside a transaction, makes its `COMMIT` take several seconds
+   * (its DDL is part of {@link schema}); `undefined` when the database has no way to make a
+   * `COMMIT` wait, and the suite's cancelled-`COMMIT` case is skipped.
+   */
+  readonly slowCommit: Expr<unknown> | undefined;
   /** A statement whose one row has the column `id`: an identifier of the session it runs on. */
   readonly sessionId: Expr<unknown>;
   /** A statement whose one row has the column `level`: the isolation level of the running transaction, as `IsolationLevel` spells it. */

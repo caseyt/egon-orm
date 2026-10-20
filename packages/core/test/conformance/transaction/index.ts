@@ -37,7 +37,7 @@ import {
   t,
 } from "egon-orm";
 import { createSandbox, expectQueries } from "egon-orm/testing";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   createTestDatabase,
   Profile,
@@ -535,6 +535,189 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
         expect(await rejection((leaked as Repo).count(Tag))).toBeInstanceOf(QueryError);
         expect(await committedTags()).toEqual([]);
       });
+
+      test("a budget spent by the callback's last statement: nothing is committed, the call times out, and no transaction is left open", async () => {
+        const made = adapter({ poolMax: 1 });
+        let disconnects = 0;
+        made.on("disconnect", () => {
+          disconnects++;
+        });
+        const r = repo({ adapter: made });
+        const started = Date.now();
+        // Where statements can be cancelled, the budget stops the sleep; where they cannot
+        // (SQLite), the sleep ends past the deadline and the COMMIT is never sent.
+        const error = await rejection(
+          r.transaction(
+            async (tx) => {
+              await tx.insertOrThrow(change(Tag, { name: "spent" }));
+              await tx.raw(profile.sleep(1.5));
+            },
+            { timeoutMs: 200 },
+          ),
+        );
+        expect(error).toBeInstanceOf(DatabaseError);
+        expect((error as DatabaseError).code).toBe("timeout");
+        expect((error as Error).message).toContain("timeoutMs (200 ms)");
+        expect(Date.now() - started).toBeLessThan(5_000);
+        expect(await committedTags()).toEqual([]);
+        // The one connection went back to the pool outside a transaction: a write on it
+        // commits at once, and nothing was closed.
+        await r.insertOrThrow(change(Tag, { name: "after" }));
+        expect(await committedTags()).toEqual(["after"]);
+        expect(disconnects).toBe(0);
+      });
+
+      test("a COMMIT that waits is cancelled by the budget: nothing is committed and the connection is reusable", async (context) => {
+        const made = adapter({ poolMax: 1 });
+        if (!made.capabilities.cancel) return context.skip("capability cancel is false");
+        const slowCommit = profile.slowCommit;
+        if (slowCommit === undefined) return context.skip("the profile has no way to make a COMMIT wait");
+        const r = repo({ adapter: made });
+        const statements: RepoQueryEvent[] = [];
+        r.on("query", (event) => statements.push(event));
+        const started = Date.now();
+        const error = await rejection(
+          r.transaction(
+            async (tx) => {
+              await tx.insertOrThrow(change(Tag, { name: "slow commit" }));
+              await tx.raw(slowCommit);
+            },
+            { timeoutMs: 400 },
+          ),
+        );
+        expect(Date.now() - started).toBeLessThan(3_000);
+        expect(error).toBeInstanceOf(DatabaseError);
+        expect((error as DatabaseError).code).toBe("timeout");
+        expect((error as Error).message).toContain("timeoutMs (400 ms)");
+        expect((error as DatabaseError).sql).toBe("commit");
+        expect(await committedTags()).toEqual([]);
+        // The cancelled COMMIT is the transaction's last event, and it failed.
+        const last = statements.filter((event) => event.operation === "transaction").at(-1);
+        expect(last).toMatchObject({ sql: "commit", operation: "transaction" });
+        expect((last as RepoQueryEvent).error).toMatchObject({ code: "timeout" });
+        await r.insertOrThrow(change(Tag, { name: "after" }));
+        expect(await committedTags()).toEqual(["after"]);
+      });
+
+      test("a BEGIN that waits behind a checkout's statement past the budget is never sent", async (context) => {
+        const made = adapter({ poolMax: 1 });
+        // Where a running statement blocks until it ends (capability cancel false), no timer
+        // fires while the BEGIN waits for it.
+        if (!made.capabilities.cancel) return context.skip("capability cancel is false");
+        const r = repo({ adapter: made });
+        let called = false;
+        await r.checkout(async (c) => {
+          let slept = false;
+          const slow = c.raw(profile.sleep(0.6)).then(() => {
+            slept = true;
+          });
+          const error = await rejection(
+            c.transaction(
+              async () => {
+                called = true;
+              },
+              { timeoutMs: 100 },
+            ),
+          );
+          expect((error as DatabaseError).code).toBe("timeout");
+          expect((error as Error).message).toContain("timeoutMs (100 ms)");
+          // It gave up at its deadline, while the statement before it was still running.
+          expect(slept).toBe(false);
+          await slow;
+          // No transaction is open on the connection: this write commits at once.
+          await c.insertOrThrow(change(Tag, { name: "after" }));
+          expect(await committedTags()).toEqual(["after"]);
+        });
+        expect(called).toBe(false);
+      });
+    });
+
+    describe("transaction statements as query events", () => {
+      test("BEGIN, SAVEPOINT, RELEASE, ROLLBACK TO, COMMIT and ROLLBACK are the repo's events, operation transaction", async () => {
+        const r = repo();
+        const queries = await expectQueries(r, async () => {
+          await r.transaction(async (tx) => {
+            await tx.insertOrThrow(change(Tag, { name: "kept" }));
+            await tx.transaction(async () => undefined);
+            await tx.transaction(async (inner) => inner.rollback("undo"));
+          });
+          await r
+            .transaction(async () => {
+              throw new Error("boom");
+            })
+            .catch(() => undefined);
+        });
+        const shown = queries.map((event) => [
+          event.operation,
+          event.sql.replace(/[`"]/g, "").replace(/^start transaction$/, "begin"),
+        ]);
+        expect(shown).toEqual([
+          ["transaction", "begin"],
+          ["insert", (shown[1] as string[])[1]],
+          ["transaction", "savepoint egon_1"],
+          ["transaction", "release savepoint egon_1"],
+          ["transaction", "savepoint egon_1"],
+          ["transaction", "rollback to savepoint egon_1"],
+          ["transaction", "commit"],
+          ["transaction", "begin"],
+          ["transaction", "rollback"],
+        ]);
+        for (const event of queries.filter((each) => each.operation === "transaction")) {
+          expect(event).toMatchObject({
+            source: undefined,
+            context: undefined,
+            paramCount: 0,
+            error: undefined,
+          });
+        }
+      });
+
+      test("the log shows them, with no parameters, while a redacted value stays hidden", async () => {
+        const written: string[] = [];
+        const spy = vi.spyOn(process.stderr, "write").mockImplementation((text) => {
+          written.push(String(text));
+          return true;
+        });
+        const events: RepoQueryEvent[] = [];
+        try {
+          const r = repo({ log: { params: true } });
+          r.on("query", (event) => events.push(event));
+          await r.transaction(async (tx) => {
+            await tx.insertOrThrow(
+              cast(User, { email: "redact@example.com", passwordHash: "secret-hash" }, [
+                "email",
+                "passwordHash",
+              ]),
+            );
+          });
+        } finally {
+          spy.mockRestore();
+        }
+        expect(events.map((event) => event.operation)).toEqual(["transaction", "insert", "transaction"]);
+        expect(events[0]?.params).toEqual([]);
+        expect(events[1]?.params).toContain("**redacted**");
+        expect(events[2]?.params).toEqual([]);
+        expect(written).toHaveLength(3);
+        expect(written[0]).toMatch(/^egon transaction .*: (begin|start transaction) -- params: \[\]\n$/);
+        expect(written[2]).toMatch(/^egon transaction .*: commit -- params: \[\]\n$/);
+        expect(written.join("")).not.toContain("secret-hash");
+      });
+
+      test("a database that begins with two statements reports both", async (context) => {
+        const made = adapter();
+        if (!made.capabilities.isolationLevels.includes("serializable")) {
+          return context.skip("the database has no isolation levels to choose from");
+        }
+        const r = repo({ adapter: made });
+        const queries = await expectQueries(r, () =>
+          r.transaction(async () => undefined, { isolation: "serializable" }),
+        );
+        const begun = queries.slice(0, -1).map((event) => event.sql);
+        expect(begun.join("; ")).toMatch(/serializable/);
+        expect(begun.join("; ")).toMatch(/\b(begin|start transaction)\b/);
+        expect(queries.every((event) => event.operation === "transaction")).toBe(true);
+        expect(queries.at(-1)?.sql).toBe("commit");
+      });
     });
 
     // --- use after completion and concurrency ------------------------------------------
@@ -1012,7 +1195,7 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
         }
       });
 
-      test("expectQueries counts the statements of a piece of code, those of its transactions included", async () => {
+      test("expectQueries counts the statements of a piece of code: those of its transactions, and the statements that begin and end them", async () => {
         const app = repo();
         const sandbox = await createSandbox(app);
         await sandbox.begin();
@@ -1021,7 +1204,13 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
             await app.insertOrThrow(change(Tag, { name: "a" }));
             await app.transaction(async (tx) => tx.count(Tag));
           });
-          expect(queries.map((event: RepoQueryEvent) => event.operation)).toEqual(["insert", "aggregate"]);
+          // The repo's transaction is a savepoint of the sandbox's: SAVEPOINT and RELEASE.
+          expect(queries.map((event: RepoQueryEvent) => event.operation)).toEqual([
+            "insert",
+            "transaction",
+            "aggregate",
+            "transaction",
+          ]);
         } finally {
           await sandbox.rollback();
         }

@@ -139,6 +139,22 @@ export function inMemory() {
   return migrator;
 }
 
+export async function baseline(): Promise<void> {
+  const adapter = postgres({ connectionString: process.env.DATABASE_URL });
+  // #region baseline
+  // Once, by hand or in a script: record 20261001000000_initial as applied without running it.
+  await adapter.execute(
+    "create table if not exists schema_migrations (version bigint primary key, created_at timestamp(0))",
+    [],
+  );
+  await adapter.execute(
+    "insert into schema_migrations (version, created_at) values ($1, now() at time zone 'utc')",
+    ["20261001000000"],
+  );
+  // #endregion baseline
+  await adapter.close();
+}
+
 export function adopt() {
   // #region adopt
   const migrator = createMigrator({

@@ -136,7 +136,16 @@ describe("columns", () => {
   });
 
   test("defaults that cannot be written as constants are refused", () => {
-    for (const value of [Number.NaN, Number.POSITIVE_INFINITY, "a\u0000", undefined, Symbol("x"), () => 1]) {
+    for (const value of [
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      "a\u0000",
+      "\ud800",
+      "a\udc00b",
+      undefined,
+      Symbol("x"),
+      () => 1,
+    ]) {
       expect(() =>
         record((m) =>
           m.createTable("t", (t) =>
@@ -166,6 +175,18 @@ describe("columns", () => {
     expect(() => record((m) => m.execute(fragment`select ${param("x", field.integer())}` as never))).toThrow(
       /named parameter/,
     );
+  });
+});
+
+describe("string constants", () => {
+  test("well-formed text, astral characters included, is accepted", () => {
+    const [, emoji] = columnsOf((m) =>
+      m.createTable("t", (t) => {
+        t.id();
+        t.text("x").default("party 🎉");
+      }),
+    );
+    expect(emoji?.default).toEqual({ kind: "value", value: "party 🎉" });
   });
 });
 
@@ -222,6 +243,10 @@ describe("arguments refused when recorded", () => {
     ],
     ["a reference to an empty table", (m) => m.createTable("t", (t) => t.id() && t.references("o", ""))],
     ["enumText without values", (m) => m.createTable("t", (t) => t.id() && t.enumText("r", []))],
+    [
+      "enumText with a lone surrogate",
+      (m) => m.createTable("t", (t) => t.id() && t.enumText("r", ["\udfff"])),
+    ],
     ["enumText with a non-string", (m) => m.createTable("t", (t) => t.id() && t.enumText("r", [1] as never))],
     [
       "enumText with values that are not an array",

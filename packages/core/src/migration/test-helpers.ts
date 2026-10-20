@@ -57,6 +57,8 @@ export interface FakeDatabaseOptions {
 /** The state of the fake database, for assertions. */
 export interface FakeDatabase {
   readonly adapter: DatabaseAdapter;
+  /** Another adapter over the same database (an adapter cannot be used after close()). */
+  readonly newAdapter: () => DatabaseAdapter;
   readonly statements: SeenStatement[];
   /** The DDL and execute statements, in order (not the runner's bookkeeping). */
   readonly work: () => string[];
@@ -195,17 +197,20 @@ export function fakeDatabase(options: FakeDatabaseOptions = {}): FakeDatabase {
     saturated: () => false,
   };
 
-  const adapter = createAdapter({
-    dialect: "postgres",
-    capabilities: options.capabilities ?? POSTGRES_CAPABILITIES,
-    quoteIdentifier: (name) => `"${name.replaceAll('"', '""')}"`,
-    driver: () => driver,
-    driverCodecs: {},
-    normalizeError: (error) => error,
-  });
+  const newAdapter = (): DatabaseAdapter =>
+    createAdapter({
+      dialect: "postgres",
+      capabilities: options.capabilities ?? POSTGRES_CAPABILITIES,
+      quoteIdentifier: (name) => `"${name.replaceAll('"', '""')}"`,
+      driver: () => driver,
+      driverCodecs: {},
+      normalizeError: (error) => error,
+    });
+  const adapter = newAdapter();
 
   return {
     adapter,
+    newAdapter,
     statements,
     work: () => statements.filter((s) => !BOOKKEEPING.test(s.sql)).map((s) => s.sql),
     versions: () => [...committed].sort((a, b) => a - b),

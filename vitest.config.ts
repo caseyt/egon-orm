@@ -105,6 +105,7 @@ export default defineConfig({
         // README §6: CI enforces 95% lines and branches per package.
         "packages/core/src/**": { lines: 95, branches: 95 },
         "packages/postgres/src/**": { lines: 95, branches: 95 },
+        "packages/cli/src/**": { lines: 95, branches: 95 },
       },
     },
   },

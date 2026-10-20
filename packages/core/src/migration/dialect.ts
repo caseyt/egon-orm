@@ -67,8 +67,13 @@ export interface MigrationDialect {
   readonly now: string;
   /**
    * Writes a string constant as a SQL literal (DDL takes no bound parameters). It must
-   * return a literal that the database reads back as exactly `value`, whatever `value`
-   * holds; `value` never contains NUL (refused before).
+   * return a literal that the database reads back as exactly `value`; `value` is
+   * well-formed text without NUL (anything else is refused before).
+   *
+   * The statement text reaches the server in the connection's client encoding, which the
+   * writer assumes to be UTF-8 (the `pg` driver sets `client_encoding` to UTF-8 when it
+   * connects). Under an encoding such as SJIS or GBK, where a multibyte character can end
+   * in the byte of a backslash or a quote, escaping by characters is not safe.
    */
   readonly stringLiteral: (value: string) => string;
   /** The runner's lock: statements taking the two 32-bit keys as `$1`, `$2`. */
@@ -88,7 +93,8 @@ function postgresStringLiteral(value: string): string {
   const quoted = value.replaceAll("'", "''");
   // In an E'…' string a backslash is always an escape, whatever standard_conforming_strings
   // says, so doubling every backslash makes each one stand for itself. Without a backslash
-  // the plain form has only the quote to escape under either setting.
+  // the plain form has only the quote to escape under either setting. This holds for a
+  // UTF-8 client encoding (see MigrationDialect.stringLiteral).
   return value.includes("\\") ? `E'${quoted.replaceAll("\\", "\\\\")}'` : `'${quoted}'`;
 }
 

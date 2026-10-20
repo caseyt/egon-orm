@@ -1,6 +1,7 @@
 // What a dialect package tells the migration conformance suite about its database. The
 // suite itself is written once, against `egon-orm/migration`, and checks behaviour.
 import type { DatabaseAdapter } from "egon-orm";
+import type { SqlFragment } from "egon-orm/migration";
 import type { TestDatabase } from "../../support/index.js";
 
 export interface MigrationConformanceProfile {
@@ -22,4 +23,16 @@ export interface MigrationConformanceProfile {
   readonly arrayIndexMethod: string | undefined;
   /** An extension the test server can install; `undefined` without extensions. */
   readonly extension: string | undefined;
+  /**
+   * The guide's recipe for recording a first migration as applied on a database never
+   * migrated: the statements (with their parameters) that create the tracking table and
+   * insert `version`.
+   */
+  readonly baseline: (version: string) => readonly (readonly [string, readonly unknown[]])[];
+  /**
+   * Other string-literal settings to read the constants back under, each a statement a
+   * migration runs in its transaction before its DDL (Postgres:
+   * `set local standard_conforming_strings = off`). Empty when there are none.
+   */
+  readonly stringSettings: readonly { readonly label: string; readonly setup: SqlFragment }[];
 }

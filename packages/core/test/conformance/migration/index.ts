@@ -13,6 +13,7 @@ import {
   MigrationError,
   type MigrationSource,
   type MigratorOptions,
+  type SqlFragment,
 } from "egon-orm/migration";
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
@@ -250,6 +251,32 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
         expect(await db.query("select version from schema_migrations")).toHaveLength(1);
       }));
 
+    test("a lock timeout never leaves the lock held, even when the lock was granted as the time ran out", () =>
+      withAdapters("migrate_lock_zero", async (db, adapter) => {
+        // With lockTimeoutMs: 0 the timer fires while the (uncontended) lock is being granted.
+        // One adapter: a connection that went back to its pool still holding the lock would
+        // make every later attempt wait, and the check below would see the lock.
+        const shared = adapter(1);
+        for (let i = 0; i < 10; i++) {
+          await migrator(shared, [], { lockTimeoutMs: 0 })
+            .up()
+            .catch(() => undefined);
+        }
+        const advisory = async (): Promise<number> =>
+          (
+            await db.query(
+              "select count(*)::int as n from pg_locks where locktype = 'advisory' and database = (select oid from pg_database where datname = current_database())",
+            )
+          )[0]?.n as number;
+        // A destroyed session ends on the server shortly after the client closes it.
+        for (let wait = 0; wait < 50 && (await advisory()) > 0; wait++) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        expect(await advisory()).toBe(0);
+        // And a runner without a timeout still gets the lock.
+        expect(await migrator(adapter(), [], {}).up()).toEqual([]);
+      }));
+
     test("a failing migration is rolled back: nothing of it stays and its version is not recorded", () =>
       withAdapters("migrate_fail", async (db, adapter) => {
         const migrations: MigrationSource[] = [
@@ -322,6 +349,20 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
         expect(await names(db, profile.listTables)).toEqual(["new", "schema_migrations"]);
       }));
 
+    test("the guide's baseline recipe records a first migration as applied on a fresh database", () =>
+      withAdapters("migrate_baseline", async (db, adapter) => {
+        // The statements of the guide (docs/site/examples/migrations.ts#baseline), through an adapter.
+        const admin = adapter();
+        for (const [sql, params] of profile.baseline("20261001000000")) await admin.execute(sql, params);
+        const runner = migrator(adapter(), [
+          { version: 20261001000000, name: "initial", migration: creates("existing") },
+          { version: 20261002000000, name: "create_next", migration: creates("next") },
+        ]);
+        expect((await runner.status()).map((row) => row.state)).toEqual(["up", "down"]);
+        expect((await runner.up()).map((run) => run.name)).toEqual(["create_next"]);
+        expect(await names(db, profile.listTables)).toEqual(["next", "schema_migrations"]);
+      }));
+
     test("a dry run changes nothing, not even the tracking table", () =>
       withAdapters("migrate_dry", async (db, adapter) => {
         const runs = await migrator(adapter(), BLOG_MIGRATIONS).up({ dryRun: true });
@@ -330,46 +371,62 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
         expect(await names(db, profile.listTables)).toEqual([]);
       }));
 
-    test("constant defaults are written as literals that read back as themselves", () =>
-      withAdapters("migrate_literals", async (db, adapter) => {
-        const strings = [
-          "it's",
-          "a\\b",
-          "\\'; drop table literals; --",
-          "''",
-          "\\",
-          "line\nbreak",
-          "$$ dollar $$",
-          "émoji 🎉",
-          ...fc.sample(fc.string({ unit: fc.constantFrom("'", "\\", "x", "E", " ", ";") }), {
-            numRuns: 20,
-            seed: 18,
-          }),
-        ];
-        await migrator(adapter(), [
-          {
-            version: 20260101000000,
-            name: "literals",
-            migration: defineMigration({
-              change(m) {
-                m.createTable("literals", (t) => {
-                  t.integer("id").primaryKey();
-                  for (const [i, value] of strings.entries()) t.text(`s${i}`).default(value);
-                  t.integer("n").default(-42);
-                  t.boolean("b").default(true);
-                  t.jsonb("j").default({ quote: "it's", slash: "a\\b" });
-                });
-              },
+    const stringModes: readonly { readonly label: string; readonly setup: SqlFragment | undefined }[] = [
+      { label: "the server default", setup: undefined },
+      ...profile.stringSettings,
+    ];
+    for (const mode of stringModes) {
+      test(`constant defaults are written as literals that read back as themselves (${mode.label})`, () =>
+        withAdapters("migrate_literals", async (db, adapter) => {
+          const strings = [
+            "it's",
+            "a\\b",
+            "\\'; drop table literals; --",
+            "''",
+            "\\",
+            "\\x41",
+            "line\nbreak\ttab\r",
+            "$$ dollar $$",
+            "E'x'",
+            "émoji 🎉 \u2028",
+            ...fc.sample(fc.string({ unit: fc.constantFrom("'", "\\", "x", "E", " ", ";") }), {
+              numRuns: 20,
+              seed: 18,
             }),
-          },
-        ]).up();
-        await db.query("insert into literals (id) values (1)");
-        const [row] = await db.query("select * from literals");
-        for (const [i, value] of strings.entries()) expect(row?.[`s${i}`]).toBe(value);
-        expect(row?.n).toBe(-42);
-        expect(row?.b).toBe(true);
-        expect(row?.j).toEqual({ quote: "it's", slash: "a\\b" });
-      }));
+          ];
+          await migrator(adapter(), [
+            {
+              version: 20260101000000,
+              name: "literals",
+              migration: defineMigration({
+                up(m) {
+                  // In the migration's transaction, so the DDL below is read under this setting.
+                  if (mode.setup !== undefined) m.execute(mode.setup);
+                  m.createTable("literals", (t) => {
+                    t.integer("id").primaryKey();
+                    for (const [i, value] of strings.entries()) t.text(`s${i}`).default(value);
+                    t.integer("n").default(-42);
+                    t.boolean("b").default(true);
+                    t.jsonb("j").default({ quote: "it's", slash: "a\\b", line: "\n'" });
+                    t.enumText("kind", ["back\\slash", "it's"]).default("back\\slash");
+                  });
+                },
+              }),
+            },
+          ]).up();
+          await db.query("insert into literals (id) values (1)");
+          const [row] = await db.query("select * from literals");
+          for (const [i, value] of strings.entries()) expect(row?.[`s${i}`]).toBe(value);
+          expect(row?.n).toBe(-42);
+          expect(row?.b).toBe(true);
+          expect(row?.j).toEqual({ quote: "it's", slash: "a\\b", line: "\n'" });
+          expect(row?.kind).toBe("back\\slash");
+          await db.query("insert into literals (id, kind) values (2, $1)", ["it's"]);
+          await expect(db.query("insert into literals (id, kind) values (3, $1)", ["other"])).rejects.toThrow(
+            /literals_kind_check/,
+          );
+        }));
+    }
 
     test("every operation runs, and rolling back undoes all of it", () =>
       withAdapters("migrate_ops", async (db, adapter) => {

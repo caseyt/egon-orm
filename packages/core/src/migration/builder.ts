@@ -61,6 +61,22 @@ const ACTIONS: ReadonlySet<string> = new Set<ReferenceAction>([
   "noAction",
 ]);
 
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+/**
+ * Whether `value` can be written as a SQL string constant: no NUL, and well-formed UTF-16
+ * (a lone surrogate has no UTF-8 encoding and would be read back as U+FFFD).
+ *
+ * @example
+ * ```ts
+ * isLiteralText("it's"); // true
+ * isLiteralText("\ud800"); // false
+ * ```
+ */
+export function isLiteralText(value: string): boolean {
+  return !value.includes("\u0000") && !LONE_SURROGATE.test(value);
+}
+
 /** A plain object (an object literal), not an array, a class instance or `null`. */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) && hasPlainPrototype(value);
@@ -249,8 +265,9 @@ export function defaultSpec(where: string, type: TypeSpec, value: unknown): Defa
   const json = type.kind === "json" || type.kind === "jsonb";
   switch (typeof value) {
     case "string":
-      if (value.includes("\u0000"))
-        throw new TypeError(`${where}: a default string cannot hold a NUL character.`);
+      if (!isLiteralText(value)) {
+        throw new TypeError(`${where}: a default string cannot hold a NUL character or a lone surrogate.`);
+      }
       return { kind: "value", value };
     case "number":
       if (!Number.isFinite(value)) throw new TypeError(`${where}: a default number must be finite.`);
@@ -614,8 +631,10 @@ export class ColumnAdder {
       throw new TypeError(`${where}: the values must be a non-empty array of strings.`);
     }
     for (const value of values) {
-      if (typeof value !== "string" || value.includes("\u0000")) {
-        throw new TypeError(`${where}: every value must be a string without NUL characters.`);
+      if (typeof value !== "string" || !isLiteralText(value)) {
+        throw new TypeError(
+          `${where}: every value must be a string without NUL characters or lone surrogates.`,
+        );
       }
     }
     const column = checkName(where, "column name", name);

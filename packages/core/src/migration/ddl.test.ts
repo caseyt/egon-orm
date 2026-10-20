@@ -413,7 +413,7 @@ describe("refused at emission", () => {
         },
       ],
     });
-    for (const value of ["a\u0000b", Number.NaN, Number.POSITIVE_INFINITY, {}, undefined]) {
+    for (const value of ["a\u0000b", "x\ud83d", Number.NaN, Number.POSITIVE_INFINITY, {}, undefined]) {
       expect(thrown(() => emitOperation(column(value), postgresDdl()))).toBeInstanceOf(MigrationError);
     }
   });

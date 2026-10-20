@@ -1,7 +1,9 @@
 // The migration template and the --from-schema scaffold.
 import { Comment, Membership, Org, Post, User, UserSettings } from "@egon-orm/test-support";
 import { belongsTo, defineType, Schema, t } from "egon-orm";
+import { createMigrator, defineMigration } from "egon-orm/migration";
 import { describe, expect, test } from "vitest";
+import { fakeDatabase } from "../../core/src/migration/test-helpers.js";
 import {
   MIGRATION_NAME,
   migrationTemplate,
@@ -9,6 +11,51 @@ import {
   scaffoldHeader,
   versionAt,
 } from "./generate.js";
+
+const money = defineType<string>({
+  name: "money",
+  db: { kind: "custom", sql: "money" },
+  cast: (v) => ({ success: true, data: String(v) }),
+});
+class Owner extends Schema("owners", { code: t.string().primaryKey() }, { schema: "billing" }) {}
+class Everything extends Schema("everything", {
+  id: t.integer().primaryKey().dbGenerated(),
+  ownerCode: t.string(),
+  big: t.bigint(),
+  ratio: t.float().default(0.5),
+  price: t.decimal({ precision: 12, scale: 3 }),
+  plain: t.decimal(),
+  active: t.boolean().default(true),
+  token: t.uuid().autogenerate(),
+  blob: t.binary().nullable(),
+  day: t.date(),
+  at: t.time(),
+  stamp: t.timestamp({ precision: "s" }),
+  local: t.localTimestamp({ precision: "us" }),
+  plainStamp: t.localTimestamp(),
+  data: t.json<{ a: number }>().default({ a: 1 }),
+  grid: t.array(t.array(t.integer())),
+  cash: t.type(money),
+  level: t.enum({ low: 1, high: 2 }).default("high"),
+  counted: t.bigint().default(7n),
+  generated: t.integer().dbGenerated(),
+  computed: t.string().default(() => "x"),
+  notes: t.string().virtual(),
+}) {
+  static owner = belongsTo(() => Owner, { foreignKey: "ownerCode" });
+}
+class Log extends Schema("logs", { line: t.string() }, { primaryKey: false }) {}
+class Pair extends Schema("pairs", {
+  a: t.integer().primaryKey().dbGenerated(),
+  b: t.integer().primaryKey(),
+}) {}
+/** Defaults that are not SQL constants for their column: an array, and an object on a text column. */
+class Defaults extends Schema("defaults", {
+  id: t.bigint({ mode: "number" }).primaryKey().dbGenerated(),
+  tags: t.array(t.string()).default([]),
+  settings: t.json<{ theme: string }>().default({ theme: "dark" }),
+  list: t.json<number[]>().default([1, 2]),
+}) {}
 
 describe("versions and the template", () => {
   test("the version is the UTC time as YYYYMMDDHHMMSS", () => {
@@ -99,43 +146,6 @@ describe("--from-schema", () => {
   });
 
   test("every column type, precision, database schema, keys without a serial and tables without a key", () => {
-    const money = defineType<string>({
-      name: "money",
-      db: { kind: "custom", sql: "money" },
-      cast: (v) => ({ success: true, data: String(v) }),
-    });
-    class Owner extends Schema("owners", { code: t.string().primaryKey() }, { schema: "billing" }) {}
-    class Everything extends Schema("everything", {
-      id: t.integer().primaryKey().dbGenerated(),
-      ownerCode: t.string(),
-      big: t.bigint(),
-      ratio: t.float().default(0.5),
-      price: t.decimal({ precision: 12, scale: 3 }),
-      plain: t.decimal(),
-      active: t.boolean().default(true),
-      token: t.uuid().autogenerate(),
-      blob: t.binary().nullable(),
-      day: t.date(),
-      at: t.time(),
-      stamp: t.timestamp({ precision: "s" }),
-      local: t.localTimestamp({ precision: "us" }),
-      plainStamp: t.localTimestamp(),
-      data: t.json<{ a: number }>().default({ a: 1 }),
-      grid: t.array(t.array(t.integer())),
-      cash: t.type(money),
-      level: t.enum({ low: 1, high: 2 }).default("high"),
-      counted: t.bigint().default(7n),
-      generated: t.integer().dbGenerated(),
-      computed: t.string().default(() => "x"),
-      notes: t.string().virtual(),
-    }) {
-      static owner = belongsTo(() => Owner, { foreignKey: "ownerCode" });
-    }
-    class Log extends Schema("logs", { line: t.string() }, { primaryKey: false }) {}
-    class Pair extends Schema("pairs", {
-      a: t.integer().primaryKey().dbGenerated(),
-      b: t.integer().primaryKey(),
-    }) {}
     expect(scaffoldFromSchemas([Everything, Log, Pair, Owner]).body).toMatchInlineSnapshot(`
       "    m.createTable("everything", (t) => {
             t.id("id", { type: "integer" });
@@ -176,6 +186,31 @@ describe("--from-schema", () => {
           // Unique indexes are not part of the schema: add m.createIndex("owners", [/* columns */], { unique: true }) for each.
       "
     `);
+  });
+
+  test("defaults that are not SQL constants for their column get a note instead", () => {
+    const { body } = scaffoldFromSchemas([Defaults]);
+    expect(body).toContain('t.array("tags", "text").notNull(); // its default is not a SQL constant');
+    expect(body).toContain('t.jsonb("settings").notNull().default({"theme":"dark"});');
+    expect(body).toContain('t.jsonb("list").notNull().default([1,2]);');
+  });
+
+  test("every scaffold is a migration the builder accepts, and emits SQL", async () => {
+    for (const schemas of [
+      [User, Post, Comment, Org, Membership],
+      [Everything, Log, Pair, Owner],
+      [Defaults],
+    ]) {
+      const { body } = scaffoldFromSchemas(schemas as never);
+      // The scaffold is the body of change(m): plain JavaScript once written into a file.
+      const change = new Function("m", body) as (m: never) => void;
+      const fake = fakeDatabase();
+      const runs = await createMigrator({
+        adapter: fake.adapter,
+        migrations: [{ version: 20260101000000, name: "scaffold", migration: defineMigration({ change }) }],
+      }).up({ dryRun: true });
+      expect(runs[0]?.statements.length).toBe(schemas.length);
+    }
   });
 
   test("an embedded schema has no table", () => {

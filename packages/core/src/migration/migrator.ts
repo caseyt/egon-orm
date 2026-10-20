@@ -10,11 +10,11 @@ import { redactParams } from "../adapter/telemetry.js";
 import { quoteIdentifier, type SqlDialect } from "../compiler/dialect.js";
 import type { Adapter, Connection, ParamSlot } from "../contracts/adapter.js";
 import { DatabaseError, isEgonError, MigrationError } from "../errors.js";
-import { HASH_SEED, hashString } from "../internal/hash.js";
 import { MigrationBuilder } from "./builder.js";
 import { type DdlContext, emitOperation, type MigrationStatement, table as tableSql } from "./ddl.js";
 import { type MigrationDialect, migrationDialectOf } from "./dialect.js";
 import { checkVersion, loadMigrations, type MigrationSource, migrationList } from "./loader.js";
+import { lockKeys } from "./lock.js";
 import { reverseOperations } from "./reverse.js";
 import type { Operation } from "./types.js";
 
@@ -202,9 +202,6 @@ const OPTION_KEYS = [
   "log",
 ];
 
-/** The first lock key: the same for every runner of this library. */
-const LOCK_CLASS = hashString(HASH_SEED, "egon-orm migrations");
-
 function checkKeys(where: string, options: object, keys: readonly string[]): void {
   for (const key of Object.keys(options)) {
     if (!keys.includes(key)) {
@@ -338,10 +335,7 @@ class DatabaseMigrator implements Migrator {
       dialect: settings.dialect,
       compileFragment: (node) => adapter.compileFragment(node),
     };
-    this.#lockKey = [
-      LOCK_CLASS,
-      hashString(HASH_SEED, `${settings.table.schema ?? ""}\u0000${settings.table.name}`),
-    ];
+    this.#lockKey = lockKeys(settings.table.schema, settings.table.name);
   }
 
   up(options?: UpOptions): Promise<MigrationRun[]> {
@@ -439,7 +433,14 @@ class DatabaseMigrator implements Migrator {
     let locked = false;
     try {
       if (!dryRun) {
-        await this.#lock(connection);
+        try {
+          await this.#lock(connection);
+        } catch (error) {
+          // The lock may have been granted although the call failed (a timeout that fired as
+          // the lock was granted). Closing the session is the one sure way to release it.
+          healthy = false;
+          throw error;
+        }
         locked = true;
       }
       const applied = await this.#applied(connection, !dryRun);

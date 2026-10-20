@@ -23,6 +23,7 @@ import type { CompiledQuery, ParamSlot } from "../contracts/adapter.js";
 import type { FragmentNode } from "../contracts/query.js";
 import { CUSTOM_SQL_TYPE } from "../contracts/type.js";
 import { MigrationError } from "../errors.js";
+import { isLiteralText } from "./builder.js";
 import type { MigrationDialect } from "./dialect.js";
 import type {
   AlterChange,
@@ -245,8 +246,9 @@ function defaultSql(spec: DefaultSpec, ctx: DdlContext): string {
 function literal(value: unknown, ctx: DdlContext): string {
   switch (typeof value) {
     case "string":
-      if (value.includes("\u0000"))
-        throw new MigrationError("A string constant in DDL cannot hold a NUL character.");
+      if (!isLiteralText(value)) {
+        throw new MigrationError("A string constant in DDL cannot hold a NUL character or a lone surrogate.");
+      }
       return ctx.dialect.stringLiteral(value);
     case "number":
       if (!Number.isFinite(value)) throw new MigrationError("A number constant in DDL must be finite.");

@@ -510,6 +510,8 @@ describe("two runners at once", () => {
     const migrator = createMigrator({ adapter: fake.adapter, migrations: THREE, lockTimeoutMs: 5 });
     const error = await rejection(migrator.up());
     expect(error.message).toMatch(/Gave up waiting for the migration lock after 5 ms/);
+    // The connection that waited is closed, never pooled (holder 1, waiter 2).
+    expect(fake.destroyed).toEqual([2]);
     await holder.release();
   });
 
@@ -520,7 +522,9 @@ describe("two runners at once", () => {
     });
     const migrator = createMigrator({ adapter: fake.adapter, migrations: THREE });
     await expect(migrator.up()).rejects.toBe(failure);
-    expect(fake.released).toHaveLength(1);
+    // Destroyed, not returned to the pool: the lock may have been granted after all.
+    expect(fake.destroyed).toHaveLength(1);
+    expect(fake.released).toHaveLength(0);
   });
 });
 

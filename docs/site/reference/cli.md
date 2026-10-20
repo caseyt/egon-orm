@@ -3,10 +3,19 @@
 `egon`, from `@egon-orm/cli`, runs and writes [migrations](/guide/migrations) and manages
 the development database.
 
+::: warning Not published yet
+`@egon-orm/cli` is not on npm yet: whether and when it is published is decided with the
+release. Until then it is used from the Egon repository, where `pnpm build` writes the
+executable to `packages/cli/dist/bin.js`:
+
 ```sh
-npm install --save-dev @egon-orm/cli
-npx egon --help
+pnpm build
+node packages/cli/dist/bin.js --help
 ```
+
+A project in the same pnpm workspace can depend on it with `"@egon-orm/cli": "workspace:*"`
+and run `pnpm exec egon`.
+:::
 
 ## Configuration
 

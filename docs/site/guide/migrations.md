@@ -139,7 +139,8 @@ Pass `name` to choose your own; then give the same name to the changeset functio
   advisory lock keyed by the tracking table), so two deploys that start at once take turns:
   the second waits, then finds nothing left to do. `lockTimeoutMs` makes it give up instead.
 - **Tracking.** Applied versions are rows of `schema_migrations (version bigint primary key,
-  created_at timestamp)`, created on the first run.
+  created_at timestamp(0))`, created by the first `up` or `down` that is not a dry run
+  (`status` and dry runs never create it), with `created_at` in UTC.
 - **Missing files.** A recorded version with no migration file shows as `missing`. Rolling
   back past it is refused until the file is restored.
 - **Dry run.** `up({ dryRun: true })` and `down({ dryRun: true })` return the SQL of each
@@ -177,8 +178,11 @@ For bundlers and deployments without a file system, pass the migrations as a lis
 
 To start using migrations on a database that already has its tables, write a first
 migration that describes them (`egon gen migration initial --from-schema src/schemas.ts`
-gives you a start), and record it as applied without running it:
-`insert into schema_migrations (version, created_at) values (<its version>, now())`.
+gives you a start), and record it as applied without running it. On a database that has
+never been migrated the tracking table does not exist yet, so create it first, as the
+runner would:
+
+<<< @/examples/migrations.ts#baseline
 
 If the database already has a `schema_migrations` table from another tool, with a
 `version bigint` column, the runner reads it as it is. Its versions count as applied; name

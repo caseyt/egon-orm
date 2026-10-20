@@ -124,10 +124,14 @@ function constantDefault(field: FieldMeta): string | undefined {
       return Number.isFinite(value) ? String(value) : undefined;
     case "bigint":
       return `${value}n`;
-    case "object":
-      return value === null || Array.isArray(value) || Object.getPrototypeOf(value) === Object.prototype
-        ? json(value)
-        : undefined;
+    case "object": {
+      if (value === null) return "null";
+      // An object or array is a constant only for a json column (the builder writes its JSON
+      // text); an array column takes it as a fragment, written by hand.
+      const kind = field.type.db.kind;
+      const plain = Array.isArray(value) || Object.getPrototypeOf(value) === Object.prototype;
+      return plain && (kind === "json" || kind === "jsonb") ? json(value) : undefined;
+    }
     default:
       return undefined;
   }
@@ -177,7 +181,11 @@ function createTableFor(schemaMeta: SchemaMeta, notes: string[]): string {
       const constant = constantDefault(field);
       if (constant !== undefined) call += `.default(${constant})`;
       else if (field.default !== undefined)
-        fieldNotes.push("its default is set by the application, not written here");
+        fieldNotes.push(
+          field.default?.kind === "value"
+            ? "its default is not a SQL constant: write it as a fragment, .default(fragment`…`)"
+            : "its default is set by the application, not written here",
+        );
       if (field.primaryKey) call += ".primaryKey()";
       if (field.autogenerate !== undefined) fieldNotes.push("the application generates its value");
       if (field.dbGenerated) fieldNotes.push("the database generates its value: give the column a default");

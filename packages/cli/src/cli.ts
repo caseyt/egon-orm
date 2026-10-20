@@ -178,7 +178,9 @@ function report(io: CliIo, json: boolean, error: unknown): void {
     error.stack !== undefined
   ) {
     io.stderr(`${error.stack}\n`);
-  } else if (cause instanceof Error && cause.message !== message && !message.includes(cause.message)) {
+  } else if (isEgonError(cause) && !message.includes(cause.message)) {
+    // Only an Egon error's message: a driver's own message (the cause of a DatabaseError or
+    // ConstraintError) may quote a value, and the adapter leaves it out on purpose.
     io.stderr(`  caused by: ${cause.message}\n`);
   }
 }

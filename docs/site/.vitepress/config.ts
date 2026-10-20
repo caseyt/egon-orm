@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { type DefaultTheme, defineConfig } from "vitepress";
 
 const siteRoot = new URL("../", import.meta.url);
@@ -57,6 +57,15 @@ function page(text: string, link: string): DefaultTheme.SidebarItem {
   return items.length === 0 ? { text, link } : { text, link, collapsed: true, items };
 }
 
+/**
+ * The sidebar of the API reference, which TypeDoc writes with the pages (`pnpm docs:api`,
+ * run by `docs:build` and `docs:dev`). Empty before the first run.
+ */
+function apiSidebar(): DefaultTheme.SidebarItem[] {
+  const file = new URL("api/reference/typedoc-sidebar.json", siteRoot);
+  return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as DefaultTheme.SidebarItem[]) : [];
+}
+
 const base = process.env.DOCS_BASE ?? "/";
 
 // Step 20 owns the theme and the tooling of this site; the guide pages live under guide/.
@@ -68,7 +77,7 @@ export default defineConfig({
   cleanUrls: true,
   lastUpdated: true,
   // Checked example sources live beside the pages but are not pages themselves.
-  srcExclude: ["examples/**"],
+  srcExclude: ["examples/**", "test/**"],
   // VitePress does not prefix `head` links with the base, so it is added here.
   head: [
     ["link", { rel: "icon", href: `${base}favicon.ico`, sizes: "48x48" }],
@@ -91,14 +100,29 @@ export default defineConfig({
     logo: { light: "/logo.png", dark: "/logo-dark.png", alt: "Egon ORM" },
     nav: [
       { text: "Guide", link: "/guide/" },
+      { text: "Tutorial", link: "/guide/tutorial" },
+      { text: "Recipes", link: "/recipes/" },
       { text: "Reference", link: "/reference/errors" },
       { text: "API", link: "/api/" },
+      { text: "Internals", link: "/internals/" },
     ],
     sidebar: {
       "/guide/": [
         {
           text: "Start here",
-          items: [page("Introduction", "/guide/"), page("Getting started", "/guide/getting-started")],
+          items: [
+            page("Introduction", "/guide/"),
+            page("Getting started", "/guide/getting-started"),
+            page("Tutorial: a blog", "/guide/tutorial"),
+          ],
+        },
+        {
+          text: "Coming from",
+          items: [
+            page("Prisma", "/guide/coming-from-prisma"),
+            page("Drizzle", "/guide/coming-from-drizzle"),
+            page("Sequelize", "/guide/coming-from-sequelize"),
+          ],
         },
         {
           text: "Modelling data",
@@ -141,8 +165,49 @@ export default defineConfig({
           items: [page("Migrations", "/guide/migrations")],
         },
         {
-          text: "Examples",
-          items: [page("Overview", "/guide/examples")],
+          text: "In an application",
+          items: [
+            page("Framework integration", "/guide/frameworks"),
+            page("FAQ and troubleshooting", "/guide/faq"),
+            { text: "Recipes", link: "/recipes/" },
+          ],
+        },
+      ],
+      "/recipes/": [
+        { text: "Recipes", items: [{ text: "Overview", link: "/recipes/" }] },
+        {
+          text: "Reading",
+          items: [
+            page("Pagination", "/recipes/pagination"),
+            page("Top N per parent", "/recipes/top-n-per-parent"),
+            page("Filters from a query string", "/recipes/dynamic-filters"),
+            page("Full-text search", "/recipes/full-text-search"),
+          ],
+        },
+        {
+          text: "Writing",
+          items: [
+            page("Upserts", "/recipes/upserts"),
+            page("Find or create", "/recipes/find-or-create"),
+            page("Optimistic locking", "/recipes/optimistic-locking"),
+            page("Soft deletes", "/recipes/soft-deletes"),
+            page("Auditing", "/recipes/auditing"),
+          ],
+        },
+        {
+          text: "Modelling",
+          items: [
+            page("Enums", "/recipes/enums"),
+            page("Money", "/recipes/money"),
+            page("Multi-tenancy", "/recipes/multi-tenancy"),
+          ],
+        },
+        {
+          text: "Forms and messages",
+          items: [
+            page("Showing form errors (React)", "/recipes/form-errors"),
+            page("Translating error messages", "/recipes/translating-errors"),
+          ],
         },
       ],
       "/reference/": [
@@ -150,15 +215,50 @@ export default defineConfig({
           text: "Reference",
           items: [
             page("Errors", "/reference/errors"),
+            page("Configuration", "/reference/configuration"),
             page("CLI", "/reference/cli"),
             page("Dialect support", "/reference/dialect-support"),
+            page("Glossary", "/reference/glossary"),
+            page("Index of exports", "/reference/exports"),
+          ],
+        },
+        {
+          text: "Project",
+          items: [
             page("Roadmap", "/reference/roadmap"),
+            page("Changelog", "/reference/changelog"),
+            page("Upgrading", "/reference/upgrading"),
           ],
         },
       ],
-      "/api/": [{ text: "API reference", items: [page("Overview", "/api/")] }],
+      "/internals/": [
+        {
+          text: "Internals",
+          items: [
+            page("Architecture", "/internals/"),
+            page("How a query becomes SQL", "/internals/compiler"),
+            page("Extending Egon", "/internals/extending"),
+          ],
+        },
+      ],
+      "/api/": [{ text: "API reference", items: [{ text: "Overview", link: "/api/" }, ...apiSidebar()] }],
     },
-    search: { provider: "local" },
+    search: {
+      provider: "local",
+      options: {
+        // The generated API pages are left out of the index: with them it is several
+        // megabytes, downloaded on the first search. The guide and reference pages, which
+        // mention every export, are searched.
+        _render(src, env, md) {
+          const html = md.render(src, env);
+          return env.relativePath.startsWith("api/reference/") ? "" : html;
+        },
+      },
+    },
+    editLink: {
+      pattern: "https://github.com/caseyt/ectype-orm/edit/main/docs/site/:path",
+      text: "Edit this page on GitHub",
+    },
     socialLinks: [{ icon: "github", link: "https://github.com/caseyt/ectype-orm" }],
   },
 });

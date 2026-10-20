@@ -3,15 +3,28 @@
   "compilerOptions": {
     "rootDir": ".",
     "outDir": "./.tsbuild",
-    "tsBuildInfoFile": "./.tsbuild/tsconfig.tsbuildinfo"
+    "tsBuildInfoFile": "./.tsbuild/tsconfig.tsbuildinfo",
+    "jsx": "react-jsx"
   },
-  "include": [".vitepress/config.ts", "examples"],
+  "include": [".vitepress/config.ts", "examples", "test"],
   "references": [
-    { "path": "../../packages/core" },
-    { "path": "../../packages/postgres" },
-    { "path": "../../packages/sqlite" },
-    { "path": "../../packages/mysql" },
-    { "path": "../../packages/cli" },
-    { "path": "../../packages/zod" }
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/postgres"
+    },
+    {
+      "path": "../../packages/sqlite"
+    },
+    {
+      "path": "../../packages/mysql"
+    },
+    {
+      "path": "../../packages/cli"
+    },
+    {
+      "path": "../../packages/zod"
+    }
   ]
 }

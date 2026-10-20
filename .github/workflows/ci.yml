@@ -106,7 +106,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
+      # Generates the API reference with TypeDoc (failing on an export without a summary or
+      # an @example), then builds the site (failing on a dead link).
       - run: pnpm docs:build
+      # A preview of the site as built from this commit; .github/workflows/docs.yml deploys main.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docs-site
+          path: docs/site/.vitepress/dist
+          retention-days: 7
 
   # One check to require in branch protection: green only if every job above is green.
   ci:

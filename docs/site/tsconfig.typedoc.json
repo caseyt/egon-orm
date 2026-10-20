@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true
+  },
+  "files": [
+    "../../packages/core/src/index.ts",
+    "../../packages/core/src/testing.ts",
+    "../../packages/core/src/migration/index.ts",
+    "../../packages/postgres/src/index.ts",
+    "../../packages/sqlite/src/index.ts",
+    "../../packages/mysql/src/index.ts",
+    "../../packages/zod/src/index.ts",
+    "../../packages/cli/src/index.ts"
+  ]
+}

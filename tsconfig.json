@@ -15,6 +15,7 @@
     { "path": "./packages/mysql" },
     { "path": "./benchmarks" },
     { "path": "./docs/site" },
+    { "path": "./examples/blog" },
     { "path": "./docs/plan/spikes/kysely-bridge" }
   ]
 }

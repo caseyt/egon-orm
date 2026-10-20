@@ -901,7 +901,8 @@ describe("preload", () => {
       .preload({ posts: "comments" })
       .preload({ posts: { comments: "author" } })
       .preload("profile");
-    expect(q.toString()).toBe("from users as u preload posts { comments { author } }, profile");
+    // Listed in the order User declares its associations.
+    expect(q.toString()).toBe("from users as u preload profile, posts { comments { author } }");
     expectConsistent(q);
   });
 

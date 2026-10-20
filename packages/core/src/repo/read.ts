@@ -81,6 +81,7 @@ import {
   type RepoQueryEvent,
   type StreamReadOptions,
 } from "./options.js";
+import { checkPreloads, deadlineOf, reloadPreloads, runPreloads, withinBudget } from "./preload.js";
 
 const now = (): number => performance.now();
 
@@ -469,23 +470,21 @@ export interface AfterDecodeContext {
   readonly ast: QueryAst;
   readonly named: Readonly<Record<string, unknown>> | undefined;
   readonly options: ReadOptions | undefined;
+  /** The call's deadline, taken before its first statement, when it has a `timeoutMs`. */
+  readonly deadline: number | undefined;
 }
 
 /**
  * The stage after decoding, for queries that preload associations: it merges the parents
- * of join preloads and runs the queries of separate preloads (step 14 implements it). It
- * is called only when a row of the plan's output carries preloads.
- *
- * @throws QueryError until preloading is implemented.
+ * of join preloads and runs the queries of separate preloads (`preload.ts`). It is called
+ * only when a row of the plan's output carries preloads.
  */
-export async function afterDecode(
-  _rows: unknown[],
-  _plan: CompiledQuery,
-  _context: AfterDecodeContext,
+export function afterDecode(
+  rows: unknown[],
+  plan: CompiledQuery,
+  context: AfterDecodeContext,
 ): Promise<unknown[]> {
-  throw new QueryError(
-    "This query preloads associations, which this version of egon-orm cannot run yet. Run the association's query separately, for now.",
-  );
+  return runPreloads(rows, plan, context);
 }
 
 /**
@@ -509,10 +508,15 @@ export async function load(
   const adapter = core.adapter;
   const plan = adapter.compile(ast, "all", schemaFor(core, options));
   const info = infoOf(plan);
+  // A query with preloads is given the named values of its preloads' queries too: each
+  // statement binds those it uses, and all are checked here, before anything runs.
   const values =
-    original === undefined
+    original === undefined && !info.preloads
       ? bindParams(plan.slots, ast.params, named)
-      : bindDerived(plan, info, ast, named, original);
+      : bindDerived(plan, info, ast, named, original ?? namedParamsOf({ ast }));
+  const deadline = info.preloads ? deadlineOf(options) : undefined;
+  if (info.preloads)
+    checkPreloads((plan.output as Extract<OutputPlan, { readonly kind: "row" }>).meta, ast.preloads);
   const decoder = decoderFor(plan, adapter, core.codegen);
   const constants = constantsOf(ast);
   const hub = core.hub;
@@ -541,7 +545,7 @@ export async function load(
     }
     hub.emit(call, now() - start, undefined);
   }
-  return info.preloads ? afterDecode(rows, plan, { core, ast, named, options }) : rows;
+  return info.preloads ? afterDecode(rows, plan, { core, ast, named, options, deadline }) : rows;
 }
 
 /** At most one row: `null` for none, {@link MultipleResultsError} for more. */
@@ -1268,7 +1272,9 @@ function schemaOfRow(row: object): AnySchema | undefined {
 /**
  * `repo.reload`: a fresh copy of each row, read where it was read (its `RowMeta.schema`
  * is the source's database schema), `null` for a row that is gone; the result keeps the
- * order of the input.
+ * order of the input. The associations a given row had loaded are loaded again on its
+ * fresh copy (`reloadPreloads` in `preload.ts`); `timeoutMs` is one budget for every
+ * statement of the call.
  *
  * The database matches the rows, not JavaScript: the given rows' keys are joined to the
  * table as a list that carries each key's position, and each row read back carries the
@@ -1325,6 +1331,7 @@ export async function reload(
     }
     group.indexes.push(i);
   }
+  const deadline = deadlineOf(options);
   const out = new Array<unknown>(rows.length).fill(null);
   for (const bySchema of groups.values()) {
     for (const group of bySchema.values()) {
@@ -1333,7 +1340,13 @@ export async function reload(
         const indexes = group.indexes.slice(from, from + size);
         const given = indexes.map((index) => rows[index] as Readonly<Record<string, unknown>>);
         const ast = reloadAst(core, group.schemaMeta, group.databaseSchema, given);
-        const found = (await load(core, "reload", ast, undefined, options)) as readonly Reloaded[];
+        const found = (await load(
+          core,
+          "reload",
+          ast,
+          undefined,
+          withinBudget(options, deadline),
+        )) as readonly Reloaded[];
         const matched = new Array<boolean>(given.length).fill(false);
         for (const each of found) {
           // Positions are 1-based, as `with ordinality` numbers them.
@@ -1344,7 +1357,8 @@ export async function reload(
       }
     }
   }
-  return out;
+  // The associations the given rows had loaded are loaded again on the fresh rows.
+  return reloadPreloads(core, rows, out, options, deadline);
 }
 
 /** One row `reload` read back: the row, and the 1-based position of the given row it matched. */

@@ -45,7 +45,7 @@ A **queryable** is a schema class or a query. `repo.all(User)` returns every use
 | `stream(queryable)` | `AsyncIterable<R>` | See [Streaming](#streaming). |
 | `reload(row)` | `Row \| null` | A fresh copy; `null` if it was deleted. Also takes an array. |
 | `reloadOrThrow(row)` | `Row` | |
-| `preload(rows, spec)` | loaded rows | See [Preloading](/guide/associations#after-the-fact). |
+| `preload(Schema, rows, spec)` | loaded rows | New rows; see [Preloading](/guide/associations#after-the-fact). |
 
 `R` is what the query selects: rows of the schema class (instances of it, with its getters
 and methods) unless the query has a `select`.
@@ -81,8 +81,10 @@ and methods) unless the query has a `select`.
   (each key field's values go as one array); elsewhere, and for a key column that holds
   arrays or JSON, in statements of at most 1,000 rows. The database matches the keys with
   its own equality (a decimal whose scale changed is still the same key). An array comes
-  back in the same order, with `null` for a row that is gone. Preloaded associations are
-  not read again.
+  back in the same order, with `null` for a row that is gone. The associations the row
+  had loaded are loaded again, by name, at every depth its loaded rows show; a preload
+  callback's filter, order, limit or select is not kept on a row, so it is not applied
+  again (see [Associations](/guide/associations#after-the-fact)).
 - **A key the row cannot hold exactly is not found again**: a JavaScript `Date` holds
   milliseconds, so a row whose timestamp key has microseconds reloads as `null` (and
   `get` with that `Date` finds nothing). Avoid such keys, or reload by another column.
@@ -105,9 +107,10 @@ argument; options come last. A query without named parameters takes options seco
 | Option | Effect |
 |---|---|
 | `schema` | The database schema for this call. A query's own `.schema()`, and a schema class that declares one, win over it; it wins over the repo's default. |
-| `timeoutMs` | Cancels the query after this long. The wait for a connection counts. |
+| `timeoutMs` | Cancels the query after this long. The wait for a connection counts, and so does every statement of the call: its preloads, the chunks of a `reload`. |
 | `signal` | An `AbortSignal` that cancels the query. |
 | `context` | Any plain object. It is passed through to the query event, for request ids and the like. |
+| `maxConcurrency` | How many preload statements of the call may run at once. Default 1; inside a transaction always 1. |
 
 A query that exceeds `timeoutMs` rejects with `DatabaseError` and the code `"timeout"`;
 one cancelled through `signal` rejects with the code `"aborted"`. An unknown option throws
@@ -301,7 +304,8 @@ Bulk writes skip changesets and validation.
 - A `query` event is one statement the repo ran: the adapter's report (`sql`,
   `paramCount`, `durationMs`, `queueMs`, `rowCount`, `error`) plus `operation` (the method:
   `"all"`, `"one"`, `"first"`, `"get"`, `"getBy"`, `"exists"`, `"aggregate"` for `count` too,
-  `"stream"`, `"reload"`, `"explain"`, `"raw"`, `"insert"`, `"update"`, `"delete"`,
+  `"stream"`, `"reload"`, `"preload"` (each statement that loads associations, of any
+  read, of `repo.preload` and of `reload`), `"explain"`, `"raw"`, `"insert"`, `"update"`, `"delete"`,
   `"insertAll"` (one event per chunk), `"updateAll"`, `"deleteAll"`; a throwing twin
   reports its base method, and `insertOrUpdate` the write it made),
   `source` (the table the query reads from), `decodeMs` (the time spent turning result rows

@@ -10,10 +10,27 @@ import type { ChangesetSource, RowSchema } from "../changeset/types.js";
 import type { PlanCacheStats } from "../compiler/index.js";
 import type { PoolEvent } from "../contracts/adapter.js";
 import type { Result } from "../contracts/result.js";
-import type { AnySchema, FieldNames, PrimaryKeyOf, Row } from "../contracts/schema.js";
+import type {
+  AnySchema,
+  AssocKeys,
+  FieldNames,
+  LoadedAs,
+  LoadedUnchecked,
+  PrimaryKeyOf,
+  Row,
+  ValidPreload,
+} from "../contracts/schema.js";
 import { QueryError } from "../errors.js";
 import type { ColumnNames, SchemaOfBinding } from "../query/bindings.js";
-import type { Queryable, QueryLike, QueryParams, QueryResult, WhereObject } from "../query/builder.js";
+import type {
+  PreloadCheck,
+  PreloadQuery,
+  Queryable,
+  QueryLike,
+  QueryParams,
+  QueryResult,
+  WhereObject,
+} from "../query/builder.js";
 import type { Expr, NoParams, ParamsOf, SomeParams } from "../query/expr.js";
 import { isSchema } from "../schema/guards.js";
 import { type BulkResult, type InsertAllOptions, type InsertAllRow, insertAll, modifyAll } from "./bulk.js";
@@ -33,6 +50,7 @@ import {
   splitArgs,
   writeToStderr,
 } from "./options.js";
+import { PRELOAD_OPTION_KEYS, type PreloadOptions, preloadNodesOf, preloadRows } from "./preload.js";
 import {
   type AggregateFunction,
   aggregate,
@@ -172,6 +190,22 @@ type NotAChangeset<R> =
 
 /** An `onConflict` that inserts or updates a row, so that the write always returns one. */
 type UpdatingConflict<S extends AnySchema> = Exclude<OnConflictOption<S>, "nothing"> | undefined;
+
+/** Refuses a `repo.preload` callback whose query has named parameters: it runs at once, so it takes values. */
+type NoNamedParams<Q extends QueryLike> = [keyof QueryParams<Q>] extends [never]
+  ? unknown
+  : {
+      readonly "~error": "repo.preload runs its callback at once: give the query values, not named parameters";
+    };
+
+/** What a preload adds to a row of `S`: the properties of `L` that are not fields. */
+type PreloadedProps<S extends AnySchema, L> = Omit<L, keyof Row<S>>;
+
+/** `R` with the properties of `N`, which replace any of the same name. */
+type With<R, N> = [keyof N & keyof R] extends [never] ? R & N : Omit<R, keyof N> & N;
+
+/** What `repo.preload` returns for `I`: rows with `N`, an array of them, or `null`. */
+type RowsWith<I, N> = I extends null ? null : I extends readonly (infer E)[] ? With<E, N>[] : With<I, N>;
 
 /** Options of `repo.toSql`: only the database schema matters there. */
 type SqlOptions = Pick<ReadOptions, "schema">;
@@ -408,7 +442,9 @@ export interface Repo {
   /**
    * A fresh copy of a row, read again from the table (and database schema) it was read
    * from, or `null` when it is gone. Given an array, the copies in the same order.
-   * Preloaded associations are not read again.
+   * The associations the row had loaded are loaded again, by name, at every depth its
+   * loaded rows show; a preload callback's filter, order, limit or select is not kept on
+   * a row, so it is not applied again (use `repo.preload(…, { force: true })` for that).
    *
    * The database matches the keys, with its own equality. Two limits:
    * - a key value the row could not hold exactly no longer equals the stored one, so such
@@ -429,6 +465,47 @@ export interface Repo {
    */
   reload<R extends object>(rows: readonly R[], options?: ReadOptions): Promise<(R | null)[]>;
   reload<R extends object>(row: R, options?: ReadOptions): Promise<R | null>;
+
+  /**
+   * Loads associations onto rows already read: one row, an array, or `null` (returned as
+   * it is). It returns **new** rows; the given ones are not changed. An association a row
+   * already has loaded is skipped (its nested preloads still apply to the rows it holds)
+   * unless `force: true`. The spec is that of a query's `preload`: a name, an array, a
+   * nested object, or a name and a callback. The schema class comes first because a row's
+   * type does not say which class it belongs to. The callback runs at once, so its query
+   * uses values, not named parameters (`param(…)` there is a compile error and a
+   * `QueryError`).
+   *
+   * @example
+   * ```ts
+   * const users = await repo.all(User);
+   * const loaded = await repo.preload(User, users, "posts");
+   * const top3 = await repo.preload(User, users, "posts", (q) => q.orderBy(({ posts }) => posts.createdAt.desc()).limit(3));
+   * await repo.preload(User, user, { posts: "comments" }, { force: true });
+   * ```
+   *
+   * @throws TypeError when an element is not a row read from the database.
+   * @throws QueryError when an element is a row of another schema, the spec is not
+   * valid, or the callback's query has named parameters.
+   */
+  preload<
+    S extends AnySchema,
+    I extends Row<S> | readonly Row<S>[] | null,
+    K extends AssocKeys<S>,
+    Q extends QueryLike,
+  >(
+    schema: S,
+    rows: I,
+    assoc: K,
+    fn: (query: PreloadQuery<S, K>) => Q & PreloadCheck<S, K, Q> & NoNamedParams<Q>,
+    options?: PreloadOptions,
+  ): Promise<RowsWith<I, PreloadedProps<S, LoadedAs<S, K, QueryResult<Q>>>>>;
+  preload<S extends AnySchema, I extends Row<S> | readonly Row<S>[] | null, const Spec>(
+    schema: S,
+    rows: I,
+    spec: Spec & ValidPreload<S, Spec>,
+    options?: PreloadOptions,
+  ): Promise<RowsWith<I, PreloadedProps<S, LoadedUnchecked<S, Spec>>>>;
 
   /**
    * Like {@link Repo.reload}, but a row that is gone is an error.
@@ -980,6 +1057,32 @@ class DatabaseRepo implements Repo {
     if (Array.isArray(rows)) return reload(this.#core, rows, checked, false);
     const [fresh] = await reload(this.#core, [rows], checked, false);
     return fresh;
+  }
+
+  preload(schema: unknown, rows: unknown, spec: unknown, ...rest: readonly unknown[]): Promise<never> {
+    return this.#preload(schema, rows, spec, rest) as Promise<never>;
+  }
+
+  async #preload(schema: unknown, rows: unknown, spec: unknown, rest: readonly unknown[]): Promise<unknown> {
+    const checked = checkSchema("preload", schema as AnySchema);
+    const fn = typeof rest[0] === "function" ? rest[0] : undefined;
+    const args = fn === undefined ? rest : rest.slice(1);
+    const { nodes, names } = preloadNodesOf(checked, spec, fn);
+    if (names.length > 0) {
+      throw new QueryError(
+        `repo.preload() runs its callback at once, so its query takes values, not named parameters (${names.map((name) => `"${name}"`).join(", ")}). Write the values into the query.`,
+      );
+    }
+    const options = checkReadOptions<PreloadOptions>("preload", args[0], PRELOAD_OPTION_KEYS);
+    if (args.length > 1) {
+      throw new TypeError(
+        `repo.preload(): it takes its options last, but it was given ${args.length} arguments after the spec.`,
+      );
+    }
+    if (options?.force !== undefined && typeof options.force !== "boolean") {
+      throw new TypeError(`repo.preload(): force must be true or false, but it is ${typeof options.force}.`);
+    }
+    return preloadRows(this.#core, checked, rows, nodes, undefined, options);
   }
 
   reloadOrThrow<R extends object>(rows: readonly R[], options?: ReadOptions): Promise<R[]>;

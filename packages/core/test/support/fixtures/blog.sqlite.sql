@@ -1,7 +1,7 @@
 -- Reference schema: the blog domain, SQLite dialect. The same tables, columns and keys as
 -- blog.sql (PostgreSQL), so that every suite runs unchanged:
 --
--- - bigserial keys are INTEGER PRIMARY KEY (the rowid);
+-- - bigserial keys are INTEGER PRIMARY KEY AUTOINCREMENT (the rowid, never reused);
 -- - the array column posts.tags is JSON text (an array of strings);
 -- - jsonb is JSON text; booleans are 0 / 1;
 -- - timestamps are ISO 8601 text in UTC with milliseconds, the form the adapter writes;
@@ -13,7 +13,7 @@
 -- Load with loadFixture(db, "blog") from ../db.ts.
 
 CREATE TABLE users (
-  id            integer PRIMARY KEY,
+  id            integer PRIMARY KEY AUTOINCREMENT,
   email         text NOT NULL UNIQUE,
   name          text,
   age           integer,
@@ -27,7 +27,7 @@ CREATE TABLE users (
 
 -- has_one: users -> profiles
 CREATE TABLE profiles (
-  id         integer PRIMARY KEY,
+  id         integer PRIMARY KEY AUTOINCREMENT,
   user_id    integer NOT NULL UNIQUE REFERENCES users (id) ON DELETE CASCADE,
   bio        text,
   avatar_url text
@@ -35,7 +35,7 @@ CREATE TABLE profiles (
 
 -- has_many / belongs_to: users -> posts
 CREATE TABLE posts (
-  id           integer PRIMARY KEY,
+  id           integer PRIMARY KEY AUTOINCREMENT,
   author_id    integer NOT NULL REFERENCES users (id),
   title        text NOT NULL,
   body         text,
@@ -49,7 +49,7 @@ CREATE TABLE posts (
 CREATE INDEX posts_author_id_index ON posts (author_id);
 
 CREATE TABLE comments (
-  id          integer PRIMARY KEY,
+  id          integer PRIMARY KEY AUTOINCREMENT,
   post_id     integer NOT NULL REFERENCES posts (id) ON DELETE CASCADE,
   author_id   integer REFERENCES users (id),
   body        text NOT NULL,
@@ -60,7 +60,7 @@ CREATE INDEX comments_author_id_index ON comments (author_id);
 
 -- many_to_many: posts <-> tags through posts_tags
 CREATE TABLE tags (
-  id   integer PRIMARY KEY,
+  id   integer PRIMARY KEY AUTOINCREMENT,
   name text UNIQUE
 );
 

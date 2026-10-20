@@ -9,7 +9,7 @@
 // it has seen the other one's connection, so they pass only when they really overlap. The
 // second insert of the email waits for the first file's transaction to end (the unique
 // index makes it wait), which it does by rolling back.
-import { cast, createRepo, fragment, from, type Repo } from "egon-orm";
+import { cast, createRepo, from, type Repo } from "egon-orm";
 import { createSandbox, type Sandbox } from "egon-orm/testing";
 import { afterAll, afterEach, beforeAll, beforeEach, expect } from "vitest";
 import { type ConnectionSettings, type TestDatabase, User } from "../../support/index.js";
@@ -58,12 +58,14 @@ export function sandboxPeer(self: "a" | "b"): () => Promise<void> {
   let repo: Repo | undefined;
   let watcher: Repo | undefined;
   let sandbox: Sandbox | undefined;
+  let rendezvous: TransactionConformanceProfile["rendezvous"] | undefined;
 
   beforeAll(async () => {
     const spec = JSON.parse(fromEnv(SANDBOX_PROFILE_ENV)) as { url: string; exportName: string };
     const module = (await import(spec.url)) as Record<string, TransactionConformanceProfile | undefined>;
     const profile = module[spec.exportName];
     if (profile === undefined) throw new Error(`${spec.url} exports no ${spec.exportName}`);
+    rendezvous = profile.rendezvous;
     const db = databaseFromEnv();
     repo = createRepo({ adapter: profile.makeAdapter(db, { poolMax: 2 }) });
     // Outside the sandbox, on a connection of its own: what is committed, and the rendezvous.
@@ -84,14 +86,13 @@ export function sandboxPeer(self: "a" | "b"): () => Promise<void> {
   return async () => {
     const app = repo as Repo;
     const outside = watcher as Repo;
-    // The application name is visible to every session: it is the rendezvous signal.
-    await outside.raw(fragment`select set_config('application_name', ${marker(self)}, false) as name`);
+    const meet = rendezvous as TransactionConformanceProfile["rendezvous"];
+    // What one session announces is visible to every other: it is the rendezvous signal.
+    await outside.raw(meet.announce(marker(self)));
     const deadline = Date.now() + 20_000;
     for (;;) {
-      const { rows } = await outside.raw(
-        fragment`select count(*)::int as n from pg_stat_activity where application_name = ${marker(peer)}`,
-      );
-      if (rows[0]?.n === 1) break;
+      const { rows } = await outside.raw(meet.count(marker(peer)));
+      if (Number(rows[0]?.n) === 1) break;
       if (Date.now() > deadline) throw new Error(`sandbox-${self} never saw sandbox-${peer}`);
       await sleep(25);
     }

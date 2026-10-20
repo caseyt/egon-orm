@@ -353,7 +353,13 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
     describe("isolation levels and retries", () => {
       test("the isolation level and read-only mode are those asked for", async () => {
         const r = repo();
+        const capabilities = (adapters[adapters.length - 1] as DatabaseAdapter).capabilities;
         for (const isolation of ["read committed", "repeatable read", "serializable"] as const) {
+          if (!capabilities.isolationLevels.includes(isolation)) {
+            // A level the database does not have is refused before anything is sent.
+            await expect(r.transaction(async () => undefined, { isolation })).rejects.toThrow(QueryError);
+            continue;
+          }
           const result = await r.transactionOrThrow(
             async (tx) => (await tx.raw(profile.isolationLevel)).rows[0]?.level,
             {
@@ -365,7 +371,9 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
         const error = await rejection(
           r.transaction(async (tx) => tx.insertOrThrow(change(Tag, { name: "no" })), { readOnly: true }),
         );
-        expect(error).toBeInstanceOf(DatabaseError);
+        // A read-only transaction the database cannot start is refused before anything is
+        // sent (capability readOnlyTransactions); one it can start refuses the write.
+        expect(error).toBeInstanceOf(capabilities.readOnlyTransactions ? DatabaseError : QueryError);
         expect(await committedTags()).toEqual([]);
       });
 
@@ -398,19 +406,34 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
         };
       }
 
-      test("two serializable transactions that conflict: one fails with a retryable serialisation failure", async () => {
-        const { results, attempts } = await writeSkew(repo(), 0);
+      test("two serializable transactions that conflict: one fails with a retryable serialisation failure", async (context) => {
+        const r = repo();
+        if (!adapters[adapters.length - 1]?.capabilities.multipleConnections) {
+          return context.skip("capability multipleConnections is false");
+        }
+        const { results, attempts } = await writeSkew(r, 0);
         expect(attempts).toBe(2);
         const failures = results.filter((each) => each instanceof DatabaseError);
         expect(failures).toHaveLength(1);
-        expect((failures[0] as DatabaseError).code).toBe("serializationFailure");
+        // A database that resolves the conflict with locks (capability serializationFailures
+        // false: MySQL) fails one of the two with a deadlock instead, retryable all the same.
+        const serializes = adapters[adapters.length - 1]?.capabilities.serializationFailures !== false;
+        expect((failures[0] as DatabaseError).code).toBe(serializes ? "serializationFailure" : "deadlock");
         expect((failures[0] as DatabaseError).retryable).toBe(true);
         expect(await committedTags()).toHaveLength(1);
       });
 
-      test("a deadlock the callback caught before running another statement is retried", async () => {
+      test("a deadlock the callback caught before running another statement is retried", async (context) => {
         const r = repo();
-        const { rows } = await r.insertAll(Tag, [{ name: "one" }, { name: "two" }], { returning: true });
+        if (!adapters[adapters.length - 1]?.capabilities.multipleConnections) {
+          return context.skip("capability multipleConnections is false");
+        }
+        // Without RETURNING the two tags are read back.
+        const { rows } = adapters[adapters.length - 1]?.capabilities.returning
+          ? await r.insertAll(Tag, [{ name: "one" }, { name: "two" }], { returning: true })
+          : await r
+              .insertAll(Tag, [{ name: "one" }, { name: "two" }])
+              .then(async () => ({ rows: await r.all(from(Tag, "t").orderBy(({ t }) => t.id)) }));
         const [one, two] = rows as [Tag, Tag];
         const attempts = { a: 0, b: 0 };
         let locked = 0;
@@ -451,8 +474,12 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
         expect(attempts.a + attempts.b).toBe(3);
       });
 
-      test("with retries, the transaction that lost the conflict runs again and commits", async () => {
-        const { results, attempts } = await writeSkew(repo(), 2);
+      test("with retries, the transaction that lost the conflict runs again and commits", async (context) => {
+        const r = repo();
+        if (!adapters[adapters.length - 1]?.capabilities.multipleConnections) {
+          return context.skip("capability multipleConnections is false");
+        }
+        const { results, attempts } = await writeSkew(r, 2);
         expect(attempts).toBe(3);
         expect(results.map((each) => (each as { success: boolean }).success)).toEqual([true, true]);
         const tags = await committedTags();
@@ -465,8 +492,9 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
     // --- timeouts -----------------------------------------------------------------------
 
     describe("timeoutMs", () => {
-      test("cancels the running statement and rolls back", async () => {
+      test("cancels the running statement and rolls back", async (context) => {
         const made = adapter({ poolMax: 2 });
+        if (!made.capabilities.cancel) return context.skip("capability cancel is false");
         const r = repo({ adapter: made });
         const started = Date.now();
         const error = await rejection(
@@ -541,8 +569,13 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
         expect(rows.map((row) => row.name)).toEqual(names);
       });
 
-      test("a statement that times out while it waits for the one before it never runs, and the transaction carries on", async () => {
+      test("a statement that times out while it waits for the one before it never runs, and the transaction carries on", async (context) => {
         const r = repo();
+        // Where a running statement blocks until it ends (capability cancel false), no timer
+        // fires while the next one waits for it.
+        if (!adapters[adapters.length - 1]?.capabilities.cancel) {
+          return context.skip("capability cancel is false");
+        }
         await r.transaction(async (tx) => {
           const [slow, waiting] = await Promise.allSettled([
             tx.raw(profile.sleep(0.4)),
@@ -595,8 +628,11 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
         await Promise.all([r.count(Tag), r.count(Tag)]);
       });
 
-      test("the repo outside the callback runs on another connection, outside the transaction", async () => {
+      test("the repo outside the callback runs on another connection, outside the transaction", async (context) => {
         const r = repo();
+        if (!adapters[adapters.length - 1]?.capabilities.multipleConnections) {
+          return context.skip("capability multipleConnections is false");
+        }
         await r.transaction(async (tx) => {
           await tx.insertOrThrow(change(Tag, { name: "inside" }));
           expect(await sessionOf(tx)).not.toEqual(await sessionOf(r));
@@ -626,9 +662,10 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
             tx.rollback("no");
           });
           expect(inner.success).toBe(false);
-          expect(
-            await c.transactionOrThrow(async (tx) => tx.inTransaction, { isolation: "serializable" }),
-          ).toBe(true);
+          // With the options a transaction takes (a database without levels takes none).
+          const levels = (adapters[adapters.length - 1] as DatabaseAdapter).capabilities.isolationLevels;
+          const options = levels.includes("serializable") ? { isolation: "serializable" as const } : {};
+          expect(await c.transactionOrThrow(async (tx) => tx.inTransaction, options)).toBe(true);
         });
         expect(await committedTags()).toEqual(["no transaction"]);
       });
@@ -939,9 +976,14 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
         expect(await committedTags()).toEqual([]);
       });
 
-      test("two sandboxes over two repos do not see each other's writes", async () => {
+      test("two sandboxes over two repos do not see each other's writes", async (context) => {
         const first = repo();
         const second = repo();
+        // Two writing transactions at once, in one process (capability multipleConnections:
+        // SQLite has one writer at a time, and its driver waits for a lock without yielding).
+        if (!adapters[adapters.length - 1]?.capabilities.multipleConnections) {
+          return context.skip("capability multipleConnections is false");
+        }
         const one = await createSandbox(first);
         const two = await createSandbox(second);
         await one.begin();

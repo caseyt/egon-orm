@@ -314,8 +314,9 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         expect((await r.getOrThrow(User, user.id)).name).toBe("Prepared");
       });
 
-      test("a per-call database schema decides where the row goes", async () => {
-        if (profile.copyTableInto === undefined) return;
+      test("a per-call database schema decides where the row goes", async (context) => {
+        if (profile.copyTableInto === undefined)
+          return context.skip("the profile has no database schemas to copy a table into");
         await db.exec(profile.copyTableInto("tenant_w", "tags"));
         const r = await repo();
         const tag = await r.insertOrThrow(change(Tag, { name: "elsewhere" }), { schema: "tenant_w" });
@@ -646,8 +647,9 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         );
       });
 
-      test("an exclusion constraint", async () => {
-        if (profile.rangeType === undefined) return;
+      test("an exclusion constraint", async (context) => {
+        if (profile.rangeType === undefined)
+          return context.skip("the database has no range type for an exclusion constraint");
         const r = await repo();
         await r.insertOrThrow(change(Booking, { room: 1, during: "[1,5)" }));
         const overlap = cast(Booking, { room: 1, during: "[3,8)" }, ["room", "during"]);
@@ -1082,8 +1084,9 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         expect(other.valid).toBe(false);
       });
 
-      test("a row is looked for in the database schema it was read from", async () => {
-        if (profile.copyTableInto === undefined) return;
+      test("a row is looked for in the database schema it was read from", async (context) => {
+        if (profile.copyTableInto === undefined)
+          return context.skip("the profile has no database schemas to copy a table into");
         await db.exec(profile.copyTableInto("tenant_u", "tags"));
         try {
           const r = await repo();

@@ -9,11 +9,11 @@ export const SQLITE_WRITE_PROFILE: WriteConformanceProfile = {
   server: "sqlite",
   makeAdapter: SQLITE_READ_PROFILE.makeAdapter,
   columnType: SQLITE_PROFILE.columnType,
-  generatedKey: "integer primary key",
+  generatedKey: "integer primary key autoincrement",
   schema: `
-    create table books (id integer primary key, title text not null, pages integer not null,
+    create table books (id integer primary key autoincrement, title text not null, pages integer not null,
       constraint books_pages_check check (pages > 0));
-    create table stamps (id integer primary key, label text not null, code text not null default 'db-code',
+    create table stamps (id integer primary key autoincrement, label text not null, code text not null default 'db-code',
       note text default 'db-note', made_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')));
   `,
   // SQLite has no range types, and no exclusion constraints.

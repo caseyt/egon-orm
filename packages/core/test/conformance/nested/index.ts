@@ -238,13 +238,13 @@ export function runNestedConformance(profile: NestedConformanceProfile): void {
     let db: TestDatabase;
     const adapters: DatabaseAdapter[] = [];
 
-    function watched(): { repo: Repo; events: RepoQueryEvent[] } {
+    function watched(): { repo: Repo; events: RepoQueryEvent[]; adapter: DatabaseAdapter } {
       const adapter = profile.makeAdapter(db, { poolMax: 4 });
       adapters.push(adapter);
       const repo = createRepo({ adapter });
       const events: RepoQueryEvent[] = [];
       repo.on("query", (event) => events.push(event));
-      return { repo, events };
+      return { repo, events, adapter };
     }
 
     /** `operation source` of each statement, in order. */
@@ -273,9 +273,12 @@ export function runNestedConformance(profile: NestedConformanceProfile): void {
     }
 
     async function count(_repo: Repo, table: string): Promise<number> {
-      const rows = await db.query<{ n: number }>(`select count(*)::int as n from ${table}`);
-      return (rows[0] as { n: number }).n;
+      const rows = await db.query<{ n: unknown }>(`select count(*) as n from ${table}`);
+      return Number((rows[0] as { n: unknown }).n);
     }
+
+    /** A JSON column as the helper's driver returns it: parsed, or (SQLite) the JSON text. */
+    const json = (value: unknown): unknown => (typeof value === "string" ? JSON.parse(value) : value);
 
     // --- hasMany ----------------------------------------------------------------------
 
@@ -480,7 +483,9 @@ export function runNestedConformance(profile: NestedConformanceProfile): void {
 
     describe("manyToMany", () => {
       test("a tag picker links existing tags and creates new ones; removing a tag deletes the join row only", async () => {
-        const { repo } = watched();
+        const { repo, adapter: picking } = watched();
+        // Without RETURNING the new tags are read back by name.
+        const returning = picking.capabilities.returning;
         const writer = await seedWriter(repo);
         const news = await repo.insertOrThrow(change(Label, { name: "news" }));
         // Find or create the picked tags, then link them, in one transaction.
@@ -489,16 +494,15 @@ export function runNestedConformance(profile: NestedConformanceProfile): void {
           .run("labels", async (tx) => {
             const found = await tx.all(from(Label, "l").where(({ l }) => l.name.in(picked)));
             const missing = picked.filter((name) => !found.some((label) => label.name === name));
+            const rows = missing.map((name) => ({ name }));
             const made =
               missing.length === 0
                 ? []
-                : (
-                    await tx.insertAll(
-                      Label,
-                      missing.map((name) => ({ name })),
-                      { returning: true },
-                    )
-                  ).rows;
+                : returning
+                  ? (await tx.insertAll(Label, rows, { returning: true })).rows
+                  : await tx
+                      .insertAll(Label, rows)
+                      .then(() => tx.all(from(Label, "l").where(({ l }) => l.name.in(missing))));
             return success([...found, ...(made ?? [])]);
           })
           .insert("article", ({ labels }) =>
@@ -711,8 +715,9 @@ export function runNestedConformance(profile: NestedConformanceProfile): void {
         expect(await count(repo, "tags")).toBe(1);
       });
 
-      test("timeoutMs is one budget for every statement of a nested write", async () => {
-        const { repo } = watched();
+      test("timeoutMs is one budget for every statement of a nested write", async (context) => {
+        const { repo, adapter: made } = watched();
+        if (!made.capabilities.cancel) return context.skip("capability cancel is false");
         const error = await rejection(
           repo.insert(
             change(Order, { customer: "Slow" }).putAssoc("items", [
@@ -780,8 +785,8 @@ export function runNestedConformance(profile: NestedConformanceProfile): void {
           "select address, phones, card from contacts",
         );
         if (row === undefined) fail("expected a stored contact");
-        expect(row.address).toEqual({ line: "Storgata 1", city: "Oslo", postCode: null });
-        expect(row.phones).toEqual([
+        expect(json(row.address)).toEqual({ line: "Storgata 1", city: "Oslo", postCode: null });
+        expect(json(row.phones)).toEqual([
           {
             id: contact.phones[0]?.id,
             label: "home",
@@ -789,7 +794,11 @@ export function runNestedConformance(profile: NestedConformanceProfile): void {
             verifiedAt: "2026-03-29T01:30:00.000Z",
           },
         ]);
-        expect(row.card).toEqual({ holder: "Ida", issued: "2026-01-02", point: { lat: 59.9, lng: 10.7 } });
+        expect(json(row.card)).toEqual({
+          holder: "Ida",
+          issued: "2026-01-02",
+          point: { lat: 59.9, lng: 10.7 },
+        });
 
         const stored = await repo.getOrThrow(Contact, contact.id);
         expect(stored.address).toBeInstanceOf(Street);

@@ -35,4 +35,14 @@ export interface TransactionConformanceProfile {
    * the name of the export.
    */
   readonly module: { readonly url: string; readonly exportName: string };
+  /**
+   * How the two files of the sandbox pair find each other, on connections outside their
+   * sandboxes: `announce` makes `marker` visible to every other session (and keeps it until
+   * that session ends), `count` returns one row whose `n` is how many sessions announced
+   * `marker`.
+   */
+  readonly rendezvous: {
+    readonly announce: (marker: string) => Expr<unknown>;
+    readonly count: (marker: string) => Expr<unknown>;
+  };
 }

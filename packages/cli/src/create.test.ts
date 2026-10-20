@@ -14,12 +14,16 @@ describe("versions and the template", () => {
       expect(MIGRATION_NAME.test(bad)).toBe(false);
   });
 
-  test("the empty template", () => {
+  test("the empty template has an up and a down to fill in", () => {
     expect(migrationTemplate()).toMatchInlineSnapshot(`
       "import { defineMigration } from "egon-orm/migration";
 
       export default defineMigration({
-        change(m) {
+        up(m) {
+          // the change
+        },
+        down(m) {
+          // undo it, or leave a // noop comment
         },
       });
       "

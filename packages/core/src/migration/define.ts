@@ -3,54 +3,37 @@
  *
  * @module
  */
+import { MigrationError } from "../errors.js";
 import type { MigrationBuilder } from "./builder.js";
 
 /** Marks a value made by {@link defineMigration} (`Symbol.for`, so two copies of the package agree). */
 const MIGRATION: unique symbol = Symbol.for("egon.migration");
 
 /**
- * A reversible migration: `change` records operations, and the runner rolls the
- * migration back by running their inverses in reverse order.
+ * What a migration is written as: `up` makes the change, `down` undoes it. Both are
+ * required. When there is nothing to undo, `down` is an empty function with a `// noop`
+ * comment.
  *
  * @example
  * ```ts
- * const definition: ReversibleMigration = {
- *   change(m) {
- *     m.renameTable("people", "users");
+ * const definition: MigrationDefinition = {
+ *   up(m) {
+ *     m.execute(fragment`update users set role = 'member' where role is null`);
+ *   },
+ *   down() {
+ *     // noop: the backfill leaves nothing to undo
  *   },
  * };
  * ```
  */
-export interface ReversibleMigration {
-  change(m: MigrationBuilder): void | Promise<void>;
-  readonly up?: never;
-  readonly down?: never;
+export interface MigrationDefinition {
+  up(m: MigrationBuilder): void | Promise<void>;
+  down(m: MigrationBuilder): void | Promise<void>;
   /**
    * Runs the migration in a transaction (the default) where the database has
    * transactional DDL. `false` runs it without one, which `concurrently` index
    * operations need; a failure can then leave it half applied.
    */
-  readonly transaction?: boolean;
-}
-
-/**
- * A migration written in both directions. Without `down` it cannot be rolled back.
- *
- * @example
- * ```ts
- * const definition: UpDownMigration = {
- *   up(m) {
- *     m.execute(fragment`update users set role = 'member' where role is null`);
- *   },
- *   down() {},
- * };
- * ```
- */
-export interface UpDownMigration {
-  readonly change?: never;
-  up(m: MigrationBuilder): void | Promise<void>;
-  down?(m: MigrationBuilder): void | Promise<void>;
-  /** As on {@link ReversibleMigration}. */
   readonly transaction?: boolean;
 }
 
@@ -65,16 +48,56 @@ export interface UpDownMigration {
  */
 export interface Migration {
   readonly [MIGRATION]: true;
-  readonly change: ((m: MigrationBuilder) => void | Promise<void>) | undefined;
-  readonly up: ((m: MigrationBuilder) => void | Promise<void>) | undefined;
-  readonly down: ((m: MigrationBuilder) => void | Promise<void>) | undefined;
+  readonly up: (m: MigrationBuilder) => void | Promise<void>;
+  readonly down: (m: MigrationBuilder) => void | Promise<void>;
   readonly transaction: boolean;
 }
 
-const KEYS = ["change", "up", "down", "transaction"];
+const KEYS = ["up", "down", "transaction"];
+
+/** The hint for a definition written with `change`, which migrations no longer take. */
+const CHANGE_HINT = "change() is not supported: write the change in up(m) and what undoes it in down(m).";
 
 /**
- * Defines a migration: either `change` (reversible) or `up` with an optional `down`.
+ * Which of `up` and `down` `value` does not have as functions, for the refusals of
+ * {@link defineMigration} and the loader.
+ *
+ * @example
+ * ```ts
+ * missingSteps({ up() {} }); // ["down"]
+ * ```
+ */
+export function missingSteps(value: object): ("up" | "down")[] {
+  const missing: ("up" | "down")[] = [];
+  for (const key of ["up", "down"] as const) {
+    if (typeof (value as Record<string, unknown>)[key] !== "function") missing.push(key);
+  }
+  return missing;
+}
+
+/**
+ * The sentence that says which functions a migration lacks.
+ *
+ * @example
+ * ```ts
+ * missingStepsMessage("defineMigration() was given", ["down"], false);
+ * // 'defineMigration() was given no down(). A migration has both up(m) and down(m); …'
+ * ```
+ */
+export function missingStepsMessage(
+  subject: string,
+  missing: readonly ("up" | "down")[],
+  hasChange: boolean,
+): string {
+  const what = missing.map((key) => `no ${key}()`).join(" and ");
+  const fix = hasChange
+    ? CHANGE_HINT
+    : "A migration has both up(m) and down(m); when there is nothing to undo, write down() {} with a // noop comment.";
+  return `${subject} ${what}. ${fix}`;
+}
+
+/**
+ * Defines a migration: `up` makes the change and `down` undoes it; both are required.
  * Export it from the migration file, as the default export or as `migration`.
  *
  * @example
@@ -82,7 +105,7 @@ const KEYS = ["change", "up", "down", "transaction"];
  * import { defineMigration } from "egon-orm/migration";
  *
  * export const migration = defineMigration({
- *   change(m) {
+ *   up(m) {
  *     m.createTable("users", (t) => {
  *       t.id();
  *       t.text("email").notNull();
@@ -90,31 +113,28 @@ const KEYS = ["change", "up", "down", "transaction"];
  *     });
  *     m.createIndex("users", ["email"], { unique: true });
  *   },
+ *   down(m) {
+ *     m.dropTable("users");
+ *   },
  * });
  * ```
  *
- * @throws TypeError when the definition is not an object with `change`, or `up` (and
- * optionally `down`), as functions.
+ * @throws MigrationError when `up` or `down` is missing (the loader adds the file's name).
+ * @throws TypeError when the definition is not an object, has an unknown key, or `up`,
+ * `down` or `transaction` has the wrong type.
  */
-export function defineMigration(definition: ReversibleMigration | UpDownMigration): Migration {
+export function defineMigration(definition: MigrationDefinition): Migration {
   if (typeof definition !== "object" || definition === null) {
-    throw new TypeError("defineMigration() takes an object: defineMigration({ change(m) { … } }).");
+    throw new TypeError(
+      "defineMigration() takes an object: defineMigration({ up(m) { … }, down(m) { … } }).",
+    );
   }
-  for (const key of Object.keys(definition)) {
-    if (!KEYS.includes(key)) {
-      throw new TypeError(
-        `defineMigration(): unknown key "${key}". The keys are change, up, down and transaction.`,
-      );
-    }
-  }
-  const { change, up, down, transaction } = definition as {
-    readonly change?: unknown;
+  const { up, down, transaction } = definition as {
     readonly up?: unknown;
     readonly down?: unknown;
     readonly transaction?: unknown;
   };
   for (const [key, value] of [
-    ["change", change],
     ["up", up],
     ["down", down],
   ] as const) {
@@ -122,13 +142,17 @@ export function defineMigration(definition: ReversibleMigration | UpDownMigratio
       throw new TypeError(`defineMigration(): ${key} must be a function.`);
     }
   }
-  if (change !== undefined && (up !== undefined || down !== undefined)) {
-    throw new TypeError(
-      "defineMigration(): give either change() (the rollback is derived from it) or up() and down(), not both.",
-    );
+  const hasChange = "change" in definition;
+  const missing = missingSteps(definition);
+  if (missing.length > 0) {
+    throw new MigrationError(missingStepsMessage("defineMigration() was given", missing, hasChange));
   }
-  if (change === undefined && up === undefined) {
-    throw new TypeError("defineMigration(): give change(), or up() (and down() to make it reversible).");
+  for (const key of Object.keys(definition)) {
+    if (!KEYS.includes(key)) {
+      throw new TypeError(
+        `defineMigration(): unknown key "${key}". The keys are up, down and transaction.${hasChange ? ` ${CHANGE_HINT}` : ""}`,
+      );
+    }
   }
   if (transaction !== undefined && typeof transaction !== "boolean") {
     throw new TypeError("defineMigration(): transaction must be a boolean.");
@@ -136,9 +160,8 @@ export function defineMigration(definition: ReversibleMigration | UpDownMigratio
   type Step = (m: MigrationBuilder) => void | Promise<void>;
   return Object.freeze({
     [MIGRATION]: true as const,
-    change: change as Step | undefined,
-    up: up as Step | undefined,
-    down: down as Step | undefined,
+    up: up as Step,
+    down: down as Step,
     transaction: transaction ?? true,
   });
 }
@@ -148,7 +171,7 @@ export function defineMigration(definition: ReversibleMigration | UpDownMigratio
  *
  * @example
  * ```ts
- * isMigration(defineMigration({ up() {} })); // true
+ * isMigration(defineMigration({ up() {}, down() {} })); // true
  * ```
  */
 export function isMigration(value: unknown): value is Migration {

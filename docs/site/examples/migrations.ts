@@ -11,18 +11,21 @@ import { createMigrator, defineMigration, type MigrationEvent } from "egon-orm/m
 // #region create-users
 // migrations/20261012093000_create_users.ts
 export const createUsers = defineMigration({
-  change(m) {
-    m.createTable("users", (t) => {
-      t.id(); //                                       "id" bigserial primary key
-      t.text("email").notNull();
-      t.text("name"); //                               columns allow null unless notNull()
-      t.integer("age");
-      t.enumText("role", ["admin", "member"]).notNull().default("member"); // text + check
-      t.jsonb("settings");
-      t.references("org_id", "orgs", { type: "uuid", onDelete: "cascade" });
-      t.timestamps(); //                               created_at, updated_at
+  up(m) {
+    m.createTable("users", (table) => {
+      table.id(); //                                       "id" bigserial primary key
+      table.text("email").notNull();
+      table.text("name"); //                               columns allow null unless notNull()
+      table.integer("age");
+      table.enumText("role", ["admin", "member"]).notNull().default("member"); // text + check
+      table.jsonb("settings");
+      table.references("org_id", "orgs", { type: "uuid", onDelete: "cascade" });
+      table.timestamps(); //                               created_at, updated_at
     });
     m.createIndex("users", ["email"], { unique: true }); // users_email_key
+  },
+  down(m) {
+    m.dropTable("users"); //                           its indexes go with it
   },
 });
 // #endregion create-users
@@ -34,19 +37,27 @@ export const backfillRoles = defineMigration({
     m.execute(fragment`update users set role = ${"member"} where role is null`);
   },
   down() {
-    // Nothing to undo: the old rows had no role.
+    // noop: the old rows had no role, so there is nothing to put back
   },
 });
 // #endregion up-down
 
 // #region alter
 export const profileFields = defineMigration({
-  change(m) {
-    m.alterTable("users", (t) => {
-      t.text("nickname"); //                                    add
-      t.modify("age", "bigint", { from: "integer" }); //        from: needed to roll back
-      t.remove("legacy_flag", "boolean"); //                    the type: needed to roll back
-      t.rename("name", "full_name");
+  up(m) {
+    m.alterTable("users", (table) => {
+      table.text("nickname"); //                  add
+      table.modify("age", "bigint"); //           change the type
+      table.remove("legacy_flag"); //             drop
+      table.rename("name", "full_name");
+    });
+  },
+  down(m) {
+    m.alterTable("users", (table) => {
+      table.rename("full_name", "name");
+      table.boolean("legacy_flag"); //            down says what the dropped column was
+      table.modify("age", "integer");
+      table.remove("nickname");
     });
   },
 });
@@ -55,7 +66,7 @@ export const profileFields = defineMigration({
 // #region indexes
 export const searchIndexes = defineMigration({
   transaction: false, // CONCURRENTLY cannot run inside a transaction
-  change(m) {
+  up(m) {
     m.createIndex("posts", ["author_id", "created_at"]); // posts_author_id_created_at_index
     m.createIndex("posts", ["tags"], { using: "gin", concurrently: true });
     m.createIndex("users", ["email"], {
@@ -67,18 +78,30 @@ export const searchIndexes = defineMigration({
       name: "users_lower_email_index",
     });
   },
+  down(m) {
+    // dropIndex takes the table, the columns and unique or name, which name the index.
+    m.dropIndex("users", [fragment`lower(${fragment.ident("email")})`], { name: "users_lower_email_index" });
+    m.dropIndex("users", ["email"], { name: "users_live_email_key" });
+    m.dropIndex("posts", ["tags"], { concurrently: true });
+    m.dropIndex("posts", ["author_id", "created_at"]);
+  },
 });
 // #endregion indexes
 
 // #region constraints
 export const bookingRules = defineMigration({
-  change(m) {
+  up(m) {
     m.createExtension("btree_gist");
     m.createConstraint("bookings", "bookings_nights_check", { check: fragment`nights > 0` });
     m.createConstraint("bookings", "bookings_room_during_excl", {
       exclude: fragment`room with =, during with &&`,
       using: "gist",
     });
+  },
+  down(m) {
+    m.dropConstraint("bookings", "bookings_room_during_excl"); // by name
+    m.dropConstraint("bookings", "bookings_nights_check");
+    m.dropExtension("btree_gist");
   },
 });
 // #endregion constraints
@@ -105,6 +128,9 @@ export const requirePostTitle = defineMigration({
     m.execute(fragment`commit`);
     // The adapter's one handle keeps the pragma: the runner also puts it back, even on failure.
     m.execute(fragment`pragma foreign_keys = on`);
+  },
+  down() {
+    // noop: the stricter column can stay when this migration is rolled back
   },
 });
 // #endregion sqlite-rebuild

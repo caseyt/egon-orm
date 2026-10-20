@@ -5,8 +5,8 @@
  *
  * @module
  */
-import { MigrationError } from "../errors.js";
-import { isMigration, type Migration } from "./define.js";
+import { isEgonError, MigrationError } from "../errors.js";
+import { isMigration, type Migration, missingSteps, missingStepsMessage } from "./define.js";
 
 /**
  * One migration with its version and name: what a file `20261012093000_create_users.ts`
@@ -98,7 +98,8 @@ function sorted(sources: MigrationSource[]): readonly MigrationSource[] {
  * ```
  *
  * @throws TypeError when an entry is not a {@link MigrationSource}.
- * @throws MigrationError when two entries have the same version.
+ * @throws MigrationError when two entries have the same version, or a migration has no
+ * `up` or no `down`.
  */
 export function migrationList(list: readonly unknown[]): readonly MigrationSource[] {
   if (!Array.isArray(list))
@@ -113,9 +114,25 @@ export function migrationList(list: readonly unknown[]): readonly MigrationSourc
     if (!isMigration(migration)) {
       throw new TypeError(`migrations[]: "${name}" has no migration made by defineMigration().`);
     }
+    checkSteps(`The migration "${name}" has`, migration, { version: version as number, migration: name });
     sources.push({ version: version as number, name, migration });
   }
   return sorted(sources);
+}
+
+/**
+ * Refuses a migration without `up` or `down`. `defineMigration` refuses one already; this
+ * catches a migration made by another copy of the package, or forged.
+ */
+function checkSteps(
+  subject: string,
+  migration: Migration,
+  details: { readonly version: number; readonly migration: string },
+): void {
+  const missing = missingSteps(migration);
+  if (missing.length > 0) {
+    throw new MigrationError(missingStepsMessage(subject, missing, "change" in migration), details);
+  }
 }
 
 /**
@@ -153,7 +170,8 @@ function typescriptHelp(file: string, cause: unknown): MigrationError {
  *
  * @throws MigrationError when the directory cannot be read, a file cannot be loaded (a
  * TypeScript file without a TypeScript loader gets an explanation of what to install), a
- * file exports no migration, or two files have the same version.
+ * file exports no migration or a migration without `up` or `down` (the message names the
+ * file and the missing function), or two files have the same version.
  */
 export async function loadMigrations(
   directory: string,
@@ -186,7 +204,9 @@ export async function loadMigrations(
     } catch (cause) {
       const code = (cause as { readonly code?: unknown } | null)?.code;
       if (TS_EXTENSION.test(file) && code === "ERR_UNKNOWN_FILE_EXTENSION") throw typescriptHelp(path, cause);
-      throw new MigrationError(`Cannot load the migration file "${path}".`, {
+      // defineMigration's own refusal (a missing up or down): say which file it is in.
+      const reason = isEgonError(cause, "migration") ? `: ${cause.message}` : ".";
+      throw new MigrationError(`Cannot load the migration file "${path}"${reason}`, {
         version: parsed.version,
         migration: parsed.name,
         cause,
@@ -199,6 +219,10 @@ export async function loadMigrations(
         { version: parsed.version, migration: parsed.name },
       );
     }
+    checkSteps(`The migration file "${path}" has`, migration, {
+      version: parsed.version,
+      migration: parsed.name,
+    });
     sources.push({ version: parsed.version, name: parsed.name, migration });
   }
   return sorted(sources);

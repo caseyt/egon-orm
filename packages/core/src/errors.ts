@@ -466,9 +466,9 @@ export class SchemaDefinitionError extends EgonError {
 }
 
 /**
- * A migration could not be defined, reversed or run: an operation the database lacks, a
- * `change` that cannot be rolled back, a recorded version whose file is missing, the
- * migration lock, or a statement that failed (the driver's error is kept as `cause`).
+ * A migration could not be defined, loaded or run: a migration without `up` or `down`, an
+ * operation the database lacks, a recorded version whose file is missing, the migration
+ * lock, or a statement that failed (the driver's error is kept as `cause`).
  *
  * `version` and `migration` name the migration when the error belongs to one; `sql` is
  * the statement that failed, without parameter values.
@@ -476,7 +476,7 @@ export class SchemaDefinitionError extends EgonError {
  * @example
  * ```ts
  * throw new MigrationError(
- *   'remove("age") cannot be reversed without its type. Write remove("age", "integer"), or give the migration a down().',
+ *   'Cannot load the migration file "20261012093000_drop_age.ts": defineMigration() was given no down().',
  *   { version: 20261012093000, migration: "drop_age" },
  * );
  * ```

@@ -35,8 +35,11 @@ function gate(): { readonly wait: Promise<void>; readonly open: () => void } {
 
 function creates(table: string): Migration {
   return defineMigration({
-    change(m) {
+    up(m) {
       m.createTable(table, (t) => t.id());
+    },
+    down(m) {
+      m.dropTable(table);
     },
   });
 }
@@ -193,12 +196,15 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
             version: 20260101000000,
             name: "long_names",
             migration: defineMigration({
-              change(m) {
+              up(m) {
                 m.createTable(table, (t) => {
                   t.id();
                   t.text(column).notNull();
                 });
                 m.createIndex(table, [column], { unique: true });
+              },
+              down(m) {
+                m.dropTable(table);
               },
             }),
           },
@@ -252,10 +258,13 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
             version: 20260101000000,
             name: "slow",
             migration: defineMigration({
-              async change(m) {
+              async up(m) {
                 started.open();
                 await held.wait;
                 m.createTable("slow", (t) => t.id());
+              },
+              down(m) {
+                m.dropTable("slow");
               },
             }),
           },
@@ -312,6 +321,9 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
               up(m) {
                 m.execute(profile.outsideTransaction);
               },
+              down() {
+                // noop
+              },
             }),
           },
         ];
@@ -341,6 +353,9 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
                 transaction: false,
                 up(m) {
                   m.execute(fragment`insert into outside_log (round) values (${i})`);
+                },
+                down(m) {
+                  m.execute(fragment`delete from outside_log where round = ${i}`);
                 },
               }),
             },
@@ -378,6 +393,9 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
                 m.createTable("doomed", (t) => t.id());
                 m.execute(fragment`insert into doomed (id) values (1)`);
                 m.execute(fragment`insert into doomed (id) values (1)`);
+              },
+              down(m) {
+                m.dropTable("doomed");
               },
             }),
           },
@@ -508,6 +526,9 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
                     t.enumText("kind", ["back\\slash", "it's"]).default("back\\slash");
                   });
                 },
+                down(m) {
+                  m.dropTable("literals");
+                },
               }),
             },
           ]).up();
@@ -526,7 +547,7 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
         }));
     }
 
-    test("every operation runs, and rolling back undoes all of it", () =>
+    test("every operation runs, and a down() that undoes each one leaves the database as it was", () =>
       withAdapters("migrate_ops", async (db, adapter) => {
         // Each operation the database's DDL lacks (its migration table's features) is left
         // out; the emitter refuses it (the unit tests of ddl.ts check that). The notes table
@@ -539,7 +560,7 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
             version: 20260102000000,
             name: "everything",
             migration: defineMigration({
-              change(m) {
+              up(m) {
                 if (inSchema) m.createSchema("extra");
                 m.createTable(
                   "notes",
@@ -559,11 +580,7 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
                 });
                 m.alterTable("base", (t) => {
                   if (features.modifyColumn !== "none") {
-                    t.modify("tier", "bigint", {
-                      notNull: true,
-                      default: 0,
-                      from: { type: "integer", notNull: false, default: null },
-                    });
+                    t.modify("tier", "bigint", { notNull: true, default: 0 });
                   }
                   t.rename("title", "heading");
                 });
@@ -583,10 +600,33 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
                   m.createConstraint("base", "base_tier_check", { check: fragment`tier >= 0` });
                 }
                 m.renameTable("base", "bases");
-                m.execute(
-                  fragment`insert into bases (id, tier) values (${1}, ${2})`,
-                  fragment`delete from bases where id = ${1}`,
-                );
+                m.execute(fragment`insert into bases (id, tier) values (${1}, ${2})`);
+              },
+              down(m) {
+                // Each operation of up() undone, last first.
+                m.execute(fragment`delete from bases where id = ${1}`);
+                m.renameTable("bases", "base");
+                if (features.alterConstraints) m.dropConstraint("base", "base_tier_check");
+                if (profile.arrayIndexMethod !== undefined) m.dropIndex("notes", ["labels"], extra);
+                m.dropIndex("notes", ["body"], extra);
+                m.dropIndex("base", ["tier"]);
+                m.dropIndex("base", [fragment`lower(${fragment.ident("heading")})`], {
+                  name: "base_lower_heading",
+                });
+                m.dropIndex("base", ["heading"], { unique: true });
+                m.alterTable("base", (t) => {
+                  t.rename("heading", "title");
+                  if (features.modifyColumn !== "none") {
+                    t.modify("tier", "integer", { notNull: false, default: null });
+                  }
+                });
+                m.alterTable("base", (t) => {
+                  t.remove("price");
+                  t.remove("tier");
+                  t.remove("title");
+                });
+                m.dropTable("notes", extra);
+                if (inSchema) m.dropSchema("extra");
               },
             }),
           },
@@ -597,7 +637,7 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
             version: 20260103000000,
             name: "bookings",
             migration: defineMigration({
-              change(m) {
+              up(m) {
                 m.createTable("bookings", (t) => {
                   t.id();
                   t.custom("during", type).notNull();
@@ -606,6 +646,10 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
                   exclude: fragment`during with &&`,
                   using,
                 });
+              },
+              down(m) {
+                m.dropConstraint("bookings", "bookings_during_excl");
+                m.dropTable("bookings");
               },
             }),
           });
@@ -682,8 +726,11 @@ export function runMigrationConformance(profile: MigrationConformanceProfile): v
         const index = (transaction: boolean): Migration =>
           defineMigration({
             transaction,
-            change(m) {
+            up(m) {
               m.createIndex("base", ["id"], { concurrently: true, name: "base_id_concurrent" });
+            },
+            down(m) {
+              m.dropIndex("base", ["id"], { concurrently: true, name: "base_id_concurrent" });
             },
           });
         const base: MigrationSource = {

@@ -47,7 +47,7 @@ export function versionAt(now: Date): string {
 }
 
 /**
- * The source of a new, empty migration file.
+ * The source of a new, empty migration file: an `up` and a `down` to fill in.
  *
  * @example
  * ```ts
@@ -58,7 +58,11 @@ export function migrationTemplate(): string {
   return `import { defineMigration } from "egon-orm/migration";
 
 export default defineMigration({
-  change(m) {
+  up(m) {
+    // the change
+  },
+  down(m) {
+    // undo it, or leave a // noop comment
   },
 });
 `;

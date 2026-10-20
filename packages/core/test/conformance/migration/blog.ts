@@ -7,7 +7,7 @@ export const BLOG_MIGRATIONS: readonly MigrationSource[] = [
     version: 20260110090000,
     name: "create_users",
     migration: defineMigration({
-      change(m) {
+      up(m) {
         m.createTable("users", (t) => {
           t.id();
           t.text("email").notNull();
@@ -21,13 +21,17 @@ export const BLOG_MIGRATIONS: readonly MigrationSource[] = [
         });
         m.createIndex("users", ["email"], { unique: true });
       },
+      down(m) {
+        m.dropIndex("users", ["email"], { unique: true });
+        m.dropTable("users");
+      },
     }),
   },
   {
     version: 20260110090100,
     name: "create_profiles_and_orgs",
     migration: defineMigration({
-      change(m) {
+      up(m) {
         m.createTable("profiles", (t) => {
           t.id();
           t.references("user_id", "users", { onDelete: "cascade" }).notNull().unique();
@@ -39,13 +43,17 @@ export const BLOG_MIGRATIONS: readonly MigrationSource[] = [
           t.text("name").notNull();
         });
       },
+      down(m) {
+        m.dropTable("orgs");
+        m.dropTable("profiles");
+      },
     }),
   },
   {
     version: 20260110090200,
     name: "create_posts_and_tags",
     migration: defineMigration({
-      change(m) {
+      up(m) {
         m.createTable("posts", (t) => {
           t.id();
           t.references("author_id", "users").notNull();
@@ -67,13 +75,19 @@ export const BLOG_MIGRATIONS: readonly MigrationSource[] = [
           t.references("tag_id", "tags", { onDelete: "cascade" }).notNull().primaryKey();
         });
       },
+      down(m) {
+        m.dropTable("posts_tags");
+        m.dropTable("tags");
+        m.dropIndex("posts", ["author_id"]);
+        m.dropTable("posts");
+      },
     }),
   },
   {
     version: 20260110090300,
     name: "create_comments",
     migration: defineMigration({
-      change(m) {
+      up(m) {
         m.createTable("comments", (t) => {
           t.id();
           t.references("post_id", "posts", { onDelete: "cascade" }).notNull();
@@ -84,18 +98,24 @@ export const BLOG_MIGRATIONS: readonly MigrationSource[] = [
         m.createIndex("comments", ["post_id"]);
         m.createIndex("comments", ["author_id"]);
       },
+      down(m) {
+        m.dropTable("comments");
+      },
     }),
   },
   {
     version: 20260110090400,
     name: "create_memberships",
     migration: defineMigration({
-      change(m) {
+      up(m) {
         m.createTable("memberships", (t) => {
           t.references("org_id", "orgs", { type: "uuid", onDelete: "cascade" }).notNull().primaryKey();
           t.references("user_id", "users", { onDelete: "cascade" }).notNull().primaryKey();
           t.text("role").notNull().default("member");
         });
+      },
+      down(m) {
+        m.dropTable("memberships");
       },
     }),
   },

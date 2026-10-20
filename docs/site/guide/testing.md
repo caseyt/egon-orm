@@ -23,18 +23,18 @@ their own writes, nothing is committed, and there is no cleanup to write.
   `beforeEach`. `begin()` twice without a rollback is a `QueryError`.
 - **`repo.transaction` inside a test** becomes a savepoint, so code that uses
   transactions works unchanged. Its `isolation`, `readOnly` and `retries` are left out:
-  only a real transaction can have them.
+  only a real transaction can have them. Two of them started together take turns, and a
+  statement made on the repo meanwhile (by a concurrent request, not from inside the
+  callback) waits for the open one to end, so that its rollback cannot undo the statement.
 - **A write the database refuses** undoes only itself, as it would outside the sandbox:
   each statement made on the repo itself runs in a savepoint of its own (two more
   statements per query, in tests only). Inside `repo.transaction` the usual rules apply.
 
 <<< @/examples/testing.ts#expected-failure
 
-The same setup works in Jest: `beforeEach` and `afterEach` are the same calls.
-
 ### Parallelism
 
-Vitest and Jest run each test file in its own worker. Each file therefore has its own
+Vitest runs each test file in its own worker. Each file therefore has its own
 sandbox and connection: files run in parallel over one database without seeing each
 other's data, and the tests within one file run one after another. Two files that write
 the same unique value at the same time both succeed: the second one waits until the
@@ -47,9 +47,12 @@ first one's test rolls back.
 - A test cannot observe a real commit. Behaviour that depends on one, such as two
   connections seeing each other's work, needs a test without the sandbox (and its own
   cleanup).
-- Inside the sandbox, the outer repo used inside a `repo.transaction` callback runs on the
-  same connection, inside the transaction, which it does not in production.
-  `warnOnRootUseInTransaction` catches that mistake in development.
+- The repo used inside one of its own `repo.transaction` callbacks (a statement, another
+  `repo.transaction`, a bulk insert, a stream) is a `QueryError` in the sandbox. In
+  production such a call runs on another connection, outside the transaction (usually a
+  mistake: pass `tx`); the sandbox has one connection, where the call could only run
+  inside the transaction or wait for it forever. Code that commits on purpose outside a
+  transaction it is in needs a test without the sandbox.
 - Locks are held until the rollback: a statement on another connection that needs a row
   or a table the test wrote (`DROP`, `ALTER`, `TRUNCATE`) waits for the test to end.
 - `repo.inTransaction` stays `false` and `repo.rollback()` stays an error, as in

@@ -466,7 +466,7 @@ export class Batch<R extends object = Empty, F = never> {
   run<const N extends string, T, E = never>(
     name: Unique<N, R>,
     fn: (tx: Repo, results: R) => Result<T, E> | PromiseLike<Result<T, E>>,
-  ): Batch<With<R, N, T>, F | BatchFailure<N, E, R>>;
+  ): Batch<With<R, N, T>, [E] extends [never] ? F : F | BatchFailure<N, E, R>>;
   run(name: string, fn: unknown): Batch<object, unknown> {
     if (typeof fn !== "function") throw new TypeError("batch.run(name, fn): fn must be a function.");
     return this.#add("run", name, { operation: "run", input: fn, schema: undefined, args: NO_ARGS });

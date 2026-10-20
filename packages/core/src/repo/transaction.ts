@@ -325,6 +325,8 @@ export class Session {
   transactions = 0;
   /** Set when a `ROLLBACK` failed: the connection is closed instead of returned to the pool. */
   destroy = false;
+  /** The failure the last transaction on this connection ended with, if any: a retry may follow it. */
+  endedWith: Maybe<unknown> = NONE;
 
   constructor(
     readonly connection: Connection,
@@ -586,13 +588,32 @@ export class Level implements Executor {
     // Outside the sandbox, each of these statements would run alone: a failure would undo
     // only itself. A savepoint per statement keeps it so inside the sandbox's transaction.
     if (this.kind === "sandbox") {
-      // The sandbox stands in for the pool: the root-use warning applies here too.
-      const root = this.session.root as RootScope;
-      if (root.watch) warnIfInside(root);
+      const inside = insideCallback(this);
+      if (inside !== undefined) return Promise.reject(inside);
+      // Outside the repo's open transaction, as in production: after it, not inside it.
+      if (this.child !== undefined) return this.#afterChild(sql, params, options);
       return this.session.isolated(sql, params, options);
     }
     if (this.deadline === undefined) return this.session.execute(this, sql, params, options);
     return this.#withinDeadline(sql, params, options, this.deadline);
+  }
+
+  /**
+   * The sandbox: a statement of the repo itself, made from outside the transaction the repo
+   * has open (a concurrent request in the test), waits for that transaction to end, so that
+   * its rollback cannot take the statement with it. Outside the sandbox it would run on
+   * another connection.
+   */
+  async #afterChild(
+    sql: string,
+    params: readonly unknown[],
+    options: ExecuteOptions | undefined,
+  ): Promise<RawResult> {
+    while (this.child !== undefined) await this.turn();
+    const refused = this.refusal();
+    if (refused !== undefined) throw refused;
+    // Checked and sent in one step: a transaction that begins now queues its SAVEPOINT after it.
+    return this.session.isolated(sql, params, options);
   }
 
   async #withinDeadline(
@@ -629,6 +650,11 @@ export class Level implements Executor {
   ): AsyncGenerator<Record<string, unknown>, void, undefined> {
     const refused = this.refusal();
     if (refused !== undefined) throw refused;
+    if (this.kind === "sandbox") {
+      const inside = insideCallback(this);
+      if (inside !== undefined) throw inside;
+      while (this.child !== undefined) await this.turn();
+    }
     const session = this.session;
     // Wait for the statements before it; from then on, other statements are refused.
     await session.control(async () => {
@@ -654,10 +680,12 @@ export class Level implements Executor {
     return new Promise<void>((resolve, reject) => this.#turns.push({ resolve, reject }));
   }
 
-  /** Lets the next waiting nested transaction begin. */
+  /**
+   * Wakes everything waiting for the nested transaction to end: the next nested transaction
+   * takes the level (synchronously, when it wakes), the others wait again.
+   */
   nextTurn(): void {
-    const turn = this.#turns.shift();
-    if (turn !== undefined) turn.resolve();
+    for (const turn of this.#turns.splice(0)) turn.resolve();
   }
 
   /** Ends this level and every level nested in it, without statements: an enclosing level is ending. */
@@ -747,6 +775,28 @@ function warnIfInside(root: RootScope): void {
   process.emitWarning(
     "The repo was used inside one of its own transaction callbacks. Only calls on the tx the callback was given are inside the transaction; this call ran on another connection, outside it, and is not rolled back with it. Pass tx to the code you call. (warnOnRootUseInTransaction: this warning is given once per transaction, and never when NODE_ENV is production.)",
     { code: "EGON_ROOT_IN_TRANSACTION" },
+  );
+}
+
+/**
+ * In the sandbox: the error for a call on the repo itself (or the sandbox's repo) made from
+ * inside one of the repo's transaction callbacks; `undefined` for any other call. Outside
+ * the sandbox such a call runs on another connection, outside the transaction; on the
+ * sandbox's one connection it can only run inside it (where a rollback would take it
+ * along) or wait for it (which waits for the call: a deadlock), so it is refused.
+ */
+function insideCallback(sandbox: Level): QueryError | undefined {
+  const level = storage?.getStore();
+  if (
+    level === undefined ||
+    level === sandbox ||
+    level.session !== sandbox.session ||
+    level.state !== "open"
+  ) {
+    return undefined;
+  }
+  return new QueryError(
+    "The repo was used inside one of its own transaction callbacks, in the test sandbox. Only calls on the tx the callback was given are inside the transaction; outside the sandbox this call would run on another connection, outside it, and in the sandbox's one connection it cannot. Pass tx to the code you call (or, if the call is meant to commit on its own, test it without the sandbox).",
   );
 }
 
@@ -903,6 +953,8 @@ async function finish(level: Level, ended: Outcome): Promise<Ended> {
     });
     if (level.kind !== "savepoint") {
       // The transaction is over: the connection starts afresh (a checkout keeps using it).
+      // What failed in it is kept for the decision to retry.
+      session.endedWith = session.failure;
       session.failure = NONE;
       session.broken = NONE;
     } else if (action === "rollback") {
@@ -943,9 +995,17 @@ async function finish(level: Level, ended: Outcome): Promise<Ended> {
   }
 }
 
-/** The callback of a transaction or savepoint on the repo's side: the repo bound to the level, and the root-use watch. */
-function withRepo(root: RootScope, call: (repo: Repo) => unknown): (level: Level) => unknown {
-  if (!root.watch) return (level) => call(repoFor(root, level));
+/**
+ * The callback of a transaction or savepoint on the repo's side: the repo bound to the
+ * level, run under the store that tells a call from inside the callback, for the root-use
+ * warning and (`store`, always in the sandbox) for the sandbox's own checks.
+ */
+function withRepo(
+  root: RootScope,
+  call: (repo: Repo) => unknown,
+  store = root.watch,
+): (level: Level) => unknown {
+  if (!store) return (level) => call(repoFor(root, level));
   return (level) => watchStorage().run(level, call, repoFor(root, level));
 }
 
@@ -960,6 +1020,7 @@ async function runTransaction(
 ): Promise<Ended> {
   const level = new Level(session, parent, "transaction", 0, deadline, timeoutMs);
   if (parent !== undefined) parent.child = level;
+  session.endedWith = NONE;
   try {
     session.transactions++;
     try {
@@ -1021,7 +1082,13 @@ async function runSavepoint(
   try {
     session.transactions++;
     try {
-      await session.control(() => session.connection.savepoint(savepointName(level)));
+      await session.control(() => {
+        // A statement issued before it, queued, may have failed meanwhile: rolling back to a
+        // savepoint begun after that failure would erase it from the record.
+        const late = parent.sessionRefusal();
+        if (late !== undefined) return Promise.reject(late);
+        return session.connection.savepoint(savepointName(level));
+      });
     } catch (error) {
       session.fail(error);
       session.transactions--;
@@ -1049,6 +1116,15 @@ async function backoff(attempt: number, deadline: number | undefined): Promise<b
   return true;
 }
 
+/**
+ * Whether an attempt that threw may succeed when run again: the error is retryable, or the
+ * transaction had recorded a retryable failure (a callback that caught a deadlock and then
+ * ran another statement throws the `QueryError` of the refusal, whose cause it is).
+ */
+function retryableThrow(error: unknown, session: Session): boolean {
+  return isRetryable(error) || isRetryable(session.endedWith);
+}
+
 /** Whether a finished attempt failed in a way another attempt may not. */
 function retryableEnd(ended: Ended): boolean {
   return ended.why === "statement" && !ended.result.success && isRetryable(ended.result.error);
@@ -1067,7 +1143,8 @@ async function onPool(root: RootScope, call: (level: Level) => unknown, settings
       ended = await runTransaction(session, undefined, call, settings.begin, deadline, timeoutMs);
     } catch (error) {
       await giveBack(session);
-      if (attempt < settings.retries && isRetryable(error) && (await backoff(attempt, deadline))) continue;
+      if (attempt < settings.retries && retryableThrow(error, session) && (await backoff(attempt, deadline)))
+        continue;
       throw error;
     }
     await giveBack(session);
@@ -1091,7 +1168,12 @@ async function onCheckout(
     try {
       ended = await runTransaction(parent.session, parent, call, settings.begin, deadline, timeoutMs);
     } catch (error) {
-      if (attempt < settings.retries && isRetryable(error) && (await backoff(attempt, deadline))) continue;
+      if (
+        attempt < settings.retries &&
+        retryableThrow(error, parent.session) &&
+        (await backoff(attempt, deadline))
+      )
+        continue;
       throw error;
     }
     if (attempt < settings.retries && retryableEnd(ended) && (await backoff(attempt, deadline))) continue;
@@ -1155,7 +1237,7 @@ export async function transaction(
   } else if (scope.sandbox !== undefined) {
     // Inside the sandbox, the repo's transactions are savepoints of the sandbox's own; the
     // options that only a real transaction can take are left out.
-    ended = await runSavepoint(scope.sandbox, withRepo(scope, call), settings.timeoutMs);
+    ended = await inSandbox(scope, scope.sandbox, call, settings);
   } else {
     warnIfInside(scope);
     ended = await onPool(scope, withRepo(scope, call), settings);
@@ -1171,12 +1253,30 @@ async function onLevel(
 ): Promise<Ended> {
   const root = level.session.root as RootScope;
   if (level.kind === "checkout") return onCheckout(level, withRepo(root, call), settings);
-  if (level.kind !== "sandbox" && (settings.begin !== undefined || settings.retries > 0)) {
+  if (level.kind === "sandbox") return inSandbox(root, level, call, settings);
+  if (settings.begin !== undefined || settings.retries > 0) {
     throw new QueryError(
       `tx.${method}() inside a transaction runs in a savepoint, which cannot take isolation, readOnly or retries: give those to the outermost transaction.`,
     );
   }
   return runSavepoint(level, withRepo(root, call), settings.timeoutMs);
+}
+
+/**
+ * A transaction of the repo while a sandbox has it: a savepoint of the sandbox's
+ * transaction, its callback run under the store so that a call on the repo from inside it
+ * is recognised (refused: see `insideCallback`), including another transaction, which
+ * would otherwise wait for its turn behind the one it is called from.
+ */
+function inSandbox(
+  root: RootScope,
+  sandbox: Level,
+  call: (repo: Repo) => unknown,
+  settings: Settings,
+): Promise<Ended> {
+  const inside = insideCallback(sandbox);
+  if (inside !== undefined) return Promise.reject(inside);
+  return runSavepoint(sandbox, withRepo(root, call, true), settings.timeoutMs);
 }
 
 /** The result as `transaction` returns it, or (orThrow) its data, or a `RollbackError`. */
@@ -1282,7 +1382,7 @@ export async function atomically<T>(
 ): Promise<T> {
   const executor = core.executor;
   if (executor instanceof Level) {
-    const refused = executor.refusal();
+    const refused = executor.kind === "sandbox" ? insideCallback(executor) : executor.refusal();
     if (refused !== undefined) throw refused;
     const ended =
       executor.kind === "checkout"

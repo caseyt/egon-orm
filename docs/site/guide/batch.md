@@ -68,9 +68,11 @@ for a name a `merge` adds, when the batch runs).
 
 ## Handling a failure
 
-`step` is typed as the union of the names of the steps that can fail (the write steps and
-`run`), so a `switch` narrows `error`, and `completed` to the results of the steps before
-that one:
+`step` is typed as the union of the names of the steps that can fail (the write steps, and
+the `run` steps that can return `failure(…)`), so a `switch` narrows `error`, and
+`completed` to the results of the steps before that one. A `run` step that only returns
+`success(…)` is not in the union, and a batch with no step that can fail has `never` as its
+error type.
 
 <<< @/examples/batch.ts#handle
 

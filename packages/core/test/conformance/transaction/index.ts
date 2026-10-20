@@ -408,6 +408,49 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
         expect(await committedTags()).toHaveLength(1);
       });
 
+      test("a deadlock the callback caught before running another statement is retried", async () => {
+        const r = repo();
+        const { rows } = await r.insertAll(Tag, [{ name: "one" }, { name: "two" }], { returning: true });
+        const [one, two] = rows as [Tag, Tag];
+        const attempts = { a: 0, b: 0 };
+        let locked = 0;
+        const bothLocked = gate();
+        const body = (key: "a" | "b", first: number, second: number) => async (tx: Repo) => {
+          attempts[key]++;
+          await tx.updateAll(
+            from(Tag, "t")
+              .where({ id: first })
+              .set({ name: `${key} first` }),
+          );
+          if (attempts[key] === 1) {
+            locked++;
+            if (locked === 2) bothLocked.open();
+            await Promise.race([bothLocked.promise, sleep(3_000)]);
+          }
+          try {
+            await tx.updateAll(
+              from(Tag, "t")
+                .where({ id: second })
+                .set({ name: `${key} second` }),
+            );
+          } catch {
+            // A helper that logs the error and carries on.
+          }
+          await tx.count(Tag);
+          return key;
+        };
+        const results = await Promise.all([
+          r.transaction(body("a", one.id, two.id), { retries: 2 }),
+          r.transaction(body("b", two.id, one.id), { retries: 2 }),
+        ]);
+        expect(results).toEqual([
+          { success: true, data: "a" },
+          { success: true, data: "b" },
+        ]);
+        // The one the database chose as the deadlock's victim ran twice.
+        expect(attempts.a + attempts.b).toBe(3);
+      });
+
       test("with retries, the transaction that lost the conflict runs again and commits", async () => {
         const { results, attempts } = await writeSkew(repo(), 2);
         expect(attempts).toBe(3);
@@ -830,6 +873,70 @@ export function runTransactionConformance(profile: TransactionConformanceProfile
           await sandbox.rollback();
         }
         expect(await db.query("select email from users")).toEqual([]);
+      });
+
+      test("the repo used inside its own transaction callback is refused at once, not left waiting", async () => {
+        const app = repo();
+        const sandbox = await createSandbox(app);
+        await sandbox.begin();
+        try {
+          const started = Date.now();
+          const result = await app.transaction(async (tx) => {
+            await tx.insertOrThrow(newUser("a1@example.com"));
+            const nested = await rejection(
+              app.transaction(async (t2) => t2.insertOrThrow(newUser("a2@example.com"))),
+            );
+            const bulk = await rejection(
+              app.insertAll(
+                WideRow,
+                Array.from({ length: 2_400 }, (_, i) => wideRow(i)),
+              ),
+            );
+            const plain = await rejection(app.count(User));
+            for (const error of [nested, bulk, plain]) {
+              expect(error).toBeInstanceOf(QueryError);
+              expect((error as Error).message).toContain("inside one of its own transaction callbacks");
+            }
+            return tx.count(User);
+          });
+          expect(result).toEqual({ success: true, data: 1 });
+          expect(Date.now() - started).toBeLessThan(2_000);
+          expect(await app.count(WideRow)).toBe(0);
+        } finally {
+          await sandbox.rollback();
+        }
+      });
+
+      test("a write of the repo made while one of its transactions is open waits for it, and survives its rollback", async () => {
+        const app = repo();
+        const sandbox = await createSandbox(app);
+        await sandbox.begin();
+        try {
+          const entered = gate();
+          const finish = gate();
+          const transaction = app.transaction(async (tx) => {
+            await tx.insertOrThrow(change(Tag, { name: "d1" }));
+            entered.open();
+            await finish.promise;
+            tx.rollback("undone");
+          });
+          await entered.promise;
+          // A concurrent request: its write is made from outside the callback.
+          let written = false;
+          const concurrent = app.insertOrThrow(change(Tag, { name: "d2" })).then((tag) => {
+            written = true;
+            return tag;
+          });
+          await sleep(100);
+          expect(written).toBe(false);
+          finish.open();
+          expect(await transaction).toEqual({ success: false, error: "undone" });
+          expect((await concurrent).name).toBe("d2");
+          expect((await app.all(Tag)).map((tag) => tag.name)).toEqual(["d2"]);
+        } finally {
+          await sandbox.rollback();
+        }
+        expect(await committedTags()).toEqual([]);
       });
 
       test("two sandboxes over two repos do not see each other's writes", async () => {

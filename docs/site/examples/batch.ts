@@ -46,13 +46,15 @@ class Post extends Schema("posts", {
 const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATABASE_URL }) });
 
 declare const input: unknown;
-declare function queueWelcomeEmail(tx: Repo, user: User): Promise<{ queued: true }>;
+declare function queueWelcomeEmail(tx: Repo, user: User): Promise<boolean>; // false when the queue is full
 
 // #region sign-up
 const signUp = createBatch()
   .insert("user", User.changeset(User, input))
   .insert("profile", ({ user }) => change(Profile, { userId: user.id }))
-  .run("welcome", async (tx, { user }) => success(await queueWelcomeEmail(tx, user)));
+  .run("welcome", async (tx, { user }) =>
+    (await queueWelcomeEmail(tx, user)) ? success(true) : failure("the queue is full"),
+  );
 
 const result = await repo.transaction(signUp);
 
@@ -104,7 +106,7 @@ export function handle() {
       case "profile":
         return result.error.error.errorMessages(); // Changeset<typeof Profile>
       case "welcome":
-        return { email: ["could not be queued"] };
+        return { email: [result.error.error] }; // "the queue is full"
     }
   }
   // #endregion handle

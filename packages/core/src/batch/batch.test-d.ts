@@ -147,6 +147,14 @@ describe("failures", () => {
   test("a batch with no step that can fail never fails", async () => {
     const result = await repo.transaction(createBatch().put("a", 1));
     expectTypeOf(result).toEqualTypeOf<Result<{ a: number }, never>>();
+    // A run step that only ever returns success(…) cannot fail either.
+    const ran = await repo.transaction(
+      createBatch()
+        .put("a", 1)
+        .run("r", async () => success(1)),
+    );
+    if (!ran.success) expectTypeOf(ran.error).toBeNever();
+    expectTypeOf(ran).toEqualTypeOf<Result<{ a: number; r: number }, never>>();
   });
 });
 

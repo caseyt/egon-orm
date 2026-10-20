@@ -13,6 +13,7 @@ import { ConstraintError, DatabaseError, QueryError, RollbackError } from "../er
 import { change, createBatch, failure, fragment, from, success } from "../index.js";
 import { createSandbox, expectQueries } from "../testing.js";
 import { insertAll } from "./bulk.js";
+import type { RepoQueryEvent } from "./options.js";
 import { QueryHub, ReadCore } from "./read.js";
 import { createRepo, type Repo } from "./repo.js";
 import { atomically } from "./transaction.js";
@@ -536,6 +537,24 @@ describe("a statement that fails inside a transaction", () => {
       "after",
       "commit",
     ]);
+  });
+
+  test("that was queued before a nested transaction fails it before its SAVEPOINT, so its rollback cannot erase the failure", async () => {
+    const { pool, repo } = setup();
+    const refused = databaseError("queued and failed");
+    pool.delay = (sql) => (sql === "queued" ? 10 : 0);
+    pool.fail = (sql) => (sql === "queued" ? refused : undefined);
+    const result = await repo.transaction(async (tx) => {
+      const queued = tx.raw(say("queued"));
+      const nested = tx.transaction(async (inner) => inner.raw(say("inner")));
+      expect(await rejection(queued)).toBe(refused);
+      const error = await rejection(nested);
+      expect(error).toBeInstanceOf(QueryError);
+      expect((error as Error).cause).toBe(refused);
+      return "returned";
+    });
+    expect(result).toEqual({ success: false, error: refused });
+    expect(pool.sent).toEqual(["begin", "queued", "rollback"]);
   });
 
   test("makes a nested transaction impossible until it is rolled back", async () => {
@@ -1158,6 +1177,56 @@ describe("retries", () => {
     expect(swallowed).toEqual({ success: true, data: 2 });
   });
 
+  test("a retryable failure the callback caught before running another statement (refused) is retried", async () => {
+    const { pool, repo } = setup();
+    let attempts = 0;
+    pool.fail = (sql) => (sql === "write" && attempts === 1 ? serializationFailure() : undefined);
+    const result = await repo.transaction(
+      async (tx) => {
+        attempts++;
+        try {
+          await tx.raw(say("write"));
+        } catch {
+          // logged and ignored
+        }
+        await tx.raw(say("next"));
+        return attempts;
+      },
+      { retries: 1 },
+    );
+    expect(result).toEqual({ success: true, data: 2 });
+    expect(pool.sent).toEqual(["begin", "write", "rollback", "begin", "write", "next", "commit"]);
+    // In a checkout too.
+    attempts = 0;
+    await repo.checkout(async (c) => {
+      const again = await c.transaction(
+        async (tx) => {
+          attempts++;
+          await tx.raw(say("write")).catch(() => undefined);
+          await tx.raw(say("next"));
+          return attempts;
+        },
+        { retries: 1 },
+      );
+      expect(again).toEqual({ success: true, data: 2 });
+    });
+    // A failure that is not retryable, followed the same way, is not retried.
+    attempts = 0;
+    pool.fail = (sql) => (sql === "write" ? databaseError() : undefined);
+    const error = await rejection(
+      repo.transaction(
+        async (tx) => {
+          attempts++;
+          await tx.raw(say("write")).catch(() => undefined);
+          await tx.raw(say("next"));
+        },
+        { retries: 2 },
+      ),
+    );
+    expect(error).toBeInstanceOf(QueryError);
+    expect(attempts).toBe(1);
+  });
+
   test("gives up after the last retry, and never retries what is not retryable", async () => {
     const { pool, repo } = setup();
     pool.fail = (sql) => (sql === "write" ? serializationFailure() : undefined);
@@ -1661,7 +1730,7 @@ describe("the sandbox", () => {
     expect(pool.released).toBe(2);
   });
 
-  test("the repo's concurrent transactions take turns, and its statements may run between them", async () => {
+  test("the repo's concurrent transactions take turns, and its statements wait for them", async () => {
     const { pool, repo } = setup();
     pool.delay = (sql) => (sql === "first" ? 10 : 0);
     const sandbox = await createSandbox(repo);
@@ -1674,18 +1743,18 @@ describe("the sandbox", () => {
       repo.raw(say("plain")),
     ]);
     await sandbox.rollback();
-    // The plain statement was issued while the first savepoint was being set, so it runs
-    // next; the second transaction waits for the first one's end.
+    // The second transaction and the plain statement wait for the first transaction; the
+    // second one, first in line, takes the next turn, and the plain statement waits again.
     expect(pool.sent.filter((sql) => !sql.startsWith("begin") && sql !== "rollback")).toEqual([
       'savepoint "egon_1"',
-      'savepoint "egon_statement"',
-      "plain",
-      'release savepoint "egon_statement"',
       "first",
       'release savepoint "egon_1"',
       'savepoint "egon_1"',
       "second",
       'release savepoint "egon_1"',
+      'savepoint "egon_statement"',
+      "plain",
+      'release savepoint "egon_statement"',
     ]);
   });
 
@@ -1839,18 +1908,136 @@ describe("the sandbox", () => {
     const { repo } = setup({ warn: true });
     const sandbox = await createSandbox(repo);
     await sandbox.begin();
-    // Inside the sandbox, the warning is given too.
+    // Inside the sandbox the same mistake is an error, not a warning.
     await repo.transaction(async (tx) => {
       await tx.raw(say("inside"));
-      await repo.raw(say("outside"));
+      expect(await rejection(repo.raw(say("outside")))).toBeInstanceOf(QueryError);
     });
     await repo.raw(say("not in a callback"));
-    expect(seen).toHaveLength(1);
+    expect(seen).toHaveLength(0);
     await sandbox.rollback();
     await repo.transaction(async () => {
       await repo.raw(say("outside"));
     });
-    expect(seen).toHaveLength(2);
+    expect(seen).toHaveLength(1);
+  });
+
+  test("the repo used inside one of its transaction callbacks is refused, whatever the call: no wait, no hang", async () => {
+    const { pool, repo } = setup();
+    const sandbox = await createSandbox(repo);
+    const sandboxed = await sandbox.begin();
+    const result = await repo.transaction(async (tx) => {
+      await tx.raw(say("inside"));
+      const errors = await Promise.all([
+        rejection(repo.transaction(async (t2) => t2.raw(say("nested by the outer repo")))),
+        rejection(
+          repo.insertAll(
+            Tag,
+            Array.from({ length: 70_000 }, () => ({ name: "x" })),
+          ),
+        ),
+        rejection(repo.raw(say("outer statement"))),
+        rejection(sandboxed.raw(say("sandbox repo"))),
+        rejection(sandboxed.transaction(async () => undefined)),
+        rejection(
+          (async () => {
+            for await (const _ of repo.stream(from(Tag, "t"))) {
+              // nothing
+            }
+          })(),
+        ),
+      ]);
+      for (const error of errors) {
+        expect(error).toBeInstanceOf(QueryError);
+        expect((error as Error).message).toContain("inside one of its own transaction callbacks");
+      }
+      // tx itself works, nested transactions on it too.
+      await tx.transaction(async (inner) => inner.raw(say("nested on tx")));
+      return "done";
+    });
+    expect(result).toEqual({ success: true, data: "done" });
+    // Outside the callback, everything works again.
+    await repo.raw(say("after"));
+    await sandbox.rollback();
+    expect(pool.sent.filter((sql) => !sql.includes("egon_statement"))).toEqual([
+      "begin",
+      'savepoint "egon_1"',
+      "inside",
+      'savepoint "egon_2"',
+      "nested on tx",
+      'release savepoint "egon_2"',
+      'release savepoint "egon_1"',
+      "after",
+      "rollback",
+    ]);
+  });
+
+  test("a statement of the repo made outside its open transaction waits for it, so that its rollback cannot undo it", async () => {
+    const { pool, repo } = setup();
+    pool.cursorRows = [];
+    const sandbox = await createSandbox(repo);
+    await sandbox.begin();
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered: () => void = () => undefined;
+    const inside = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const transaction = repo.transaction(async (tx) => {
+      await tx.raw(say("in the transaction"));
+      entered();
+      await held;
+      tx.rollback("undone");
+    });
+    await inside;
+    // A concurrent request: not from inside the callback.
+    const outside = repo.raw(say("concurrent write"));
+    const streamed = (async () => {
+      for await (const _ of repo.stream(from(Tag, "t"))) {
+        // nothing
+      }
+    })();
+    await sleep(5);
+    expect(pool.sent).not.toContain("concurrent write");
+    release();
+    expect(await transaction).toEqual({ success: false, error: "undone" });
+    await outside;
+    await streamed;
+    await sandbox.rollback();
+    const sent = pool.sent.filter((sql) => !sql.includes("egon_statement"));
+    expect(sent.indexOf("concurrent write")).toBeGreaterThan(sent.indexOf('rollback to savepoint "egon_1"'));
+  });
+
+  test("a statement waiting for the repo's transaction is refused when that transaction broke the sandbox's", async () => {
+    const { pool, repo } = setup();
+    const lost = databaseError("no release");
+    pool.fail = (sql) => (sql.startsWith('release savepoint "egon_1"') ? lost : undefined);
+    const sandbox = await createSandbox(repo);
+    await sandbox.begin();
+    const running = repo.transaction(async () => {
+      await sleep(10);
+    });
+    await sleep(1);
+    const waiting = repo.raw(say("waiting"));
+    expect(await rejection(running)).toBe(lost);
+    expect(((await rejection(waiting)) as Error).message).toContain("could not roll back");
+    await sandbox.rollback();
+  });
+
+  test("a statement waiting for the repo's transaction is refused when the sandbox is rolled back first", async () => {
+    const { repo } = setup();
+    const sandbox = await createSandbox(repo);
+    await sandbox.begin();
+    const running = repo.transaction(async () => {
+      await sleep(20);
+    });
+    await sleep(1);
+    const waiting = repo.raw(say("waiting"));
+    await sandbox.rollback();
+    expect(await rejection(waiting)).toBeInstanceOf(QueryError);
+    await rejection(running);
   });
 });
 
@@ -1873,9 +2060,13 @@ describe("expectQueries", () => {
         }),
       ),
     ).toBe(boom);
-    // Nothing is listening any more.
-    const later = await expectQueries(repo, () => undefined);
-    expect(later).toEqual([]);
+    // Nothing is listening any more: a statement afterwards is not added to the first array.
+    await repo.raw(say("after"));
+    expect(queries).toHaveLength(2);
+    const throwing: RepoQueryEvent[] = [];
+    repo.on("query", (event) => throwing.push(event));
+    await repo.raw(say("counted once"));
+    expect(throwing).toHaveLength(1);
   });
 });
 

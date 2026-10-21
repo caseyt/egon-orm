@@ -9,10 +9,19 @@
 > writes `micro/<area>.bench.ts` for every area once everything works (the benchmarks that
 > steps 04–07 already committed stay), then measures every README §7 budget. See README §7.
 
+> **Owner decision, 2026-10-21:** no speed test runs on every PR, and nothing in CI gates on
+> timings. The benchmarks are run once, the way Drizzle publishes its own (a server per
+> library, load from a separate machine with k6), and the results are published in the docs
+> with the method, hardware and versions, so that anyone can rerun them. They are rerun by
+> hand before a release when the owner asks. This replaces the CI gate (Part A item 5) and
+> the gated budgets (item 6); the budgets in README §7 are measured and reported, not
+> enforced. Where the runs happen (which machines) is the owner's decision, still open.
+
 ## Goal
 
-Make performance measurable, visible, and protected from regression; then use the
-measurements to meet or beat the budgets in plan README §7.
+Measure Egon against the raw driver and the other TypeScript ORMs once, fairly and
+reproducibly, publish the results, and use the measurements to meet or beat the budgets in
+plan README §7 where they show a problem.
 
 ## Part A — Harness (right after step 01, before feature work piles up)
 
@@ -27,16 +36,26 @@ measurements to meet or beat the budgets in plan README §7.
 4. **Results.** JSON per run in `benchmarks/results/` with machine fingerprint, Node
    version, git SHA. A `pnpm bench:compare <base> <head>` script prints a table of deltas
    with significance (non-overlapping confidence intervals).
-5. **CI gate.** On PRs: run the micro suite on base and head **on the same runner in the
-   same job** (interleaved, to cancel machine noise); fail if any gated benchmark regresses
-   by more than 10% with significance; post the table as a PR comment. E2E and comparative
-   suites run nightly and on release branches, not per PR.
-6. **Budget file.** `benchmarks/budgets.json` maps benchmark names to the README §7 budgets;
-   a test fails if a gated budget is exceeded on the reference runner. Calibrate budgets
-   once real numbers exist and record the calibration in an ADR if any README number changes.
+5. **No CI gate** (owner decision, 2026-10-21). CI keeps running `pnpm bench` only to
+   keep the harness working; its numbers are not compared or published.
+6. **Budgets.** `benchmarks/budgets.json` maps benchmark names to the README §7 budgets; a
+   script reports each measured value against its budget on the published run. It does not
+   fail a build. If a README number changes, record why in an ADR.
 
 ## Part B — Comparative suite (after step 16)
 
+Follow the method of Drizzle's published benchmarks (orm.drizzle.team/benchmarks, also used
+by Prisma for its own comparison), so the results are read the same way:
+
+- one small HTTP server per library, each serving the same endpoints over the same dataset
+  (the Drizzle suite's e-commerce dataset, or the blog dataset of Part A; record which);
+- the server and Postgres on one machine, the load generator ([k6](https://k6.io)) on a
+  separate machine on the same network, so they do not compete for CPU;
+- a fixed request list, prepared once and replayed for every library;
+- reported: requests per second at a given p95 latency, latency percentiles, and CPU and
+  memory of the server process.
+
+Alongside that, the per-operation scenarios below, run in-process with the harness.
 Same schema, same data, same queries, same pool size, against: raw `pg` with hand-written
 mapping (the floor), Kysely, Drizzle, Prisma, TypeORM, MikroORM. Scenarios:
 
@@ -57,6 +76,15 @@ Report throughput, latency percentiles, and allocated bytes per operation
 (`process.memoryUsage()` deltas over many iterations, with `--expose-gc`). Be fair: each
 library used the way its docs recommend, versions pinned and listed, the suite published
 so others can reproduce it. Results that make Egon look bad are published too, with an issue filed.
+
+### Edge measurements
+
+Nobody publishes these, and edge deployments matter to the owner (step 21a):
+
+- bundle size (minified, gzip) of the reference app for each library, from the packed
+  tarballs, with the same bundler settings;
+- cold start in workerd (Miniflare): time to the first response of a Worker, for each library;
+- round trips to the database per request for the nested-load and transaction scenarios.
 
 ## Part C — Optimisation pass
 
@@ -82,7 +110,7 @@ param binding, hydration, changeset cast, insert, preload stitching):
    object literal); no growth over 1M iterations of each e2e scenario (leak check); plan
    cache bounded under a workload of unique query shapes.
 6. **Bundle.** Size of `egon-orm` minified+gzipped with and without tree-shaking a
-   changeset-only import; track in CI with a size budget; verify `sideEffects: false` holds.
+   changeset-only import, reported with the published run; verify `sideEffects: false` holds.
 
 ## Part D — Guidance
 
@@ -95,17 +123,19 @@ results, how to reproduce, generated from the latest results JSON.
 ## Tests
 
 - The harness itself: `bench:compare` on synthetic results (regression detected, noise
-  ignored); budget checker; seeding determinism.
+  ignored); the budget report; seeding determinism.
 - Shape/monomorphism guard tests (V8 natives) for rows and bindings, run in a dedicated CI job.
 - Leak tests under `--expose-gc` for each e2e scenario.
 
 ## Acceptance
 
-- [ ] Part A merged before step 05 starts; CI gate demonstrably catches an injected 20% regression and ignores a no-op change (run it 10 times: zero false positives).
-- [ ] Every budget in README §7 has a gated benchmark; all pass on the reference runner (or an ADR adjusts the budget with justification).
-- [ ] Comparative suite runs reproducibly from one command; results published in docs.
+- [ ] Every budget in README §7 has a benchmark, and the published run reports each one
+  against its budget (or an ADR adjusts the budget with justification).
+- [ ] The comparative suite (server load test and per-operation scenarios) and the edge
+  measurements run reproducibly from documented commands on the machines the owner chose;
+  results, method, hardware and versions are published in `reference/benchmarks.md`.
 - [ ] Each optimisation PR carries before/after numbers; investigations in Part C item 4 written up in `docs/site/internals/performance-notes.md`.
-- [ ] Memory, leak and bundle-size targets met and gated.
+- [ ] Memory, leak and bundle-size targets measured and reported.
 
 ## Out of scope
 

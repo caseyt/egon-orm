@@ -21,7 +21,7 @@ export function badgeOf(summary) {
     throw new Error(`coverage-badge: no line percentage in the summary (total.lines.pct is ${pct})`);
   }
   const shown = Math.floor(pct * 10) / 10;
-  // The thresholds in vitest.config.ts are 95%: below them CI has already failed.
+  // Brightgreen from 95%, the per-package thresholds in vitest.config.ts.
   const color = shown >= 95 ? "brightgreen" : shown >= 90 ? "green" : shown >= 80 ? "yellow" : "red";
   return { schemaVersion: 1, label: "coverage", message: `${shown}%`, color };
 }

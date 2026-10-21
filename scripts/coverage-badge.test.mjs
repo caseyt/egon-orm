@@ -24,7 +24,14 @@ test("the colour falls with the percentage", () => {
 });
 
 test("a summary without a usable line percentage is refused", () => {
-  for (const summary of [{}, { total: {} }, summaryOf("99"), summaryOf(Number.NaN), summaryOf(101), summaryOf(-1)]) {
+  for (const summary of [
+    {},
+    { total: {} },
+    summaryOf("99"),
+    summaryOf(Number.NaN),
+    summaryOf(101),
+    summaryOf(-1),
+  ]) {
     assert.throws(() => badgeOf(summary), /no line percentage/);
   }
 });

@@ -58,9 +58,10 @@ argument other than the subcommand `create` (below).
 
 Writes a new, empty migration file, `<version>_<name>.ts`, in the migrations directory, and
 prints its path. The version is the current UTC time, `YYYYMMDDHHMMSS`; the name is
-lower-case letters, digits and underscores, at most 100 characters. The file's default
-export is `defineMigration({ up(m) { … }, down() { … } })` with both bodies empty but for
-a comment: fill `up` with the change, and `down` with what undoes it, adding the `m`
+lower-case letters, digits and underscores, at most 100 characters. The file exports
+`migration`, `export const migration = defineMigration({ up(m) { … }, down() { … } })`, with
+both bodies empty but for a comment (the runner also accepts a default export, for a file
+you write yourself): fill `up` with the change, and `down` with what undoes it, adding the `m`
 parameter (`down(m)`); or leave a `// noop` comment in `down` when there is nothing to undo
 ([Up and down](/guide/migrations#up-and-down)). `down` has no parameter until you need one,
 so an untouched `down` compiles under `noUnusedParameters`. Both functions are required.

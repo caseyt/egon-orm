@@ -9,7 +9,7 @@
     "url": "git+https://github.com/egon-orm/egon-orm.git",
     "directory": "packages/postgres"
   },
-  "homepage": "https://github.com/egon-orm/egon-orm#readme",
+  "homepage": "https://egon-orm.github.io/egon-orm/",
   "bugs": "https://github.com/egon-orm/egon-orm/issues",
   "keywords": [
     "orm",

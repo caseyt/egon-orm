@@ -159,7 +159,7 @@ describe("egon, the built binary", () => {
     const path = join(project, "migrations", file as string);
     const source = await readFile(path, "utf8");
     expect(source).toBe(
-      'import { defineMigration } from "egon-orm/migration";\n\nexport default defineMigration({\n  up(m) {\n    // the change\n  },\n  down() {\n    // undo the change (write down(m) to use m), or leave a // noop comment\n  },\n});\n',
+      'import { defineMigration } from "egon-orm/migration";\n\nexport const migration = defineMigration({\n  up(m) {\n    // the change\n  },\n  down() {\n    // undo the change (write down(m) to use m), or leave a // noop comment\n  },\n});\n',
     );
     // --json and --dir: one object naming the file, written elsewhere.
     const asJson = await egon(["migrate", "create", "create_other", "--dir", "drafts", "--json"]);

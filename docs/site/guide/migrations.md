@@ -220,8 +220,9 @@ object instead. Several instances may run it at once; the lock serialises them.
 Migration files are loaded with `import()`. TypeScript files need a process that can load
 TypeScript: Node 22.18 or later strips types by itself (22.12 to 22.17 with
 `--experimental-strip-types`), or run under tsx (`node --import tsx`) or Bun. Without one,
-the error says what to install. A file exports its migration as the default export (or as
-`migration`).
+the error says what to install. A file exports its migration as `migration`
+(`export const migration = defineMigration(…)`, as the file that `egon migrate create`
+writes does); the default export works too.
 
 For bundlers and deployments without a file system, pass the migrations as a list:
 

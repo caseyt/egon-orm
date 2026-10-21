@@ -331,7 +331,7 @@ Rules that follow from the budgets:
 
 ### Pull request and review loop
 
-Remote: `https://github.com/caseyt/ectype-orm.git`, default branch `main`.
+Remote: `https://github.com/egon-orm/egon-orm.git`, default branch `main`.
 
 **Author (the worker that implemented the step)**
 

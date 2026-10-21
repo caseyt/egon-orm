@@ -289,7 +289,7 @@ describe("egon migrate create", () => {
     expect(await readFile(join(cwd, FILE), "utf8")).toBe(migrationTemplate());
     expect(migrationTemplate()).toContain('import { defineMigration } from "egon-orm/migration";');
     expect(migrationTemplate()).toContain(
-      "export default defineMigration({\n  up(m) {\n    // the change\n  },\n  down() {\n    // undo the change (write down(m) to use m), or leave a // noop comment\n  },\n});",
+      "export const migration = defineMigration({\n  up(m) {\n    // the change\n  },\n  down() {\n    // undo the change (write down(m) to use m), or leave a // noop comment\n  },\n});",
     );
   });
 

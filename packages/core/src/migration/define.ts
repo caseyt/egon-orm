@@ -98,7 +98,8 @@ export function missingStepsMessage(
 
 /**
  * Defines a migration: `up` makes the change and `down` undoes it; both are required.
- * Export it from the migration file, as the default export or as `migration`.
+ * Export it from the migration file as `migration` (the file `egon migrate create` writes
+ * does), or as the default export.
  *
  * @example
  * ```ts

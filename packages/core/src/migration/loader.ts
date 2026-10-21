@@ -160,8 +160,8 @@ function typescriptHelp(file: string, cause: unknown): MigrationError {
 /**
  * Loads every migration file of `directory` (not its subdirectories) and sorts them by
  * version. A file is a migration when its name is `<14-digit version>_<name>.<ts|mts|js|mjs>`;
- * other files are ignored. Its migration is the module's default export, or its export
- * named `migration`.
+ * other files are ignored. Its migration is the module's export named `migration`, or its
+ * default export.
  *
  * @example
  * ```ts
@@ -215,7 +215,7 @@ export async function loadMigrations(
     const migration = isMigration(module.default) ? module.default : module.migration;
     if (!isMigration(migration)) {
       throw new MigrationError(
-        `The migration file "${path}" exports no migration. Export the result of defineMigration() as the default export or as "migration".`,
+        `The migration file "${path}" exports no migration. Export the result of defineMigration() as "migration" (export const migration = defineMigration(…)) or as the default export.`,
         { version: parsed.version, migration: parsed.name },
       );
     }

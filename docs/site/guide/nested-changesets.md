@@ -152,3 +152,9 @@ be combined with changes of associations.
   be removed.
 
 <<< @/examples/nested-changesets.ts#tag-picker
+
+## See also
+
+- [Associations](/guide/associations): `onReplace` and the other association options.
+- [Embeds](/guide/embeds)
+- The [tutorial](/guide/tutorial#_8-a-form-with-nested-rows)'s moderation form.

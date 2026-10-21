@@ -1,7 +1,10 @@
 // The checked sources of the code blocks in guide/types.md. Each `#region` is included
 // in the page by name; everything outside a region is the scaffolding that makes the
 // regions compile.
+// #region imports
 import { defineType, parameterized, Schema, t } from "egon-orm";
+
+// #endregion imports
 
 /** A stand-in for the decimal class of a library such as decimal.js. */
 class Money {

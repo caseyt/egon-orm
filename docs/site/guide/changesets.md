@@ -81,7 +81,10 @@ works on nullable fields.
 
 Each validation runs only when its field has a change (a change to `null` is not
 validated). The exceptions are `validateRequired`, which also checks the existing data,
-and `validateAcceptance`, which checks the params whatever changed.
+and `validateAcceptance`, which checks the params whatever changed. A validation adds
+nothing to a field (or key) that already has an error, so each field shows one message,
+the first failure: `validateLength("name", { min: 2 })` followed by
+`validateFormat("name", ...)` reports only the length.
 
 <<< @/examples/changesets.ts#validations
 
@@ -139,7 +142,8 @@ For Zod and other schema validators, see [Validation](/guide/validation).
 
 - `validateChange(field, (value, field) => ...)` returns a message, an error object
   (`{ message, validation?, meta? }`), an array of either, or nothing. It is called with
-  the changed value, never with `null`.
+  the changed value, never with `null`, and is not called at all for a field that
+  already has an error.
 - Every validation takes `{ message }`: a string, or a function that receives the error's
   `meta` and returns the message.
 - For a step you reuse across changeset functions, write a function of a changeset and
@@ -147,14 +151,7 @@ For Zod and other schema validators, see [Validation](/guide/validation).
 
 ## Errors
 
-```ts
-type ChangesetError = {
-  message: string;                       // may contain {placeholders}
-  validation?: string;                   // "required", "length", "cast", ...
-  constraint?: string;                   // "unique", "foreignKey", ...
-  meta: Record<string, unknown>;         // { count: 12, kind: "min" }
-};
-```
+<<< @/examples/shapes.ts#changeset-error
 
 <<< @/examples/changesets.ts#error-shape
 
@@ -261,3 +258,11 @@ generate forms.
 - **Changesets are immutable.** Every method returns a new changeset; keep the one it
   returns.
 :::
+
+## See also
+
+- [Validation](/guide/validation): Zod, other schema libraries and functions.
+- [Constraints](/guide/constraints): database errors as field errors.
+- [Nested changesets](/guide/nested-changesets)
+- [Translating error messages](/recipes/translating-errors) and
+  [Showing form errors](/recipes/form-errors).

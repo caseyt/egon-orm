@@ -155,9 +155,7 @@ Writes take a changeset and return a **result**:
 
 <<< @/examples/repo-write.ts#result
 
-```ts
-type Result<T, E> = { success: true; data: T } | { success: false; error: E };
-```
+<<< @/examples/shapes.ts#result
 
 | Method | Returns | Throwing twin |
 |---|---|---|
@@ -326,3 +324,10 @@ Bulk writes skip changesets and validation.
 - A listener that throws does not fail the statement, but its error is rethrown as an
   uncaught exception, which ends the process unless you handle `uncaughtException`: catch
   errors inside your listener.
+
+## See also
+
+- [Transactions](/guide/transactions) and [Batch](/guide/batch)
+- [Adapters](/guide/adapters)
+- [Errors](/reference/errors) and [Configuration](/reference/configuration)
+- [Framework integration](/guide/frameworks)

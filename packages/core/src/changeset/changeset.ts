@@ -440,7 +440,10 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
     ) as this;
   }
 
-  /** Records a validation; adds `error` on `key` when there is one. */
+  /**
+   * Records a validation; adds `error` on `key` when there is one and `key` has no error
+   * yet (one message per field: the first failure stands).
+   */
   #check(
     field: string,
     validation: string,
@@ -450,7 +453,7 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
     argumentKey?: string,
     argument?: unknown,
   ): this {
-    if (error === undefined) {
+    if (error === undefined || hasOwn(this.errors, key)) {
       return this.#validated(
         field,
         validation,
@@ -1157,8 +1160,9 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
   }
 
   /**
-   * Runs `fn` on the change of a field (not on `null`, and not when there is no change).
-   * `fn` returns a message, an error, a list of either, or nothing.
+   * Runs `fn` on the change of a field (not on `null`, not when there is no change, and
+   * not when the field already has an error). `fn` returns a message, an error, a list of
+   * either, or nothing.
    *
    * @example
    * ```ts
@@ -1174,7 +1178,7 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
     fieldOf(this.#spec, field, "validateChange");
     if (typeof fn !== "function") throw new QueryError("validateChange() takes a function.");
     const value = this.#changed(field);
-    if (value === undefined || value === null) {
+    if (value === undefined || value === null || hasOwn(this.errors, field)) {
       return this.#validated(field, "change", undefined, this.changes, this.errors, this.valid);
     }
     const result: unknown = fn(value as NonNullable<FieldValues<S>[K]>, field);
@@ -1202,9 +1206,11 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
    * becomes an error on the field its path starts with (`validation: "schema"`), or on
    * `$base` (exported as `BASE`) when the path is empty or does not start with a field.
    *
-   * Every issue is kept by default; `{ scope: "changed" }` keeps only issues on changed
-   * fields. `{ apply: true }` writes a schema's output back as changes when it finds no
-   * issue. `{ only: [...] }` narrows the values and the issues to those fields.
+   * Every issue is kept by default, except on a field that already has an error (from
+   * `cast` or an earlier validation): that field keeps its first message.
+   * `{ scope: "changed" }` keeps only issues on changed fields. `{ apply: true }` writes
+   * a schema's output back as changes when it finds no issue. `{ only: [...] }` narrows
+   * the values and the issues to those fields.
    *
    * @example
    * ```ts
@@ -1246,8 +1252,8 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
 
   /**
    * Validates the change of one field with a Standard Schema or a function. It runs only
-   * when the field has a change (not a change to `null`), and receives that value alone;
-   * every issue goes on the field, its path in `meta.path`.
+   * when the field has a change (not a change to `null`) and no error yet, and receives
+   * that value alone; every issue goes on the field, its path in `meta.path`.
    *
    * @example
    * ```ts
@@ -1713,8 +1719,9 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
   /**
    * Asks the database whether another row already has these values, and adds `has
    * already been taken` if one does. It runs only when the fields have changes and no
-   * errors. Another request can insert the same values between the check and the write,
-   * so it is for early feedback only: always declare `uniqueConstraint` as well.
+   * errors, and the error key (`errorKey`, by default the first field) has none. Another
+   * request can insert the same values between the check and the write, so it is for
+   * early feedback only: always declare `uniqueConstraint` as well.
    *
    * @example
    * ```ts

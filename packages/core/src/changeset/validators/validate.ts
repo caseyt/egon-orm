@@ -492,7 +492,8 @@ type Routed = Map<string, Map<number, Issue[]>>;
 /**
  * Routes whole-changeset issues by the first segment of their path: to a field, to a
  * nested changeset (an association or embed changed through `castAssoc`, `putAssoc`,
- * `castEmbed` or `putEmbed`, by position for a list), or to `BASE`.
+ * `castEmbed` or `putEmbed`, by position for a list), or to `BASE`. An issue on a field
+ * that already has an error is dropped (in a nested changeset, on the child's field).
  */
 function mapIssues(
   changeset: AnyChangeset,
@@ -504,12 +505,17 @@ function mapIssues(
   const added = new Map<string, ChangesetError[]>();
   let routed: Routed | undefined;
   const changes = changeset.changes as Values;
+  // The errors from before this validator ran: a field that has one already gets no more.
+  const errors = changeset.errors;
   for (const raw of issues) {
     const issue = issueOf(raw, fn);
     const { message, path, meta } = issue;
     const head = path[0];
     const into = typeof head === "string" ? childOf(changeset, head, path) : undefined;
     if (into !== undefined && (options.only === undefined || options.only.includes(head as string))) {
+      // An issue on the key itself (`["venue"]`), where the key already has an error, is
+      // dropped like an issue on a field: the key keeps its first message.
+      if (path.length === 1 && hasOwn(errors, head as string)) continue;
       routed ??= new Map();
       let byIndex = routed.get(head as string);
       if (byIndex === undefined) {
@@ -523,6 +529,9 @@ function mapIssues(
       continue;
     }
     if (typeof head === "string" && fields.has(head)) {
+      // One message per field: the first failure (cast, validateRequired, an earlier
+      // validator) stands, and later issues on the field are dropped.
+      if (hasOwn(errors, head)) continue;
       if (options.changedOnly && !hasOwn(changes, head)) continue;
       if (options.only !== undefined && !options.only.includes(head)) continue;
       collect(added, head, schemaError(message, path.length === 1 ? NO_PATH : path.slice(1), meta));
@@ -681,6 +690,8 @@ function applyOutput<C extends AnyChangeset>(
     if (value !== null) {
       const result = field.type.cast(value);
       if (!result.success) {
+        // Not written either way; a field that already has an error gets no second one.
+        if (hasOwn(changeset.errors, key)) continue;
         const meta =
           result.meta === undefined ? { type: field.type.name } : { type: field.type.name, ...result.meta };
         rejected ??= new Map();
@@ -818,10 +829,13 @@ export async function validateChangesetAsync<C extends AnyChangeset>(
 // validateField / validateFieldAsync
 // ---------------------------------------------------------------------------
 
-/** The field's change, or `undefined` when it has none or a change to `null` (nothing to validate). */
+/**
+ * The field's change, or `undefined` when there is nothing to validate: no change, a
+ * change to `null`, or an error on the field already (one message per field).
+ */
 function changeOf(changeset: AnyChangeset, field: string): unknown {
   const changes = changeset.changes as Values;
-  return hasOwn(changes, field) ? changes[field] : undefined;
+  return hasOwn(changes, field) && !hasOwn(changeset.errors, field) ? changes[field] : undefined;
 }
 
 function callField(changeset: AnyChangeset, dispatched: Dispatched, value: unknown): unknown {
@@ -849,8 +863,8 @@ function finishField<C extends AnyChangeset>(
 }
 
 /**
- * Runs `validator` on the change of one field (skipped when the field has no change or a
- * change to `null`); every issue goes on that field.
+ * Runs `validator` on the change of one field (skipped when the field has no change, a
+ * change to `null`, or an error already); every issue goes on that field.
  *
  * @example
  * ```ts

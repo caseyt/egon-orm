@@ -38,7 +38,12 @@ path in `meta.path`.
 <<< @/examples/validation.ts#base
 
 Errors are appended after the errors the changeset already has, in the order the
-validator reported them.
+validator reported them. A field that already has an error (from `cast`,
+`validateRequired` or an earlier validation) gets no more: its issues are dropped, so each
+field shows one message, the first failure. `cast(User, { email: "" }, ["email"])`
+reports `can't be blank`, and a schema that then finds no email adds nothing to it. The
+same holds for a field of a nested changeset. Issues on the record as a whole (`BASE`)
+are always kept.
 
 ## Cross-field rules
 
@@ -52,14 +57,7 @@ A rule that compares fields reports on the field the user should fix:
 
 A function receives the values and a context, and returns a list of issues, or nothing:
 
-```ts
-type ValidatorFn<T> = (
-  values: Readonly<T>,
-  ctx: { changes: Readonly<Partial<T>>; data: Readonly<T>; isChanged(field: keyof T): boolean; action: Action | null },
-) => ValidationIssue[] | void | Promise<ValidationIssue[] | void>;
-
-type ValidationIssue = { path: PropertyKey | readonly PropertyKey[]; message: string; meta?: Record<string, unknown> };
-```
+<<< @/examples/shapes.ts#validator-fn
 
 `path` is a field name, or a list whose first element is the field name. `meta` is
 merged into the error's `meta`, so it can fill `{placeholders}` in the message.
@@ -92,7 +90,7 @@ accept it and a required key reports it as missing.
 
 | Option | Default | Effect |
 |---|---|---|
-| `scope` | `"all"` | `"all"` keeps every issue. `"changed"` keeps only issues on fields that have a change (and issues on the record as a whole). |
+| `scope` | `"all"` | `"all"` keeps every issue, except on a field that already has an error. `"changed"` keeps only issues on fields that have a change (and issues on the record as a whole). |
 | `apply` | `false` | When `true` and the schema finds no issue, its output is written back as changes, so transforms such as `.trim()` take effect. Standard Schemas only; cannot be combined with `only` or `scope: "changed"`. |
 | `only` | all fields | Gives the validator only these fields, and keeps only issues on them (and on the record as a whole). |
 
@@ -130,11 +128,11 @@ validate with a schema of just those fields. A function validator has no output,
 
 <<< @/examples/validation.ts#validate-field
 
-`validateField` runs only when the field has a change, and not on a change to `null`
-(like the built-in validations). The validator receives the changed value alone. Every
-issue goes on that field, its path in `meta.path`. A function given to `validateField`
-returns an array of issues or nothing, like one given to `validate`, and throws the same
-`TypeError` otherwise.
+`validateField` runs only when the field has a change, and not on a change to `null` or
+on a field that already has an error (like the built-in validations). The validator
+receives the changed value alone. Every issue goes on that field, its path in
+`meta.path`. A function given to `validateField` returns an array of issues or nothing,
+like one given to `validate`, and throws the same `TypeError` otherwise.
 
 ## Async validation
 
@@ -224,8 +222,9 @@ Type it with `ValidatorFn<T>` for the fields it needs:
 <<< @/examples/validation.ts#reusable
 
 ::: tip Good to know
-- **Validation keeps every issue by default.** A rule that reports on a field the user
-  did not change is still reported (`scope: "all"`); opt in to `scope: "changed"` per call.
+- **Validation keeps every issue by default**, except on a field that already has an
+  error, which keeps its first message. A rule that reports on a field the user did not
+  change is still reported (`scope: "all"`); opt in to `scope: "changed"` per call.
 - **A validator function returns an array, or nothing.** `return { path, message }`,
   `return "is taken"` or `return null` throws a `TypeError`; it is never read as "no
   issues".
@@ -236,3 +235,8 @@ Type it with `ValidatorFn<T>` for the fields it needs:
 - **Errors are plain data.** A schema error is `{ message, validation: "schema", meta: { path } }`,
   serialisable like every other changeset error.
 :::
+
+## See also
+
+- [Changesets: validations](/guide/changesets#validations): the built-in rules.
+- [Filters from a query string](/recipes/dynamic-filters): validating input without a table.

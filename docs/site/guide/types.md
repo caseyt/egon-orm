@@ -57,6 +57,13 @@ Some details of what is accepted:
   `Map`, a class instance, a `bigint`, and a value that contains itself.
 
 ::: tip Good to know
+**A number field needs a number column.** A `t.integer()` or `t.float()` field reads the
+driver's value as it is, and throws `CastError`, naming the field, when that value is not a
+number. Today that happens on Postgres for `bigint`, `bigserial` and `numeric` columns,
+which `pg` returns as text, and on MySQL for `decimal` columns and for `div` of two
+integers, which MySQL computes as a decimal. Declare a 64-bit integer as
+`t.bigint({ mode: "number" })` (or `t.bigint()`), and a decimal as `t.decimal()`.
+
 Input is accepted leniently, because it usually arrives as JSON or form data: `"42"` is a
 valid integer and `"true"` a valid boolean. The reverse is not true. A number is never
 turned into a string, and a timestamp string without an offset is rejected instead of
@@ -85,9 +92,7 @@ a change.
 
 ## Custom types
 
-```ts
-import { defineType, t } from "egon-orm";
-```
+<<< @/examples/types.ts#imports
 
 <<< @/examples/types.ts#custom-type
 
@@ -133,10 +138,6 @@ input.
 `parameterized` builds a type from options and remembers the result per option set. The
 built-in `enum`, `array` and `decimal` are made this way.
 
-```ts
-import { defineType, parameterized } from "egon-orm";
-```
-
 <<< @/examples/types.ts#parameterized
 
 <<< @/examples/types.ts#parameterized-field
@@ -151,3 +152,9 @@ themselves are refused.
 SQLite and MySQL store some of these differently (booleans as `0`/`1`, JSON as text, no
 array columns). The adapter converts for you; the TypeScript type is the same everywhere.
 See [Dialect support](/reference/dialect-support).
+
+## See also
+
+- [Schemas](/guide/schemas#fields): field modifiers such as `.nullable()` and `.default()`.
+- [Money](/recipes/money) and [Enums](/recipes/enums) recipes.
+- [Dialect support](/reference/dialect-support)

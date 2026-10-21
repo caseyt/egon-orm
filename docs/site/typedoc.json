@@ -1,0 +1,51 @@
+{
+  "$schema": "https://typedoc-plugin-markdown.org/schema.json",
+  "tsconfig": "./tsconfig.typedoc.json",
+  "entryPoints": [
+    "../../packages/core/src/index.ts",
+    "../../packages/core/src/testing.ts",
+    "../../packages/core/src/migration/index.ts",
+    "../../packages/postgres/src/index.ts",
+    "../../packages/sqlite/src/index.ts",
+    "../../packages/mysql/src/index.ts",
+    "../../packages/zod/src/index.ts",
+    "../../packages/cli/src/index.ts"
+  ],
+  "out": "./api/reference",
+  "plugin": ["typedoc-plugin-markdown", "typedoc-vitepress-theme", "./typedoc-plugin.mjs"],
+  "docsRoot": ".",
+  "readme": "none",
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "excludeExternals": true,
+  "hidePageHeader": true,
+  "hideBreadcrumbs": false,
+  "useCodeBlocks": true,
+  "sidebar": {
+    "autoConfiguration": true,
+    "format": "vitepress",
+    "pretty": true,
+    "collapsed": true
+  },
+  "validation": {
+    "notExported": false,
+    "invalidLink": true,
+    "notDocumented": true,
+    "rewrittenLink": true
+  },
+  "treatWarningsAsErrors": true,
+  "logLevel": "Warn",
+  "externalSymbolLinkMappings": {
+    "egon-orm": {
+      "CompiledQuery": "https://github.com/egon-orm/egon-orm/blob/main/packages/core/src/contracts/adapter.ts",
+      "CompiledQuery.schema": "https://github.com/egon-orm/egon-orm/blob/main/packages/core/src/contracts/adapter.ts",
+      "OutputPlan": "https://github.com/egon-orm/egon-orm/blob/main/packages/core/src/contracts/adapter.ts",
+      "FieldValueOf": "https://github.com/egon-orm/egon-orm/blob/main/packages/core/src/contracts/schema.ts",
+      "FieldFlagsOf": "https://github.com/egon-orm/egon-orm/blob/main/packages/core/src/contracts/schema.ts",
+      "ROW": "https://github.com/egon-orm/egon-orm/blob/main/packages/core/src/contracts/schema.ts",
+      "META": "https://github.com/egon-orm/egon-orm/blob/main/packages/core/src/contracts/schema.ts",
+      "IDENTITY": "https://github.com/egon-orm/egon-orm/blob/main/packages/core/src/contracts/type.ts",
+      "CUSTOM_SQL_TYPE": "https://github.com/egon-orm/egon-orm/blob/main/packages/core/src/contracts/type.ts"
+    }
+  }
+}

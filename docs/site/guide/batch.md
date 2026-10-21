@@ -81,3 +81,15 @@ error type.
 - Use a **transaction callback** for a one-off sequence with ordinary control flow.
 - Use a **batch** when the steps are assembled from parts, reused, or when you want to
   know exactly which step failed without `try`/`catch` around each one.
+
+::: tip Good to know
+- **A batch is a value.** Building one runs nothing; `repo.transaction(batch)` runs it.
+- **The first failure stops it**, and everything is rolled back.
+- **Step names are unique**, and the failure says which step failed.
+:::
+
+## See also
+
+- [Transactions](/guide/transactions)
+- [Auditing](/recipes/auditing): a write and its audit entry in one batch.
+- The [tutorial](/guide/tutorial#_9-publish-and-notify-in-one-batch)'s publish step.

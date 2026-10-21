@@ -854,6 +854,20 @@ describe("validateUniqueAsync", () => {
     await membership.validateUniqueAsync(["orgId", "userId"], env.repo);
   });
 
+  test("an error already on errorKey stands: the database is not asked and nothing is added", async () => {
+    const env = setup(() => ({ rows: [{ c0: 1 }] }));
+    const cs = await change(User, { email: "a" })
+      .addError("login", "is locked")
+      .validateUniqueAsync("email", env.repo, { errorKey: "login" });
+    expect(env.statements).toEqual([]);
+    expect(cs.errorMessages()).toEqual({ login: ["is locked"] });
+    // An error on another key does not stop the check.
+    const other = await change(User, { email: "a" })
+      .addError("name", "is odd")
+      .validateUniqueAsync("email", env.repo, { errorKey: "login" });
+    expect(other.errorMessages()).toEqual({ name: ["is odd"], login: ["has already been taken"] });
+  });
+
   test("misuse is refused", async () => {
     const env = setup();
     expect(await rejection(change(User, { email: "a" }).validateUniqueAsync("email", {}))).toBeInstanceOf(

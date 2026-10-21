@@ -29,7 +29,9 @@ protocol and the pull request and review loop that every change follows.
 | `pnpm lint:packages` | `publint --strict` and `@arethetypeswrong/cli` on the built packages. attw runs with `--profile esm-only`: the packages have no CommonJS build, so its two CommonJS resolution modes (`node10`, `node16-cjs`) are reported but not failed. The ESM and bundler modes must be clean. |
 | `pnpm smoke` | Loads the built packages from an ES module and, with `require()`, from a CommonJS script; then packs them, installs the tarballs with their peer dependencies outside the workspace, and type-checks a consumer project with `declaration: true` and `skipLibCheck: false` (`examples/smoke`). `node examples/smoke/check-types.mjs --typescript <version>` runs that check on another TypeScript. |
 | `pnpm bench [filter]` | Builds, runs the benchmarks, writes `benchmarks/results/<git-sha>.json` |
-| `pnpm docs:dev` / `pnpm docs:build` | VitePress site in `docs/site` |
+| `pnpm docs:dev` / `pnpm docs:build` | VitePress site in `docs/site`; both generate the API reference first (`pnpm docs:api`) |
+| `pnpm docs:check` | The documentation checks (part of `pnpm lint`): see [Documentation](#documentation) |
+| `pnpm docs:exports` / `pnpm docs:dialects` | Regenerate `reference/exports.md` / `reference/dialect-support.md` |
 | `pnpm db:up` / `db:down` / `db:reset` | Start / stop / recreate Postgres (`db:up:tier2` adds MySQL) |
 | `pnpm changeset` | Add a release note for a change to a published package |
 
@@ -46,10 +48,14 @@ pnpm vitest run --project core:integration packages/core/test/support/db.itest.t
 packages/core        "egon-orm"            the library
 packages/postgres    "@egon-orm/postgres"
 packages/zod         "@egon-orm/zod"
-packages/sqlite, mysql, cli              private placeholders until steps 17 / 18
+packages/sqlite       "@egon-orm/sqlite"
+packages/mysql        "@egon-orm/mysql"
+packages/cli          "@egon-orm/cli"       the egon command (private until the release decides)
 packages/core/test/support               shared test helpers, importable as "@egon-orm/test-support"
 benchmarks/          micro/<area>.bench.ts, harness in src/
 examples/smoke       an ESM consumer, a CommonJS consumer (require of the ES module), and a type-checked consumer
+examples/blog        the tutorial's application, with its own test suite (blog:integration)
+examples/react-form  the React form of the form-errors recipe, type-checked on its own
 docs/plan            the plan (frozen; workers add only status/NN.md)
 docs/adr             architecture decision records
 docs/site            VitePress site; docs/site/examples holds the type-checked example sources
@@ -161,6 +167,93 @@ Runtime support starts at Node 22.12 (decision D14) and every tool is on its cur
 release, with one exception: TypeScript is held at `6` because tsup's declaration bundler
 does not work with TypeScript 7. `packages/core` has
 no runtime dependency (ADR 0003); Kysely is a dependency of the step 02 spike only.
+
+## Documentation
+
+The site is VitePress, in `docs/site`. Read plan README §8 before writing for it: pages are
+written for people who know Drizzle, Sequelize or Prisma, and present the library on its
+own terms.
+
+### Code blocks come from checked files
+
+A TypeScript block is never typed into a page. It is a region of a file under
+`docs/site/examples/` (or of `examples/blog`), included by reference:
+
+```md
+<<< @/examples/changesets.ts#register
+```
+
+<!-- illustrative -->
+```ts
+// docs/site/examples/changesets.ts
+// #region register
+const result = await repo.insert(User.changeset(User, params));
+// #endregion register
+```
+
+- Everything outside a region is scaffolding that makes the region compile (`declare
+  const repo: Repo;` and the like). `pnpm typecheck` compiles every file there.
+- A file whose first lines contain `// @run` also **runs**, against a fresh Postgres
+  database, in `pnpm test:integration` (project `docs:integration`). Each statement that
+  ends its line with `// => value` is checked: the statement's value (or, for
+  `const x = …;`, the value of `x`) must deep-equal `value`, a JavaScript expression. Keep
+  such a statement on one line. Every such check must run: one in a branch that is not
+  taken fails the test. `// @run after: ./setup.ts` runs another file of the example first,
+  as a reader would (a script that creates the tables). A runnable example creates its own tables, exports a `run`
+  function if it needs one, and closes every adapter it opens. A `// =>` comment in a file
+  without `// @run` is refused, since nothing would check it.
+- Shell, SQL, text and configuration blocks may be written inline. TypeScript that is not
+  meant to compile as it stands (deliberately invalid code, or a sketch of this tooling, as
+  above) may be too, with `<!-- illustrative -->` on the line above the block. The checks
+  below apply to the README and to this file as well.
+
+### Checks
+
+`pnpm docs:check` (part of `pnpm lint`) runs `scripts/check-docs.mjs`, the index check,
+`scripts/check-page-order.mjs` and the spell checker:
+
+- no hand-written TypeScript or JavaScript block; every included file and region exists;
+- `// =>` only in `// @run` files;
+- none of the positioning that plan README §8 rules out, in pages, examples, the README or
+  package sources;
+- every export of every public entry point is listed in `reference/exports.md` (generated
+  by `pnpm docs:exports` from the TSDoc), and every exported value (function, class,
+  constant) is also named on a written page or shown in an included example;
+- every page is in the sidebar, and every sidebar link is a page;
+- the README's example is the `example` region of `docs/site/examples/home.ts`;
+- on the pages meant to be followed from the top (getting started, the tutorial, the
+  "Coming from" pages, the recipes), the parts of each file, joined in page order, compile,
+  and no name is used above the part that declares it (`scripts/check-page-order.mjs`);
+- `cspell` with the project's word list, `docs/site/words.txt` (British spelling).
+
+`pnpm docs:build` runs TypeDoc first: an export without a TSDoc summary or `@example`
+fails the build. VitePress then fails on a link to a missing page, and
+`scripts/check-anchors.mjs` on a link to a missing heading (`#anchor`).
+
+### The page template
+
+Feature pages (`guide/`) follow one shape, so readers know where to look:
+
+1. **Overview**: what the feature is, in a paragraph, under the page title.
+2. **Quick example**: the common case, as an included region, right after the overview.
+3. **Reference sections**: one `##` section per part of the feature, with tables of
+   options and their defaults.
+4. **Recipes**: worked solutions to common tasks, on the page or linked from
+   [`recipes/`](docs/site/recipes).
+5. **Good to know**: a `::: tip Good to know` box with the behaviour that would surprise
+   someone coming from another ORM (no lazy loading, explicit transactions, non-null by
+   default, results instead of exceptions).
+6. **See also**: links to the related pages.
+
+Recipes are shorter: the problem, the solution as included regions, notes, Good to know,
+See also. Use the words of the [glossary](docs/site/reference/glossary.md) (row, schema,
+changeset, binding, queryable, preload, adapter) in one sense only.
+
+### Deployment
+
+CI builds the site on every pull request and keeps it as the `docs-site` artifact for a
+week. `.github/workflows/docs.yml` builds `main` with `DOCS_BASE=/<repository>/` and
+deploys it to GitHub Pages (the repository's Pages source must be "GitHub Actions").
 
 ## Pull requests
 

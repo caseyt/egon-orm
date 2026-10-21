@@ -63,7 +63,7 @@ import {
 
 type Values = Readonly<Record<string, unknown>>;
 const hasOwn = Object.hasOwn;
-const NONE: readonly never[] = Object.freeze([]);
+const NONE: readonly never[] = /* @__PURE__ */ Object.freeze([]);
 
 /** Carries a failed result out of `atomically`, which then rolls back. */
 class NestedFailure {
@@ -71,7 +71,7 @@ class NestedFailure {
 }
 
 /** The executors nested writes opened (or joined): a nested write below one runs on it as it is. */
-const joined = new WeakSet<object>();
+const joined = /* @__PURE__ */ new WeakSet<object>();
 
 /** The repo the prepare functions of a nested write get: the repo of its transaction. */
 function repoOver(repo: unknown, core: ReadCore, executor: Executor): unknown {
@@ -499,7 +499,7 @@ interface JoinTable {
   readonly targetKey: string;
 }
 
-const joinTables = new WeakMap<AssocMeta, JoinTable>();
+const joinTables = /* @__PURE__ */ new WeakMap<AssocMeta, JoinTable>();
 
 function joinSchemaOf(assoc: AssocMeta): JoinTable {
   let join = joinTables.get(assoc);

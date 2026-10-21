@@ -72,7 +72,7 @@ function jsonHeight(value: unknown, seen: Map<object, number>, depth: number): n
   return tallest + 1;
 }
 
-const JSON_TYPE = defineType<unknown>({
+const JSON_TYPE = /* @__PURE__ */ defineType<unknown>({
   name: "json",
   db: { kind: "jsonb" },
   cast: (input) => {
@@ -111,7 +111,7 @@ export function jsonType<T = unknown>(): FieldType<T, T> {
 // --- array -------------------------------------------------------------------
 
 /** The element type of every array type, for `resolveCodec`. Not a property: every type has one shape. */
-const arrayElements = new WeakMap<AnyFieldType, AnyFieldType>();
+const arrayElements = /* @__PURE__ */ new WeakMap<AnyFieldType, AnyFieldType>();
 
 /**
  * The element type of an array type made by {@link arrayType}, or `undefined` for any
@@ -150,7 +150,7 @@ export function mapElements(convert: (value: unknown) => unknown): (values: unkn
   };
 }
 
-const arrayOf = parameterized((element: AnyFieldType): AnyFieldType => {
+const arrayOf = /* @__PURE__ */ parameterized((element: AnyFieldType): AnyFieldType => {
   const elementCast = detached(element, "cast");
   const elementEqual = detached(element, "equal");
   const elementFromDb = detached(element, "fromDb");
@@ -264,7 +264,7 @@ interface EnumOptions {
   readonly stored: readonly (string | number)[] | undefined;
 }
 
-const enumWith = parameterized((options: EnumOptions): AnyFieldType => {
+const enumWith = /* @__PURE__ */ parameterized((options: EnumOptions): AnyFieldType => {
   const { keys, stored } = options;
   if (stored === undefined) {
     const members = new Set<unknown>(keys);

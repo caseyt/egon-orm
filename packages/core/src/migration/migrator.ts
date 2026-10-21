@@ -344,8 +344,8 @@ interface Planned {
   readonly direction: "up" | "down";
 }
 
-const VERSION_SLOT: readonly ParamSlot[] = Object.freeze([
-  Object.freeze({ kind: "inline", index: 0, toDb: undefined, redact: false } as const),
+const VERSION_SLOT: readonly ParamSlot[] = /* @__PURE__ */ Object.freeze([
+  /* @__PURE__ */ Object.freeze({ kind: "inline", index: 0, toDb: undefined, redact: false } as const),
 ]);
 
 class DatabaseMigrator implements Migrator {

@@ -24,8 +24,8 @@ export interface Spec {
   readonly embeds: ReadonlySet<string>;
 }
 
-const bySchema = new WeakMap<SchemaMeta, Spec>();
-const byTypes = new WeakMap<object, Spec>();
+const bySchema = /* @__PURE__ */ new WeakMap<SchemaMeta, Spec>();
+const byTypes = /* @__PURE__ */ new WeakMap<object, Spec>();
 
 function requiredByDefault(fields: readonly FieldMeta[]): readonly string[] {
   return Object.freeze(

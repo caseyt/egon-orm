@@ -33,7 +33,7 @@ export interface GeneratedBuilders {
   readonly before: BeforeMaker;
 }
 
-const generated = new WeakMap<ReadonlyMap<string, FieldMeta>, GeneratedBuilders>();
+const generated = /* @__PURE__ */ new WeakMap<ReadonlyMap<string, FieldMeta>, GeneratedBuilders>();
 
 /**
  * The generated builders of a field table, made now if they were not made before.

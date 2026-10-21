@@ -5,7 +5,7 @@
 import type { AnyFieldType, DbType } from "../contracts/type.js";
 
 /** The place of each numeric column type in the widening order; other kinds have none. */
-const NUMERIC_RANK: Readonly<Record<string, number>> = Object.freeze({
+const NUMERIC_RANK: Readonly<Record<string, number>> = /* @__PURE__ */ Object.freeze({
   integer: 0,
   bigint: 1,
   decimal: 2,

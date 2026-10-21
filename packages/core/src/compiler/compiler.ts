@@ -44,10 +44,10 @@ export interface CompilerOptions {
   readonly keyOf?: (node: QueryNode) => number;
 }
 
-const OWN_CONVERSIONS: CodecSource = Object.freeze({ typeOverrides: () => undefined });
+const OWN_CONVERSIONS: CodecSource = /* @__PURE__ */ Object.freeze({ typeOverrides: () => undefined });
 
 /** Numbers each schema's metadata for the write-plan keys; the numbers never reach SQL. */
-const metaIds = new WeakMap<SchemaMeta, number>();
+const metaIds = /* @__PURE__ */ new WeakMap<SchemaMeta, number>();
 let nextMetaId = 1;
 
 function metaId(meta: SchemaMeta): number {
@@ -382,7 +382,7 @@ function exceptOf(update: unknown): readonly FieldMeta[] | undefined {
   return Array.isArray(except) ? (except as readonly FieldMeta[]) : undefined;
 }
 
-const LIST_LENGTHS_UNUSED: readonly number[] = Object.freeze([]);
+const LIST_LENGTHS_UNUSED: readonly number[] = /* @__PURE__ */ Object.freeze([]);
 
 /** The lengths of every list in `nodes`, in canonical order. */
 function listLengthsOf(nodes: readonly QueryNode[]): number[] {
@@ -393,7 +393,7 @@ function listLengthsOf(nodes: readonly QueryNode[]): number[] {
   }
   return lengths;
 }
-const NO_NODES: readonly QueryNode[] = Object.freeze([]);
+const NO_NODES: readonly QueryNode[] = /* @__PURE__ */ Object.freeze([]);
 
 function schemaKey(schema: string | undefined): string {
   return schema === undefined ? "-" : JSON.stringify(schema);

@@ -10,10 +10,48 @@
  * connection's own TLS options, and the request is never sent in plain text if TLS cannot
  * be set up.
  *
+ * `node:net` and `node:tls` are loaded the first time a cancel request is sent, not when
+ * the module loads: the package then loads on runtimes that lack them, and only
+ * cancellation is unavailable there (the request fails, so the adapter lets the statement
+ * finish and does not reuse its connection).
+ *
  * @module
  */
-import { connect, isIP, type Socket } from "node:net";
-import { type ConnectionOptions, connect as connectTls, type TLSSocket } from "node:tls";
+import type { Socket } from "node:net";
+import type { ConnectionOptions, TLSSocket } from "node:tls";
+
+/** The parts of `node:net` and `node:tls` a cancel request uses. */
+export interface SocketModules {
+  readonly connect: typeof import("node:net").connect;
+  readonly isIP: typeof import("node:net").isIP;
+  readonly connectTls: typeof import("node:tls").connect;
+}
+
+/** The modules once loaded, or the loading under way. */
+let modules: Promise<SocketModules> | undefined;
+
+/**
+ * Loads `node:net` and `node:tls`, once. Rejects, and lets a later call try again, when the
+ * runtime does not provide them.
+ *
+ * @example
+ * ```ts
+ * const { connect } = await loadSocketModules();
+ * ```
+ */
+export function loadSocketModules(): Promise<SocketModules> {
+  modules ??= Promise.all([import("node:net"), import("node:tls")]).then(
+    ([net, tls]) => ({ connect: net.connect, isIP: net.isIP, connectTls: tls.connect }),
+    (cause: unknown) => {
+      modules = undefined;
+      throw new Error(
+        "Cancelling a statement needs node:net and node:tls, which this runtime does not provide (on Cloudflare Workers, enable the nodejs_compat flag).",
+        { cause },
+      );
+    },
+  );
+  return modules;
+}
 
 /** Where to send a cancel request, and the key of the backend whose statement it stops. */
 export interface CancelTarget {
@@ -58,7 +96,7 @@ export function sslRequestMessage(): Buffer {
 }
 
 /** The options `pg` itself gives `tls.connect` for a connection with these settings. */
-function tlsOptions(target: CancelTarget, socket: Socket): ConnectionOptions {
+function tlsOptions(target: CancelTarget, socket: Socket, isIP: SocketModules["isIP"]): ConnectionOptions {
   const options: ConnectionOptions = { socket, host: target.serverName };
   if (target.ssl !== true && target.ssl !== false) {
     Object.assign(options, target.ssl);
@@ -79,8 +117,16 @@ function tlsOptions(target: CancelTarget, socket: Socket): ConnectionOptions {
  * fails the TLS handshake, closes the socket before the request was sent, or does not
  * finish within `timeoutMs`. The server never says whether a statement was cancelled: a
  * backend that is idle by then ignores the request.
+ *
+ * Also rejects when the runtime has no `node:net` or `node:tls` (see the module comment).
+ * `load` gives the socket modules; tests replace it.
  */
-export function sendCancelRequest(target: CancelTarget, timeoutMs: number): Promise<void> {
+export async function sendCancelRequest(
+  target: CancelTarget,
+  timeoutMs: number,
+  load: () => Promise<SocketModules> = loadSocketModules,
+): Promise<void> {
+  const { connect, isIP, connectTls } = await load();
   return new Promise<void>((resolve, reject) => {
     const socket: Socket = target.host.startsWith("/")
       ? connect(`${target.host}/.s.PGSQL.${target.port}`)
@@ -114,7 +160,7 @@ export function sendCancelRequest(target: CancelTarget, timeoutMs: number): Prom
     const upgrade = (): void => {
       let tls: TLSSocket;
       try {
-        tls = connectTls(tlsOptions(target, socket));
+        tls = connectTls(tlsOptions(target, socket, isIP));
       } catch (error) {
         finish(error as Error);
         return;

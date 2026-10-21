@@ -94,7 +94,7 @@ export interface AssocRoute {
   readonly mayRepeat: boolean;
 }
 
-const routes = new WeakMap<AssocMeta, AssocRoute>();
+const routes = /* @__PURE__ */ new WeakMap<AssocMeta, AssocRoute>();
 
 /**
  * The route of association `name` of `ownerMeta`, computed once and cached.
@@ -558,7 +558,7 @@ export function isLoaded<S extends AnySchema, R extends Row<S>, const K extends 
 // ---------------------------------------------------------------------------
 
 /** The kinds whose values are compared as JavaScript primitives (`===`). */
-const PRIMITIVE_KINDS: ReadonlySet<string> = new Set([
+const PRIMITIVE_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "integer",
   "bigint",
   "float",
@@ -567,7 +567,7 @@ const PRIMITIVE_KINDS: ReadonlySet<string> = new Set([
   "uuid",
 ]);
 /** The kinds held in a `Date`, compared by their time. */
-const DATE_KINDS: ReadonlySet<string> = new Set(["date", "timestamp", "timestamptz", "time"]);
+const DATE_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set(["date", "timestamp", "timestamptz", "time"]);
 
 /**
  * A map from key tuples to values. Every key part is looked up in a `Map` under a
@@ -635,7 +635,7 @@ function primitiveOf(type: AnyFieldType, value: unknown): { readonly found: bool
   return FOUND_NOT;
 }
 
-const HEX = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));
+const HEX = /* @__PURE__ */ Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));
 
 function hexOf(bytes: Uint8Array): string {
   let out = "";

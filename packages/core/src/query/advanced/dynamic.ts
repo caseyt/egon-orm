@@ -98,7 +98,7 @@ export type Dynamic<Bs, X> = ((bindings: DynamicBindings<Bs>) => X) & DynamicMet
 type DynamicCondition<Bs> = (bindings: DynamicBindings<Bs>) => Condition;
 
 /** What the dynamic functions remember about a dynamic expression: the schemas it needs, when known. */
-const DYNAMICS = new WeakMap<object, Schemas | undefined>();
+const DYNAMICS = /* @__PURE__ */ new WeakMap<object, Schemas | undefined>();
 
 /** The schemas a dynamic expression needs, checked against the bindings it is given, when it was made with them. */
 function checkBindings(required: Schemas | undefined, bindings: unknown): void {
@@ -258,7 +258,7 @@ function dynamicFn(...args: readonly unknown[]): unknown {
  * @throws QueryError when the arguments are not a callback, or schemas and a callback; and
  * when the query runs it, when a binding it needs is missing or of another schema.
  */
-export const dynamic: DynamicFunction = Object.assign(dynamicFn, {
+export const dynamic: DynamicFunction = /* @__PURE__ */ Object.assign(dynamicFn, {
   true: () => makeDynamic(() => booleanLiteral(true), undefined),
   false: () => makeDynamic(() => booleanLiteral(false), undefined),
 }) as never;

@@ -82,9 +82,9 @@ export interface EmbeddedSchemaOptions {
 }
 
 /** The key under which a schema's prototype holds its metadata, so that a row leads to it. */
-const MODEL: unique symbol = Symbol.for("egon.model");
+const MODEL: unique symbol = /* @__PURE__ */ Symbol.for("egon.model");
 /** Node's `util.inspect.custom`, which Deno and Bun honour too. Looked up by name: no import of `node:util`. */
-const INSPECT: unique symbol = Symbol.for("nodejs.util.inspect.custom");
+const INSPECT: unique symbol = /* @__PURE__ */ Symbol.for("nodejs.util.inspect.custom");
 
 type Factory = (values: readonly unknown[], row: RowMeta) => object;
 type LoadedFactory = (values: readonly unknown[], loaded: readonly unknown[], row: RowMeta) => object;
@@ -356,7 +356,7 @@ function compileFactory(
   return construct;
 }
 
-const NOTHING_LOADED: readonly unknown[] = Object.freeze([]);
+const NOTHING_LOADED: readonly unknown[] = /* @__PURE__ */ Object.freeze([]);
 
 /** Past this many database schemas, the shared `RowMeta` objects of a table are dropped and made again. */
 const ROW_META_LIMIT = 4096;
@@ -551,7 +551,7 @@ function rowToJSON(this: RowLike): Record<string, unknown> {
 }
 
 /** Prints as the bare text, where a string would be printed in quotes. */
-const REDACTED_VALUE: object = Object.freeze({ [INSPECT]: () => REDACTED });
+const REDACTED_VALUE: object = /* @__PURE__ */ Object.freeze({ [INSPECT]: () => REDACTED });
 
 interface InspectOptions {
   readonly depth?: number | null;

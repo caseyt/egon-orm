@@ -121,10 +121,10 @@ export interface BindingInfo {
 }
 
 /** Every binding object this module made, with its alias and metadata. */
-const infos = new WeakMap<object, BindingInfo>();
+const infos = /* @__PURE__ */ new WeakMap<object, BindingInfo>();
 
 /** The bindings of each schema, by alias. Keyed by the metadata object, so it lives as long as the schema. */
-const cache = new WeakMap<SchemaMeta, Map<string, object>>();
+const cache = /* @__PURE__ */ new WeakMap<SchemaMeta, Map<string, object>>();
 
 /**
  * The binding of a schema under `alias`: built on the first call, then the same object

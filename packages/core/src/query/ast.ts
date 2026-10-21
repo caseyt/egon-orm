@@ -739,45 +739,45 @@ function collectQuery(
 
 /** One seed per node kind, so that kinds with equal children still hash apart. */
 const KIND: Readonly<Record<QueryNode["kind"], number>> = {
-  column: seed("column"),
-  param: seed("param"),
-  namedParam: seed("namedParam"),
-  list: seed("list"),
-  literal: seed("literal"),
-  unary: seed("unary"),
-  binary: seed("binary"),
-  between: seed("between"),
-  nary: seed("nary"),
-  fn: seed("fn"),
-  aggregate: seed("aggregate"),
-  ident: seed("ident"),
-  fragment: seed("fragment"),
-  cast: seed("cast"),
-  case: seed("case"),
-  jsonPath: seed("jsonPath"),
-  subquery: seed("subquery"),
-  exists: seed("exists"),
-  tuple: seed("tuple"),
-  selectedAs: seed("selectedAs"),
-  star: seed("star"),
-  order: seed("order"),
-  window: seed("window"),
-  table: seed("table"),
-  cteSource: seed("cteSource"),
-  subquerySource: seed("subquerySource"),
-  values: seed("values"),
-  fragmentSource: seed("fragmentSource"),
-  join: seed("join"),
-  bool: seed("bool"),
-  select: seed("select"),
-  distinct: seed("distinct"),
-  lock: seed("lock"),
-  combination: seed("combination"),
-  cte: seed("cte"),
-  windowDef: seed("windowDef"),
-  preload: seed("preload"),
-  update: seed("update"),
-  query: seed("query"),
+  column: /* @__PURE__ */ seed("column"),
+  param: /* @__PURE__ */ seed("param"),
+  namedParam: /* @__PURE__ */ seed("namedParam"),
+  list: /* @__PURE__ */ seed("list"),
+  literal: /* @__PURE__ */ seed("literal"),
+  unary: /* @__PURE__ */ seed("unary"),
+  binary: /* @__PURE__ */ seed("binary"),
+  between: /* @__PURE__ */ seed("between"),
+  nary: /* @__PURE__ */ seed("nary"),
+  fn: /* @__PURE__ */ seed("fn"),
+  aggregate: /* @__PURE__ */ seed("aggregate"),
+  ident: /* @__PURE__ */ seed("ident"),
+  fragment: /* @__PURE__ */ seed("fragment"),
+  cast: /* @__PURE__ */ seed("cast"),
+  case: /* @__PURE__ */ seed("case"),
+  jsonPath: /* @__PURE__ */ seed("jsonPath"),
+  subquery: /* @__PURE__ */ seed("subquery"),
+  exists: /* @__PURE__ */ seed("exists"),
+  tuple: /* @__PURE__ */ seed("tuple"),
+  selectedAs: /* @__PURE__ */ seed("selectedAs"),
+  star: /* @__PURE__ */ seed("star"),
+  order: /* @__PURE__ */ seed("order"),
+  window: /* @__PURE__ */ seed("window"),
+  table: /* @__PURE__ */ seed("table"),
+  cteSource: /* @__PURE__ */ seed("cteSource"),
+  subquerySource: /* @__PURE__ */ seed("subquerySource"),
+  values: /* @__PURE__ */ seed("values"),
+  fragmentSource: /* @__PURE__ */ seed("fragmentSource"),
+  join: /* @__PURE__ */ seed("join"),
+  bool: /* @__PURE__ */ seed("bool"),
+  select: /* @__PURE__ */ seed("select"),
+  distinct: /* @__PURE__ */ seed("distinct"),
+  lock: /* @__PURE__ */ seed("lock"),
+  combination: /* @__PURE__ */ seed("combination"),
+  cte: /* @__PURE__ */ seed("cte"),
+  windowDef: /* @__PURE__ */ seed("windowDef"),
+  preload: /* @__PURE__ */ seed("preload"),
+  update: /* @__PURE__ */ seed("update"),
+  query: /* @__PURE__ */ seed("query"),
 };
 
 function seed(kind: string): number {
@@ -789,7 +789,7 @@ function seed(kind: string): number {
  * are built on a hot path, and the names come from small fixed sets. One table per kind
  * seed, so that the same name under two kinds is two entries.
  */
-const seeds = new Map<number, Map<string, number>>();
+const seeds = /* @__PURE__ */ new Map<number, Map<string, number>>();
 
 function seedOf(kindSeed: number, name: string): number {
   let table = seeds.get(kindSeed);
@@ -1092,7 +1092,7 @@ export function shapeOfIdent(name: string): number {
 }
 
 /** Hashes of a fragment's static strings, per strings array (a template's is the same object at every call). */
-const stringsHashes = new WeakMap<readonly string[], number>();
+const stringsHashes = /* @__PURE__ */ new WeakMap<readonly string[], number>();
 
 function stringsShape(strings: readonly string[]): number {
   let hash = stringsHashes.get(strings);

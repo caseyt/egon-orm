@@ -97,7 +97,7 @@ const UNDONE = " The write was undone: an upsert and its read-back run as one un
 /** A changeset of any schema, as the repo handles it. */
 export type AnyChangeset = Changeset<AnySchema, boolean>;
 
-const NONE: readonly never[] = Object.freeze([]);
+const NONE: readonly never[] = /* @__PURE__ */ Object.freeze([]);
 const hasOwn = Object.hasOwn;
 const now = (): number => performance.now();
 
@@ -230,31 +230,18 @@ export interface InsertOrUpdateOptions<S extends AnySchema = AnySchema>
   readonly returning?: true | readonly FieldNames<S>[] | undefined;
 }
 
-export const INSERT_OPTION_KEYS: readonly string[] = Object.freeze([
-  ...READ_OPTION_KEYS,
-  "returning",
-  "onConflict",
-]);
-export const UPDATE_OPTION_KEYS: readonly string[] = Object.freeze([
-  ...READ_OPTION_KEYS,
-  "returning",
-  "force",
-  "staleError",
-  "allowStale",
-]);
-export const DELETE_OPTION_KEYS: readonly string[] = Object.freeze([
-  ...READ_OPTION_KEYS,
-  "staleError",
-  "allowStale",
-]);
-export const INSERT_OR_UPDATE_OPTION_KEYS: readonly string[] = Object.freeze([
-  ...READ_OPTION_KEYS,
-  "returning",
-  "onConflict",
-  "force",
-  "staleError",
-  "allowStale",
-]);
+export const INSERT_OPTION_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze(
+  /* @__PURE__ */ READ_OPTION_KEYS.concat(["returning", "onConflict"]),
+);
+export const UPDATE_OPTION_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze(
+  /* @__PURE__ */ READ_OPTION_KEYS.concat(["returning", "force", "staleError", "allowStale"]),
+);
+export const DELETE_OPTION_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze(
+  /* @__PURE__ */ READ_OPTION_KEYS.concat(["staleError", "allowStale"]),
+);
+export const INSERT_OR_UPDATE_OPTION_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze(
+  /* @__PURE__ */ READ_OPTION_KEYS.concat(["returning", "onConflict", "force", "staleError", "allowStale"]),
+);
 
 /** Everything a write reads from its options, checked. */
 export interface WriteSettings {
@@ -268,7 +255,7 @@ export interface WriteSettings {
   readonly allowStale: boolean;
 }
 
-const NO_SETTINGS: WriteSettings = Object.freeze({
+const NO_SETTINGS: WriteSettings = /* @__PURE__ */ Object.freeze({
   options: undefined,
   returning: undefined,
   onConflict: undefined,
@@ -699,9 +686,9 @@ interface WriteTable {
   readonly positions: ReadonlyMap<FieldMeta, number>;
 }
 
-const tables = new WeakMap<SchemaMeta, WriteTable>();
+const tables = /* @__PURE__ */ new WeakMap<SchemaMeta, WriteTable>();
 
-const TIMESTAMP_KINDS: ReadonlySet<string> = new Set(["timestamp", "timestamptz"]);
+const TIMESTAMP_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set(["timestamp", "timestamptz"]);
 
 /**
  * The write table of a schema.
@@ -889,10 +876,10 @@ export function runPrepare(changeset: AnyChangeset, action: Action, repo: unknow
   return withRepo(current, null);
 }
 
-const BLANK: ChangesetError = Object.freeze({
+const BLANK: ChangesetError = /* @__PURE__ */ Object.freeze({
   message: "can't be blank",
   validation: "required",
-  meta: Object.freeze({}),
+  meta: /* @__PURE__ */ Object.freeze({}),
 });
 
 function blank(changeset: AnyChangeset, fields: readonly FieldMeta[]): AnyChangeset {
@@ -987,7 +974,7 @@ function isConstraintError(error: unknown): error is ConstraintError {
 // insert
 // ---------------------------------------------------------------------------
 
-const ONE_ROW = Object.freeze({ kind: "values" as const, rows: 1 });
+const ONE_ROW = /* @__PURE__ */ Object.freeze({ kind: "values" as const, rows: 1 });
 
 /**
  * `repo.insert`: writes a new-record changeset.
@@ -1448,7 +1435,7 @@ function deletedRow(
 // delete
 // ---------------------------------------------------------------------------
 
-const NO_CHANGES: Readonly<Record<string, unknown>> = Object.freeze({});
+const NO_CHANGES: Readonly<Record<string, unknown>> = /* @__PURE__ */ Object.freeze({});
 
 /**
  * `repo.delete`: deletes a loaded row, given as itself or as a changeset of it.

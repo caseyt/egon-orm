@@ -60,7 +60,12 @@ export type StatementCompiler = Pick<
 };
 
 /** The counters of a compiler that never caches anything. */
-const NO_STATS: PlanCacheStats = Object.freeze({ hits: 0, misses: 0, collisions: 0, size: 0 });
+const NO_STATS: PlanCacheStats = /* @__PURE__ */ Object.freeze({
+  hits: 0,
+  misses: 0,
+  collisions: 0,
+  size: 0,
+});
 
 /** What a compiler is created from: one per adapter instance. */
 export interface StatementCompilerOptions {
@@ -75,7 +80,7 @@ export interface StatementCompilerOptions {
 }
 
 /** The compiler's SQL syntax table for each dialect. */
-const SYNTAX: Readonly<Partial<Record<Dialect, SqlDialect>>> = Object.freeze({
+const SYNTAX: Readonly<Partial<Record<Dialect, SqlDialect>>> = /* @__PURE__ */ Object.freeze({
   postgres: postgresDialect,
   mysql: mysqlDialect,
   sqlite: sqliteDialect,

@@ -17,7 +17,7 @@ import { QueryError } from "../errors.js";
 export type NamedValues = Readonly<Record<string, unknown>>;
 
 /** The distinct names of a plan's `named` slots, computed once per slot list. */
-const namesOfSlots = new WeakMap<readonly ParamSlot[], ReadonlySet<string>>();
+const namesOfSlots = /* @__PURE__ */ new WeakMap<readonly ParamSlot[], ReadonlySet<string>>();
 
 function namesOf(slots: readonly ParamSlot[]): ReadonlySet<string> {
   let names = namesOfSlots.get(slots);
@@ -34,7 +34,10 @@ function namesOf(slots: readonly ParamSlot[]): ReadonlySet<string> {
  * What {@link wholeNumber} and {@link wholeBigintNumber} throw; {@link bindParams} replaces
  * it with an error naming the slot.
  */
-const NOT_WHOLE = new QueryError("query.notWholeNumber", "A value of an integer type is not a whole number.");
+const NOT_WHOLE = /* @__PURE__ */ new QueryError(
+  "query.notWholeNumber",
+  "A value of an integer type is not a whole number.",
+);
 
 /**
  * The bind-time check of a value of the built-in `t.integer()` type (owner decision,
@@ -82,7 +85,7 @@ function wholeTypeName(slot: ParamSlot): string {
 }
 
 /** The slot of each error {@link bindParams} threw for a value that is not a whole number. */
-const refusedSlots = new WeakMap<object, ParamSlot>();
+const refusedSlots = /* @__PURE__ */ new WeakMap<object, ParamSlot>();
 
 /** The error for a slot whose value was not a whole number, naming it by its position or name. */
 function notWhole(slot: ParamSlot, position: number): QueryError {

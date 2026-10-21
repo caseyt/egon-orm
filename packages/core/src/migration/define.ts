@@ -7,7 +7,7 @@ import { MigrationError } from "../errors.js";
 import type { MigrationBuilder } from "./builder.js";
 
 /** Marks a value made by {@link defineMigration} (`Symbol.for`, so two copies of the package agree). */
-const MIGRATION: unique symbol = Symbol.for("egon.migration");
+const MIGRATION: unique symbol = /* @__PURE__ */ Symbol.for("egon.migration");
 
 /**
  * What a migration is written as: `up` makes the change, `down` undoes it. Both are

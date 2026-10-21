@@ -136,7 +136,7 @@ import { type BuiltSelect, buildSelect, mergeSelects, type Sel } from "./select.
  * }
  * ```
  */
-export const AS_SOURCE: unique symbol = Symbol.for("egon.asSource");
+export const AS_SOURCE: unique symbol = /* @__PURE__ */ Symbol.for("egon.asSource");
 
 /**
  * What a source wrapper gives the builder for one binding: the source node, the binding
@@ -731,7 +731,7 @@ const PROPERTIES = 18;
  * limit and offset of the combined rows, more set operations, its CTEs and its database
  * schema. Anything else would apply to the left side only.
  */
-const AFTER_SET_OPERATION: ReadonlySet<number> = new Set([
+const AFTER_SET_OPERATION: ReadonlySet<number> = /* @__PURE__ */ new Set([
   ORDER_BYS,
   LIMIT,
   OFFSET,
@@ -743,12 +743,12 @@ const AFTER_SET_OPERATION: ReadonlySet<number> = new Set([
 // The seeds of the clause kinds whose shapes the builder computes from the shapes its
 // expressions already carry, as `shapeOf` in ast.ts defines them (the tests check
 // `ast.shape === shapeOf(ast)` on built queries).
-const BOOL_SEED = hashString(HASH_SEED, "bool");
-const JOIN_SEED = hashString(HASH_SEED, "join");
-const DISTINCT_SEED = hashString(HASH_SEED, "distinct");
-const LOCK_SEED = hashString(HASH_SEED, "lock");
-const BOOL_AND = hashString(BOOL_SEED, "and");
-const BOOL_OR = hashString(BOOL_SEED, "or");
+const BOOL_SEED = /* @__PURE__ */ hashString(HASH_SEED, "bool");
+const JOIN_SEED = /* @__PURE__ */ hashString(HASH_SEED, "join");
+const DISTINCT_SEED = /* @__PURE__ */ hashString(HASH_SEED, "distinct");
+const LOCK_SEED = /* @__PURE__ */ hashString(HASH_SEED, "lock");
+const BOOL_AND = /* @__PURE__ */ hashString(BOOL_SEED, "and");
+const BOOL_OR = /* @__PURE__ */ hashString(BOOL_SEED, "or");
 
 function boolShape(op: "and" | "or", exprShape: number): number {
   return hashInt(op === "and" ? BOOL_AND : BOOL_OR, exprShape);
@@ -775,7 +775,7 @@ function presentShape(shape: number): number {
   return optionalShape(HASH_SEED, shape);
 }
 
-const ABSENT_SHAPE = optionalShape(HASH_SEED, undefined);
+const ABSENT_SHAPE = /* @__PURE__ */ optionalShape(HASH_SEED, undefined);
 
 function schemaShape(schema: string | undefined): number {
   return schema === undefined ? hashInt(HASH_SEED, 0) : hashString(hashInt(HASH_SEED, 1), schema);
@@ -1117,7 +1117,7 @@ function conditionOf(column: AnyExpr, value: unknown, prefix: string): AnyExpr {
 }
 
 /** The column kinds whose values are compared whole by the object form of `where`, arrays included. */
-const WHOLE_VALUE_KINDS: ReadonlySet<string> = new Set(["array", "json", "jsonb"]);
+const WHOLE_VALUE_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set(["array", "json", "jsonb"]);
 
 /** Rethrows `error`, with `prefix` before its message when it is a `QueryError`. */
 function rethrow(error: unknown, prefix: string): never {
@@ -1191,12 +1191,12 @@ function lockClause(mode: unknown, options: unknown): string {
 // Query
 // ---------------------------------------------------------------------------
 
-const INTEGER: AnyFieldType = integerType();
+const INTEGER: AnyFieldType = /* @__PURE__ */ integerType();
 /** Node's `util.inspect.custom`, looked up by name: no import of `node:util`. */
-const INSPECT: unique symbol = Symbol.for("nodejs.util.inspect.custom");
+const INSPECT: unique symbol = /* @__PURE__ */ Symbol.for("nodejs.util.inspect.custom");
 
 /** The internal constructor token: a `Query` is made by `from` and by its own methods. */
-const TOKEN: unique symbol = Symbol("egon.query");
+const TOKEN: unique symbol = /* @__PURE__ */ Symbol("egon.query");
 
 /**
  * A query: an immutable description of what to read. `B` is its bindings (alias to
@@ -3049,7 +3049,7 @@ export function from<Src extends Source, const A extends string>(
  * The query `from(Schema, alias)` returns, per schema and alias. A query is immutable, so
  * one value serves every caller; starting a query is then a lookup.
  */
-const roots = new WeakMap<SchemaMeta, Map<string, Query<never, unknown, never, string>>>();
+const roots = /* @__PURE__ */ new WeakMap<SchemaMeta, Map<string, Query<never, unknown, never, string>>>();
 
 /**
  * Whether `query` has a binding named `alias`, and with a schema class, whether that

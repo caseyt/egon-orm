@@ -73,9 +73,9 @@ import {
 // ---------------------------------------------------------------------------
 
 /** Proves that a constructor call comes from this module. */
-const TOKEN: unique symbol = Symbol("changeset");
+const TOKEN: unique symbol = /* @__PURE__ */ Symbol("changeset");
 /** Node's `util.inspect.custom`, looked up by name: no import of `node:util`. */
-const INSPECT: unique symbol = Symbol.for("nodejs.util.inspect.custom");
+const INSPECT: unique symbol = /* @__PURE__ */ Symbol.for("nodejs.util.inspect.custom");
 
 type Errors = Readonly<Record<string, readonly ChangesetError[]>>;
 type Values = Readonly<Record<string, unknown>>;
@@ -104,20 +104,26 @@ interface ValidationNode {
  */
 type PrepareFn = (changeset: never) => unknown;
 
-const EMPTY: Values = Object.freeze({});
-const NO_ERRORS: Errors = Object.freeze({});
-const NO_CONSTRAINTS: readonly Constraint[] = Object.freeze([]);
-const NO_PREPARE: readonly PrepareFn[] = Object.freeze([]);
-const NO_ISSUES: readonly ChangesetError[] = Object.freeze([]);
-const DEFAULT_EMPTY_VALUES: readonly unknown[] = Object.freeze([""]);
-const ACTIONS: ReadonlySet<unknown> = new Set<Action>(["insert", "update", "delete", "replace", "ignore"]);
+const EMPTY: Values = /* @__PURE__ */ Object.freeze({});
+const NO_ERRORS: Errors = /* @__PURE__ */ Object.freeze({});
+const NO_CONSTRAINTS: readonly Constraint[] = /* @__PURE__ */ Object.freeze([]);
+const NO_PREPARE: readonly PrepareFn[] = /* @__PURE__ */ Object.freeze([]);
+const NO_ISSUES: readonly ChangesetError[] = /* @__PURE__ */ Object.freeze([]);
+const DEFAULT_EMPTY_VALUES: readonly unknown[] = /* @__PURE__ */ Object.freeze([""]);
+const ACTIONS: ReadonlySet<unknown> = /* @__PURE__ */ new Set<Action>([
+  "insert",
+  "update",
+  "delete",
+  "replace",
+  "ignore",
+]);
 
 const BLANK = "can't be blank";
 /** The error for a `null` given to a field that is not nullable. Shared: errors are plain values. */
-const NOT_NULL: ChangesetError = Object.freeze({
+const NOT_NULL: ChangesetError = /* @__PURE__ */ Object.freeze({
   message: BLANK,
   validation: "required",
-  meta: Object.freeze({}),
+  meta: /* @__PURE__ */ Object.freeze({}),
 });
 
 /**
@@ -1827,7 +1833,7 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
 
 type ElementOf<T> = T extends readonly (infer E)[] ? E : never;
 
-const ACCEPTANCE = booleanType();
+const ACCEPTANCE = /* @__PURE__ */ booleanType();
 
 const LENGTH_MESSAGES = {
   string: {
@@ -1849,7 +1855,7 @@ const LENGTH_MESSAGES = {
 
 type Compare = (value: number | bigint, limit: number | bigint) => boolean;
 
-const NUMBER_CHECKS = Object.freeze({
+const NUMBER_CHECKS = /* @__PURE__ */ Object.freeze({
   lessThan: [(value, limit) => value < limit, "must be less than {number}"],
   greaterThan: [(value, limit) => value > limit, "must be greater than {number}"],
   lessThanOrEqualTo: [(value, limit) => value <= limit, "must be less than or equal to {number}"],

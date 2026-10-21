@@ -255,7 +255,7 @@ function build(schema: AnySchema, mode: ToZodMode, keep: (name: string) => boole
 }
 
 /** The whole-row schema of a class, cached: used for embeds and for `toZod` without pick or omit. */
-const cache = new WeakMap<AnySchema, Map<ToZodMode, z.ZodObject>>();
+const cache = /* @__PURE__ */ new WeakMap<AnySchema, Map<ToZodMode, z.ZodObject>>();
 
 function cached(schema: AnySchema, mode: ToZodMode): z.ZodObject {
   let byMode = cache.get(schema);

@@ -198,20 +198,20 @@ export interface ExplainReadOptions extends ReadOptions {
 export const DEFAULT_STREAM_BATCH_SIZE = 500;
 
 /** The keys each kind of call accepts, for the message of an unknown option. */
-export const READ_OPTION_KEYS: readonly string[] = Object.freeze([
+export const READ_OPTION_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze([
   "schema",
   "timeoutMs",
   "signal",
   "context",
   "maxConcurrency",
 ]);
-export const STREAM_OPTION_KEYS: readonly string[] = Object.freeze([...READ_OPTION_KEYS, "batchSize"]);
-export const EXPLAIN_OPTION_KEYS: readonly string[] = Object.freeze([
-  ...READ_OPTION_KEYS,
-  "analyze",
-  "format",
-]);
-export const SQL_OPTION_KEYS: readonly string[] = Object.freeze(["schema"]);
+export const STREAM_OPTION_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze(
+  /* @__PURE__ */ READ_OPTION_KEYS.concat(["batchSize"]),
+);
+export const EXPLAIN_OPTION_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze(
+  /* @__PURE__ */ READ_OPTION_KEYS.concat(["analyze", "format"]),
+);
+export const SQL_OPTION_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze(["schema"]);
 
 /** The checked options of {@link createRepo}. */
 export interface RepoSettings {
@@ -426,7 +426,7 @@ export function namedParamsOf(queryable: { readonly ast: QueryAst }): readonly s
   return names;
 }
 
-const namesByAst = new WeakMap<QueryAst, readonly string[]>();
+const namesByAst = /* @__PURE__ */ new WeakMap<QueryAst, readonly string[]>();
 
 function collectNames(ast: QueryAst, out: string[]): void {
   const named: NamedParamNode[] = [];

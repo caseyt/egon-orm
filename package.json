@@ -12,7 +12,7 @@
   },
   "scripts": {
     "check": "pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:types && pnpm build",
-    "lint": "biome ci --error-on-warnings . && node scripts/check-workspace-policy.mjs && node scripts/check-dialect-conditionals.mjs && tsx scripts/dialect-support.ts --check && pnpm docs:check",
+    "lint": "biome ci --error-on-warnings . && node scripts/check-workspace-policy.mjs && node scripts/check-dialect-conditionals.mjs && node scripts/check-pure-annotations.mjs && tsx scripts/dialect-support.ts --check && pnpm docs:check",
     "format": "biome check --write .",
     "typecheck": "tsc -b && pnpm typecheck:spikes",
     "typecheck:spikes": "tsc -p tsconfig.spikes.json && node scripts/check-rejected-spike.mjs",

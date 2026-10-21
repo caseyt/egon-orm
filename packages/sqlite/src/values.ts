@@ -23,8 +23,8 @@
 import type { DriverCodecs } from "egon-orm";
 import { CastError } from "egon-orm";
 
-const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
-const MIN_SAFE = BigInt(Number.MIN_SAFE_INTEGER);
+const MAX_SAFE = /* @__PURE__ */ BigInt(Number.MAX_SAFE_INTEGER);
+const MIN_SAFE = /* @__PURE__ */ BigInt(Number.MIN_SAFE_INTEGER);
 
 /** A number column: integers arrive as `bigint`, reals as `number`. */
 function readNumber(value: unknown): unknown {
@@ -195,18 +195,18 @@ function writeBytes(value: unknown): unknown {
 const writeUuid = (value: unknown): unknown => (typeof value === "string" ? value.toLowerCase() : value);
 
 /** Where SQLite's values (read with safe integers) differ from the canonical driver values. */
-export const SQLITE_DRIVER_CODECS: DriverCodecs = Object.freeze({
-  integer: Object.freeze({ fromDb: readNumber }),
-  float: Object.freeze({ fromDb: readNumber, toDb: writeFloat }),
-  bigint: Object.freeze({ fromDb: readBigint }),
-  decimal: Object.freeze({ fromDb: readDecimal }),
-  boolean: Object.freeze({ fromDb: readBoolean, toDb: writeBoolean }),
-  text: Object.freeze({ fromDb: readText }),
-  uuid: Object.freeze({ fromDb: readText, toDb: writeUuid }),
-  binary: Object.freeze({ fromDb: readBytes, toDb: writeBytes }),
-  timestamp: Object.freeze({ fromDb: readTimestamp, toDb: writeTimestamp }),
-  timestamptz: Object.freeze({ fromDb: readTimestamp, toDb: writeTimestamptz }),
-  json: Object.freeze({ fromDb: readJson, toDb: writeJson }),
-  jsonb: Object.freeze({ fromDb: readJson, toDb: writeJson }),
-  array: Object.freeze({ fromDb: readJson, toDb: writeJson }),
+export const SQLITE_DRIVER_CODECS: DriverCodecs = /* @__PURE__ */ Object.freeze({
+  integer: /* @__PURE__ */ Object.freeze({ fromDb: readNumber }),
+  float: /* @__PURE__ */ Object.freeze({ fromDb: readNumber, toDb: writeFloat }),
+  bigint: /* @__PURE__ */ Object.freeze({ fromDb: readBigint }),
+  decimal: /* @__PURE__ */ Object.freeze({ fromDb: readDecimal }),
+  boolean: /* @__PURE__ */ Object.freeze({ fromDb: readBoolean, toDb: writeBoolean }),
+  text: /* @__PURE__ */ Object.freeze({ fromDb: readText }),
+  uuid: /* @__PURE__ */ Object.freeze({ fromDb: readText, toDb: writeUuid }),
+  binary: /* @__PURE__ */ Object.freeze({ fromDb: readBytes, toDb: writeBytes }),
+  timestamp: /* @__PURE__ */ Object.freeze({ fromDb: readTimestamp, toDb: writeTimestamp }),
+  timestamptz: /* @__PURE__ */ Object.freeze({ fromDb: readTimestamp, toDb: writeTimestamptz }),
+  json: /* @__PURE__ */ Object.freeze({ fromDb: readJson, toDb: writeJson }),
+  jsonb: /* @__PURE__ */ Object.freeze({ fromDb: readJson, toDb: writeJson }),
+  array: /* @__PURE__ */ Object.freeze({ fromDb: readJson, toDb: writeJson }),
 });

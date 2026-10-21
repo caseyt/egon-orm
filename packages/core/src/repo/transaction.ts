@@ -84,14 +84,14 @@ export interface TransactionOptions {
   readonly timeoutMs?: number | undefined;
 }
 
-const TRANSACTION_OPTION_KEYS: readonly string[] = Object.freeze([
+const TRANSACTION_OPTION_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze([
   "isolation",
   "readOnly",
   "retries",
   "timeoutMs",
 ]);
 
-const ISOLATION_LEVELS: readonly string[] = Object.freeze([
+const ISOLATION_LEVELS: readonly string[] = /* @__PURE__ */ Object.freeze([
   "read committed",
   "repeatable read",
   "serializable",
@@ -167,14 +167,18 @@ function settingsOf(method: string, options: unknown): Settings {
   return { begin, retries: retries ?? 0, timeoutMs };
 }
 
-const NO_SETTINGS: Settings = Object.freeze({ begin: undefined, retries: 0, timeoutMs: undefined });
+const NO_SETTINGS: Settings = /* @__PURE__ */ Object.freeze({
+  begin: undefined,
+  retries: 0,
+  timeoutMs: undefined,
+});
 
 // ---------------------------------------------------------------------------
 // Errors and signals
 // ---------------------------------------------------------------------------
 
 /** "Nothing here": no failure, no rollback reason. Distinct from every value a user can pass. */
-const NONE: unique symbol = Symbol("none");
+const NONE: unique symbol = /* @__PURE__ */ Symbol("none");
 type Maybe<T> = T | typeof NONE;
 
 const now = (): number => performance.now();
@@ -256,7 +260,7 @@ function fromDatabase(error: unknown): boolean {
 }
 
 /** The codes of `ConstraintError` and `DatabaseError`: errors the database reported for a statement it ran. */
-const DATABASE_CODES: readonly string[] = Object.freeze([
+const DATABASE_CODES: readonly string[] = /* @__PURE__ */ Object.freeze([
   "constraint",
   "database",
   "connection",
@@ -294,7 +298,7 @@ function transactionTimeout(level: Level, sql: string | undefined, cause: unknow
 // The session: one connection, one statement at a time
 // ---------------------------------------------------------------------------
 
-const NO_PARAMS: readonly unknown[] = Object.freeze([]);
+const NO_PARAMS: readonly unknown[] = /* @__PURE__ */ Object.freeze([]);
 
 /** A statement (or a transaction statement, `work`) waiting for the connection. */
 class Waiting {
@@ -774,7 +778,7 @@ export class RootScope {
 /** What a repo is bound to: the root (the pool), or a level on one connection. */
 export type Scope = RootScope | Level;
 
-const roots = new WeakMap<object, RootScope>();
+const roots = /* @__PURE__ */ new WeakMap<object, RootScope>();
 
 let storage: AsyncLocalStorage<Level> | undefined;
 
@@ -887,7 +891,7 @@ type Outcome =
   | { readonly kind: "throw"; readonly error: unknown }
   | { readonly kind: "timeout" };
 
-const TIMED_OUT: Outcome = Object.freeze({ kind: "timeout" });
+const TIMED_OUT: Outcome = /* @__PURE__ */ Object.freeze({ kind: "timeout" });
 
 /** Why a level ended in a failure, for the message of `transactionOrThrow`. */
 type Why = "rollback" | "statement";

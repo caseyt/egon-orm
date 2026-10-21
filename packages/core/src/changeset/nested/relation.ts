@@ -52,7 +52,7 @@ export interface Relation {
   readonly key: readonly FieldMeta[];
 }
 
-const relations = new WeakMap<object, Map<string, Relation>>();
+const relations = /* @__PURE__ */ new WeakMap<object, Map<string, Relation>>();
 
 function describe(value: unknown): string {
   if (value === null) return "null";
@@ -216,7 +216,7 @@ export function currentOf(changeset: AnyChangeset, relation: Relation): readonly
   return rows as readonly object[];
 }
 
-const NONE: readonly object[] = Object.freeze([]);
+const NONE: readonly object[] = /* @__PURE__ */ Object.freeze([]);
 
 /**
  * The primary-key values of an item, or `undefined` when one is missing (`undefined`,

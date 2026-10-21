@@ -76,8 +76,8 @@ export interface DdlContext {
   readonly compileFragment: (node: FragmentNode) => CompiledQuery;
 }
 
-const NO_PARAMS: readonly unknown[] = Object.freeze([]);
-const NO_SLOTS: readonly ParamSlot[] = Object.freeze([]);
+const NO_PARAMS: readonly unknown[] = /* @__PURE__ */ Object.freeze([]);
+const NO_SLOTS: readonly ParamSlot[] = /* @__PURE__ */ Object.freeze([]);
 
 function ddl(sql: string): MigrationStatement {
   return { sql, params: NO_PARAMS, slots: NO_SLOTS };

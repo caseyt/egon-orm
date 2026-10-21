@@ -19,4 +19,4 @@ import type { SchemaMeta } from "../../contracts/schema.js";
  * OUTER_REFS.get(outerRef("u", User).id.node as ColumnNode); // meta(User)
  * ```
  */
-export const OUTER_REFS: WeakMap<ColumnNode, SchemaMeta> = new WeakMap();
+export const OUTER_REFS: WeakMap<ColumnNode, SchemaMeta> = /* @__PURE__ */ new WeakMap();

@@ -81,7 +81,7 @@ import { type AfterDecodeContext, Call, type ReadCore } from "./read.js";
 import { overBudget } from "./write.js";
 
 const now = (): number => performance.now();
-const NONE: readonly never[] = Object.freeze([]);
+const NONE: readonly never[] = /* @__PURE__ */ Object.freeze([]);
 
 // ---------------------------------------------------------------------------
 // Options
@@ -109,10 +109,9 @@ export interface PreloadOptions extends Omit<ReadOptions, "schema"> {
  * checkReadOptions("preload", options, PRELOAD_OPTION_KEYS);
  * ```
  */
-export const PRELOAD_OPTION_KEYS: readonly string[] = Object.freeze([
-  ...READ_OPTION_KEYS.filter((key) => key !== "schema"),
-  "force",
-]);
+export const PRELOAD_OPTION_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze(
+  /* @__PURE__ */ ["force"].concat(/* @__PURE__ */ READ_OPTION_KEYS.filter((key) => key !== "schema")),
+);
 
 /**
  * Internal limits of preloading. Not public API; tests lower `chunkKeys` to exercise the
@@ -273,7 +272,7 @@ interface CallOptions {
   readonly batchSize: undefined;
 }
 
-const namesBySlots = new WeakMap<readonly ParamSlot[], readonly string[]>();
+const namesBySlots = /* @__PURE__ */ new WeakMap<readonly ParamSlot[], readonly string[]>();
 
 /** The named values a plan uses, out of all the call was given. */
 function usedNames(
@@ -418,9 +417,9 @@ export function keepPreloads(from: object, to: object): void {
  * `repo.preload`, and every whole row a preload loaded with preloads below it. One shared
  * record per call and level; one entry per row.
  */
-const records = new WeakMap<object, PreloadRecord>();
+const records = /* @__PURE__ */ new WeakMap<object, PreloadRecord>();
 
-const checked = new WeakSet<readonly PreloadNode[]>();
+const checked = /* @__PURE__ */ new WeakSet<readonly PreloadNode[]>();
 
 /**
  * Builds (and caches) the statement parts of every separate preload of a query, so that
@@ -1026,7 +1025,7 @@ interface Level {
   readonly nested: readonly PreloadNode[];
 }
 
-const levels = new WeakMap<PreloadNode, Level>();
+const levels = /* @__PURE__ */ new WeakMap<PreloadNode, Level>();
 
 function levelOf(route: AssocRoute, node: PreloadNode): Level {
   let level = levels.get(node);

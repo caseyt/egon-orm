@@ -127,7 +127,7 @@ export function scalar<Q extends QueryLike>(
 }
 
 /** The bindings `outerRef` made, per schema and alias: built once, like a query's bindings. */
-const OUTER_BINDINGS = new WeakMap<SchemaMeta, Map<string, object>>();
+const OUTER_BINDINGS = /* @__PURE__ */ new WeakMap<SchemaMeta, Map<string, object>>();
 
 /**
  * The binding `alias` of the query a subquery is nested in, with the columns of `schema`:

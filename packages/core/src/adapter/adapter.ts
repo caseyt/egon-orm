@@ -130,7 +130,7 @@ export interface AdapterDefinition {
 }
 
 /** Postgres-style transaction modes, by option. The dialect's `capabilities.isolationLevels` says which levels exist. */
-const ISOLATION_SQL: ReadonlyMap<IsolationLevel, string> = new Map<IsolationLevel, string>([
+const ISOLATION_SQL: ReadonlyMap<IsolationLevel, string> = /* @__PURE__ */ new Map<IsolationLevel, string>([
   ["read committed", "isolation level read committed"],
   ["repeatable read", "isolation level repeatable read"],
   ["serializable", "isolation level serializable"],
@@ -143,7 +143,7 @@ interface CheckedBegin {
   readonly deferrable: boolean | undefined;
 }
 
-const NO_BEGIN_OPTIONS: CheckedBegin = Object.freeze({
+const NO_BEGIN_OPTIONS: CheckedBegin = /* @__PURE__ */ Object.freeze({
   isolation: undefined,
   readOnly: undefined,
   deferrable: undefined,
@@ -259,7 +259,7 @@ function checkSavepointName(method: string, name: unknown): string {
 }
 
 /** The parameters of a transaction statement: there are none. */
-const NO_PARAMS: readonly unknown[] = Object.freeze([]);
+const NO_PARAMS: readonly unknown[] = /* @__PURE__ */ Object.freeze([]);
 
 /**
  * Checks the execution options of a transaction statement. They are those of `execute`,
@@ -373,7 +373,7 @@ const ignoreError = (): undefined => undefined;
  * anyway, late, so it could still cancel whatever runs next on that connection: such a
  * connection is closed when it is returned, never reused.
  */
-const cancelFailed = new WeakSet<DriverConnection>();
+const cancelFailed = /* @__PURE__ */ new WeakSet<DriverConnection>();
 
 /** For streams on a pooled connection, which the stream itself holds until it ends. */
 const alwaysOpen = (): boolean => true;

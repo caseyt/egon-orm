@@ -9,7 +9,7 @@ import type { ConstraintViolationType, DatabaseErrorCode } from "egon-orm";
 import { ConstraintError, DatabaseError, isEgonError } from "egon-orm";
 
 /** Integrity-constraint SQLSTATEs, by the kind of violation they report. */
-const CONSTRAINT_STATES: ReadonlyMap<string, ConstraintViolationType> = new Map<
+const CONSTRAINT_STATES: ReadonlyMap<string, ConstraintViolationType> = /* @__PURE__ */ new Map<
   string,
   ConstraintViolationType
 >([
@@ -21,7 +21,10 @@ const CONSTRAINT_STATES: ReadonlyMap<string, ConstraintViolationType> = new Map<
 ]);
 
 /** SQLSTATEs with a code of their own, besides whole classes. */
-const DATABASE_STATES: ReadonlyMap<string, DatabaseErrorCode> = new Map<string, DatabaseErrorCode>([
+const DATABASE_STATES: ReadonlyMap<string, DatabaseErrorCode> = /* @__PURE__ */ new Map<
+  string,
+  DatabaseErrorCode
+>([
   ["40001", "serializationFailure"],
   ["40P01", "deadlock"],
   // query_canceled: a statement_timeout (statementTimeoutMs), or a cancel sent by another session.
@@ -37,7 +40,7 @@ const DATABASE_STATES: ReadonlyMap<string, DatabaseErrorCode> = new Map<string, 
  * is repeated in ours. Other classes (data exceptions above all) may quote a value, so for
  * them the message says where to look instead (`error.cause`).
  */
-const SAFE_MESSAGE_CLASSES: ReadonlySet<string> = new Set([
+const SAFE_MESSAGE_CLASSES: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "0A", // feature not supported
   "25", // invalid transaction state
   "34", // invalid cursor name
@@ -52,7 +55,7 @@ const SAFE_MESSAGE_CLASSES: ReadonlySet<string> = new Set([
 ]);
 
 /** Node.js error codes that mean the database could not be reached or the socket failed. */
-const NETWORK_CODES: ReadonlySet<string> = new Set([
+const NETWORK_CODES: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "ECONNREFUSED",
   "ECONNRESET",
   "ECONNABORTED",

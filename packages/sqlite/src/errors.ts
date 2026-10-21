@@ -18,7 +18,7 @@ function isSqliteError(error: Error): error is Error & { readonly code: string }
 }
 
 /** The constraint codes, by the kind of violation they report. */
-const CONSTRAINT_CODES: ReadonlyMap<string, ConstraintViolationType> = new Map<
+const CONSTRAINT_CODES: ReadonlyMap<string, ConstraintViolationType> = /* @__PURE__ */ new Map<
   string,
   ConstraintViolationType
 >([
@@ -85,7 +85,11 @@ function violation(
 }
 
 /** Result codes whose message names only SQL objects, never values: repeated in ours. */
-const SAFE_MESSAGE_CODES: ReadonlySet<string> = new Set(["SQLITE_ERROR", "SQLITE_READONLY", "SQLITE_AUTH"]);
+const SAFE_MESSAGE_CODES: ReadonlySet<string> = /* @__PURE__ */ new Set([
+  "SQLITE_ERROR",
+  "SQLITE_READONLY",
+  "SQLITE_AUTH",
+]);
 
 /**
  * Maps an error thrown by `better-sqlite3` to an Egon error, keeping it as `cause` and

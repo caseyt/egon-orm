@@ -21,7 +21,7 @@ import { castNode, shapeOfCast } from "../ast.js";
 import { type AnyExpr, Expr, isExpr, isNullOperand, toOperand } from "../expr.js";
 import { checkNoWindows } from "./windows.js";
 
-const UPDATE_SEED = hashString(HASH_SEED, "update");
+const UPDATE_SEED = /* @__PURE__ */ hashString(HASH_SEED, "update");
 
 /**
  * The select nodes made by `.returning(…)`. A query whose select is one of them may be
@@ -33,7 +33,7 @@ const UPDATE_SEED = hashString(HASH_SEED, "update");
  * RETURNING_SELECTS.has(query.ast.select); // true after returning(…)
  * ```
  */
-export const RETURNING_SELECTS: WeakSet<SelectNode> = new WeakSet();
+export const RETURNING_SELECTS: WeakSet<SelectNode> = /* @__PURE__ */ new WeakSet();
 
 /**
  * The shape of an assignment, from the shape its value already carries (as `shapeOf`

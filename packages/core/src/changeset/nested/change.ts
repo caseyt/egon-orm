@@ -33,14 +33,18 @@ import {
 } from "./relation.js";
 
 const hasOwn = Object.hasOwn;
-const EMPTY: Values = Object.freeze({});
+const EMPTY: Values = /* @__PURE__ */ Object.freeze({});
 
-const BLANK: ChangesetError = Object.freeze({
+const BLANK: ChangesetError = /* @__PURE__ */ Object.freeze({
   message: "can't be blank",
   validation: "required",
   meta: EMPTY,
 });
-const REPLACED: ChangesetError = Object.freeze({ message: "is invalid", validation: "replace", meta: EMPTY });
+const REPLACED: ChangesetError = /* @__PURE__ */ Object.freeze({
+  message: "is invalid",
+  validation: "replace",
+  meta: EMPTY,
+});
 
 function invalidType(type: "list" | "object"): ChangesetError {
   return { message: "is invalid", validation: "cast", meta: { type } };

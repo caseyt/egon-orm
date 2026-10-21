@@ -27,7 +27,7 @@ export interface CteOptions {
   readonly materialized?: boolean;
 }
 
-const CTE_SEED = hashString(HASH_SEED, "cte");
+const CTE_SEED = /* @__PURE__ */ hashString(HASH_SEED, "cte");
 
 /**
  * The CTE node for `withCte(name, query, options)`, its arguments checked.

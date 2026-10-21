@@ -221,8 +221,8 @@ export interface SqlDialect {
  * LOCK_CLAUSES.includes("FOR UPDATE NOWAIT"); // true
  * ```
  */
-export const LOCK_CLAUSES: readonly string[] = Object.freeze(
-  ["FOR UPDATE", "FOR SHARE", "FOR NO KEY UPDATE", "FOR KEY SHARE"].flatMap((mode) => [
+export const LOCK_CLAUSES: readonly string[] = /* @__PURE__ */ Object.freeze(
+  /* @__PURE__ */ ["FOR UPDATE", "FOR SHARE", "FOR NO KEY UPDATE", "FOR KEY SHARE"].flatMap((mode) => [
     mode,
     `${mode} SKIP LOCKED`,
     `${mode} NOWAIT`,
@@ -230,7 +230,7 @@ export const LOCK_CLAUSES: readonly string[] = Object.freeze(
 );
 
 /** Lock keywords for the clauses the query builder writes into `LockNode.clause`. */
-const POSTGRES_LOCKS: Readonly<Record<string, string>> = Object.freeze({
+const POSTGRES_LOCKS: Readonly<Record<string, string>> = /* @__PURE__ */ Object.freeze({
   "FOR UPDATE": "for update",
   "FOR UPDATE SKIP LOCKED": "for update skip locked",
   "FOR UPDATE NOWAIT": "for update nowait",
@@ -253,7 +253,7 @@ const POSTGRES_LOCKS: Readonly<Record<string, string>> = Object.freeze({
  * POSTGRES_CAPABILITIES.fullJoin; // true
  * ```
  */
-export const POSTGRES_CAPABILITIES: Capabilities = Object.freeze({
+export const POSTGRES_CAPABILITIES: Capabilities = /* @__PURE__ */ Object.freeze({
   returning: true,
   onConflict: true,
   conflictTarget: true,
@@ -284,8 +284,12 @@ export const POSTGRES_CAPABILITIES: Capabilities = Object.freeze({
   foreignKeyNames: true,
   conflictConstraint: true,
   longIdentifiers: true,
-  lockModes: Object.freeze(Object.keys(POSTGRES_LOCKS)),
-  isolationLevels: Object.freeze(["read committed", "repeatable read", "serializable"] as const),
+  lockModes: /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.keys(POSTGRES_LOCKS)),
+  isolationLevels: /* @__PURE__ */ Object.freeze([
+    "read committed",
+    "repeatable read",
+    "serializable",
+  ] as const),
   savepoints: true,
   ddlTransactions: true,
   stream: true,
@@ -302,12 +306,12 @@ export const POSTGRES_CAPABILITIES: Capabilities = Object.freeze({
  * const compiler = createCompiler(postgresDialect);
  * ```
  */
-export const postgresDialect: SqlDialect = Object.freeze({
+export const postgresDialect: SqlDialect = /* @__PURE__ */ Object.freeze({
   name: "postgres",
   quote: '"',
   placeholder: "numbered",
   capabilities: POSTGRES_CAPABILITIES,
-  operators: Object.freeze({
+  operators: /* @__PURE__ */ Object.freeze({
     eq: "=",
     neq: "<>",
     gt: ">",
@@ -328,7 +332,7 @@ export const postgresDialect: SqlDialect = Object.freeze({
     containedBy: "<@",
     overlaps: "&&",
   }),
-  functions: Object.freeze({
+  functions: /* @__PURE__ */ Object.freeze({
     lower: "lower",
     upper: "upper",
     coalesce: "coalesce",
@@ -336,7 +340,7 @@ export const postgresDialect: SqlDialect = Object.freeze({
     arrayAppend: "array_append",
     arrayRemove: "array_remove",
   }),
-  aggregates: Object.freeze({
+  aggregates: /* @__PURE__ */ Object.freeze({
     count: "count",
     sum: "sum",
     avg: "avg",
@@ -360,7 +364,7 @@ export const postgresDialect: SqlDialect = Object.freeze({
   }),
   locks: POSTGRES_LOCKS,
   ignoresLocks: false,
-  types: Object.freeze({
+  types: /* @__PURE__ */ Object.freeze({
     integer: "integer",
     bigint: "bigint",
     float: "double precision",
@@ -376,7 +380,7 @@ export const postgresDialect: SqlDialect = Object.freeze({
     json: "json",
     jsonb: "jsonb",
   }),
-  integerDivision: Object.freeze({ operator: "/", castValues: false, castQuotient: false }),
+  integerDivision: /* @__PURE__ */ Object.freeze({ operator: "/", castValues: false, castQuotient: false }),
   jsonPath: "pathArray",
   conflictUpdateNeedsTarget: true,
   explain: "options",
@@ -394,11 +398,11 @@ export const postgresDialect: SqlDialect = Object.freeze({
   upsert: "onConflict",
   updateJoin: "fromUsing",
   returningColumns: "qualified",
-  niladic: Object.freeze({}),
+  niladic: /* @__PURE__ */ Object.freeze({}),
 });
 
 /** The window functions (step 09): written like aggregates, always with `OVER`, by the same names on every database. */
-const WINDOW_FUNCTIONS: Readonly<Record<string, string>> = Object.freeze({
+const WINDOW_FUNCTIONS: Readonly<Record<string, string>> = /* @__PURE__ */ Object.freeze({
   rowNumber: "row_number",
   rank: "rank",
   denseRank: "dense_rank",
@@ -434,7 +438,7 @@ const COMMON_OPERATORS = {
 } as const;
 
 /** MySQL's lock clauses: `FOR UPDATE` and `FOR SHARE`, alone or with `SKIP LOCKED` or `NOWAIT`. */
-const MYSQL_LOCKS: Readonly<Record<string, string>> = Object.freeze({
+const MYSQL_LOCKS: Readonly<Record<string, string>> = /* @__PURE__ */ Object.freeze({
   "FOR UPDATE": "for update",
   "FOR UPDATE SKIP LOCKED": "for update skip locked",
   "FOR UPDATE NOWAIT": "for update nowait",
@@ -453,7 +457,7 @@ const MYSQL_LOCKS: Readonly<Record<string, string>> = Object.freeze({
  * MYSQL_CAPABILITIES.returning; // false: the row is read back after a write
  * ```
  */
-export const MYSQL_CAPABILITIES: Capabilities = Object.freeze({
+export const MYSQL_CAPABILITIES: Capabilities = /* @__PURE__ */ Object.freeze({
   returning: false,
   onConflict: true,
   conflictTarget: false,
@@ -485,8 +489,12 @@ export const MYSQL_CAPABILITIES: Capabilities = Object.freeze({
   foreignKeyNames: true,
   conflictConstraint: false,
   longIdentifiers: false,
-  lockModes: Object.freeze(Object.keys(MYSQL_LOCKS)),
-  isolationLevels: Object.freeze(["read committed", "repeatable read", "serializable"] as const),
+  lockModes: /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.keys(MYSQL_LOCKS)),
+  isolationLevels: /* @__PURE__ */ Object.freeze([
+    "read committed",
+    "repeatable read",
+    "serializable",
+  ] as const),
   savepoints: true,
   ddlTransactions: false,
   stream: true,
@@ -504,7 +512,7 @@ export const MYSQL_CAPABILITIES: Capabilities = Object.freeze({
  * SQLITE_CAPABILITIES.lockModes; // []: row locks are accepted and not written
  * ```
  */
-export const SQLITE_CAPABILITIES: Capabilities = Object.freeze({
+export const SQLITE_CAPABILITIES: Capabilities = /* @__PURE__ */ Object.freeze({
   returning: true,
   onConflict: true,
   conflictTarget: true,
@@ -536,8 +544,8 @@ export const SQLITE_CAPABILITIES: Capabilities = Object.freeze({
   foreignKeyNames: false,
   conflictConstraint: false,
   longIdentifiers: true,
-  lockModes: Object.freeze([]),
-  isolationLevels: Object.freeze([]),
+  lockModes: /* @__PURE__ */ Object.freeze([]),
+  isolationLevels: /* @__PURE__ */ Object.freeze([]),
   savepoints: true,
   ddlTransactions: true,
   stream: true,
@@ -557,36 +565,41 @@ export const SQLITE_CAPABILITIES: Capabilities = Object.freeze({
  * const compiler = createCompiler(mysqlDialect);
  * ```
  */
-export const mysqlDialect: SqlDialect = Object.freeze({
+export const mysqlDialect: SqlDialect = /* @__PURE__ */ Object.freeze({
   name: "mysql",
   quote: "`",
   placeholder: "positional",
   capabilities: MYSQL_CAPABILITIES,
-  operators: Object.freeze({
-    ...COMMON_OPERATORS,
-    // Not written as operators (see distinctFrom, ilikeAsLike and concat below).
-    isDistinctFrom: "<=>",
-    ilike: "like",
-    concat: "concat",
-  }),
-  functions: Object.freeze({
+  operators: /* @__PURE__ */ Object.freeze(
+    /* @__PURE__ */ Object.assign({}, COMMON_OPERATORS, {
+      // Not written as operators (see distinctFrom, ilikeAsLike and concat below).
+      isDistinctFrom: "<=>",
+      ilike: "like",
+      concat: "concat",
+    }),
+  ),
+  functions: /* @__PURE__ */ Object.freeze({
     lower: "lower",
     upper: "upper",
     coalesce: "coalesce",
     now: "now",
   }),
-  aggregates: Object.freeze({
-    count: "count",
-    sum: "sum",
-    avg: "avg",
-    min: "min",
-    max: "max",
-    jsonAgg: "json_arrayagg",
-    ...WINDOW_FUNCTIONS,
-  }),
+  aggregates: /* @__PURE__ */ Object.freeze(
+    /* @__PURE__ */ Object.assign(
+      {
+        count: "count",
+        sum: "sum",
+        avg: "avg",
+        min: "min",
+        max: "max",
+        jsonAgg: "json_arrayagg",
+      },
+      WINDOW_FUNCTIONS,
+    ),
+  ),
   locks: MYSQL_LOCKS,
   ignoresLocks: false,
-  types: Object.freeze({
+  types: /* @__PURE__ */ Object.freeze({
     integer: "signed",
     bigint: "signed",
     float: "double",
@@ -604,7 +617,7 @@ export const mysqlDialect: SqlDialect = Object.freeze({
     jsonb: "json",
   }),
   // `/` gives a decimal; `div` divides as integers, truncating towards zero.
-  integerDivision: Object.freeze({ operator: "div", castValues: false, castQuotient: false }),
+  integerDivision: /* @__PURE__ */ Object.freeze({ operator: "div", castValues: false, castQuotient: false }),
   jsonPath: "pathFunctions",
   conflictUpdateNeedsTarget: false,
   explain: "keywords",
@@ -623,7 +636,7 @@ export const mysqlDialect: SqlDialect = Object.freeze({
   upsert: "onDuplicateKey",
   updateJoin: "joinClause",
   returningColumns: "qualified",
-  niladic: Object.freeze({ now: "current_timestamp(6)" }),
+  niladic: /* @__PURE__ */ Object.freeze({ now: "current_timestamp(6)" }),
 });
 
 /**
@@ -638,36 +651,41 @@ export const mysqlDialect: SqlDialect = Object.freeze({
  * const compiler = createCompiler(sqliteDialect);
  * ```
  */
-export const sqliteDialect: SqlDialect = Object.freeze({
+export const sqliteDialect: SqlDialect = /* @__PURE__ */ Object.freeze({
   name: "sqlite",
   quote: '"',
   placeholder: "positional",
   capabilities: SQLITE_CAPABILITIES,
-  operators: Object.freeze({
-    ...COMMON_OPERATORS,
-    isDistinctFrom: "is distinct from",
-    // Not written as an operator (see ilikeAsLike below).
-    ilike: "like",
-    concat: "||",
-  }),
-  functions: Object.freeze({
+  operators: /* @__PURE__ */ Object.freeze(
+    /* @__PURE__ */ Object.assign({}, COMMON_OPERATORS, {
+      isDistinctFrom: "is distinct from",
+      // Not written as an operator (see ilikeAsLike below).
+      ilike: "like",
+      concat: "||",
+    }),
+  ),
+  functions: /* @__PURE__ */ Object.freeze({
     lower: "lower",
     upper: "upper",
     coalesce: "coalesce",
   }),
-  aggregates: Object.freeze({
-    count: "count",
-    sum: "sum",
-    avg: "avg",
-    min: "min",
-    max: "max",
-    jsonAgg: "json_group_array",
-    stringAgg: "string_agg",
-    ...WINDOW_FUNCTIONS,
-  }),
-  locks: Object.freeze({}),
+  aggregates: /* @__PURE__ */ Object.freeze(
+    /* @__PURE__ */ Object.assign(
+      {
+        count: "count",
+        sum: "sum",
+        avg: "avg",
+        min: "min",
+        max: "max",
+        jsonAgg: "json_group_array",
+        stringAgg: "string_agg",
+      },
+      WINDOW_FUNCTIONS,
+    ),
+  ),
+  locks: /* @__PURE__ */ Object.freeze({}),
   ignoresLocks: true,
-  types: Object.freeze({
+  types: /* @__PURE__ */ Object.freeze({
     integer: "integer",
     bigint: "integer",
     float: "real",
@@ -686,7 +704,7 @@ export const sqliteDialect: SqlDialect = Object.freeze({
   // A bound number is a real, so `integer / ?` divides as floats (inexactly above 2^53): the
   // bound operands are cast to integers, so SQLite divides integers exactly and truncates
   // towards zero, and the quotient is cast too, for a real stored in an integer column.
-  integerDivision: Object.freeze({ operator: "/", castValues: true, castQuotient: true }),
+  integerDivision: /* @__PURE__ */ Object.freeze({ operator: "/", castValues: true, castQuotient: true }),
   jsonPath: "pathOperators",
   conflictUpdateNeedsTarget: true,
   explain: "queryPlan",
@@ -706,7 +724,7 @@ export const sqliteDialect: SqlDialect = Object.freeze({
   updateJoin: "fromUsing",
   returningColumns: "bare",
   // A timestamp as the adapter stores one: ISO 8601 text in UTC, with milliseconds.
-  niladic: Object.freeze({ now: "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')" }),
+  niladic: /* @__PURE__ */ Object.freeze({ now: "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')" }),
 });
 
 /**

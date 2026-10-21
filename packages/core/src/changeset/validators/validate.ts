@@ -27,7 +27,7 @@ type Values = Readonly<Record<string, unknown>>;
 type AnyValidatorFn = (value: never, ctx: never) => unknown;
 
 const hasOwn = Object.hasOwn;
-const NO_PATH: readonly PropertyKey[] = Object.freeze([]);
+const NO_PATH: readonly PropertyKey[] = /* @__PURE__ */ Object.freeze([]);
 
 // ---------------------------------------------------------------------------
 // Field tables, computed once per field map
@@ -56,7 +56,7 @@ interface Table {
   readonly before: BeforeBuilder;
 }
 
-const tables = new WeakMap<ReadonlyMap<string, FieldMeta>, Table>();
+const tables = /* @__PURE__ */ new WeakMap<ReadonlyMap<string, FieldMeta>, Table>();
 // The table asked for last: a validation in a loop asks for the same one every time.
 let lastFields: ReadonlyMap<string, FieldMeta> | undefined;
 let lastTable: Table | undefined;
@@ -170,7 +170,11 @@ interface Options {
   readonly only: readonly string[] | undefined;
 }
 
-const DEFAULT_OPTIONS: Options = Object.freeze({ changedOnly: false, apply: false, only: undefined });
+const DEFAULT_OPTIONS: Options = /* @__PURE__ */ Object.freeze({
+  changedOnly: false,
+  apply: false,
+  only: undefined,
+});
 
 function optionsOf(
   options: ValidateOptions<ChangesetSource> | undefined,

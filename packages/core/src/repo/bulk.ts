@@ -72,7 +72,7 @@ import {
   writeTable,
 } from "./write.js";
 
-const NONE: readonly never[] = Object.freeze([]);
+const NONE: readonly never[] = /* @__PURE__ */ Object.freeze([]);
 const hasOwn = Object.hasOwn;
 
 // ---------------------------------------------------------------------------
@@ -135,12 +135,9 @@ export interface BulkResult<R> {
   readonly rows: R[] | null;
 }
 
-export const INSERT_ALL_OPTION_KEYS: readonly string[] = Object.freeze([
-  ...READ_OPTION_KEYS,
-  "returning",
-  "onConflict",
-  "placeholders",
-]);
+export const INSERT_ALL_OPTION_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze(
+  /* @__PURE__ */ READ_OPTION_KEYS.concat(["returning", "onConflict", "placeholders"]),
+);
 
 // ---------------------------------------------------------------------------
 // Transactions and budgets
@@ -161,8 +158,8 @@ interface PreparedRow {
   readonly params: number;
 }
 
-const VALUE_CELL: InsertCell = Object.freeze({ kind: "value" });
-const DEFAULT_CELL: InsertCell = Object.freeze({ kind: "default" });
+const VALUE_CELL: InsertCell = /* @__PURE__ */ Object.freeze({ kind: "value" });
+const DEFAULT_CELL: InsertCell = /* @__PURE__ */ Object.freeze({ kind: "default" });
 
 /** What decodes the rows an insertAll returned. */
 interface Returning {
@@ -614,7 +611,7 @@ function setFieldAt(ast: QueryAst, index: number): string | undefined {
 }
 
 /** The typed copies of source queries, per query AST: a query is rewritten once. */
-const typedSources = new WeakMap<QueryAst, QueryAst>();
+const typedSources = /* @__PURE__ */ new WeakMap<QueryAst, QueryAst>();
 
 /**
  * The source query of `INSERT … SELECT` with each selected `CASE` or `coalesce` of bound

@@ -28,7 +28,7 @@ import { HASH_SEED, hashInt, hashString } from "../../internal/hash.js";
  */
 export type SetOperation = "union" | "intersect" | "except";
 
-const COMBINATION_SEED = hashString(HASH_SEED, "combination");
+const COMBINATION_SEED = /* @__PURE__ */ hashString(HASH_SEED, "combination");
 
 /**
  * A combination node, its properties in contract order.

@@ -93,7 +93,7 @@ import {
 
 const now = (): number => performance.now();
 
-const NONE: readonly never[] = Object.freeze([]);
+const NONE: readonly never[] = /* @__PURE__ */ Object.freeze([]);
 
 // ---------------------------------------------------------------------------
 // Telemetry
@@ -264,7 +264,7 @@ interface PlanInfo {
   readonly names: ReadonlySet<string>;
 }
 
-const planInfos = new WeakMap<CompiledQuery, PlanInfo>();
+const planInfos = /* @__PURE__ */ new WeakMap<CompiledQuery, PlanInfo>();
 
 function hasPreloads(plan: OutputPlan | undefined): boolean {
   if (plan === undefined) return false;
@@ -704,17 +704,20 @@ function wrap(inner: QueryAst, select: SelectNode, limit: ExprNode | undefined):
   });
 }
 
-const INTEGER = integerType();
-const BIGINT = bigintType();
+const INTEGER = /* @__PURE__ */ integerType();
+const BIGINT = /* @__PURE__ */ bigintType();
 
 /** A `LIMIT 1`; a bound parameter, like every limit. */
 const limitOne = (): ExprNode => paramNode(1, INTEGER, false);
 
 /** `SELECT 1`. */
-const SELECT_ONE: SelectNode = selectNode({ kind: "expr", expr: literalNode(1), type: undefined }, NONE);
+const SELECT_ONE: SelectNode = /* @__PURE__ */ selectNode(
+  { kind: "expr", expr: /* @__PURE__ */ literalNode(1), type: undefined },
+  NONE,
+);
 
 /** Derived ASTs, per original AST and derivation. */
-const derived = new WeakMap<QueryAst, Map<string, QueryAst>>();
+const derived = /* @__PURE__ */ new WeakMap<QueryAst, Map<string, QueryAst>>();
 
 function cached(ast: QueryAst, key: string, make: () => QueryAst): QueryAst {
   let byKey = derived.get(ast);
@@ -1448,7 +1451,7 @@ function comparedWhole(field: FieldMeta): boolean {
   return WHOLE_KINDS.has(field.type.db.kind);
 }
 
-const WHOLE_KINDS: ReadonlySet<string> = new Set(["array", "json", "jsonb"]);
+const WHOLE_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set(["array", "json", "jsonb"]);
 
 /**
  * How many rows one `reload` statement reads: all of them when the keys go as arrays;
@@ -1470,7 +1473,7 @@ const KEYS = "$keys";
 const POSITION = "position";
 
 /** The type the position is read with: 64-bit, read as a number. */
-const POSITION_TYPE = bigintType({ mode: "number" });
+const POSITION_TYPE = /* @__PURE__ */ bigintType({ mode: "number" });
 
 /**
  * The statement of `reload`:

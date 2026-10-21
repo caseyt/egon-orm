@@ -55,7 +55,7 @@ export function untypedArithmetic(op: string): QueryError {
 }
 
 /** One checking conversion per place, shared by every plan that needs it. */
-const checkers = new Map<string, (value: unknown) => unknown>();
+const checkers = /* @__PURE__ */ new Map<string, (value: unknown) => unknown>();
 
 /**
  * The `toDb` of a slot that only text may fill: it passes a string through and refuses

@@ -243,7 +243,7 @@ function refused(method: string, what: string): QueryError {
 }
 
 /** The aggregates whose value is not made of their argument's values. */
-const COUNTING: ReadonlySet<string> = new Set([
+const COUNTING: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "count",
   "rowNumber",
   "rank",
@@ -253,14 +253,21 @@ const COUNTING: ReadonlySet<string> = new Set([
   "ntile",
 ]);
 /** The functions and operators whose value is made of their arguments' values. */
-const VALUE_FUNCTIONS: ReadonlySet<string> = new Set([
+const VALUE_FUNCTIONS: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "lower",
   "upper",
   "coalesce",
   "arrayAppend",
   "arrayRemove",
 ]);
-const VALUE_OPERATORS: ReadonlySet<string> = new Set(["add", "sub", "mul", "div", "mod", "concat"]);
+const VALUE_OPERATORS: ReadonlySet<string> = /* @__PURE__ */ new Set([
+  "add",
+  "sub",
+  "mul",
+  "div",
+  "mod",
+  "concat",
+]);
 
 /**
  * Whether a selected value carries a redacted field's values, so that values compared with

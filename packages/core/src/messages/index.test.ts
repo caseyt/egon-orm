@@ -82,6 +82,11 @@ describe("explain", () => {
   });
 });
 
+test("egon-orm/messages exports exactly explain and the catalog", async () => {
+  const entry = await import("./index.js");
+  expect(Object.keys(entry).sort()).toEqual(["explain", "messages"]);
+});
+
 describe("the catalog", () => {
   test("has an entry, with advice, for every identifier", () => {
     const entries = Object.entries(messages);

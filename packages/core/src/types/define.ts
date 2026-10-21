@@ -49,7 +49,7 @@ function describe(value: unknown): string {
   return value === null ? "null" : Array.isArray(value) ? "an array" : typeof value;
 }
 
-const SIMPLE_KINDS: ReadonlySet<string> = new Set([
+const SIMPLE_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "integer",
   "bigint",
   "float",
@@ -178,7 +178,7 @@ export function defineType<TApp, TDb = TApp>(definition: TypeDefinition<TApp, TD
 }
 
 /** Every type made by {@link defineType}: in the options of a parameterized type, it is compared by identity. */
-const definedTypes = new WeakSet<object>();
+const definedTypes = /* @__PURE__ */ new WeakSet<object>();
 
 /**
  * One of a type's functions, safe to call on its own.
@@ -205,8 +205,8 @@ export function detached<K extends "cast" | "fromDb" | "toDb" | "equal">(
   return fn.bind(type) as AnyFieldType[K];
 }
 
-const identities = new Map<symbol, number>();
-const objectIdentities = new WeakMap<object, number>();
+const identities = /* @__PURE__ */ new Map<symbol, number>();
+const objectIdentities = /* @__PURE__ */ new WeakMap<object, number>();
 let nextIdentity = 1;
 
 function identityKey(value: object | symbol): string {

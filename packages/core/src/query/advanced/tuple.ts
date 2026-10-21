@@ -33,7 +33,7 @@ import {
   type ValueOf,
 } from "../expr.js";
 
-const BOOLEAN = booleanType();
+const BOOLEAN = /* @__PURE__ */ booleanType();
 
 /** A plain value's type widened to its primitive: `tuple(cursor, 10)` holds a `number`, not `10`. */
 type Widen<V> = V extends string

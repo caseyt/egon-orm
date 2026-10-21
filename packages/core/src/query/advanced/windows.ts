@@ -53,9 +53,9 @@ import {
 import { Aggregate, type WindowSpec } from "../functions.js";
 
 /** `row_number`, `rank` and `dense_rank` return a 64-bit integer: read as a `number`. */
-const BIG_COUNT: AnyFieldType = bigintType({ mode: "number" });
-const FLOAT: AnyFieldType = floatType();
-const INTEGER: AnyFieldType = integerType();
+const BIG_COUNT: AnyFieldType = /* @__PURE__ */ bigintType({ mode: "number" });
+const FLOAT: AnyFieldType = /* @__PURE__ */ floatType();
+const INTEGER: AnyFieldType = /* @__PURE__ */ integerType();
 
 /**
  * The names a window function puts in its aggregate node: keys of the compiler's
@@ -81,7 +81,7 @@ export const WINDOW_FUNCTION_NAMES = [
   "nthValue",
 ] as const;
 
-const WINDOW_ONLY: ReadonlySet<string> = new Set(WINDOW_FUNCTION_NAMES);
+const WINDOW_ONLY: ReadonlySet<string> = /* @__PURE__ */ new Set(WINDOW_FUNCTION_NAMES);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -479,7 +479,7 @@ export function nthValue<
 // Named windows
 // ---------------------------------------------------------------------------
 
-const WINDOW_DEF_SEED = hashString(HASH_SEED, "windowDef");
+const WINDOW_DEF_SEED = /* @__PURE__ */ hashString(HASH_SEED, "windowDef");
 
 /** What `.windows({ … })` adds to a query: the definitions and their parameters in canonical order. */
 export interface BuiltWindows {
@@ -707,7 +707,7 @@ interface NoWindows {
 }
 
 /** The clauses that filter rows: a window function there is best filtered from a query over this one. */
-const FILTERING: ReadonlySet<string> = new Set([
+const FILTERING: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "where",
   "orWhere",
   "having",

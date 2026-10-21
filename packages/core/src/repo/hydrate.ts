@@ -38,8 +38,8 @@ type FromDb = (value: unknown) => unknown;
 /** Returns a non-null decoded value when it is a `number`; throws `CastError` otherwise. */
 type NumberCheck = (value: unknown) => unknown;
 
-const INTEGER: AnyFieldType = integerType();
-const FLOAT: AnyFieldType = floatType();
+const INTEGER: AnyFieldType = /* @__PURE__ */ integerType();
+const FLOAT: AnyFieldType = /* @__PURE__ */ floatType();
 
 /**
  * Said when the row came back from a write: the statement has run. Also added by
@@ -457,7 +457,7 @@ function prepare(plan: OutputPlan, codecs: CodecSource, label: string | undefine
   }
 }
 
-const NO_COLUMNS: readonly string[] = Object.freeze([]);
+const NO_COLUMNS: readonly string[] = /* @__PURE__ */ Object.freeze([]);
 
 function convert(value: unknown, fromDb: FromDb | undefined): unknown {
   return value === null || fromDb === undefined ? value : fromDb(value);

@@ -32,7 +32,7 @@ export const MYSQL_RUNTIME: MysqlRuntime = {
 };
 
 /** The pool options that are not connection options, left out of the connection that sends `KILL QUERY`. */
-const POOL_ONLY: ReadonlySet<string> = new Set([
+const POOL_ONLY: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "connectionLimit",
   "waitForConnections",
   "queueLimit",
@@ -61,7 +61,7 @@ const ROWS_MATCHED = /^\D*(\d+)\D+\d+\D+\d+\D*$/;
 /** An `UPDATE`, alone or after a `WITH`: the only statement whose info text is read. */
 const UPDATE = /^\s*(?:update\b|with\b)/i;
 
-const EMPTY_ROWS: readonly Record<string, unknown>[] = Object.freeze([]);
+const EMPTY_ROWS: readonly Record<string, unknown>[] = /* @__PURE__ */ Object.freeze([]);
 
 /** Turns an `insertId` into the key the repo reads back: none when it is 0. */
 function insertedKey(insertId: unknown): bigint | number | undefined {

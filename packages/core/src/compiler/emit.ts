@@ -96,7 +96,7 @@ interface OperatorSpec {
   readonly precedence: number;
 }
 
-const OPERATORS: Readonly<Record<TableOperator, OperatorSpec>> = Object.freeze({
+const OPERATORS: Readonly<Record<TableOperator, OperatorSpec>> = /* @__PURE__ */ Object.freeze({
   eq: { precedence: PRECEDENCE.comparison },
   neq: { precedence: PRECEDENCE.comparison },
   gt: { precedence: PRECEDENCE.comparison },
@@ -118,14 +118,14 @@ const OPERATORS: Readonly<Record<TableOperator, OperatorSpec>> = Object.freeze({
   overlaps: { precedence: PRECEDENCE.other },
 });
 
-const UNARY_PRECEDENCE: Readonly<Record<UnaryOp, number>> = Object.freeze({
+const UNARY_PRECEDENCE: Readonly<Record<UnaryOp, number>> = /* @__PURE__ */ Object.freeze({
   not: PRECEDENCE.not,
   neg: PRECEDENCE.unary,
   isNull: PRECEDENCE.is,
   isNotNull: PRECEDENCE.is,
 });
 
-const JOIN_KEYWORDS: Readonly<Record<JoinType, string>> = Object.freeze({
+const JOIN_KEYWORDS: Readonly<Record<JoinType, string>> = /* @__PURE__ */ Object.freeze({
   inner: "inner join",
   left: "left join",
   right: "right join",
@@ -135,9 +135,15 @@ const JOIN_KEYWORDS: Readonly<Record<JoinType, string>> = Object.freeze({
   leftLateral: "left join lateral",
 });
 
-const DIRECTIONS: Readonly<Record<string, string>> = Object.freeze({ asc: "asc", desc: "desc" });
-const NULLS: Readonly<Record<string, string>> = Object.freeze({ first: "nulls first", last: "nulls last" });
-const SET_OPERATIONS: Readonly<Record<string, string>> = Object.freeze({
+const DIRECTIONS: Readonly<Record<string, string>> = /* @__PURE__ */ Object.freeze({
+  asc: "asc",
+  desc: "desc",
+});
+const NULLS: Readonly<Record<string, string>> = /* @__PURE__ */ Object.freeze({
+  first: "nulls first",
+  last: "nulls last",
+});
+const SET_OPERATIONS: Readonly<Record<string, string>> = /* @__PURE__ */ Object.freeze({
   union: "union",
   intersect: "intersect",
   except: "except",
@@ -255,8 +261,8 @@ export function newContext(dialect: SqlDialect, codecs: CodecSource): EmitContex
 export type EmitContext = Ctx;
 
 /** The built-in integer types, whose values are refused at bind time unless whole (see {@link wholeNumber}). */
-const INTEGER_TYPE: AnyFieldType = integerType();
-const BIGINT_NUMBER_TYPE: AnyFieldType = bigintType({ mode: "number" });
+const INTEGER_TYPE: AnyFieldType = /* @__PURE__ */ integerType();
+const BIGINT_NUMBER_TYPE: AnyFieldType = /* @__PURE__ */ bigintType({ mode: "number" });
 
 /**
  * The conversion of a slot's values: the type's driver conversion, or none for the
@@ -702,10 +708,10 @@ function integerQuotient(frame: Frame, left: ExprNode, right: ExprNode): DbType 
 const INTEGER_RANK = 1;
 
 /** The database type of an integer literal, which every database reads as an integer. */
-const INTEGER_LITERAL: DbType = Object.freeze({ kind: "integer" });
+const INTEGER_LITERAL: DbType = /* @__PURE__ */ Object.freeze({ kind: "integer" });
 
 /** The database type of `count`, which every database computes as a 64-bit integer. */
-const COUNT_TYPE: DbType = Object.freeze({ kind: "bigint" });
+const COUNT_TYPE: DbType = /* @__PURE__ */ Object.freeze({ kind: "bigint" });
 
 /**
  * The numeric type the database computes `node` in, as far as the plan says: a column of
@@ -781,7 +787,7 @@ function quotient(ctx: Ctx, integral: DbType | undefined, sql: string): string {
 }
 
 /** The three `LIKE` operators, after whose pattern the dialect may add an `ESCAPE` clause. */
-const LIKES: ReadonlySet<string> = new Set(["like", "notLike", "ilike"]);
+const LIKES: ReadonlySet<string> = /* @__PURE__ */ new Set(["like", "notLike", "ilike"]);
 
 /**
  * Writes a table operator between its two written operands, in the dialect's form:
@@ -1190,7 +1196,7 @@ function textOnlyValue(ctx: Ctx, node: ExprNode & { kind: "param" | "namedParam"
 }
 
 /** The operators that compare their operands: with neither typed, the database compares text. */
-const COMPARISONS: ReadonlySet<string> = new Set([
+const COMPARISONS: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "eq",
   "neq",
   "gt",
@@ -1204,7 +1210,7 @@ const COMPARISONS: ReadonlySet<string> = new Set([
 ]);
 
 /** The arithmetic operators: with no typed operand, the database cannot choose one. */
-const ARITHMETIC: ReadonlySet<string> = new Set(["add", "sub", "mul", "div", "mod"]);
+const ARITHMETIC: ReadonlySet<string> = /* @__PURE__ */ new Set(["add", "sub", "mul", "div", "mod"]);
 
 /**
  * Whether `node` is a `CASE` or a `coalesce` made only of bound values and `NULL`s (see

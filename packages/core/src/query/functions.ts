@@ -87,13 +87,13 @@ import {
   type ValueOf,
 } from "./expr.js";
 
-const BOOLEAN: AnyFieldType = booleanType();
-const STRING: AnyFieldType = stringType();
-const FLOAT: AnyFieldType = floatType();
-const JSON_VALUE: AnyFieldType = jsonType();
-const TIMESTAMP: AnyFieldType = timestampType();
+const BOOLEAN: AnyFieldType = /* @__PURE__ */ booleanType();
+const STRING: AnyFieldType = /* @__PURE__ */ stringType();
+const FLOAT: AnyFieldType = /* @__PURE__ */ floatType();
+const JSON_VALUE: AnyFieldType = /* @__PURE__ */ jsonType();
+const TIMESTAMP: AnyFieldType = /* @__PURE__ */ timestampType();
 /** `count` and `sum` over integers: the database returns a 64-bit integer, read as a `number`. */
-const BIG_COUNT: AnyFieldType = bigintType({ mode: "number" });
+const BIG_COUNT: AnyFieldType = /* @__PURE__ */ bigintType({ mode: "number" });
 
 type NullOf<T> = null extends T ? null : never;
 
@@ -363,12 +363,18 @@ function aggregate(
   );
 }
 
-const STAR_SHAPE = shapeOf(STAR);
+const STAR_SHAPE = /* @__PURE__ */ shapeOf(STAR);
 
 /** `count(*)`, shared: expressions are immutable, and it has no parts to vary. */
-const COUNT_ROWS: AnyExpr = aggregate("count", NONE, false, BIG_COUNT, false);
+const COUNT_ROWS: AnyExpr = /* @__PURE__ */ aggregate("count", NONE, false, BIG_COUNT, false);
 
-const NUMERIC_KINDS: ReadonlySet<string> = new Set(["integer", "bigint", "float", "decimal", "custom"]);
+const NUMERIC_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set([
+  "integer",
+  "bigint",
+  "float",
+  "decimal",
+  "custom",
+]);
 
 function numericArgument(value: unknown, method: string): AnyExpr {
   const expr = expressionArgument(value, method);
@@ -681,7 +687,15 @@ export function coalesce<
   return new Expr(fnNode("coalesce", nodes), head.type, head.redact, params, lists, named, shape) as never;
 }
 
-const NOW: AnyExpr = new Expr(fnNode("now", NONE), TIMESTAMP, false, NONE, NONE, NONE, startFn("now"));
+const NOW: AnyExpr = /* @__PURE__ */ new Expr(
+  /* @__PURE__ */ fnNode("now", NONE),
+  TIMESTAMP,
+  false,
+  NONE,
+  NONE,
+  NONE,
+  /* @__PURE__ */ startFn("now"),
+);
 
 /**
  * `now()`: the database's current time (the start of the transaction on Postgres).
@@ -1063,4 +1077,6 @@ function ident(name: string): AnyExpr {
  * @throws QueryError when called as an ordinary function, when an interpolation is
  * `undefined`, and (`ident`) when a name is not a plain identifier.
  */
-export const fragment: FragmentFunction = Object.assign(fragmentTag, { ident }) as FragmentFunction;
+export const fragment: FragmentFunction = /* @__PURE__ */ Object.assign(fragmentTag, {
+  ident,
+}) as FragmentFunction;

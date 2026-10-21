@@ -188,7 +188,7 @@ export interface ManyToManySchemaOptions<T, J> extends ManyToManyCommon<T> {
 }
 
 /** The key under which a declaration holds the options it was given. */
-const ASSOC: unique symbol = Symbol.for("egon.assoc");
+const ASSOC: unique symbol = /* @__PURE__ */ Symbol.for("egon.assoc");
 
 interface Declaration {
   readonly kind: AssocKind;
@@ -361,8 +361,8 @@ const ON_REPLACE: Readonly<Record<AssocKind, readonly OnReplace[]>> = {
   manyToMany: ["error", "invalid", "delete"],
 };
 
-const NO_KEYS: readonly string[] = Object.freeze([]);
-const NO_ORDER: readonly AssocOrderMeta[] = Object.freeze([]);
+const NO_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze([]);
+const NO_ORDER: readonly AssocOrderMeta[] = /* @__PURE__ */ Object.freeze([]);
 
 const quoted = (names: readonly string[]): string => names.map((name) => `"${name}"`).join(", ");
 

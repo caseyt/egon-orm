@@ -58,8 +58,8 @@ export function nameMatches(declared: Pick<Constraint, "name" | "match">, report
 // Names the database shortened
 // ---------------------------------------------------------------------------
 
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
+const encoder = /* @__PURE__ */ new TextEncoder();
+const decoder = /* @__PURE__ */ new TextDecoder();
 
 /** `text` cut to at most `bytes` bytes of UTF-8, never inside a character. */
 export function clipBytes(text: string, bytes: number): string {

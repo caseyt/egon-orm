@@ -458,7 +458,7 @@ type CastResult<T, U> = [T] extends [null] ? null : U | (unknown extends T ? nev
  * }
  * ```
  */
-export const AS_SUBQUERY: unique symbol = Symbol.for("egon.asSubquery");
+export const AS_SUBQUERY: unique symbol = /* @__PURE__ */ Symbol.for("egon.asSubquery");
 
 /**
  * Something that can stand as a subquery whose single value is of type `R`, with the
@@ -537,11 +537,11 @@ export type AnyExpr = Expr<unknown, SomeParams>;
  * new Expr(node, undefined, false, NONE, NONE, NONE, shapeOf(node));
  * ```
  */
-export const NONE: readonly never[] = Object.freeze([]);
+export const NONE: readonly never[] = /* @__PURE__ */ Object.freeze([]);
 
-const BOOLEAN: AnyFieldType = booleanType();
-const STRING: AnyFieldType = stringType();
-const JSON_VALUE: AnyFieldType = jsonType();
+const BOOLEAN: AnyFieldType = /* @__PURE__ */ booleanType();
+const STRING: AnyFieldType = /* @__PURE__ */ stringType();
+const JSON_VALUE: AnyFieldType = /* @__PURE__ */ jsonType();
 
 /**
  * A typed SQL expression. `T` is the type of its value in TypeScript; `P` the named
@@ -1558,7 +1558,7 @@ export function joinNamed(
  * NULLABLE_PARAMS.has(param("n", t.integer().nullable()).named[0]); // true
  * ```
  */
-export const NULLABLE_PARAMS: WeakSet<NamedParamNode> = new WeakSet();
+export const NULLABLE_PARAMS: WeakSet<NamedParamNode> = /* @__PURE__ */ new WeakSet();
 
 function namedTypeName(node: NamedParamNode): string {
   const name = node.type?.name ?? "untyped";
@@ -1653,7 +1653,7 @@ export function toOperand(
 }
 
 /** The functions whose result is made of their arguments' values, so a secret argument makes a secret result. */
-const VALUE_FUNCTIONS: ReadonlySet<string> = new Set([
+const VALUE_FUNCTIONS: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "lower",
   "upper",
   "coalesce",
@@ -1661,7 +1661,14 @@ const VALUE_FUNCTIONS: ReadonlySet<string> = new Set([
   "arrayRemove",
 ]);
 /** The binary operators whose result is made of their operands' values. */
-const VALUE_OPERATORS: ReadonlySet<string> = new Set(["add", "sub", "mul", "div", "mod", "concat"]);
+const VALUE_OPERATORS: ReadonlySet<string> = /* @__PURE__ */ new Set([
+  "add",
+  "sub",
+  "mul",
+  "div",
+  "mod",
+  "concat",
+]);
 
 /**
  * `node` with every parameter it carries a value through marked `redact`: a bare parameter,
@@ -1912,8 +1919,24 @@ function logical(op: "and" | "or", left: AnyExpr, right: unknown): AnyExpr {
   );
 }
 
-const FALSE: AnyExpr = new Expr(literalNode(false), BOOLEAN, false, NONE, NONE, NONE, shapeOfLiteral(false));
-const TRUE: AnyExpr = new Expr(literalNode(true), BOOLEAN, false, NONE, NONE, NONE, shapeOfLiteral(true));
+const FALSE: AnyExpr = /* @__PURE__ */ new Expr(
+  /* @__PURE__ */ literalNode(false),
+  BOOLEAN,
+  false,
+  NONE,
+  NONE,
+  NONE,
+  /* @__PURE__ */ shapeOfLiteral(false),
+);
+const TRUE: AnyExpr = /* @__PURE__ */ new Expr(
+  /* @__PURE__ */ literalNode(true),
+  BOOLEAN,
+  false,
+  NONE,
+  NONE,
+  NONE,
+  /* @__PURE__ */ shapeOfLiteral(true),
+);
 
 /**
  * The literal `true` or `false` as an expression. Shared: expressions are immutable.
@@ -2003,10 +2026,10 @@ function membership(op: "in" | "notIn", left: AnyExpr, values: unknown): AnyExpr
   );
 }
 
-const JSON_KINDS: ReadonlySet<string> = new Set(["json", "jsonb", "custom"]);
+const JSON_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set(["json", "jsonb", "custom"]);
 
 /** The kinds a JSON text value reads as without a cast. */
-const TEXT_KINDS: ReadonlySet<string> = new Set(["text"]);
+const TEXT_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set(["text"]);
 
 function embedField(value: AnyExpr, name: unknown): AnyExpr {
   const info = value.type === undefined ? undefined : embedTypeInfo(value.type);

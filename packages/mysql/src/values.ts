@@ -182,18 +182,18 @@ function writeBytes(value: unknown): unknown {
 const writeUuid = (value: unknown): unknown => (typeof value === "string" ? value.toLowerCase() : value);
 
 /** Where `mysql2`'s values (with the adapter's connection settings) differ from the canonical driver values. */
-export const MYSQL_DRIVER_CODECS: DriverCodecs = Object.freeze({
-  integer: Object.freeze({ fromDb: readInteger }),
-  float: Object.freeze({ fromDb: readFloat, toDb: writeFloat }),
-  bigint: Object.freeze({ fromDb: readBigint }),
-  decimal: Object.freeze({ fromDb: readDecimal }),
-  uuid: Object.freeze({ toDb: writeUuid }),
-  boolean: Object.freeze({ fromDb: readBoolean, toDb: writeBoolean }),
-  binary: Object.freeze({ fromDb: readBytes, toDb: writeBytes }),
-  time: Object.freeze({ fromDb: readTime }),
-  timestamp: Object.freeze({ fromDb: readDatetime, toDb: writeDatetime }),
-  timestamptz: Object.freeze({ fromDb: readDatetime, toDb: writeDatetime }),
-  json: Object.freeze({ toDb: writeJson }),
-  jsonb: Object.freeze({ toDb: writeJson }),
-  array: Object.freeze({ toDb: writeJson }),
+export const MYSQL_DRIVER_CODECS: DriverCodecs = /* @__PURE__ */ Object.freeze({
+  integer: /* @__PURE__ */ Object.freeze({ fromDb: readInteger }),
+  float: /* @__PURE__ */ Object.freeze({ fromDb: readFloat, toDb: writeFloat }),
+  bigint: /* @__PURE__ */ Object.freeze({ fromDb: readBigint }),
+  decimal: /* @__PURE__ */ Object.freeze({ fromDb: readDecimal }),
+  uuid: /* @__PURE__ */ Object.freeze({ toDb: writeUuid }),
+  boolean: /* @__PURE__ */ Object.freeze({ fromDb: readBoolean, toDb: writeBoolean }),
+  binary: /* @__PURE__ */ Object.freeze({ fromDb: readBytes, toDb: writeBytes }),
+  time: /* @__PURE__ */ Object.freeze({ fromDb: readTime }),
+  timestamp: /* @__PURE__ */ Object.freeze({ fromDb: readDatetime, toDb: writeDatetime }),
+  timestamptz: /* @__PURE__ */ Object.freeze({ fromDb: readDatetime, toDb: writeDatetime }),
+  json: /* @__PURE__ */ Object.freeze({ toDb: writeJson }),
+  jsonb: /* @__PURE__ */ Object.freeze({ toDb: writeJson }),
+  array: /* @__PURE__ */ Object.freeze({ toDb: writeJson }),
 });

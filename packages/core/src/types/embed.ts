@@ -34,7 +34,7 @@ export interface EmbedTypeInfo {
   readonly onReplace: OnReplace;
 }
 
-const infos = new WeakMap<AnyFieldType, EmbedTypeInfo>();
+const infos = /* @__PURE__ */ new WeakMap<AnyFieldType, EmbedTypeInfo>();
 
 /**
  * What an embed type stores, or `undefined` for a type that is not an embed's.
@@ -71,7 +71,7 @@ interface Codec {
   readonly slots: readonly Slot[];
 }
 
-const codecs = new WeakMap<SchemaMeta, Codec>();
+const codecs = /* @__PURE__ */ new WeakMap<SchemaMeta, Codec>();
 
 function codecOf(schemaMeta: SchemaMeta): Codec {
   let codec = codecs.get(schemaMeta);
@@ -96,7 +96,9 @@ function codecOf(schemaMeta: SchemaMeta): Codec {
 // ---------------------------------------------------------------------------
 
 const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-const BASE64_INDEX: ReadonlyMap<string, number> = new Map([...BASE64].map((char, i) => [char, i]));
+const BASE64_INDEX: ReadonlyMap<string, number> = /* @__PURE__ */ new Map(
+  /* @__PURE__ */ Array.from(BASE64, (char, i) => [char, i]),
+);
 
 /**
  * Bytes as base64 text (with `=` padding).
@@ -333,7 +335,7 @@ export function loadEmbedded(schemaMeta: SchemaMeta, json: unknown, rowMeta: Row
 // Redaction
 // ---------------------------------------------------------------------------
 
-const hidden = new WeakMap<AnyFieldType, boolean>();
+const hidden = /* @__PURE__ */ new WeakMap<AnyFieldType, boolean>();
 
 /**
  * Whether a value of `type` must be redacted in logs because it is an embed whose schema

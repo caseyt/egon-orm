@@ -171,7 +171,7 @@ const zonedTimestampArray = (text: string): unknown => parseArrayLiteral(text, z
 
 type TextParser = (text: string) => unknown;
 
-const TEXT_PARSERS: ReadonlyMap<number, TextParser> = new Map<number, TextParser>([
+const TEXT_PARSERS: ReadonlyMap<number, TextParser> = /* @__PURE__ */ new Map<number, TextParser>([
   [OID.int8, keepText],
   [OID.int8Array, textArray],
   [OID.numeric, keepText],
@@ -230,11 +230,11 @@ const writeTimestamptz = (value: unknown): unknown =>
 /**
  * Where `pg`'s values (with {@link PG_TYPES}) differ from the canonical driver values.
  */
-export const PG_DRIVER_CODECS: DriverCodecs = Object.freeze({
-  bigint: Object.freeze({ fromDb: readBigint }),
-  binary: Object.freeze({ fromDb: readBytes }),
-  json: Object.freeze({ toDb: writeJson }),
-  jsonb: Object.freeze({ toDb: writeJson }),
-  timestamp: Object.freeze({ toDb: writeTimestamp }),
-  timestamptz: Object.freeze({ toDb: writeTimestamptz }),
+export const PG_DRIVER_CODECS: DriverCodecs = /* @__PURE__ */ Object.freeze({
+  bigint: /* @__PURE__ */ Object.freeze({ fromDb: readBigint }),
+  binary: /* @__PURE__ */ Object.freeze({ fromDb: readBytes }),
+  json: /* @__PURE__ */ Object.freeze({ toDb: writeJson }),
+  jsonb: /* @__PURE__ */ Object.freeze({ toDb: writeJson }),
+  timestamp: /* @__PURE__ */ Object.freeze({ toDb: writeTimestamp }),
+  timestamptz: /* @__PURE__ */ Object.freeze({ toDb: writeTimestamptz }),
 });

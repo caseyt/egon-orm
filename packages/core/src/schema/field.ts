@@ -116,9 +116,9 @@ export interface FieldState {
 }
 
 /** The key under which a builder holds its {@link FieldState}. Registered, so two copies of the package agree. */
-const FIELD: unique symbol = Symbol.for("egon.field");
+const FIELD: unique symbol = /* @__PURE__ */ Symbol.for("egon.field");
 
-const WRITABLE: ReadonlySet<unknown> = new Set<Writable>(["always", "insert", "never"]);
+const WRITABLE: ReadonlySet<unknown> = /* @__PURE__ */ new Set<Writable>(["always", "insert", "never"]);
 
 /** The builder that `t.<type>()` returns. Its public face is the `FieldBuilder` contract. */
 class Builder<T, F extends FieldFlags> implements FieldBuilder<T, F> {
@@ -324,8 +324,13 @@ function embed(
   };
 }
 
-const EMBED_ONE_ON_REPLACE: ReadonlySet<unknown> = new Set(["error", "invalid", "update", "delete"]);
-const EMBED_MANY_ON_REPLACE: ReadonlySet<unknown> = new Set(["error", "invalid", "delete"]);
+const EMBED_ONE_ON_REPLACE: ReadonlySet<unknown> = /* @__PURE__ */ new Set([
+  "error",
+  "invalid",
+  "update",
+  "delete",
+]);
+const EMBED_MANY_ON_REPLACE: ReadonlySet<unknown> = /* @__PURE__ */ new Set(["error", "invalid", "delete"]);
 
 const emptyList = (): unknown[] => [];
 
@@ -405,7 +410,7 @@ export interface FieldTypes {
  *
  * @throws SchemaDefinitionError when a type or a modifier is given something it cannot use.
  */
-export const t: FieldTypes = Object.freeze({
+export const t: FieldTypes = /* @__PURE__ */ Object.freeze({
   string: () => builder(stringType()),
   integer: () => builder(integerType()),
   bigint: (options?: { readonly mode?: "bigint" | "number" }) =>

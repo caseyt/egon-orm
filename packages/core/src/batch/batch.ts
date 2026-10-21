@@ -146,7 +146,7 @@ let make: (steps: readonly BatchStep[], names: ReadonlySet<string>) => Batch<obj
 let stepsOf: (batch: Batch<object, unknown>) => readonly BatchStep[];
 let namesOf: (batch: Batch<object, unknown>) => ReadonlySet<string>;
 
-const NO_ARGS: readonly unknown[] = Object.freeze([]);
+const NO_ARGS: readonly unknown[] = /* @__PURE__ */ Object.freeze([]);
 
 function checkName(method: string, name: unknown): string {
   if (typeof name !== "string" || name.length === 0) {
@@ -575,7 +575,10 @@ function join(first: Batch<object, unknown>, second: Batch<object, unknown>): Ba
   return make(Object.freeze([...stepsOf(first), ...stepsOf(second)]), names);
 }
 
-const EMPTY_BATCH = make(Object.freeze([]), new Set()) as Batch;
+const EMPTY_BATCH = /* @__PURE__ */ make(
+  /* @__PURE__ */ Object.freeze([]),
+  /* @__PURE__ */ new Set(),
+) as Batch;
 
 /**
  * Starts a batch with no steps.
@@ -603,7 +606,12 @@ export function isBatch(value: unknown): value is Batch<object, unknown> {
 }
 
 /** The write operations that return a `Result`, whose static changesets are checked before the transaction opens. */
-const CHECKED: readonly BatchOperation[] = Object.freeze(["insert", "update", "delete", "insertOrUpdate"]);
+const CHECKED: readonly BatchOperation[] = /* @__PURE__ */ Object.freeze([
+  "insert",
+  "update",
+  "delete",
+  "insertOrUpdate",
+]);
 
 /**
  * The failure of the first step given an invalid changeset as it is (not computed from

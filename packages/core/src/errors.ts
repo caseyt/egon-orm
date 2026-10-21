@@ -200,10 +200,13 @@ function compose(
 }
 
 /** Marks an error as Egon's across copies of the package (`Symbol.for` is process-wide). */
-const BRAND: unique symbol = Symbol.for("egon.error");
+const BRAND: unique symbol = /* @__PURE__ */ Symbol.for("egon.error");
 
 /** The short sentence and parameters of each error, for {@link shortMessageOf} and {@link rewrap}. */
-const parts = new WeakMap<object, { readonly short: string; readonly params: ErrorParams | undefined }>();
+const parts = /* @__PURE__ */ new WeakMap<
+  object,
+  { readonly short: string; readonly params: ErrorParams | undefined }
+>();
 
 /**
  * The base class of every error Egon throws.

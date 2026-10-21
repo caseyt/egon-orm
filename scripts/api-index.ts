@@ -21,6 +21,7 @@ const ENTRY_POINTS: readonly { specifier: string; file: string; api: string }[] 
     file: "packages/core/src/migration/index.ts",
     api: "egon-orm/migration",
   },
+  { specifier: "egon-orm/messages", file: "packages/core/src/messages/index.ts", api: "egon-orm/messages" },
   { specifier: "@egon-orm/postgres", file: "packages/postgres/src/index.ts", api: "@egon-orm/postgres" },
   { specifier: "@egon-orm/sqlite", file: "packages/sqlite/src/index.ts", api: "@egon-orm/sqlite" },
   { specifier: "@egon-orm/mysql", file: "packages/mysql/src/index.ts", api: "@egon-orm/mysql" },

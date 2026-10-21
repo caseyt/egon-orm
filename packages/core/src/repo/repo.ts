@@ -1259,15 +1259,7 @@ class DatabaseRepo implements Repo {
     if (!isFragment(statement)) {
       throw new QueryError(
         "query.rawArgument",
-        "repo.raw() takes a fragment: repo.raw(fragment`select …`).",
-        {
-          params: {
-            typeof:
-              typeof statement === "string"
-                ? "a string, which would put text into the SQL unchecked"
-                : "something else",
-          },
-        },
+        `repo.raw() takes a fragment, and was given ${typeof statement === "string" ? "a string, which would put text into the SQL unchecked" : "something else"}.`,
       );
     }
     const names: string[] = [];

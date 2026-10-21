@@ -1,8 +1,8 @@
 # Errors
 
-Every error the library throws extends `EgonError`. Each has a stable `code`, a message
-that says what happened and how to fix it, and, where a driver error was involved, that
-error as `cause`.
+Every error the library throws extends `EgonError`. Each has a stable `code` for its class,
+a stable `id` for its message, a short message that names what failed and links to the
+entry of its `id`, and, where a driver error was involved, that error as `cause`.
 
 <<< @/examples/errors.ts#handle
 
@@ -11,22 +11,100 @@ where `instanceof` would not:
 
 <<< @/examples/errors.ts#by-code
 
+## Identifiers and messages
+
+Each distinct message has an identifier, `error.id`, such as `"query.aliasTaken"`: the
+namespace of its class and a name, or the class's `code` alone for a class with one
+message (`"noResults"`). It never changes between releases, and its type, `ErrorId`, is
+the union of them all, so a `switch` on it is checked:
+
+<<< @/examples/errors.ts#by-id
+
+A message reads `<id>: <short sentence> See <link>`:
+
+```text
+query.aliasTaken: join() was given the alias "u", which this query already uses. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-aliastaken
+```
+
+The short sentence says what failed, with the names it concerns (the clause, the schema,
+the field, the SQL state). What to do about it is on the identifier's entry, one page per
+namespace:
+
+| Page | Thrown as |
+|---|---|
+| [General](/reference/errors/general) | `NoResultsError`, `MultipleResultsError`, `InvalidChangesetError`, `StaleEntryError`, `NotLoadedError` |
+| [Query](/reference/errors/query) | `QueryError` |
+| [Cast](/reference/errors/cast) | `CastError` |
+| [Schema definition](/reference/errors/schema) | `SchemaDefinitionError` |
+| [Constraint](/reference/errors/constraint) | `ConstraintError` |
+| [Database](/reference/errors/database) | `DatabaseError` |
+| [Rollback](/reference/errors/rollback) | `RollbackError` |
+| [Migration](/reference/errors/migration) | `MigrationError` |
+
+Short messages keep the bundle small: when every message carried its advice, error text
+was about 15% of the library's minified size, and an application that runs on the edge
+ships its bundle with every deployment.
+
+## Full messages, in development
+
+The advice ships separately, in `egon-orm/messages`. There are two ways to use it, and
+both are explicit.
+
+**For every error:** `useFullErrorMessages(messages)` makes every error constructed after
+the call carry the full text: the short sentence, what to do about it, and the link.
+
+<<< @/examples/errors.ts#full-messages
+
+It works on every runtime (it reads nothing from `process`), on Cloudflare Workers and
+Vercel Edge too. Without the call, `egon-orm/messages` is not in the bundle at all.
+
+::: warning Call it before your schemas are defined
+An error made before the call keeps its short message. A schema whose definition is wrong
+throws while its module is imported, which can happen before the code that calls
+`useFullErrorMessages` runs: call it in the first module your application imports, or use
+`explain(error)`.
+:::
+
+**For one error:** `explain(error)` returns the full text of one error, whenever it was
+made, without changing any setting. It is the form for a log line or an error page:
+
+<<< @/examples/errors.ts#explain
+
+`explain` takes any value: an Egon error gives its full text (or its message as it is,
+when the catalog has no entry for its identifier, or it was made by another copy of the
+package); any other `Error` gives `name: message`; anything else `String(value)`.
+
+Both take a catalog of your own instead, with the same shape: for an identifier, the
+advice that follows the short sentence. `{{name}}` in an entry is replaced by the value the
+message names. An identifier your catalog leaves out keeps its short message:
+
+<<< @/examples/errors.ts#translated
+
+## Sending an error to a client
+
+`JSON.stringify(error)` gives `{ name, code, id }` and nothing else: the message, the cause
+and any SQL stay on the server. It is safe to send, and stable to switch on:
+
+<<< @/examples/errors.ts#to-json
+
 ## Classes
 
 | Error | `code` | Thrown when | Extra fields | How to fix |
 |---|---|---|---|---|
 | `InvalidChangesetError` | `"invalidChangeset"` | An `OrThrow` write is given an invalid changeset, or a declared constraint is violated. | `changeset`, `action` | Show `error.changeset.errorMessages()`, or use the method without `OrThrow` and check the result. |
-| `ConstraintError` | `"constraint"` | The database rejects a write and the changeset did not declare that constraint; also every violation in a bulk write. | `type`, `constraint`, `table`, `column`, `detail`, `sql` | Declare it on the changeset (the message says how). See [Constraints](/guide/constraints). |
+| `ConstraintError` | `"constraint"` | The database rejects a write and the changeset did not declare that constraint; also every violation in a bulk write. | `type`, `constraint`, `table`, `column`, `detail`, `sql` | Declare it on the changeset (the full message says how). See [Constraints](/guide/constraints). |
 | `StaleEntryError` | `"staleEntry"` | An update or delete matched no row: the row was deleted, or an optimistic lock failed. | `action`, `schema` | Reload and retry, or pass `staleError` / `allowStale`. See [Update](/guide/repo#update). |
 | `NoResultsError` | `"noResults"` | `oneOrThrow`, `getOrThrow`, `getByOrThrow` or `reloadOrThrow` found nothing. | `query` (rendered, without values) | Use the method without `OrThrow` where a missing row is expected. |
 | `MultipleResultsError` | `"multipleResults"` | `one`, `getBy` or their twins matched more than one row. | `count`, `query` | Make the query unique, or use `first` for "any one". |
-| `QueryError` | `"query"` | A query, changeset, batch or transaction is built or used wrongly, or needs a feature the database lacks. | | The message names the clause or call and the fix. See [Dialect support](/reference/dialect-support) for features. |
+| `QueryError` | `"query"` | A query, changeset, batch or transaction is built or used wrongly, or needs a feature the database lacks. | | The entry of `error.id` says what to do. See [Dialect support](/reference/dialect-support) for features. |
 | `CastError` | `"cast"` | `cast` is given params that are not an object, or a stored value does not fit its field's type. | | Pass a plain object; check the column holds what the field declares. |
 | `NotLoadedError` | `"notLoaded"` | `castAssoc` or `putAssoc` is used on an association of a loaded row that was not preloaded as whole rows. | `schema`, `association` | Preload the association before building the changeset. |
-| `SchemaDefinitionError` | `"schemaDefinition"` | A schema, type or association is defined incorrectly, or a schema's constructor is called. | | The message names the schema, the field and the fix. |
+| `SchemaDefinitionError` | `"schemaDefinition"` | A schema, type or association is defined incorrectly, or a schema's constructor is called. | | The message names the schema and the field; the entry of `error.id` says what to do. |
 | `RollbackError` | `"rollback"` | `transactionOrThrow` ended in a rollback: `tx.rollback(reason)`, a batch step that failed (`reason` is `{ step, error, completed }`), or a statement that failed and was not handled. | `reason` | Use `transaction` to get the rollback as a result. |
 | `DatabaseError` | see below | The connection or the database failed. | `retryable`, `sql` | Depends on the code. |
 | `MigrationError` | `"migration"` | A [migration](/guide/migrations) has no `up` or no `down`, uses a feature the database lacks, failed, is missing its file, or the migration lock could not be taken. Imported from `egon-orm/migration`. | `version`, `migration`, `sql` | The message says which migration and why. |
+
+Every class also has `id` and `toJSON()`.
 
 ## `DatabaseError` codes
 
@@ -49,7 +127,8 @@ methods without `OrThrow`:
 
 <<< @/examples/errors.ts#result
 
-See [Writing](/guide/repo#writing).
+See [Writing](/guide/repo#writing). Their messages (`can't be blank`, `has already been
+taken`) are data for your users, and are not affected by any of the above.
 
 ## What errors contain
 
@@ -63,3 +142,4 @@ See [Writing](/guide/repo#writing).
 
 - [FAQ and troubleshooting](/guide/faq): the messages people meet first, and their fixes.
 - [Adapters: errors](/guide/adapters#errors): how driver errors are converted.
+- [Edge runtimes](/guide/edge): short messages and the size of a Worker.

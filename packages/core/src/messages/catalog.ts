@@ -557,7 +557,7 @@ export const messages = {
   "query.putChangeEmbed": "Change it with putEmbed.",
   "query.putChangeUndefined": 'Use null for no value, or deleteChange("{{name}}") to remove the change.',
   "query.rawArgument":
-    "It was given {{typeof}}; values go into the template as interpolations, where they are bound.",
+    "Pass a fragment: repo.raw(fragment`select …`). Values go into the template as interpolations, where they are bound.",
   "query.readEmbedded": "Read the parent schema, and the embedded values from its rows.",
   "query.readOnlyUnsupported": "Leave readOnly out on {{dialect}}.",
   "query.readQueryWhere": "Pass a query built with from(), or a schema class.",

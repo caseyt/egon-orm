@@ -3,3 +3,7 @@ Kysely
 savepoints
 tmpfs
 upserts
+backquotes
+citext
+datetimes
+incrementer

@@ -349,6 +349,10 @@ Guide: [Errors](/reference/errors).
 | [`DatabaseErrorCode`](/api/reference/egon-orm/type-aliases/DatabaseErrorCode) | type | The codes of a `DatabaseError`. |
 | [`EgonError`](/api/reference/egon-orm/classes/EgonError) | class | The base class of every error Egon throws. |
 | [`ErrorCode`](/api/reference/egon-orm/type-aliases/ErrorCode) | type | The stable codes of the error classes. |
+| [`ErrorDetails`](/api/reference/egon-orm/interfaces/ErrorDetails) | interface | What an error's constructor takes besides the identifier and the short sentence. |
+| [`ErrorId`](/api/reference/egon-orm/type-aliases/ErrorId) | type | The identifier of every message Egon throws, such as `"query.aliasTaken"`. |
+| [`ErrorMessages`](/api/reference/egon-orm/type-aliases/ErrorMessages) | type | A catalog of full messages. |
+| [`ErrorParams`](/api/reference/egon-orm/type-aliases/ErrorParams) | type | The values named by `{{name}}` in an identifier's catalog entry. |
 | [`InvalidChangesetError`](/api/reference/egon-orm/classes/InvalidChangesetError) | class | An `…OrThrow` write was given an invalid changeset. |
 | [`isEgonError`](/api/reference/egon-orm/functions/isEgonError) | function | Whether `value` is an error thrown by Egon, optionally with a given code. |
 | [`MultipleResultsError`](/api/reference/egon-orm/classes/MultipleResultsError) | class | A query that may return at most one row returned more (`one`, `getBy`, …). |
@@ -358,6 +362,7 @@ Guide: [Errors](/reference/errors).
 | [`RollbackError`](/api/reference/egon-orm/classes/RollbackError) | class | A transaction was rolled back where its caller expected a value. |
 | [`SchemaDefinitionError`](/api/reference/egon-orm/classes/SchemaDefinitionError) | class | A schema is declared wrongly. |
 | [`StaleEntryError`](/api/reference/egon-orm/classes/StaleEntryError) | class | An update or delete matched no row. |
+| [`useFullErrorMessages`](/api/reference/egon-orm/functions/useFullErrorMessages) | function | Makes every error constructed from now on carry its full message. |
 
 ### The package
 
@@ -416,6 +421,16 @@ Guide: [The package](/guide/).
 | [`TableBuilder`](/api/reference/egon-orm/migration/interfaces/TableBuilder) | class, as a type | The `t` of `m.createTable(name, (t) => …)`. |
 | [`TimestampsColumnsOptions`](/api/reference/egon-orm/migration/interfaces/TimestampsColumnsOptions) | interface | Options of `ColumnAdder.timestamps`. |
 | [`UpOptions`](/api/reference/egon-orm/migration/interfaces/UpOptions) | interface | Options of `Migrator.up`. |
+
+## `egon-orm/messages`
+
+| Export | Kind | Summary |
+|---|---|---|
+| [`ErrorId`](/api/reference/egon-orm/messages/type-aliases/ErrorId) | type | The identifier of every message Egon throws, such as `"query.aliasTaken"`. |
+| [`ErrorMessages`](/api/reference/egon-orm/messages/type-aliases/ErrorMessages) | type | A catalog of full messages. |
+| [`ErrorParams`](/api/reference/egon-orm/messages/type-aliases/ErrorParams) | type | The values named by `{{name}}` in an identifier's catalog entry. |
+| [`explain`](/api/reference/egon-orm/messages/functions/explain) | function | The full text of one error. |
+| [`messages`](/api/reference/egon-orm/messages/variables/messages) | constant | The full text of every error message, by identifier. |
 
 ## `@egon-orm/postgres`
 

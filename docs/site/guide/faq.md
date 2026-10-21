@@ -33,7 +33,7 @@ nothing; it is refused. Use one of these:
 If the types are bypassed, the same mistake throws when the clause is added:
 
 ```text
-QueryError: where(): eq() was given null. A comparison with null is always unknown in SQL, so it would match nothing: use isNull() or isNotNull(), or isDistinctFrom() to compare treating null as a value.
+QueryError: query.compareNull: where(): eq() was given null. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-comparenull
 ```
 
 ### `Class 'Post' used before its declaration`, or a circular import
@@ -71,7 +71,7 @@ changeset, `User.changeset(User, params)` or `change(User, values)`, which the r
 into a row. Calling the constructor anyway throws:
 
 ```text
-SchemaDefinitionError: User has no public constructor: a row comes only from the database. Describe a new record with a changeset instead: cast(User, params, [...]) or change(User, values).
+SchemaDefinitionError: schema.noConstructor: User has no public constructor: a row comes only from the database. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-noconstructor
 ```
 
 ### `insert takes a changeset of a new record`
@@ -118,7 +118,7 @@ column the column itself (`p.published`).
 ### A preload with a `select` `selects without its key`
 
 ```text
-QueryError: preload "posts" selects without its key. Add `authorId: posts.authorId` to the select.
+QueryError: query.preloadSelectKey: preload "posts" selects without its key. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-preloadselectkey
 ```
 
 A preload whose callback selects columns must include the field the association is matched
@@ -132,11 +132,21 @@ on (`authorId` for `User.posts`, `id` for `Post.author`); nothing is added for y
 
 ## Errors at run time
 
+The messages below are as thrown by default: an identifier, a short sentence and a link to
+the identifier's entry, which says what to do. In development, `useFullErrorMessages` puts
+that advice in every message, and `explain(error)` gives it for one error; see
+[Errors](/reference/errors#full-messages-in-development).
+
 ### `ConstraintError: … The changeset has not defined this constraint`
 
 ```text
-ConstraintError: unique constraint "users_email_key" violated on insert into "users".
-The changeset has not defined this constraint. Add: .uniqueConstraint("email")
+ConstraintError: constraint.undeclared: unique constraint "users_email_key" violated on insert into "users". The changeset has not defined this constraint. See https://egon-orm.github.io/egon-orm/reference/errors/constraint#constraint-undeclared
+```
+
+With full messages on, the message ends with the declaration to add:
+
+```text
+Add: .uniqueConstraint("email")
 (or .uniqueConstraint("email", { name: "users_email_key" }))
 ```
 
@@ -148,7 +158,7 @@ If your index has another name, pass it with `{ name }`. See [Constraints](/guid
 ### `QueryError: where({ name: undefined }) …`
 
 ```text
-QueryError: where({ name: undefined }) on the root binding "u" (User): undefined is not a value, and a filter that silently disappears matches every row. Leave the key out, or add the clause only when there is a value: if (value !== undefined) q = q.where({ name: value }).
+QueryError: query.filterUndefined: where({ name: undefined }) on the root binding "u" (User): undefined is not a value, and a filter that silently disappears matches every row. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-filterundefined
 ```
 
 A filter built from optional input had no value. Add the clause only when there is one:
@@ -158,7 +168,7 @@ A filter built from optional input had no value. Add the clause only when there 
 ### `QueryError: repo.raw() takes a fragment`
 
 ```text
-QueryError: repo.raw() takes a fragment: repo.raw(fragment`select …`). It was given a string, which would put text into the SQL unchecked; values go into the template as interpolations, where they are bound.
+QueryError: query.rawArgument: repo.raw() takes a fragment, and was given a string, which would put text into the SQL unchecked. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-rawargument
 ```
 
 `repo.raw` never takes a string. Write ``repo.raw(fragment`select … where id = ${id}`)``:

@@ -78,5 +78,11 @@ export async function run(): Promise<void> {
   result.success ? null : result.error.errorMessages(); // => { body: ["was changed by someone else; reload and try again"] }
   (await repo.getOrThrow(Page, page.id)).lockVersion; // => 2
 
+  // #region unchanged
+  const current = await repo.getOrThrow(Page, page.id); // lockVersion 2
+  const saved = await repo.updateOrThrow(Page.changeset(current, { body: current.body })); // no query
+  saved.lockVersion; // => 2
+  // #endregion unchanged
+
   await repo.close();
 }

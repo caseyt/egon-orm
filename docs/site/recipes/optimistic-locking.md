@@ -34,6 +34,17 @@ report it as an error on a field:
 
 `result.error.errorMessages()` is then `{ body: ["was changed by someone else; reload and try again"] }`.
 
+## An unchanged save
+
+A form submitted without edits changes nothing, so the update runs no query: the version
+is not incremented, and the copies other users have open stay current.
+
+<<< @/examples/recipes/optimistic-locking.ts#unchanged
+
+The increment alone does not count as a change. Any other change does, including one a
+`prepareChanges` function makes. Pass `{ force: true }` to run the update anyway: it then
+increments the version and checks it, like any other update.
+
 ::: tip Good to know
 - The version must travel with the form: send the version the user saw as a hidden field,
   and check it against the row you load when the form comes back (or keep the loaded row

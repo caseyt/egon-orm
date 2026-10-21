@@ -80,8 +80,10 @@ export function repoFor(tenant: string): Repo {
 // #endregion per-tenant-repo
 
 export async function run(): Promise<void> {
+  // #region seed
   await provision("acme");
   await provision("globex");
+  // #endregion seed
 
   (await addProject("acme", { name: "Rocket" })).success; // => true
   (await addProject("globex", { name: "Rocket" })).success; // => true

@@ -4,7 +4,14 @@ Two ways to read a large list a page at a time: by page number (offset), or afte
 row seen (keyset).
 
 ::: details The schemas and tables this recipe uses
+Run the recipe in an empty database of its own: each recipe creates its own tables, and
+some have the same names (`posts`) with other columns.
+
 <<< @/examples/recipes/pagination.ts#setup
+
+The examples start from these rows, after creating the tables:
+
+<<< @/examples/recipes/pagination.ts#seed
 :::
 
 ## By page number
@@ -36,8 +43,11 @@ It reads only the page, whatever its depth, and is stable while rows are added.
   a `Date` and a number again on the next request.
 
 ::: tip Good to know
-- `limit` and `offset` count rows, not parents: on a query that join-preloads a to-many
-  association they are refused. Preload with a separate query instead.
+- `limit` and `offset` count rows, not parents. A query that fills a to-many association
+  from one of its own joins (`preload({ posts: "p" })`, see
+  [From a join](/guide/associations#from-a-join)) repeats each parent once per child, so
+  `limit` and `offset` are refused there. Preload the association with a separate query
+  (`preload("posts")`) instead.
 :::
 
 ## See also

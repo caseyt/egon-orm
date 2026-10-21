@@ -3,7 +3,9 @@
 Changeset errors keep their message template and its values apart until you render them,
 which is what makes translation and plurals possible.
 
-::: details The schemas and tables this recipe uses
+::: details The schema this recipe uses
+No database is needed: the errors come from a changeset alone.
+
 <<< @/examples/recipes/error-messages.ts#setup
 :::
 

@@ -32,15 +32,18 @@ Egon ORM is under construction and nothing is published to npm yet.
 ## Install
 
 ```sh
-pnpm add egon-orm @egon-orm/postgres pg
+npm install egon-orm @egon-orm/postgres pg
 ```
 
 Node.js 22.12 or later. For SQLite use `@egon-orm/sqlite` with `better-sqlite3`, for MySQL
 `@egon-orm/mysql` with `mysql2`.
 
-## In thirty lines
+## A first look
 
 <<< @/examples/home.ts#example
+
+The tables are not shown: [Getting started](/guide/getting-started) creates them with a
+migration.
 
 - A **schema** class describes a table; its instances are rows.
 - A **changeset** (`User.changeset`) filters and validates input, and declares that a

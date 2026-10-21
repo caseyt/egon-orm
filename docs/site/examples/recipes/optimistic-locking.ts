@@ -27,7 +27,7 @@ export async function createTables(): Promise<void> {
   const admin = postgres({ connectionString: process.env.DATABASE_URL });
   await createMigrator({
     adapter: admin,
-    migrations: [{ version: 1, name: "tables", migration: tables }],
+    migrations: [{ version: 20261021000801, name: "optimistic_locking_tables", migration: tables }],
   }).up();
   await admin.close();
 }
@@ -55,8 +55,10 @@ export function save(page: Page, params: unknown) {
 // #endregion save
 
 export async function run(): Promise<void> {
+  // #region seed
   await createTables();
   const page = await repo.insertOrThrow(cast(Page, { body: "Draft" }, ["body"]));
+  // #endregion seed
 
   // #region conflict
   const mine = await repo.getOrThrow(Page, page.id); // lockVersion 1

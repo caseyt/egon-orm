@@ -5,6 +5,7 @@
 import { postgres } from "@egon-orm/postgres";
 import { belongsTo, cast, count, createRepo, from, hasMany, Schema, t, timestamps } from "egon-orm";
 
+// Over two tables with serial (32-bit) keys, which t.integer() reads.
 class User extends Schema("users", {
   id: t.integer().primaryKey().dbGenerated(),
   email: t.string(),

@@ -33,7 +33,7 @@ const counts = await repo.all(
 counts[0]; // => { email: "ada@example.com", posts: 0 }
 
 const withPosts = await repo.all(from(User, "u").preload("posts"));
-// type: Post[]: the type knows the posts were preloaded
+// The first user's posts, none yet. Their type is Post[]: the query preloaded them.
 withPosts[0]?.posts; // => []
 // #endregion query
 

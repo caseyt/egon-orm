@@ -17,6 +17,24 @@ input a form sent, filtered to the fields it may change, converted and validated
 **repo** writes the changeset and returns a result, with validation and constraint errors
 on their fields. Reads are **queries**, immutable values built with `from(User, "u")`.
 
+## Setting up
+
+The examples are one runnable file, in the order of this page: the imports, the schema
+classes, the repo, the tables, then the tasks. Run it against an empty database of its
+own: it creates the tables and the rows the tasks read, so a second run on the same
+database stops at the first insert (`ada@example.com` is taken). To follow it in a
+project of your own:
+
+```sh
+npm install egon-orm @egon-orm/postgres pg
+npm install -D typescript tsx @types/node @types/pg
+```
+
+with the `tsconfig.json` of [Getting started](/guide/getting-started#create-the-project), and
+these imports:
+
+<<< @/examples/coming-from.ts#imports
+
 ## Defining models
 
 Sequelize: `class User extends Model {}` with `User.init({ email: { type: DataTypes.STRING, allowNull: false, unique: true, validate: { isEmail: true } } }, { sequelize })`,
@@ -43,21 +61,7 @@ Sequelize: `new Sequelize(process.env.DATABASE_URL)`.
 
 <<< @/examples/coming-from.ts#connect
 
-## Setting up
-
-The examples are one runnable file. To follow them in a project of your own:
-
-```sh
-npm install egon-orm @egon-orm/postgres pg
-npm install -D typescript tsx @types/node @types/pg
-```
-
-with the `tsconfig.json` of [Getting started](/guide/getting-started#create-the-project), and
-these imports:
-
-<<< @/examples/coming-from.ts#imports
-
-### The tables
+## The tables
 
 Sequelize: a migration written with `queryInterface.createTable`, or `sequelize.sync()`. In Egon, a migration you write
 creates them, and unique indexes and defaults are part of it:
@@ -100,7 +104,7 @@ Sequelize: `User.create({ email, posts: [{ title }] }, { include: [User.associat
 
 The returned row holds the saved posts, but its type is a plain `User`: the type of a
 write's result does not list associations. To use them, narrow it with
-`isLoaded(User, row, "posts")`, or read the user again with a preload, as the example does.
+`isLoaded(User, row, "posts")`, as the example does, or read the user again with a preload.
 
 See [Nested changesets](/guide/nested-changesets).
 
@@ -177,6 +181,15 @@ Each level of `preload` is one extra query, whatever the number of parents, and 
 in a preload callback applies to each parent. To load from a join instead, as `include`
 does, join and pass the alias: `.joinAssoc("u", "posts", "p").preload({ posts: "p" })`.
 See [Preloading](/guide/associations#preloading).
+
+### The related rows of one record
+
+Sequelize: `await user.getPosts()`, a lazy-loading getter.
+
+<<< @/examples/coming-from.ts#assoc
+
+`assoc(User, ada, "posts")` is a query, run by the repo like any other; it never runs by
+itself when a property is read. See [Querying an association](/guide/associations#querying-an-association-directly).
 
 ### Filter by an association
 

@@ -5,7 +5,14 @@ same tables, and choose the schema per request. The schema classes stay the same
 tenant.
 
 ::: details The schemas and tables this recipe uses
+Run the recipe in an empty database of its own: each recipe creates its own tables, and
+some have the same names (`posts`) with other columns.
+
 <<< @/examples/recipes/multi-tenancy.ts#setup
+
+The examples start from these rows, after creating the tables:
+
+<<< @/examples/recipes/multi-tenancy.ts#seed
 :::
 
 ## Creating a tenant's tables

@@ -27,7 +27,7 @@ export async function createTables(): Promise<void> {
   const admin = postgres({ connectionString: process.env.DATABASE_URL });
   await createMigrator({
     adapter: admin,
-    migrations: [{ version: 1, name: "tables", migration: tables }],
+    migrations: [{ version: 20261021000601, name: "money_tables", migration: tables }],
   }).up();
   await admin.close();
 }
@@ -77,7 +77,9 @@ class Product extends Schema("products", {
 // #endregion schema
 
 export async function run(): Promise<void> {
+  // #region seed
   await createTables();
+  // #endregion seed
 
   // #region use
   const pen = await repo.insertOrThrow(Product.changeset(Product, { name: "Pen", price: "19.99" }));

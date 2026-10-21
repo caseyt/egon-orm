@@ -4,7 +4,14 @@ Turn `?q=launch&status=published&minViews=10&sort=popular&page=2` into a query, 
 parameter validated and converted, and an error response for bad input.
 
 ::: details The schemas and tables this recipe uses
+Run the recipe in an empty database of its own: each recipe creates its own tables, and
+some have the same names (`posts`) with other columns.
+
 <<< @/examples/recipes/dynamic-filters.ts#setup
+
+The examples start from these rows, after creating the tables:
+
+<<< @/examples/recipes/dynamic-filters.ts#seed
 :::
 
 ## Validating the parameters

@@ -1,4 +1,4 @@
-// #region header
+// #region file
 // test/publishing.itest.ts
 import { Batch, change } from "egon-orm";
 import { createSandbox } from "egon-orm/testing";
@@ -24,9 +24,8 @@ async function setUp() {
     { readerId: cy.id, authorId: ada.id },
   ]);
   const draft = await repo.insertOrThrow(change(Post, { authorId: ada.id, title: "Hello", body: "Hi." }));
-  return { ada, bo, cy, draft };
+  return { bo, cy, draft };
 }
-// #endregion header
 
 test("publishing sets publishedAt and notifies every reader of the author", async () => {
   const { bo, cy, draft } = await setUp();
@@ -48,7 +47,6 @@ test("publishing twice fails at the guard and writes nothing more", async () => 
   expect(await repo.count(Notification)).toBe(2);
 });
 
-// #region batch-test
 test("the batch is a value: its steps can be checked without running it", async () => {
   const { draft } = await setUp();
 
@@ -62,4 +60,4 @@ test("the batch is a value: its steps can be checked without running it", async 
     "notifications:insertAll",
   ]);
 });
-// #endregion batch-test
+// #endregion file

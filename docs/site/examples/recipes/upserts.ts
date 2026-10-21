@@ -45,7 +45,7 @@ export async function createTables(): Promise<void> {
   const admin = postgres({ connectionString: process.env.DATABASE_URL });
   await createMigrator({
     adapter: admin,
-    migrations: [{ version: 1, name: "tables", migration: tables }],
+    migrations: [{ version: 20261021001201, name: "upserts_tables", migration: tables }],
   }).up();
   await admin.close();
 }
@@ -67,7 +67,9 @@ export async function countView(pageId: number, day: string) {
 // #endregion counter
 
 export async function run(): Promise<void> {
+  // #region seed
   await createTables();
+  // #endregion seed
 
   // #region one
   // Insert the setting, or replace its value (and updatedAt) if the key exists.

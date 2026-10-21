@@ -35,7 +35,7 @@ export async function createTables(): Promise<void> {
   const admin = postgres({ connectionString: process.env.DATABASE_URL });
   await createMigrator({
     adapter: admin,
-    migrations: [{ version: 1, name: "tables", migration: tables }],
+    migrations: [{ version: 20261021000901, name: "pagination_tables", migration: tables }],
   }).up();
   await admin.close();
 }
@@ -71,6 +71,7 @@ export async function after(cursor: Cursor | null, perPage = 20) {
 // #endregion keyset
 
 export async function run(): Promise<void> {
+  // #region seed
   await createTables();
   const start = Date.UTC(2026, 0, 1);
   await repo.insertAll(
@@ -80,6 +81,7 @@ export async function run(): Promise<void> {
       createdAt: new Date(start + (i % 9) * 60_000),
     })),
   );
+  // #endregion seed
 
   const first = await page(1);
   first.total; // => 45

@@ -4,7 +4,14 @@ Stop a user from overwriting an edit made by someone else since they loaded the 
 without holding a lock while they type.
 
 ::: details The schemas and tables this recipe uses
+Run the recipe in an empty database of its own: each recipe creates its own tables, and
+some have the same names (`posts`) with other columns.
+
 <<< @/examples/recipes/optimistic-locking.ts#setup
+
+The examples start from these rows, after creating the tables:
+
+<<< @/examples/recipes/optimistic-locking.ts#seed
 :::
 
 ## A version field

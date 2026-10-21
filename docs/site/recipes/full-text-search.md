@@ -1,11 +1,19 @@
 # Full-text search
 
 Search articles by words, ranked by relevance, with Postgres's full-text search. The
-operators have no builder methods, so the query writes them with `fragment`, whose
-interpolations are bound parameters.
+operators have no builder methods, so the query writes them with `fragment`: a tagged
+template whose text is written into the SQL as it is, and whose interpolations (`${terms}`)
+are bound parameters, never SQL text ([Fragments](/guide/query-expressions#fragments)).
 
 ::: details The schemas and tables this recipe uses
+Run the recipe in an empty database of its own: each recipe creates its own tables, and
+some have the same names (`posts`) with other columns.
+
 <<< @/examples/recipes/full-text-search.ts#setup
+
+The examples start from these rows, after creating the tables:
+
+<<< @/examples/recipes/full-text-search.ts#seed
 :::
 
 ## The index

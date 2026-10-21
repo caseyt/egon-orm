@@ -47,13 +47,14 @@ export async function createTables(): Promise<void> {
   const admin = postgres({ connectionString: process.env.DATABASE_URL });
   await createMigrator({
     adapter: admin,
-    migrations: [{ version: 1, name: "tables", migration: tables }],
+    migrations: [{ version: 20261021001101, name: "top_n_tables", migration: tables }],
   }).up();
   await admin.close();
 }
 // #endregion setup
 
 export async function run(): Promise<void> {
+  // #region seed
   await createTables();
   const ada = await repo.insertOrThrow(change(Author, { name: "Ada" }));
   const bo = await repo.insertOrThrow(change(Author, { name: "Bo" }));
@@ -64,6 +65,7 @@ export async function run(): Promise<void> {
     { authorId: ada.id, title: "A4", views: 1 },
     { authorId: bo.id, title: "B1", views: 7 },
   ]);
+  // #endregion seed
 
   // #region preload
   // The three most viewed posts of each author: one query for the authors, one for the posts.

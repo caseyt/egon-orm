@@ -37,7 +37,7 @@ export async function createTables(): Promise<void> {
   const admin = postgres({ connectionString: process.env.DATABASE_URL });
   await createMigrator({
     adapter: admin,
-    migrations: [{ version: 1, name: "tables", migration: tables }],
+    migrations: [{ version: 20261021000201, name: "dynamic_filters_tables", migration: tables }],
   }).up();
   await admin.close();
 }
@@ -91,12 +91,14 @@ export async function listPosts(search: URLSearchParams, perPage = 20) {
 // #endregion query
 
 export async function run(): Promise<void> {
+  // #region seed
   await createTables();
   await repo.insertAll(Post, [
     { title: "Launch day", status: "published", views: 40, createdAt: new Date("2026-10-01T00:00:00Z") },
     { title: "Launch plan", status: "draft", views: 2, createdAt: new Date("2026-10-02T00:00:00Z") },
     { title: "100% done", status: "published", views: 12, createdAt: new Date("2026-10-03T00:00:00Z") },
   ]);
+  // #endregion seed
 
   // #region use
   const found = await listPosts(new URLSearchParams("q=launch&status=published"));

@@ -4,7 +4,14 @@ The three most viewed posts of each author, the latest comment of each post: a l
 applies to each parent rather than to the whole result.
 
 ::: details The schemas and tables this recipe uses
+Run the recipe in an empty database of its own: each recipe creates its own tables, and
+some have the same names (`posts`) with other columns.
+
 <<< @/examples/recipes/top-n.ts#setup
+
+The examples start from these rows, after creating the tables:
+
+<<< @/examples/recipes/top-n.ts#seed
 :::
 
 ## With a preload

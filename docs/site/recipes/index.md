@@ -4,6 +4,10 @@ Short answers to common tasks. Each recipe is a complete example: the code on th
 type-checked, and, except for the React form, runs in CI against Postgres, with the values
 in its `// =>` comments checked.
 
+Each recipe shows its schemas, tables and starting rows in a folded block. Run each one in
+an empty database of its own: they create their own tables, and some use the same table
+names with other columns.
+
 ## Reading
 
 | Recipe | In short |

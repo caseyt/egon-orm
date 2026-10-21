@@ -17,6 +17,24 @@ values you can keep and extend. Writes go through **changesets**, which filter a
 input and turn constraint violations into field errors. A **repo** runs both, like the
 Prisma client does.
 
+## Setting up
+
+The examples are one runnable file, in the order of this page: the imports, the schema
+classes, the repo, the tables, then the tasks. Run it against an empty database of its
+own: it creates the tables and the rows the tasks read, so a second run on the same
+database stops at the first insert (`ada@example.com` is taken). To follow it in a
+project of your own:
+
+```sh
+npm install egon-orm @egon-orm/postgres pg
+npm install -D typescript tsx @types/node @types/pg
+```
+
+with the `tsconfig.json` of [Getting started](/guide/getting-started#create-the-project), and
+these imports:
+
+<<< @/examples/coming-from.ts#imports
+
 ## Defining models
 
 Prisma: a `model User { … posts Post[] }` block in `schema.prisma`, then `prisma generate`.
@@ -39,21 +57,7 @@ Prisma 7: `new PrismaClient({ adapter: new PrismaPg({ connectionString }) })`, w
 
 <<< @/examples/coming-from.ts#connect
 
-## Setting up
-
-The examples are one runnable file. To follow them in a project of your own:
-
-```sh
-npm install egon-orm @egon-orm/postgres pg
-npm install -D typescript tsx @types/node @types/pg
-```
-
-with the `tsconfig.json` of [Getting started](/guide/getting-started#create-the-project), and
-these imports:
-
-<<< @/examples/coming-from.ts#imports
-
-### The tables
+## The tables
 
 Prisma: `prisma migrate dev`, from the `@unique` and `@default` attributes in `schema.prisma`. In Egon, a migration you write
 creates them, and unique indexes and defaults are part of it:
@@ -97,7 +101,7 @@ Prisma: `prisma.user.create({ data: { email, posts: { create: [{ title }] } } })
 
 The returned row holds the saved posts, but its type is a plain `User`: the type of a
 write's result does not list associations. To use them, narrow it with
-`isLoaded(User, row, "posts")`, or read the user again with a preload, as the example does.
+`isLoaded(User, row, "posts")`, as the example does, or read the user again with a preload.
 
 Each post is validated by `Post.changeset`. See [Nested changesets](/guide/nested-changesets).
 
@@ -174,6 +178,15 @@ Prisma: `include: { posts: true }`, or `include: { posts: { where, orderBy, take
 Related rows are read with one extra query per level of `preload`, never one per parent,
 and `limit` in a preload callback applies to each parent, like `take` inside an
 `include`. See [Preloading](/guide/associations#preloading).
+
+### The related rows of one record
+
+Prisma: the fluent API, `prisma.user.findUnique({ where: { id } }).posts()`.
+
+<<< @/examples/coming-from.ts#assoc
+
+`assoc(User, ada, "posts")` is a query, run by the repo like any other; it never runs by
+itself when a property is read. See [Querying an association](/guide/associations#querying-an-association-directly).
 
 ### Filter by a relation
 

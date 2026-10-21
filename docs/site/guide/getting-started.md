@@ -43,11 +43,13 @@ of `noEmit`.
 If you have no Postgres at hand, Docker starts one:
 
 ```sh
-docker run -d --name egon-pg -e POSTGRES_PASSWORD=egon -p 5432:5432 postgres:16
-export DATABASE_URL=postgres://postgres:egon@localhost:5432/postgres
+docker run -d --name egon-pg -e POSTGRES_PASSWORD=egon -e POSTGRES_DB=egon_start -p 5432:5432 postgres:16
+export DATABASE_URL=postgres://postgres:egon@localhost:5432/egon_start
 ```
 
-Any other Postgres 14 or later works too (a local install, or a hosted one): point
+`POSTGRES_DB` creates a database of its own for this guide, `egon_start`, so its tables do
+not land in the server's default `postgres` database. Any other Postgres 14 or later works
+too (a local install, or a hosted one): create an empty database there and point
 `DATABASE_URL` at it.
 
 ## Define two schemas

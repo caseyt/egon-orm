@@ -47,7 +47,7 @@ export async function createTables(): Promise<void> {
   const admin = postgres({ connectionString: process.env.DATABASE_URL });
   await createMigrator({
     adapter: admin,
-    migrations: [{ version: 1, name: "tables", migration: tables }],
+    migrations: [{ version: 20261021000101, name: "auditing_tables", migration: tables }],
   }).up();
   await admin.close();
 }
@@ -83,9 +83,11 @@ export function auditedUpdate(actorId: number, changeset: Changeset<typeof Accou
 // #endregion audited
 
 export async function run(): Promise<void> {
+  // #region seed
   await createTables();
   const account = await repo.insertOrThrow(Account.changeset(Account, { email: "ada@example.com" }));
   const adminId = 7;
+  // #endregion seed
 
   // #region use
   const result = await repo.transaction(auditedUpdate(adminId, Account.changeset(account, { plan: "pro" })));

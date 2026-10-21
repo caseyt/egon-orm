@@ -38,7 +38,7 @@ export async function createTables(): Promise<void> {
   const admin = postgres({ connectionString: process.env.DATABASE_URL });
   await createMigrator({
     adapter: admin,
-    migrations: [{ version: 1, name: "tables", migration: tables }],
+    migrations: [{ version: 20261021000401, name: "find_or_create_tables", migration: tables }],
   }).up();
   await admin.close();
 }
@@ -54,7 +54,9 @@ export async function findOrCreateTag(db: Repo, name: string): Promise<Tag> {
 // #endregion find-or-create
 
 export async function run(): Promise<void> {
+  // #region seed
   await createTables();
+  // #endregion seed
 
   // #region use
   const first = await findOrCreateTag(repo, "TypeScript");

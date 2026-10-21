@@ -4,7 +4,14 @@ Return the row with a given unique value, creating it if it does not exist, safe
 requests ask at once.
 
 ::: details The schemas and tables this recipe uses
+Run the recipe in an empty database of its own: each recipe creates its own tables, and
+some have the same names (`posts`) with other columns.
+
 <<< @/examples/recipes/find-or-create.ts#setup
+
+The examples start from these rows, after creating the tables:
+
+<<< @/examples/recipes/find-or-create.ts#seed
 :::
 
 ## The function

@@ -7,6 +7,7 @@
 // #region imports
 import { postgres } from "@egon-orm/postgres";
 import {
+  assoc,
   belongsTo,
   cast,
   change,
@@ -15,6 +16,7 @@ import {
   fragment,
   from,
   hasMany,
+  isLoaded,
   Schema,
   t,
   timestamps,
@@ -124,10 +126,11 @@ export async function run(): Promise<void> {
       posts: [{ title: "Hello" }, { title: "Again" }],
     }).castAssoc("posts"),
   ); // the user and both posts, in one transaction
-  // type: User. The posts are on the returned row, but its type does not say so: to use
-  // them, check with isLoaded(User, cy, "posts"), or read the user again with a preload.
-  const cy = await repo.one(from(User, "u").where({ id: withPosts.id }).preload("posts"));
-  cy?.posts.length; // => 2
+  // type: User. The posts are on the returned row, but its type does not say so: isLoaded
+  // checks, and narrows the type to Loaded<typeof User, "posts">.
+  if (isLoaded(User, withPosts, "posts")) {
+    withPosts.posts.length; // => 2
+  }
   // #endregion nested-create
 
   // #region fixtures
@@ -211,14 +214,23 @@ export async function run(): Promise<void> {
   authors[0]?.posts.length; // => 2
 
   const recent = await repo.all(
-    from(User, "u").preload("posts", (q) =>
-      q
-        .where(({ posts }) => posts.published)
-        .orderBy(({ posts }) => posts.createdAt.desc())
-        .limit(1),
-    ), // the latest published post of each user, still one query for all users
+    from(User, "u")
+      .orderBy(({ u }) => u.id)
+      .preload("posts", (q) =>
+        q
+          .where(({ posts }) => posts.published)
+          .orderBy(({ posts }) => posts.createdAt.desc())
+          .limit(1),
+      ), // the latest published post of each user, still one query for all users
   );
+  recent.map((u) => u.posts.map((p) => p.title)); // => [["Launch"], ["Notes"], []]
   // #endregion include
+
+  // #region assoc
+  // The posts of one user, as a query: it can be filtered, ordered and counted like any other.
+  const adaPosts = await repo.all(assoc(User, ada, "posts").orderBy(({ posts }) => posts.title));
+  adaPosts.map((p) => p.title); // => ["Draft", "Launch"]
+  // #endregion assoc
 
   // #region filter-relation
   const writers = await repo.all(

@@ -4,7 +4,14 @@ Record who changed what, in the same transaction as the change, so a change is n
 written without its audit entry or the other way round.
 
 ::: details The schemas and tables this recipe uses
+Run the recipe in an empty database of its own: each recipe creates its own tables, and
+some have the same names (`posts`) with other columns.
+
 <<< @/examples/recipes/auditing.ts#setup
+
+The examples start from these rows, after creating the tables:
+
+<<< @/examples/recipes/auditing.ts#seed
 :::
 
 ## The audit table

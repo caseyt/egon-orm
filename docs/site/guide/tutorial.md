@@ -21,13 +21,21 @@ mkdir blog && cd blog
 npm init -y
 npm pkg set type=module
 npm install egon-orm @egon-orm/postgres pg zod
-npm install -D @egon-orm/cli typescript tsx vitest @types/node @types/pg
+npm install -D typescript tsx vitest @types/node @types/pg
 mkdir -p src/migrations test
 ```
 
-Egon is published as ES modules only, hence `"type": "module"`. `@egon-orm/cli` is the
-`egon` command, used in step 3; it is not on npm yet (see the [CLI](/reference/cli)), and
-the tutorial works without it.
+Egon is published as ES modules only, hence `"type": "module"`.
+
+**Optional:** `@egon-orm/cli` is the `egon` command, which writes migration files and
+creates databases. It is not on npm yet (the [CLI](/reference/cli) page says how to use it
+from the repository); the tutorial does not need it, and mentions it where it would help.
+Once it is published, install it separately, so that a missing package cannot stop the
+other installs:
+
+```sh
+npm install -D @egon-orm/cli
+```
 
 Add a `tsconfig.json`:
 
@@ -71,12 +79,14 @@ it.
 ## 3. Create the tables
 
 A migration describes a change to the database. Write it by hand, in a file whose name
-starts with its version (a UTC timestamp); `npx egon migrate create create_blog --dir
-src/migrations` writes an empty one for you to fill in:
+starts with its version (a UTC timestamp). With the CLI, `npx egon migrate create
+create_blog --dir src/migrations` writes an empty one for you to fill in:
 
 <<< ../../../examples/blog/src/migrations/20261020090000_create_blog.ts#migration
 
-`up` makes the change and `down` undoes it, so the migration can be rolled back.
+`up` makes the change and `down` undoes it, so the migration can be rolled back. The file
+exports its migration either as the default export, as the file `egon migrate create`
+writes does, or under the name `migration`, as here: the runner accepts both.
 `table.references` adds a foreign key, and `.unique()` a unique index named
 `users_email_key`; the changesets below refer to these names. The table builder is named
 `table` because `t` is the field builder of the schema classes, imported from `egon-orm`.
@@ -234,6 +244,12 @@ results of the steps before it, by name and fully typed. In `src/publishing.ts`:
 
 <<< ../../../examples/blog/src/publishing.ts#publish
 
+Three functions appear here for the first time. `change(row, values)` is the changeset of
+values you trust, such as a timestamp your code computed: unlike `cast`, it filters and
+converts nothing ([Creating a changeset](/guide/changesets#creating-a-changeset)). A `run`
+step returns `success(value)` to go on, with `value` as its result, or `failure(error)` to
+stop the batch and roll it back ([Steps](/guide/batch#steps)).
+
 The batch takes the post's id and reads the post again, locked, as its first step. A `Post`
 object in memory is a copy of the row as it was read: one read before someone else
 published the post still says `publishedAt: null`, so a guard that trusted it would
@@ -254,7 +270,9 @@ Tests need a database of their own. With the Docker container of step 1, create 
 docker exec blog-db createdb -U postgres blog_test
 ```
 
-(With another Postgres, use `createdb blog_test` or `create database blog_test;` in `psql`.)
+(With another Postgres, use `createdb blog_test` or `create database blog_test;` in `psql`.
+With the CLI and an `egon.config.ts` whose `database` entry names `blog_test`,
+`npx egon db create` does the same; see the [CLI](/reference/cli#configuration).)
 
 A Vitest setup file brings its tables up to date before the tests run:
 
@@ -277,27 +295,24 @@ same time do not see each other's rows. Every test file sets it up for itself:
 
 <<< ../../../examples/blog/test/accounts.itest.ts#sandbox
 
-The tests of posts and comments are a second file, with the same sandbox setup and its
-test data as plain functions:
+Test data is plain functions, in a file the tests share:
 
-<<< ../../../examples/blog/test/posts.itest.ts#header
+<<< ../../../examples/blog/test/factories.ts#factory
 
-<<< ../../../examples/blog/test/posts.itest.ts#factory
+The tests of the feed and the moderation form are a second test file, with the same
+sandbox setup. `expectQueries` returns the statements a piece of code ran, so the first
+test can pin down that the feed does not run one query per post; the second sends the
+nested form, with an update, an insert and a delete in one call:
 
-`expectQueries` returns the statements a piece of code ran, so a test can pin down that
-the feed does not run one query per post:
+<<< ../../../examples/blog/test/posts.itest.ts#file
 
-<<< ../../../examples/blog/test/posts.itest.ts#feed-test
+And publishing, in a third file. Its last test checks the batch as data, without running
+it:
 
-The nested form, with an update, an insert and a delete in one call:
+<<< ../../../examples/blog/test/publishing.itest.ts#file
 
-<<< ../../../examples/blog/test/posts.itest.ts#moderate-test
-
-And the batch, in a third file, checked as data, without running it:
-
-<<< ../../../examples/blog/test/publishing.itest.ts#header
-
-<<< ../../../examples/blog/test/publishing.itest.ts#batch-test
+The repository's blog has a few more tests (`test/pages.itest.ts`: creating a post, the
+post page, the statistics, an invalid comment), written the same way.
 
 ### Running the blog from the repository
 

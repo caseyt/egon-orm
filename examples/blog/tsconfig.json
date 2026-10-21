@@ -3,8 +3,17 @@
   "compilerOptions": {
     "rootDir": ".",
     "outDir": "./.tsbuild",
-    "tsBuildInfoFile": "./.tsbuild/tsconfig.tsbuildinfo"
+    "tsBuildInfoFile": "./.tsbuild/tsconfig.tsbuildinfo",
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   },
   "include": ["src", "test", "vitest.config.ts"],
-  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/postgres" }]
+  "references": [
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/postgres"
+    }
+  ]
 }

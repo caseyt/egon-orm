@@ -42,7 +42,12 @@ export const posts = defineMigration({
 // #endregion migration
 
 export async function run(): Promise<void> {
-  await createMigrator({ adapter, migrations: [{ version: 1, name: "posts", migration: posts }] }).up();
+  // #region seed
+  await createMigrator({
+    adapter,
+    migrations: [{ version: 20261021000301, name: "enums_posts", migration: posts }],
+  }).up();
+  // #endregion seed
 
   // #region use
   const invalid = Post.changeset(Post, { status: "archived" });

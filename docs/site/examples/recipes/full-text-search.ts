@@ -73,11 +73,12 @@ export function searchWithSnippets(terms: string) {
 // #endregion headline
 
 export async function run(): Promise<void> {
+  // #region seed
   await createMigrator({
     adapter,
     migrations: [
-      { version: 1, name: "articles", migration: articles },
-      { version: 2, name: "searchable", migration: searchable },
+      { version: 20261021000501, name: "articles", migration: articles },
+      { version: 20261021000502, name: "searchable", migration: searchable },
     ],
   }).up();
   await repo.insertAll(Article, [
@@ -85,6 +86,7 @@ export async function run(): Promise<void> {
     { title: "Cooking", body: "Rice, beans and searches for good spices." },
     { title: "Gardening", body: "Tomatoes need sun." },
   ]);
+  // #endregion seed
 
   (await search("search index")).map((a) => a.title); // => ["Indexing tables"]
   (await search("searching")).length; // => 2

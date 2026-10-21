@@ -187,3 +187,18 @@ The `dynamic` example above: build the conditions from the request, then fold th
 Lateral joins, `VALUES` lists as a source, table-valued fragments, index hints,
 data-modifying CTEs and named server-side prepared statements are planned. See the
 [Roadmap](/reference/roadmap).
+
+::: tip Good to know
+- **Nothing after a set operation** but `orderBy`, `limit` and `offset`: wrap the combined
+  query in `subquery(…)` to filter it.
+- **Window functions** belong in `select` and `orderBy` only; filter on one through a
+  subquery.
+- **Bulk updates use `.set(…)`** and are run with `repo.updateAll`; there is no guard
+  against an update without `where`.
+:::
+
+## See also
+
+- [Queries](/guide/queries) and [Expressions](/guide/query-expressions)
+- [Top N per parent](/recipes/top-n-per-parent)
+- [Dialect support](/reference/dialect-support): what SQLite and MySQL lack.

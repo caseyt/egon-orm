@@ -64,6 +64,8 @@ isolate-*.log
 # VitePress
 docs/site/.vitepress/cache/
 docs/site/.vitepress/dist/
+# The API reference, generated from the TSDoc by `pnpm docs:api` (step 20)
+docs/site/api/reference/
 
 # Benchmark results are written per run; step 19 decides which are committed.
 benchmarks/results/*.json

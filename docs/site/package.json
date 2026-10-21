@@ -6,8 +6,9 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "vitepress dev",
-    "build": "vitepress build",
+    "api": "typedoc",
+    "dev": "typedoc && vitepress dev",
+    "build": "typedoc && vitepress build && node ../../scripts/check-anchors.mjs",
     "preview": "vitepress preview"
   },
   "dependencies": {
@@ -24,7 +25,15 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@types/express": "5.0.6",
     "@types/pg": "8.23.1",
-    "vitepress": "1.6.4"
+    "express": "5.3.0",
+    "fastify": "5.12.7",
+    "hono": "4.13.13",
+    "typedoc": "0.28.20",
+    "typedoc-plugin-markdown": "4.14.1",
+    "typedoc-vitepress-theme": "1.1.4",
+    "vitepress": "1.6.4",
+    "vitest": "5.0.3"
   }
 }

@@ -1,0 +1,15 @@
+{
+  "name": "@egon-orm/example-react-form",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The React 19 form of the docs' form-errors recipe, type-checked in a package of its own so that the React types stay out of the docs site.",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@egon-orm/postgres": "workspace:*",
+    "egon-orm": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0"
+  }
+}

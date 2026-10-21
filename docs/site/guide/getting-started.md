@@ -1,126 +1,144 @@
 # Getting started
 
-## Install
+From an empty directory to a first query in about five minutes. You need Node.js 22.12 or
+later and a Postgres server (14 or later).
+
+## Create the project
 
 ```sh
-pnpm add egon-orm @egon-orm/postgres pg
+mkdir egon-start && cd egon-start
+npm init -y
+npm pkg set type=module
+npm install egon-orm @egon-orm/postgres pg
+npm install -D typescript tsx @types/node @types/pg
 ```
 
-Egon ORM needs Node 22.12 or later and is published as ES modules. A CommonJS project can
-load it with `require()` on those Node versions.
+Egon ORM is published as ES modules, hence `"type": "module"`. (A CommonJS project can
+still load it with `require()` on Node.js 22.12 or later.) For SQLite, install
+`@egon-orm/sqlite` with `better-sqlite3`; for MySQL, `@egon-orm/mysql` with `mysql2`. See
+[Adapters](/guide/adapters).
 
-For SQLite or MySQL, install `@egon-orm/sqlite` with `better-sqlite3`, or
-`@egon-orm/mysql` with `mysql2`. See [Adapters](/guide/adapters).
+Add a `tsconfig.json`:
 
-## Create the tables
-
-Migrations are not part of the first release (see the [Roadmap](/reference/roadmap)).
-Create tables with the tool you already use, or with plain SQL:
-
-```sql
-create table users (
-  id bigserial primary key,
-  email text not null unique,
-  name text,
-  created_at timestamptz not null,
-  updated_at timestamptz not null
-);
-
-create table posts (
-  id bigserial primary key,
-  author_id bigint not null references users (id),
-  title text not null,
-  published boolean not null default false,
-  created_at timestamptz not null,
-  updated_at timestamptz not null
-);
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true
+  }
+}
 ```
+
+`tsx` runs the TypeScript files, and `npx tsc` checks their types. `@types/pg` is there
+for `tsc`: the types of `@egon-orm/postgres` refer to `pg`'s, which `pg` does not ship. (It
+is an optional peer dependency: with `skipLibCheck: true` you can leave it out.) A library
+that publishes its schema classes can emit declarations, with `declaration: true` in place
+of `noEmit`.
+
+## Start Postgres
+
+If you have no Postgres at hand, Docker starts one:
+
+```sh
+docker run -d --name egon-pg -e POSTGRES_PASSWORD=egon -e POSTGRES_DB=egon_start -p 5432:5432 postgres:16
+export DATABASE_URL=postgres://postgres:egon@localhost:5432/egon_start
+```
+
+`POSTGRES_DB` creates a database of its own for this guide, `egon_start`, so its tables do
+not land in the server's default `postgres` database. Any other Postgres 14 or later works
+too (a local install, or a hosted one): create an empty database there and point
+`DATABASE_URL` at it.
 
 ## Define two schemas
 
-```ts
-// schemas.ts
-import { Schema, t, timestamps, hasMany, belongsTo, cast } from "egon-orm";
+A schema is a class that describes a table. Its instances are the rows you read. Create
+`schemas.ts`:
 
-export class User extends Schema("users", {
-  id: t.bigint({ mode: "number" }).primaryKey().dbGenerated(),
-  email: t.string(),
-  name: t.string().nullable(),
-  ...timestamps(),
-}) {
-  static posts = hasMany(() => Post, { foreignKey: "authorId" });
+<<< @/examples/getting-started/schemas.ts#file
 
-  static changeset(user: User | typeof User, params: unknown) {
-    return cast(user, params, ["email", "name"])
-      .validateRequired(["email"])
-      .validateFormat("email", /^[^@\s]+@[^@\s]+$/)
-      .uniqueConstraint("email");
-  }
-}
-
-export class Post extends Schema("posts", {
-  id: t.bigint({ mode: "number" }).primaryKey().dbGenerated(),
-  authorId: t.bigint({ mode: "number" }),
-  title: t.string(),
-  published: t.boolean().default(false),
-  ...timestamps(),
-}) {
-  static author = belongsTo(() => User, { foreignKey: "authorId" });
-}
-```
-
-`bigserial` columns are 64-bit, so the keys use `t.bigint({ mode: "number" })`, which
-gives a plain `number`. For a 32-bit `serial` column use `t.integer()`.
+- Fields are non-null unless they say `.nullable()`.
+- `createdAt` is stored in the column `created_at`: fields are camelCase, columns snake_case.
+- The keys are `bigserial` columns (below), which are 64-bit, so they use
+  `t.bigint({ mode: "number" })`, which gives a plain `number`. Declare a key with the
+  type of its column: a `t.integer()` field over a `bigint` column throws `CastError` when
+  a row is read (a 32-bit `serial` column is the one for `t.integer()`).
+- `User.changeset` is a **changeset function**: it says which fields this form may set and
+  how to check them.
 
 ## Connect
 
-```ts
-// repo.ts
-import { createRepo } from "egon-orm";
-import { postgres } from "@egon-orm/postgres";
-```
+Create `repo.ts`:
 
-<<< @/examples/repo.ts#create
+<<< @/examples/getting-started/repo.ts#file
 
-The repo is an ordinary value. Export it and import it where you need it.
+The repo is an ordinary value: export it and import it where you need it. Nothing connects
+until the first query.
 
-## Insert
+## Create the tables
 
-```ts
-const result = await repo.insert(User.changeset(User, { email: "ada@example.com" }));
+A migration creates them. Create `setup.ts`, and run it once with `npx tsx setup.ts`:
 
-if (!result.success) {
-  console.log(result.error.errorMessages()); // { email: ["has already been taken"] }
-} else {
-  console.log(result.data.id); // number
-}
-```
+<<< @/examples/getting-started/setup.ts#file
 
-## Query
+Here the migration is defined and run from a script; in a project, each migration is a
+file in a `migrations/` directory (see [Migrations](/guide/migrations)). If you already
+manage your tables with another tool, skip this step.
 
-```ts
-import { from, count } from "egon-orm";
-```
+The table callback names its builder `table`: `t` is already the field builder imported
+from `egon-orm` elsewhere, and the two are different things.
 
-<<< @/examples/repo.ts#query
+## Insert, query, update
 
-Preloading (`.preload("posts")`) is described in [Associations](/guide/associations).
+The rest goes in `main.ts`, which starts with its imports:
 
-## Update and delete
+<<< @/examples/getting-started/main.ts#imports
 
-```ts
-const updated = await repo.updateOrThrow(User.changeset(ada, { name: "Ada" }));
-await repo.deleteOrThrow(updated);
-```
+A `// =>` comment in the examples gives the value of its line: these examples run in the
+documentation's tests, and those values are checked. A `// type:` comment gives the type
+TypeScript infers.
 
-## Shut down
+### Insert
 
-```ts
-await repo.close(); // waits for running queries, then closes the pool
-```
+<<< @/examples/getting-started/main.ts#insert
 
-## Next
+`insert` returns a result. An invalid changeset comes back without touching the database,
+and a duplicate email comes back as a field error, because the changeset declared
+`uniqueConstraint("email")`. Every write has a throwing twin, `insertOrThrow`.
 
+### Query
+
+<<< @/examples/getting-started/main.ts#query
+
+Queries are built with `from` and run by the repo. The result type follows from the query:
+rows of the schema, or the shape of the `select`. Preloading (`.preload("posts")`) is
+described in [Associations](/guide/associations).
+
+### Update and delete
+
+<<< @/examples/getting-started/main.ts#update
+
+An update takes a changeset of a row you loaded and writes only what changed.
+
+### Shut down
+
+<<< @/examples/getting-started/main.ts#close
+
+Run it with `npx tsx main.ts`, and check the types with `npx tsc`.
+
+::: tip Good to know
+- **No `new User()`.** New records are changesets (`User.changeset(User, params)`); a
+  `User` object comes only from the database.
+- **Writes return a result.** Check `result.success`, or use the `OrThrow` twin.
+- **Nothing is loaded lazily.** `user.posts` exists only on rows loaded with
+  `preload("posts")`.
+:::
+
+## See also
+
+- [Tutorial](/guide/tutorial): a small blog, step by step.
 - [Schemas](/guide/schemas) for every field option.
 - [Changesets](/guide/changesets) for validating and tracking changes.
 - [Queries](/guide/queries) for the query builder.

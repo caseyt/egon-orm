@@ -74,3 +74,18 @@ other JSON: use the general JSON operators `path` and `pathText` for those; see
 Use an embed for data that belongs to exactly one parent and is always read with it: an
 address, preferences, a list of phone numbers. Use an
 [association](/guide/associations) when the data is shared, queried by itself, or large.
+
+::: tip Good to know
+- **One column.** Any change inside an embed rewrites the whole JSON column.
+- **Keys as written.** JSON keys are the field names (`postCode`), not snake_case, unless
+  the embed says `naming: "snake_case"`.
+- **No constraint inside.** The database does not check what is inside a JSON column:
+  give a field a default when you add it to an embed that already has stored rows.
+:::
+
+## See also
+
+- [Schemas: embedded schemas](/guide/schemas#embedded-schemas)
+- [Nested changesets](/guide/nested-changesets): `castAssoc` and `putAssoc`, which
+  `castEmbed` and `putEmbed` mirror.
+- [Expressions: JSON](/guide/query-expressions#json)

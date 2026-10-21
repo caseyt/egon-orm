@@ -4,7 +4,14 @@
  * @module
  */
 
-/** A pragma's value: a word or number, or a boolean (written `ON` / `OFF`). */
+/**
+ * A pragma's value: a word or number, or a boolean (written `ON` / `OFF`).
+ *
+ * @example
+ * ```ts
+ * const pragmas: Record<string, PragmaValue> = { journal_mode: "WAL", busy_timeout: 5000, foreign_keys: true };
+ * ```
+ */
 export type PragmaValue = string | number | boolean;
 
 /**

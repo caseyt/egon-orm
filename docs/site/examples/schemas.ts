@@ -1,6 +1,7 @@
 // The checked sources of the code blocks in guide/schemas.md. Each `#region` is included
 // in the page by name; everything outside a region is the scaffolding that makes the
 // regions compile.
+// #region imports
 import {
   belongsTo,
   EmbeddedSchema,
@@ -17,6 +18,7 @@ import {
   t,
   timestamps,
 } from "egon-orm";
+// #endregion imports
 
 // #region user
 export class User extends Schema("users", {

@@ -1,0 +1,23 @@
+{
+  "name": "@egon-orm/example-blog",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The blog the tutorial builds: schemas, a migration, changesets, queries, preloads, a nested form, a batch, and tests in the sandbox.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "migrate": "tsx src/run-migrations.ts",
+    "test": "vitest run --root ../.. --project blog:integration"
+  },
+  "dependencies": {
+    "@egon-orm/postgres": "workspace:*",
+    "egon-orm": "workspace:*",
+    "pg": "8.23.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1",
+    "tsx": "4.23.15",
+    "vitest": "5.0.3"
+  }
+}

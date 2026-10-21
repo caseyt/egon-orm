@@ -244,3 +244,8 @@ See [Queries](/guide/queries#named-parameters) for passing the values.
   the literal parts of a `fragment` template, which come from your source code.
 - **Expressions are immutable.** `a.and(b)` leaves `a` as it was; keep the result.
 :::
+
+## See also
+
+- [Queries](/guide/queries)
+- [Full-text search](/recipes/full-text-search): `fragment` in practice.

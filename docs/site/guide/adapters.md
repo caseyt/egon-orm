@@ -9,7 +9,11 @@ SQLite and MySQL support most, and the gaps are listed in
 ```sh
 pnpm add @egon-orm/postgres pg
 pnpm add pg-cursor   # optional: only needed for repo.stream
+pnpm add -D @types/pg  # for tsc: the adapter's types refer to pg's
 ```
+
+`@types/pg` is an optional peer dependency: `tsc` needs it unless `skipLibCheck` is on,
+since `pg` ships no types of its own.
 
 <<< @/examples/adapters.ts#connect
 
@@ -298,3 +302,10 @@ error from the database:
 ```
 QueryError: FULL JOIN is not supported by mysql
 ```
+
+## See also
+
+- [Repo](/guide/repo): the options of every call.
+- [Dialect support](/reference/dialect-support)
+- [Configuration](/reference/configuration)
+- [Framework integration](/guide/frameworks): pools in servers and serverless functions.

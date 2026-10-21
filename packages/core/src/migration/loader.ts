@@ -152,7 +152,7 @@ const TS_EXTENSION = /\.m?ts$/;
 /** The explanation for a TypeScript file that the process cannot load. */
 function typescriptHelp(file: string, cause: unknown): MigrationError {
   return new MigrationError(
-    `Cannot load the TypeScript migration "${file}": this process has no TypeScript loader. Run it with one: Node 22.18 or later strips types by itself (node --experimental-strip-types on 22.12 to 22.17), or use tsx (node --import tsx), or Bun. Or compile the migrations to .js.`,
+    `Cannot load the TypeScript migration "${file}": this process has no TypeScript loader. Run it with one: Node 22.18 or later strips types by itself (on 22.12 to 22.17 set NODE_OPTIONS=--experimental-strip-types, as in NODE_OPTIONS=--experimental-strip-types npx egon migrate), or use tsx (NODE_OPTIONS="--import tsx"), or Bun. Or compile the migrations to .js.`,
     { cause },
   );
 }
@@ -160,8 +160,8 @@ function typescriptHelp(file: string, cause: unknown): MigrationError {
 /**
  * Loads every migration file of `directory` (not its subdirectories) and sorts them by
  * version. A file is a migration when its name is `<14-digit version>_<name>.<ts|mts|js|mjs>`;
- * other files are ignored. Its migration is the module's export named `migration`, or its
- * default export.
+ * other files are ignored. Its migration is the module's export named `migration`, or else its
+ * default export (a file that exports both runs `migration`).
  *
  * @example
  * ```ts
@@ -212,7 +212,8 @@ export async function loadMigrations(
         cause,
       });
     }
-    const migration = isMigration(module.default) ? module.default : module.migration;
+    // The export named `migration` (what `egon migrate create` writes) wins over a default export.
+    const migration = isMigration(module.migration) ? module.migration : module.default;
     if (!isMigration(migration)) {
       throw new MigrationError(
         `The migration file "${path}" exports no migration. Export the result of defineMigration() as "migration" (export const migration = defineMigration(…)) or as the default export.`,

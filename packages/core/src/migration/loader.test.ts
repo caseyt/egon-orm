@@ -178,6 +178,15 @@ describe("a directory", () => {
     expect(sources.every((source) => isMigration(source.migration))).toBe(true);
   });
 
+  test("a file that exports both runs the export named migration, not the default export", async () => {
+    const named = defineMigration({ up() {}, down() {} });
+    const other = defineMigration({ up() {}, down() {} });
+    const sources = await loadMigrations(directory, async () => ({ default: other, migration: named }));
+    expect(sources.map((source) => source.migration)).toEqual([named, named]);
+    expect(sources[0]?.migration).toBe(named);
+    expect(sources[0]?.migration).not.toBe(other);
+  });
+
   test("a file that exports no migration is refused", async () => {
     const error = await loadMigrations(directory, async () => ({ default: { up() {}, down() {} } })).catch(
       (e: unknown) => e,
@@ -242,7 +251,11 @@ describe("a directory", () => {
         (e: unknown) => e,
       );
       expect(isEgonError(error, "migration")).toBe(true);
-      expect((error as Error).message).toMatch(/no TypeScript loader.*Node 22\.18.*tsx.*Bun/);
+      expect((error as Error).message).toBe(
+        `Cannot load the TypeScript migration "${join(tsDirectory, "20260101000000_first.ts")}": this process has no TypeScript loader. Run it with one: Node 22.18 or later strips types by itself (on 22.12 to 22.17 set NODE_OPTIONS=--experimental-strip-types, as in NODE_OPTIONS=--experimental-strip-types npx egon migrate), or use tsx (NODE_OPTIONS="--import tsx"), or Bun. Or compile the migrations to .js.`,
+      );
+      // Forms that work for any process, `npx egon` included (egon refuses Node flags of its own).
+      expect((error as Error).message).not.toMatch(/node --experimental-strip-types|node --import tsx/);
       expect((error as Error).cause).toBe(unknownExtension);
     } finally {
       await rm(tsDirectory, { recursive: true, force: true });

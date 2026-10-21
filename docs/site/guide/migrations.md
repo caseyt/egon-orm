@@ -225,7 +225,7 @@ migration that imports your own files the way TypeScript writes them needs tsx i
 (`NODE_OPTIONS="--import tsx" npx egon …`, or `node --import tsx`), or Bun. Without a
 loader, the error says what to install. A file exports its migration as `migration`
 (`export const migration = defineMigration(…)`, as the file that `egon migrate create`
-writes does); the default export works too.
+writes does); the default export works too, and a file that exports both runs `migration`.
 
 For bundlers and deployments without a file system, pass the migrations as a list:
 

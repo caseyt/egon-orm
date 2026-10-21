@@ -163,7 +163,9 @@ export function runScenarios(
     if (options?.asyncOnly === true) {
       test("validate refuses its schemas, which always answer with a promise", () => {
         const cs = cast(User, { email: "a@b.c" }, ["email"]);
-        expect(() => cs.validate(schemas.signup)).toThrow("validator returned a Promise; use validateAsync");
+        expect(() => cs.validate(schemas.signup)).toThrow(
+          "query.validatorPromise: The validator returned a Promise. An async validator runs with validateAsync(); validate() is synchronous. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-validatorpromise",
+        );
       });
     }
   });

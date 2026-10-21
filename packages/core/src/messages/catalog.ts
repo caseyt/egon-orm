@@ -350,7 +350,7 @@ export const messages = {
   "query.fragmentValue":
     "An array of expressions is not bound: interpolate each expression on its own. For a JSON value pass val(value, t.json()).",
   "query.functionUnknown":
-    "Use the functions the query builder offers, or write the call as a fragment: fragment`my_function(${x})`.",
+    "Use the functions the query builder offers, or write the call as a fragment, interpolating its arguments: fragment`my_function(…)`.",
   "query.getByValues": 'Pass an object of field values: repo.{{method}}(User, { email: "ada@example.com" }).',
   "query.getCompositeId": "The id is an object of the key fields: {{expected}}.",
   "query.getIdArray":
@@ -434,7 +434,7 @@ export const messages = {
   "query.mergeArgument": "Pass another changeset, as in a.merge(b).",
   "query.mergeOtherRecord": "Merge changesets made from the same row (or class, for a new record).",
   "query.messageFunctionResult":
-    "Return the message as a string from the message function, as in (meta) => `must be at least ${meta.min}`.",
+    'Return the message as a string from the message function, as in (meta) => "must be at least " + meta.min.',
   "query.messageOption": 'Pass a string, or a function that returns one, as in { message: "is required" }.',
   "query.namedParamMissing":
     "Pass a value for every named parameter in the params argument: repo.all(q, { {{first}}: … }).",

@@ -56,8 +56,12 @@ describe("window functions", () => {
 
   test("a whole-number argument must be at least 1, or an expression", () => {
     expect(() => ntile(0)).toThrow(/ntile\(\) takes the number of buckets as a whole number of at least 1/);
-    expect(() => ntile(1.5)).toThrow("query.windowCount: ntile() takes the number of buckets as a whole number of at least 1, or an integer expression.");
-    expect(() => ntile("2" as never)).toThrow("query.windowCount: ntile() takes the number of buckets as a whole number of at least 1, or an integer expression.");
+    expect(() => ntile(1.5)).toThrow(
+      "query.windowCount: ntile() takes the number of buckets as a whole number of at least 1, or an integer expression; it was given 1.5.",
+    );
+    expect(() => ntile("2" as never)).toThrow(
+      "query.windowCount: ntile() takes the number of buckets as a whole number of at least 1, or an integer expression; it was given string.",
+    );
     posts.select(({ p }) => {
       expect(() => nthValue(p.title, -1)).toThrow(/the row number/);
       expect(() => lag(p.title, 0)).toThrow(/the offset/);
@@ -160,7 +164,9 @@ describe("named windows", () => {
   test("windows() checks its argument", () => {
     expect(() => posts.windows("w" as never)).toThrow(/an object of named windows/);
     expect(() => posts.windows({})).toThrow(/no window/);
-    expect(() => posts.windows({ "1w": () => ({}) })).toThrow("query.windowName: windows() was given the name \"1w\".");
+    expect(() => posts.windows({ "1w": () => ({}) })).toThrow(
+      'query.windowName: windows() was given the name "1w".',
+    );
     expect(() => byAuthor.windows({ w: () => ({}) })).toThrow(/already declares/);
     expect(() => posts.windows({ w: 1 as never })).toThrow(/takes a callback/);
     expect(() => posts.windows({ w: () => 3 as never })).toThrow(/must return a window/);

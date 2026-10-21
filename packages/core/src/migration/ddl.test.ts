@@ -1,7 +1,7 @@
 // SQL snapshots of every migration operation on Postgres, and the features a dialect can
 // lack. Every statement here is also run against Postgres by the migration conformance suite.
 import { describe, expect, test } from "vitest";
-import { MigrationError } from "../errors.js";
+import { MigrationError, shortMessageOf } from "../errors.js";
 import { fragment } from "../query/functions.js";
 import { MigrationBuilder } from "./builder.js";
 import { type DdlContext, emitOperation, typeSql } from "./ddl.js";
@@ -253,7 +253,7 @@ describe("indexes", () => {
     const error = thrown(() => sqlOf((m) => m.createIndex("posts", ["tags"], { using: "rtree" })));
     expect(error).toBeInstanceOf(MigrationError);
     expect((error as Error).message).toMatchInlineSnapshot(
-      `"The index method "rtree" is not one postgres has: use one of btree, hash, gist, gin, spgist, brin."`,
+      `"migration.indexMethod: The index method "rtree" is not one postgres has. Use one of btree, hash, gist, gin, spgist, brin. See https://egon-orm.github.io/egon-orm/reference/errors/migration#migration-indexmethod"`,
     );
   });
 });
@@ -357,7 +357,8 @@ describe("features a dialect lacks are refused with MigrationError", () => {
   test.each(cases)("%s", (feature, features, record) => {
     const error = thrown(() => sqlOf(record, without(features)));
     expect(error).toBeInstanceOf(MigrationError);
-    expect((error as Error).message).toBe(`${feature} is not supported by postgres.`);
+    expect((error as MigrationError).id).toBe("migration.unsupportedFeature");
+    expect(shortMessageOf(error as MigrationError)).toBe(`${feature} is not supported by postgres.`);
   });
 
   test("the same operations are written when the features are there", () => {

@@ -354,7 +354,10 @@ export function enumType<const V extends readonly [string, ...string[]]>(
 export function enumType<const M extends EnumMapping>(mapping: M): FieldType<keyof M & string, M[keyof M]>;
 export function enumType(members: readonly string[] | EnumMapping): AnyFieldType {
   if (typeof members !== "object" || members === null) {
-    throw new SchemaDefinitionError("schema.enumMembers", "t.enum takes a list of strings.");
+    throw new SchemaDefinitionError(
+      "schema.enumMembers",
+      `t.enum takes a list of strings or a mapping, but got ${members === null ? "null" : typeof members}.`,
+    );
   }
   if (Array.isArray(members)) {
     const keys = members as readonly unknown[];

@@ -267,25 +267,22 @@ export const MYSQL_CASES: DialectTable = {
       params: [],
     },
     "lock noKeyUpdate {}": {
-      error: 'The lock clause "FOR NO KEY UPDATE" is not one mysql accepts as a string; use a fragment.',
+      error: 'The lock clause "FOR NO KEY UPDATE" is not one mysql accepts as a string.',
     },
     'lock noKeyUpdate {"skipLocked":true}': {
-      error:
-        'The lock clause "FOR NO KEY UPDATE SKIP LOCKED" is not one mysql accepts as a string; use a fragment.',
+      error: 'The lock clause "FOR NO KEY UPDATE SKIP LOCKED" is not one mysql accepts as a string.',
     },
     'lock noKeyUpdate {"noWait":true}': {
-      error:
-        'The lock clause "FOR NO KEY UPDATE NOWAIT" is not one mysql accepts as a string; use a fragment.',
+      error: 'The lock clause "FOR NO KEY UPDATE NOWAIT" is not one mysql accepts as a string.',
     },
     "lock keyShare {}": {
-      error: 'The lock clause "FOR KEY SHARE" is not one mysql accepts as a string; use a fragment.',
+      error: 'The lock clause "FOR KEY SHARE" is not one mysql accepts as a string.',
     },
     'lock keyShare {"skipLocked":true}': {
-      error:
-        'The lock clause "FOR KEY SHARE SKIP LOCKED" is not one mysql accepts as a string; use a fragment.',
+      error: 'The lock clause "FOR KEY SHARE SKIP LOCKED" is not one mysql accepts as a string.',
     },
     'lock keyShare {"noWait":true}': {
-      error: 'The lock clause "FOR KEY SHARE NOWAIT" is not one mysql accepts as a string; use a fragment.',
+      error: 'The lock clause "FOR KEY SHARE NOWAIT" is not one mysql accepts as a string.',
     },
     "a lock given as a fragment": {
       sql: "select `u`.`id` as `c0` from `users` as `u` for update of `u`",

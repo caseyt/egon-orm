@@ -990,7 +990,7 @@ function rootField(ast: QueryAst, field: string): FieldMeta {
   if (schemaMeta === undefined) {
     throw new QueryError(
       "query.aggregateRootSchema",
-      `repo.aggregate() over the field "${field}" needs a query whose root binding is a schema.`,
+      `repo.aggregate() over the field "${field}" needs a query whose root binding is a schema; this one reads ${ast.from.kind === "subquerySource" ? "a subquery" : `a ${ast.from.kind} source`}.`,
     );
   }
   const found = schemaMeta.fieldsByName.get(field);

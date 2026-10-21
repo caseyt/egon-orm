@@ -113,7 +113,7 @@ describe("putChange and forceChange", () => {
     expect(() =>
       change(User).putChange("name", undefined as unknown as null),
     ).toThrowErrorMatchingInlineSnapshot(
-      `[QueryError: putChange("name", undefined): undefined is not a value. Use null for no value, or deleteChange("name") to remove the change.]`,
+      `[QueryError: query.putChangeUndefined: putChange("name", undefined): undefined is not a value. Use null for no value, or deleteChange("name") to remove the change. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-putchangeundefined]`,
     );
   });
 
@@ -380,7 +380,7 @@ describe("applyChanges", () => {
   test("throws on a new record", () => {
     const cs = cast(User, { email: "x@example.com" }, ["email"]) as unknown as Changeset<typeof User, false>;
     expect(() => cs.applyChanges()).toThrowErrorMatchingInlineSnapshot(
-      `[QueryError: applyChanges() and applyAction() need a changeset of a loaded row (or one without a schema class). This one is of a new User: a row the database never returned cannot exist. Insert it with the repo instead.]`,
+      `[QueryError: query.applyChangesNewRecord: applyChanges() and applyAction() need a changeset of a loaded row (or one without a schema class). This one is of a new User: a row the database never returned cannot exist. Insert it with the repo instead. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-applychangesnewrecord]`,
     );
   });
 });
@@ -415,7 +415,7 @@ describe("the constructor", () => {
   test("is not public", () => {
     const Ctor = Changeset as unknown as new (...args: unknown[]) => unknown;
     expect(() => new Ctor(Symbol("changeset"))).toThrowErrorMatchingInlineSnapshot(
-      `[QueryError: Changeset has no public constructor. Make one with cast(User, params, [...]) or change(User, values).]`,
+      `[QueryError: query.changesetConstructor: Changeset has no public constructor. Make one with cast(User, params, [...]) or change(User, values). See https://egon-orm.github.io/egon-orm/reference/errors/query#query-changesetconstructor]`,
     );
   });
 });

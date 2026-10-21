@@ -436,7 +436,7 @@ describe("validateNumber", () => {
     expect(() =>
       seats(1).validateNumber("seats", { atLeast: 1 } as never),
     ).toThrowErrorMatchingInlineSnapshot(
-      `[QueryError: validateNumber(): unknown option "atLeast". The options are lessThan, greaterThan, lessThanOrEqualTo, greaterThanOrEqualTo, equalTo, notEqualTo and message.]`,
+      `[QueryError: query.numberUnknownOption: validateNumber(): unknown option "atLeast". The options are lessThan, greaterThan, lessThanOrEqualTo, greaterThanOrEqualTo, equalTo, notEqualTo and message. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-numberunknownoption]`,
     );
     expect(() => seats(1).validateNumber("seats", { lessThan: "2" } as never)).toThrow(QueryError);
     expect(() => seats(1).validateNumber("seats", { lessThan: Number.NaN })).toThrow(QueryError);

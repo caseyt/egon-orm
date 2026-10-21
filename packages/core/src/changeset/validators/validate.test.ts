@@ -768,7 +768,9 @@ describe("validate: apply", () => {
 describe("validate: sync and async", () => {
   test("validate throws when a function answers with a promise", () => {
     const cs = cast(User, {}, []);
-    expect(() => cs.validate(async () => [])).toThrow("query.validatorPromise: The validator returned a Promise.");
+    expect(() => cs.validate(async () => [])).toThrow(
+      "query.validatorPromise: The validator returned a Promise.",
+    );
     expect(() => cs.validate(async () => [])).toThrow(QueryError);
   });
 

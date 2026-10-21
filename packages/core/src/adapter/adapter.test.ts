@@ -1080,7 +1080,9 @@ describe("dedicated connections", () => {
     const { adapter } = setup();
     const released = await adapter.acquire();
     await released.release();
-    await expect(released.execute("select 1", [])).rejects.toThrow("database.connectionReleased: This connection was released.");
+    await expect(released.execute("select 1", [])).rejects.toThrow(
+      "database.connectionReleased: This connection was released.",
+    );
     await expect(released.stream("select 1", [])[Symbol.asyncIterator]().next()).rejects.toThrow(
       /was released/,
     );

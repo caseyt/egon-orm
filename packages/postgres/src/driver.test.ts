@@ -407,7 +407,9 @@ describe("pg-cursor", () => {
     const error = await fresh.loadCursor().catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).name).toBe("QueryError");
-    expect((error as Error).message).toContain("pnpm add pg-cursor");
+    expect((error as Error).message).toContain(
+      'query.pgCursorMissing: Streaming rows from Postgres needs the "pg-cursor" package, which is not installed. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-pgcursormissing',
+    );
   });
 });
 

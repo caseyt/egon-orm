@@ -1907,7 +1907,10 @@ function modify(
 
   for (const node of ast.joins) {
     if (node.type !== "inner" && node.type !== "cross") {
-      throw new QueryError("query.writeJoinKind", `${verb} can join only with join() or crossJoin().`);
+      throw new QueryError(
+        "query.writeJoinKind",
+        `${verb} can join only with join() or crossJoin(); a ${node.type} join has no meaning there.`,
+      );
     }
   }
   const target = at(ctx, start[FROM] as number, () => source(ctx, frame, ast.from));

@@ -140,7 +140,7 @@ describe("join errors", () => {
           on: binaryNode("eq", col("u", "id"), col("u", "id")),
         },
       ]),
-    ).toThrow("query.astSourceAliasTwice: The alias \"u\" names two sources of one query.");
+    ).toThrow('query.astSourceAliasTwice: The alias "u" names two sources of one query.');
   });
 
   test("a source without an alias is refused", () => {

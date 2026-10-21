@@ -189,9 +189,13 @@ describe("null is refused in comparisons", () => {
       expect(() => u.email.notLike(make() as never)).toThrow(message);
       expect(() => u.email.ilike(make() as never)).toThrow(message);
       expect(() => p.tagList.has(make() as never)).toThrow(message);
-      expect(() => p.views.add(make() as never)).toThrow("query.nullNotAllowed: add() was given null, which it cannot take.");
-      expect(() => p.tagList.contains(make() as never)).toThrow("query.nullNotAllowed: contains() was given null, which it cannot take.");
-      expect(() => u.email.concat(make() as never)).toThrow(/^concat\(\) was given null/);
+      expect(() => p.views.add(make() as never)).toThrow(
+        "query.nullNotAllowed: add() was given null, which it cannot take.",
+      );
+      expect(() => p.tagList.contains(make() as never)).toThrow(
+        "query.nullNotAllowed: contains() was given null, which it cannot take.",
+      );
+      expect(() => u.email.concat(make() as never)).toThrow(/^[a-z]+(?:\.\w+)?: concat\(\) was given null/);
     }
   });
 
@@ -210,10 +214,12 @@ describe("null is refused in comparisons", () => {
     expect(() => u.name.eq(undefined as never)).toThrow(
       "query.undefinedOperand: eq() was given undefined, which is not a value.",
     );
-    expect(() => u.age.between(1, undefined as never)).toThrow("query.undefinedOperand: between() was given undefined, which is not a value.");
-    expect(() => p.views.add(undefined as never)).toThrow(/^add\(\) was given undefined/);
+    expect(() => u.age.between(1, undefined as never)).toThrow(
+      "query.undefinedOperand: between() was given undefined, which is not a value.",
+    );
+    expect(() => p.views.add(undefined as never)).toThrow(/^[a-z]+(?:\.\w+)?: add\(\) was given undefined/);
     expect(() => u.name.isDistinctFrom(undefined as never)).toThrow(
-      /^isDistinctFrom\(\) was given undefined, which is not a value\. Pass null for SQL NULL\.$/,
+      "query.undefinedOperandNullable: isDistinctFrom() was given undefined, which is not a value. Pass null for SQL NULL",
     );
   });
 
@@ -229,11 +235,13 @@ describe("null is refused in comparisons", () => {
   });
 
   test("the other operators refuse null and undefined with their own message", () => {
-    expect(() => p.views.add(null as never)).toThrow("query.nullNotAllowed: add() was given null, which it cannot take.");
+    expect(() => p.views.add(null as never)).toThrow(
+      "query.nullNotAllowed: add() was given null, which it cannot take.",
+    );
     expect(() => u.email.like(null as never)).toThrow("query.compareNull: like() was given null.");
-    expect(() => u.email.like(undefined as never)).toThrow(/^like\(\) was given undefined/);
+    expect(() => u.email.like(undefined as never)).toThrow(/^[a-z]+(?:\.\w+)?: like\(\) was given undefined/);
     expect(() => u.email.concat("a", null as never)).toThrow(
-      /^concat\(\) was given null, which it cannot take/,
+      /^[a-z]+(?:\.\w+)?: concat\(\) was given null, which it cannot take/,
     );
     expect(() => p.tagList.contains(null as never)).toThrow(QueryError);
     expect(() => p.tagList.append(undefined as never)).toThrow(QueryError);
@@ -278,13 +286,17 @@ describe("in and notIn", () => {
   });
 
   test("a list holding null or undefined is refused, each named as what it is", () => {
-    expect(() => u.name.in(["a", null] as never)).toThrow("query.listNull: in() was given a list holding null.");
-    expect(() => u.name.notIn([null] as never)).toThrow("query.listNull: notIn() was given a list holding null.");
+    expect(() => u.name.in(["a", null] as never)).toThrow(
+      "query.listNull: in() was given a list holding null.",
+    );
+    expect(() => u.name.notIn([null] as never)).toThrow(
+      "query.listNull: notIn() was given a list holding null.",
+    );
     expect(() => u.age.in([1, undefined] as never)).toThrow(
-      /^in\(\) was given a list holding undefined, which is not a value\.$/,
+      "query.listUndefined: in() was given a list holding undefined, which is not a value.",
     );
     expect(() => u.name.notIn([undefined] as never)).toThrow(
-      /^notIn\(\) was given a list holding undefined, which is not a value\.$/,
+      "query.listUndefined: notIn() was given a list holding undefined, which is not a value.",
     );
   });
 

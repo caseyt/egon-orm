@@ -565,7 +565,7 @@ describe("exists", () => {
     await repo.exists(q, { minAge: 18, bonus: 5 });
     expect(statements[0]?.params).toEqual([18, 1]);
     await expect(repo.exists(q, { minAge: 18, bonus: 5, other: 1 } as never)).rejects.toThrow(
-      "query.paramsUnknown: The query has no named parameter \"other\".",
+      'query.paramsUnknown: The query has no named parameter "other".',
     );
     await expect(repo.exists(q, { minAge: 18, bonus: 5, other: 1, more: 2 } as never)).rejects.toThrow(
       /no named parameters "other", "more"/,
@@ -715,11 +715,11 @@ describe("count and aggregate", () => {
     const inner = from(Post, "p").ast;
     const overSubquery: QueryAst = { ...inner, from: { kind: "subquerySource", query: inner, alias: "x" } };
     await expect(untyped(repo).aggregate({ ast: overSubquery } as never, "sum", "views")).rejects.toThrow(
-      "query.aggregateRootSchema: repo.aggregate() over the field \"views\" needs a query whose root binding is a schema.",
+      'query.aggregateRootSchema: repo.aggregate() over the field "views" needs a query whose root binding is a schema; this one reads a subquery. Aggregate a query rooted at a schema class, or compute the aggregate in the query\'s own select and read it with repo.one(…). See https://egon-orm.github.io/egon-orm/reference/errors/query#query-aggregaterootschema',
     );
     const overValues: QueryAst = { ...inner, from: { kind: "values", columns: ["a"], rows: [], alias: "x" } };
     await expect(untyped(repo).aggregate({ ast: overValues } as never, "sum", "views")).rejects.toThrow(
-      "query.aggregateRootSchema: repo.aggregate() over the field \"views\" needs a query whose root binding is a schema.",
+      'query.aggregateRootSchema: repo.aggregate() over the field "views" needs a query whose root binding is a schema; this one reads a values source.',
     );
   });
 

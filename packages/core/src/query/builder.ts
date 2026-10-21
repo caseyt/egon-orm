@@ -1050,7 +1050,10 @@ function describeValue(value: unknown): string {
 /** A condition from a callback's result: a boolean expression. */
 function condition(value: unknown, clause: string): AnyExpr {
   if (!isExpr(value)) {
-    throw new QueryError("query.conditionExpected", `${clause}() needs its callback to return a condition.`);
+    throw new QueryError(
+      "query.conditionExpected",
+      `${clause}() needs its callback to return a condition; it returned ${describeValue(value)}.`,
+    );
   }
   const type = value.type;
   if (type !== undefined && type.db.kind !== "boolean") {
@@ -1945,7 +1948,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     if (extra.node.shape.kind !== "object") {
       throw new QueryError(
         "query.selectMergeResult",
-        "selectMerge() needs its callback to return an object of keys to add.",
+        `selectMerge() needs its callback to return an object of keys to add; it returned ${describeShape(extra.node.shape)}.`,
       );
     }
     checkWindows("selectMerge", selectExpressions(extra.node.shape), this.ast.windows);
@@ -2734,7 +2737,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
       default:
         throw new QueryError(
           "query.excludeUnknown",
-          "exclude() removes one of: where, select, distinct, groupBy, having, orderBy, limit, offset, lock, preload, set, windows, withCte, setOperations.",
+          `exclude() was given ${typeof clause === "string" ? `"${clause}"` : describeValue(clause)}, which is not a clause it removes.`,
         );
     }
     return this.#dropping(next as never, `exclude("${clause}")`) as never;
@@ -3400,7 +3403,7 @@ function callbackPreload(
   if (!(result instanceof Query)) {
     throw new QueryError(
       "query.preloadCallbackResult",
-      `preload("${name}", callback): the callback must return a query, the one it receives with clauses added.`,
+      `preload("${name}", callback): the callback must return a query, the one it receives with clauses added; it returned ${describeValue(result)}.`,
     );
   }
   const ast = result.ast;

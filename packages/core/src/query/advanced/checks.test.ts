@@ -101,7 +101,9 @@ describe("a subquery in FROM or a join reads only the queries around it", () => 
       .where(({ p }) => p.authorId.eq(outerRef("u", User).id))
       .select(({ p }) => ({ id: p.id }));
     const q = from(User, "u").join(subquery(inner), "s", ({ u, s }) => s.id.eq(u.id));
-    expect(() => compiled(q)).toThrow("query.lateralReference: The column u.id is read by a subquery in FROM or a join from a binding of the same query, \"u\", which needs a lateral join.");
+    expect(() => compiled(q)).toThrow(
+      'query.lateralReference: The column u.id is read by a subquery in FROM or a join from a binding of the same query, "u", which needs a lateral join.',
+    );
   });
 
   test("it may read a query around the one it is a source of, and that query's CTEs", () => {
@@ -373,7 +375,7 @@ describe("review round 2", () => {
       "query.windowInClause: groupBy(): rowNumber() over a window, which cannot be used in groupBy().",
     );
     expect(() => from(Post, "p").set(({ p }) => ({ views: p.views.add(count().over() as never) }))).toThrow(
-      /set\(\): count\(\) over a window, which cannot be used in set\(\): window functions are allowed only/,
+      "query.windowInClause: set(): count() over a window, which cannot be used in set(). Window functions are allowed only",
     );
   });
 

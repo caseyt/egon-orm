@@ -3,8 +3,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { messageText } from "@egon-orm/test-support";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { isEgonError, MigrationError } from "../errors.js";
+import { isEgonError, MigrationError, shortMessageOf } from "../errors.js";
 import { defineMigration, isMigration } from "./define.js";
 import { checkVersion, loadMigrations, migrationList, parseMigrationFileName } from "./loader.js";
 
@@ -40,7 +41,8 @@ describe("defineMigration", () => {
   ])("refuses %s with a MigrationError that names the missing function", (_name, definition, start) => {
     const error = thrown(() => defineMigration(definition as never));
     expect(error).toBeInstanceOf(MigrationError);
-    expect((error as Error).message).toBe(
+    expect((error as MigrationError).id).toBe("migration.missingSteps");
+    expect(messageText(error)).toBe(
       `${start} A migration has both up(m) and down(m); when there is nothing to undo, write down() {} with a // noop comment.`,
     );
   });
@@ -49,7 +51,7 @@ describe("defineMigration", () => {
     const alone = thrown(() => defineMigration({ change() {} } as never));
     expect(alone).toBeInstanceOf(MigrationError);
     expect((alone as Error).message).toBe(
-      "defineMigration() was given no up() and no down(). change() is not supported: write the change in up(m) and what undoes it in down(m).",
+      "migration.changeNotSupported: defineMigration() was given no up() and no down(). change() is not supported: write the change in up(m) and what undoes it in down(m). See https://egon-orm.github.io/egon-orm/reference/errors/migration#migration-changenotsupported",
     );
     const beside = thrown(() => defineMigration({ change() {}, up() {}, down() {} } as never));
     expect(beside).toBeInstanceOf(TypeError);
@@ -146,7 +148,7 @@ describe("an in-memory list", () => {
       migrationList([{ version: 20260101000000, name: "add_age", migration: forged }]),
     );
     expect(error).toBeInstanceOf(MigrationError);
-    expect((error as MigrationError).message).toMatch(/^The migration "add_age" has no down\(\)\./);
+    expect(shortMessageOf(error as MigrationError)).toMatch(/^The migration "add_age" has no down\(\)\./);
     expect((error as MigrationError).version).toBe(20260101000000);
     expect((error as MigrationError).migration).toBe("add_age");
   });
@@ -201,8 +203,11 @@ describe("a directory", () => {
       default: defineMigration({ up() {} } as never),
     })).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(MigrationError);
-    const message = (error as MigrationError).message;
-    expect(message).toMatch(/^Cannot load the migration file ".*20260101000000_first\.mjs": /);
+    // The cause, defineMigration()'s own refusal, says what to do about it.
+    const message = ((error as MigrationError).cause as MigrationError).message;
+    expect(shortMessageOf(error as MigrationError)).toMatch(
+      /^Cannot load the migration file ".*20260101000000_first\.mjs": /,
+    );
     expect(message).toMatch(
       /defineMigration\(\) was given no down\(\)\. .*down\(\) \{\} with a \/\/ noop comment/,
     );
@@ -221,7 +226,7 @@ describe("a directory", () => {
       );
       const error = await loadMigrations(own).catch((e: unknown) => e);
       expect(error).toBeInstanceOf(MigrationError);
-      expect((error as Error).message).toMatch(
+      expect(shortMessageOf(error as MigrationError)).toMatch(
         /^Cannot load the migration file ".*20260301000000_no_up\.mts": defineMigration\(\) was given no up\(\)\./,
       );
       expect((error as MigrationError).version).toBe(20260301000000);
@@ -234,7 +239,8 @@ describe("a directory", () => {
     const forged = { [Symbol.for("egon.migration")]: true, change() {}, up: undefined, down: undefined };
     const error = await loadMigrations(directory, async () => ({ default: forged })).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(MigrationError);
-    expect((error as Error).message).toMatch(
+    expect((error as MigrationError).id).toBe("migration.changeNotSupported");
+    expect(messageText(error)).toMatch(
       /^The migration file ".*20260101000000_first\.mjs" has no up\(\) and no down\(\)\. change\(\) is not supported/,
     );
     expect((error as MigrationError).version).toBe(20260101000000);
@@ -251,7 +257,7 @@ describe("a directory", () => {
         (e: unknown) => e,
       );
       expect(isEgonError(error, "migration")).toBe(true);
-      expect((error as Error).message).toBe(
+      expect(messageText(error)).toBe(
         `Cannot load the TypeScript migration "${join(tsDirectory, "20260101000000_first.ts")}": this process has no TypeScript loader. Run it with one: Node 22.18 or later strips types by itself (on 22.12 to 22.17 set NODE_OPTIONS=--experimental-strip-types, as in NODE_OPTIONS=--experimental-strip-types npx egon migrate), or use tsx (NODE_OPTIONS="--import tsx"), or Bun. Or compile the migrations to .js.`,
       );
       // Forms that work for any process, `npx egon` included (egon refuses Node flags of its own).

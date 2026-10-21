@@ -14,6 +14,7 @@ import {
   InvalidChangesetError,
   QueryError,
   StaleEntryError,
+  shortMessageOf,
 } from "../errors.js";
 import {
   caseWhen,
@@ -1312,13 +1313,13 @@ describe("insertAll cells, pinned in review round 2", () => {
 
 describe("a value of an integer type that is not a whole number names the field it is written to (owner row 7, status 03)", () => {
   const written = (field: string, type = "t.integer()") =>
-    `The value written to ${field} holds a number that is not a whole number where ${type} is expected. Give it a whole number, or declare the field t.float() or t.decimal() if it holds fractions.`;
+    `query.writeNotWholeNumber: The value written to ${field} holds a number that is not a whole number where ${type} is expected. Give it a whole number, or declare the field t.float() or t.decimal() if it holds fractions. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-writenotwholenumber`;
 
   async function refusal(promise: Promise<unknown>): Promise<QueryError> {
     const error = await rejection(promise);
     expect(error).toBeInstanceOf(QueryError);
     // The error that names the parameter is kept as the cause.
-    expect(((error as Error).cause as Error).message).toMatch(/^Parameter \d+ has the type /);
+    expect(shortMessageOf((error as Error).cause as QueryError)).toMatch(/^Parameter \d+ has the type /);
     return error as QueryError;
   }
 
@@ -1369,7 +1370,9 @@ describe("a value of an integer type that is not a whole number names the field 
       .where(({ p }) => p.views.eq(2.5))
       .set({ published: true });
     const error = await rejection(env.repo.updateAll(where));
-    expect((error as Error).message).toMatch(/^Parameter 2 has the type t\.integer\(\) /);
+    expect((error as Error).message).toMatch(
+      /^query\.paramNotWholeNumber: Parameter 2 has the type t\.integer\(\) /,
+    );
     expect(env.statements).toHaveLength(0);
   });
 });

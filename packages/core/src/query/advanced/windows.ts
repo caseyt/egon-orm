@@ -237,7 +237,7 @@ function countArgument(value: unknown, method: string, what: string): AnyExpr {
   }
   throw new QueryError(
     "query.windowCount",
-    `${method}() takes ${what} as a whole number of at least 1, or an integer expression.`,
+    `${method}() takes ${what} as a whole number of at least 1, or an integer expression; it was given ${typeof value === "number" ? String(value) : typeof value}.`,
     { params: { what } },
   );
 }

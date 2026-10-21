@@ -116,7 +116,7 @@ test("a division of two integers is exact above 2^53, and a fraction bound as an
   }));
   expect(await repo.all(q)).toEqual([{ plain: 1125899906842623, typed: 1125899906842623, half: 3 }]);
   await expect(repo.all(from(Big, "x").select(({ x }) => ({ d: x.n.div(2.5) })))).rejects.toThrow(
-    /^Parameter 1 has the type t\.integer\(\) .* but its value is not a whole number\./,
+    /^[a-z]+(?:\.\w+)?: Parameter 1 has the type t\.integer\(\) .* but its value is not a whole number\./,
   );
 });
 
@@ -127,11 +127,11 @@ test("a write whose returned key fails to decode throws after the row is written
   await handle.db.exec("select setval('users_id_seq', 100)");
   const insert = repo.insert(change(LooseUser, { email: "written@example.com" }));
   await expect(insert).rejects.toThrow(
-    /^LooseUser\.id is declared t\.integer\(\).* The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction\.$/,
+    /^[a-z]+(?:\.\w+)?: LooseUser\.id is declared t\.integer\(\).* The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction\.$/,
   );
   await expect(
     repo.insertAll(LooseUser, [{ email: "bulk@example.com" }], { returning: true }),
-  ).rejects.toThrow(/^LooseUser\.id is declared t\.integer\(\)/);
+  ).rejects.toThrow(/^[a-z]+(?:\.\w+)?: LooseUser\.id is declared t\.integer\(\)/);
   const emails = await repo.all(
     from(User, "u")
       .where(({ u }) => u.email.in(["written@example.com", "bulk@example.com"]))

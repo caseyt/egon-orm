@@ -5,6 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseError, fragment } from "egon-orm";
+import { messages } from "egon-orm/messages";
 import { defineMigration, type MigrationSource } from "egon-orm/migration";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import {
@@ -254,7 +255,7 @@ describe("failures", () => {
     const failed = await egon(["migrate"]);
     expect(failed.code).toBe(1);
     expect(failed.stderr).toBe(
-      'error: Migration 20260201000000_create_b failed and was rolled back: boom\n  in: create table "b" ("id" bigserial primary key)\n',
+      `error: migration.failed: Migration 20260201000000_create_b failed and was rolled back: boom ${messages["migration.failed"]} See https://egon-orm.github.io/egon-orm/reference/errors/migration#migration-failed\n  in: create table "b" ("id" bigserial primary key)\n`,
     );
     const json = JSON.parse((await egon(["migrate", "--json"])).stdout) as { ok: boolean; error: unknown };
     expect(json).toEqual({
@@ -262,7 +263,7 @@ describe("failures", () => {
       error: {
         name: "MigrationError",
         code: "migration",
-        message: "Migration 20260201000000_create_b failed and was rolled back: boom",
+        message: `migration.failed: Migration 20260201000000_create_b failed and was rolled back: boom ${messages["migration.failed"]} See https://egon-orm.github.io/egon-orm/reference/errors/migration#migration-failed`,
         version: V2,
         sql: 'create table "b" ("id" bigserial primary key)',
       },
@@ -274,7 +275,7 @@ describe("failures", () => {
     const result = await egon(["migrate"]);
     expect(result.code).toBe(1);
     expect(result.stderr).toMatch(
-      /^error: Gave up waiting for the migration lock after 5 ms.*\n {2}caused by: The statement was cancelled because it ran longer than its timeoutMs \(5 ms\)\.\n$/,
+      /^error: migration\.lockTimeout: Gave up waiting for the migration lock after 5 ms.*\n {2}caused by: database\.timeout: The statement was cancelled because it ran longer than its timeoutMs \(5 ms\)\. .*\n$/,
     );
   });
 
@@ -292,7 +293,9 @@ describe("failures", () => {
     configure(THREE, { fail: (sql) => (sql.startsWith("select pg_advisory_lock") ? normalized : undefined) });
     const result = await egon(["migrate"]);
     expect(result.code).toBe(1);
-    expect(result.stderr).toBe("error: The database rejected the statement (SQLSTATE 23505).\n");
+    expect(result.stderr).toBe(
+      `error: database.rejected: The database rejected the statement (SQLSTATE 23505). ${messages["database.rejected"]} See https://egon-orm.github.io/egon-orm/reference/errors/database#database-rejected\n`,
+    );
     expect(result.stderr).not.toContain("secret");
   });
 

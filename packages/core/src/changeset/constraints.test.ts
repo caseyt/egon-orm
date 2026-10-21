@@ -94,7 +94,7 @@ describe("constraint declarations", () => {
 
   test("assocConstraint refuses another kind of association, or an unknown one", () => {
     expect(() => change(User).assocConstraint("posts")).toThrowErrorMatchingInlineSnapshot(
-      `[QueryError: assocConstraint(): "posts" is a hasMany association. It applies to belongsTo associations; for the other side, use noAssocConstraint.]`,
+      `[QueryError: query.assocConstraintKind: assocConstraint(): "posts" is a hasMany association. It applies to belongsTo associations; for the other side, use noAssocConstraint. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-assocconstraintkind]`,
     );
     expect(() => change(User).assocConstraint("nope" as never)).toThrow(QueryError);
   });
@@ -152,7 +152,7 @@ describe("constraint declarations", () => {
     expect(() =>
       change({ data: {}, types: { q: t.string() } }).uniqueConstraint("q"),
     ).toThrowErrorMatchingInlineSnapshot(
-      `[QueryError: uniqueConstraint(): a changeset without a schema class has no table, so the constraint has no default name. Pass it: { name: "…" }.]`,
+      `[QueryError: query.constraintNoTable: uniqueConstraint(): a changeset without a schema class has no table, so the constraint has no default name. Pass it: { name: "…" }. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-constraintnotable]`,
     );
     expect(
       change({ data: {}, types: { q: t.string() } }).uniqueConstraint("q", { name: "q_key" }).constraints,

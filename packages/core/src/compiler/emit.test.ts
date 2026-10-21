@@ -409,7 +409,7 @@ describe("dialect clause variants", () => {
     }
     const ast = rebuild(from(User, "u").ast, { lock: { kind: "lock", clause: "FOR UPDATE OF everything" } });
     expect(() => sql(sqlite, ast)).toThrow(
-      "query.lockClause: The lock clause \"FOR UPDATE OF everything\" is not one sqlite accepts as a string.",
+      'query.lockClause: The lock clause "FOR UPDATE OF everything" is not one sqlite accepts as a string.',
     );
   });
 
@@ -429,7 +429,7 @@ describe("dialect clause variants", () => {
     expect(bindParams(plan.slots, ast.params)).toEqual([1]);
     // An unknown lock string is still refused.
     expect(() => sql(sqlite, rebuild(ast, { lock: { kind: "lock", clause: "FOR NOTHING" } }))).toThrow(
-      "query.lockClause: The lock clause \"FOR NOTHING\" is not one sqlite accepts as a string.",
+      'query.lockClause: The lock clause "FOR NOTHING" is not one sqlite accepts as a string.',
     );
   });
 

@@ -91,7 +91,7 @@ describe("database errors", () => {
       "selec 1",
     ) as DatabaseError;
     expect(error.message).toBe(
-      'The database rejected the statement (SQLSTATE 42601): syntax error at or near "selec".',
+      "database.rejected: The database rejected the statement (SQLSTATE 42601): syntax error at or near \"selec\". The cause is the driver's error, with the database's full report; error.sql is the statement. Look the SQL state up in the database's documentation. See https://egon-orm.github.io/egon-orm/reference/errors/database#database-rejected",
     );
   });
 

@@ -39,7 +39,9 @@ describe("set operations", () => {
     expect(() => q.exclude("where")).toThrow(
       /exclude\("where"\) on a query combined with union\(\), intersect\(\) or except\(\) would change its left side only/,
     );
-    expect(() => q.exclude({} as never)).toThrow(/only orderBy|exclude\(\) removes one of/);
+    expect(() => q.exclude({} as never)).toThrow(
+      "query.excludeUnknown: exclude() was given an object, which is not a clause it removes.",
+    );
     expect(
       q
         .orderBy(({ u }) => u.id)

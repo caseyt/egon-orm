@@ -11,6 +11,7 @@ const fromRoot = (path: string): string => fileURLToPath(new URL(path, import.me
 const alias = {
   // Before "egon-orm": an alias also matches the subpaths of its key, and the first match wins.
   "egon-orm/migration": fromRoot("./packages/core/src/migration/index.ts"),
+  "egon-orm/messages": fromRoot("./packages/core/src/messages/index.ts"),
   "egon-orm/testing": fromRoot("./packages/core/src/testing.ts"),
   "egon-orm": fromRoot("./packages/core/src/index.ts"),
   "@egon-orm/postgres": fromRoot("./packages/postgres/src/index.ts"),

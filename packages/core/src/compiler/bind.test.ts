@@ -165,7 +165,7 @@ describe("a t.integer() value that is not a whole number (owner decision, 2026-1
     const positional = refused(from(User, "u").where(({ u }) => u.age.eq(2.5)));
     const named = fieldOfRefusal(positional, (index) => (index === 0 ? "User.age" : undefined));
     expect((named as Error).message).toMatch(
-      /^The value written to User\.age holds a number that is not a whole number/,
+      /^query\.writeNotWholeNumber: The value written to User\.age holds a number that is not a whole number/,
     );
     expect((named as Error).cause).toBe(positional);
     // No field for that entry, a named parameter, another error, a thrown non-object.

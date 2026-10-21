@@ -84,8 +84,9 @@ timestamp, `YYYYMMDDHHMMSS`) and then its name. (Once the CLI is out,
 <<< ../../../examples/blog/src/migrations/20261020090000_create_blog.ts#migration
 
 `up` makes the change and `down` undoes it, so the migration can be rolled back. The file
-exports its migration either as the default export, as the file `egon migrate create`
-writes does, or under the name `migration`, as here: the runner accepts both.
+exports its migration either as the default export (as the file that `egon migrate create`
+will write, once the CLI is out) or under the name `migration`, as here: the runner accepts
+both.
 `table.references` adds a foreign key, and `.unique()` a unique index named
 `users_email_key`; the changesets below refer to these names. The table builder is named
 `table` because `t` is the field builder of the schema classes, imported from `egon-orm`.
@@ -102,8 +103,9 @@ Run it once now:
 npx tsx src/run-migrations.ts
 ```
 
-The [Migrations](/guide/migrations) guide covers rollbacks and deployments, and the
-[CLI](/reference/cli) runs the same migrations from a configuration file (`egon migrate`).
+The [Migrations](/guide/migrations) guide covers rollbacks and deployments. Once the CLI is
+out, it will run the same migrations from a configuration file (`egon migrate`; see the
+[CLI](/reference/cli)).
 
 ## 4. Describe the tables
 
@@ -273,8 +275,8 @@ docker exec blog-db createdb -U postgres blog_test
 ```
 
 (With another Postgres, use `createdb blog_test` or `create database blog_test;` in `psql`.
-With the CLI and an `egon.config.ts` whose `database` entry names `blog_test`,
-`npx egon db create` does the same; see the [CLI](/reference/cli#configuration).)
+Once the CLI is out, `npx egon db create` will do the same, with an `egon.config.ts` whose
+`database` entry names `blog_test`; see the [CLI](/reference/cli#configuration).)
 
 A Vitest setup file brings its tables up to date before the tests run:
 

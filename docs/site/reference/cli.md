@@ -38,7 +38,9 @@ later strips types by itself; on 22.12 to 22.17 turn it on with
 `./db.js` to `./db.ts`, so a TypeScript config or migration that imports your own files the
 way TypeScript writes them (`from "./db.js"`) needs tsx instead
 (`NODE_OPTIONS="--import tsx" npx egon …`), or Bun. Without a loader, `egon` says so and
-exits with 1.
+exits with 1. With `NODE_OPTIONS=--experimental-strip-types`, Node's ExperimentalWarning is
+printed twice per command, because both `npx` and `egon` are Node processes that get the
+flag.
 
 ## Commands
 

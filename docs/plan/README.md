@@ -5,7 +5,7 @@ A TypeScript ORM modelled on Elixir's Ecto: **schemas**, **changesets**, an Ecto
 
 > The project is **Egon ORM**: packages `egon-orm` and `@egon-orm/*` (owner decision,
 > 2026-10-12). It was called Ectype while steps 01 and 02 were built; the code was renamed
-> in PR #4. Only the GitHub repository (`caseyt/ectype-orm`) still carries the old name.
+> in PR #4. The GitHub repository, formerly `caseyt/ectype-orm`, is now `egon-orm/egon-orm`.
 >
 > Ecto is the design reference for behaviour. It is **not** how the library is presented:
 > users come from Drizzle, Sequelize and Prisma, so public names, TSDoc and guides do not

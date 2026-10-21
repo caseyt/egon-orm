@@ -95,7 +95,10 @@ describe("help and version", () => {
         });
 
       TypeScript config and migration files need a TypeScript loader: Node 22.18 or later
-      strips types by itself; otherwise run egon with tsx (node --import tsx) or Bun.
+      strips types by itself. On 22.12 to 22.17:
+        NODE_OPTIONS=--experimental-strip-types npx egon …
+      With tsx (or use Bun):
+        NODE_OPTIONS="--import tsx" npx egon …
       "
     `);
   });
@@ -240,6 +243,11 @@ describe("the config file", () => {
     expect(error).toBeInstanceOf(CliError);
     expect((error as Error).message).toBe(typescriptHelp("/x/egon.config.ts"));
     expect((error as Error).message).toMatch(/Node 22\.18 or later.*tsx.*Bun/);
+    // The forms that work through npx: egon's own flags are parsed strictly, so a Node flag
+    // after the command is refused; NODE_OPTIONS reaches the process instead.
+    expect((error as Error).message).toContain("NODE_OPTIONS=--experimental-strip-types npx egon");
+    expect((error as Error).message).toContain('NODE_OPTIONS="--import tsx" npx egon');
+    expect((error as Error).message).not.toContain("pass --experimental-strip-types");
     const other = new Error("syntax");
     await expect(importUserModule("/x/egon.config.ts", () => Promise.reject(other))).rejects.toBe(other);
     await expect(importUserModule("/x/egon.config.js", () => Promise.reject(unknown))).rejects.toBe(unknown);

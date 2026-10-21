@@ -83,9 +83,9 @@ const stats = await repo.all(
 
 ## Documentation
 
-The documentation site is not published yet. Its pages are Markdown in
-[`docs/site`](docs/site), readable here on GitHub, and `pnpm docs:dev` serves the site,
-API reference included, locally.
+The documentation site is [egon-orm.github.io/egon-orm](https://egon-orm.github.io/egon-orm/).
+Its pages are Markdown in [`docs/site`](docs/site), readable here on GitHub too, and
+`pnpm docs:dev` serves the site, API reference included, locally.
 
 - [Getting started](docs/site/guide/getting-started.md): a first query in five minutes.
 - [Tutorial](docs/site/guide/tutorial.md): a blog, step by step ([source](examples/blog)).

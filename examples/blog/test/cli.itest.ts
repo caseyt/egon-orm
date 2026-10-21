@@ -4,6 +4,7 @@
 import { fileURLToPath } from "node:url";
 import { type CliIo, run } from "@egon-orm/cli";
 import { uniqueDatabaseName } from "@egon-orm/test-support";
+import pg from "pg";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 
 const BLOG = fileURLToPath(new URL("..", import.meta.url));
@@ -39,13 +40,26 @@ beforeAll(() => {
   process.env.DATABASE_URL = url.href; // what egon.config.ts reads
 });
 
+/** Whether the database the commands work on exists, asked through this file's own database. */
+async function exists(): Promise<boolean> {
+  const client = new pg.Client({ connectionString: fileDatabaseUrl });
+  await client.connect();
+  try {
+    return (await client.query("select 1 from pg_database where datname = $1", [name])).rowCount === 1;
+  } finally {
+    await client.end();
+  }
+}
+
 afterAll(async () => {
-  await egon(["db", "drop"]);
-  process.env.DATABASE_URL = fileDatabaseUrl;
+  if (await exists()) await egon(["db", "drop"]); // only when the test stopped before its drop
+  if (fileDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = fileDatabaseUrl;
 });
 
-test("egon db create, migrate and migrations work with the blog's config", async () => {
+test("egon db create, migrate, migrations and db drop work with the blog's config", async () => {
   expect(await egon(["db", "create"])).toEqual({ code: 0, output: `Created the database "${name}".\n` });
+  expect(await exists()).toBe(true);
 
   const migrate = await egon(["migrate", "--json"]);
   expect(migrate.code).toBe(0);
@@ -60,4 +74,10 @@ test("egon db create, migrate and migrations work with the blog's config", async
     ok: true,
     migrations: [{ version: 20261020090000, name: "create_blog", state: "up" }],
   });
+
+  expect(await egon(["db", "drop"])).toEqual({
+    code: 0,
+    output: `Dropped the database "${name}" (if it existed).\n`,
+  });
+  expect(await exists()).toBe(false);
 });

@@ -107,7 +107,7 @@ export class CliError extends Error {
  * ```
  */
 export function typescriptHelp(file: string): string {
-  return `Cannot load the TypeScript file "${file}": this Node has no TypeScript loader. Use Node 22.18 or later (it strips types by itself; on 22.12 to 22.17 pass --experimental-strip-types), or run egon through tsx: node --import tsx node_modules/@egon-orm/cli/dist/bin.js …, or with Bun. Or write the file in JavaScript (egon.config.mjs).`;
+  return `Cannot load the TypeScript file "${file}": this Node has no TypeScript loader. Use Node 22.18 or later (it strips types by itself); on 22.12 to 22.17 run NODE_OPTIONS=--experimental-strip-types npx egon …; or use tsx: NODE_OPTIONS="--import tsx" npx egon …; or Bun. Or write the file in JavaScript (egon.config.mjs).`;
 }
 
 /**

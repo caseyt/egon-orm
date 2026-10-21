@@ -106,6 +106,10 @@ and are unchanged.
 - The docs list every identifier with its full text and how to fix it (on
   `reference/errors.md` or pages under it); a check in `pnpm docs:check` fails when an
   identifier has no entry or an entry names no identifier.
+- `error.toJSON()` returns `{ name, code, id }` (`id` is the identifier above), so
+  `JSON.stringify(error)` is safe to send to a client and stable to switch on; the message,
+  the cause and any SQL stay on the server (owner decision, 2026-10-21). Tested for every
+  error class; step 21b's error-responses recipe uses it.
 - Structured fields (`code`, `cause`, sub-codes such as `DatabaseError`'s) are unchanged;
   tests that match message text are updated to match identifiers or the opt-in text.
 - The guide pages that quote error messages are updated (a change to other steps' pages:
@@ -146,6 +150,7 @@ and are unchanged.
 - [ ] Every thrown message has a stable identifier and a docs entry (checked); default
   messages contain no "how to fix" text; the opt-in restores it (tested on Node and in the Worker).
 - [ ] The error-code ADR is accepted by the owner before part 4's mechanism is built.
+- [ ] `JSON.stringify(error)` gives `{ name, code, id }` for every error class (tested).
 - [ ] `pnpm check`, `pnpm test:integration` (both tiers), `pnpm lint:packages`,
   `pnpm smoke` and `pnpm docs:build` pass; no check weakened.
 - [ ] Benchmark and budget items: deferred to step 19 (owner decision, 2026-10-14).

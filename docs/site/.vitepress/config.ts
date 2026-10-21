@@ -91,7 +91,8 @@ export default defineConfig({
   // VitePress does not prefix `head` links with the base, so it is added here.
   head: [
     // Chromium ignores `media` on icon links, so the light and dark icons are switched inside
-    // one SVG with `prefers-color-scheme`. The .ico is for browsers without SVG icons.
+    // one SVG with `prefers-color-scheme`. The .ico is for browsers without SVG icons; it keeps
+    // `sizes="48x48"`, since with `sizes="any"` Chromium picks the .ico over the SVG.
     ["link", { rel: "icon", href: `${base}favicon.ico`, sizes: "48x48" }],
     ["link", { rel: "icon", type: "image/svg+xml", href: `${base}favicon.svg` }],
     ["link", { rel: "apple-touch-icon", href: `${base}apple-touch-icon.png` }],

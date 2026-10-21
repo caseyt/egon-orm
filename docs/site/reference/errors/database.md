@@ -28,7 +28,7 @@ The caller's AbortSignal had fired before the statement was sent; nothing was se
 
 > The call was aborted by its AbortSignal, but cancelling the statement failed, so it ran to its end.
 
-The cause says why cancelling failed; where the runtime cannot cancel (no node:net and node:tls, as on a Worker without nodejs\_compat), the statement always runs to its end. The connection is not reused.
+error.cause says why cancelling failed (an AggregateError of the cancel's error and the statement's own, when the statement then failed too); where the runtime cannot cancel (no node:net and node:tls, as on a Worker without nodejs\_compat), the statement always runs to its end. The connection is not reused.
 
 ## `database.abortedQueued` {#database-abortedqueued}
 
@@ -118,7 +118,7 @@ Give the call a larger timeoutMs, or make the statement faster (an index, a narr
 
 > The statement ran longer than its timeoutMs (&#123;timeoutMs&#125; ms), but cancelling it failed, so it ran to its end.
 
-The cause says why cancelling failed; where the runtime cannot cancel (no node:net and node:tls, as on a Worker without nodejs\_compat), the statement always runs to its end. The connection is not reused.
+error.cause says why cancelling failed (an AggregateError of the cancel's error and the statement's own, when the statement then failed too); where the runtime cannot cancel (no node:net and node:tls, as on a Worker without nodejs\_compat), the statement always runs to its end. The connection is not reused.
 
 ## `database.timeoutQueued` {#database-timeoutqueued}
 

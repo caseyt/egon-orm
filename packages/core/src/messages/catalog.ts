@@ -72,7 +72,7 @@ export const messages = {
   "database.abortedBefore":
     "The caller's AbortSignal had fired before the statement was sent; nothing was sent to the database.",
   "database.abortedNotCancelled":
-    "The cause says why cancelling failed; where the runtime cannot cancel (no node:net and node:tls, as on a Worker without nodejs_compat), the statement always runs to its end. The connection is not reused.",
+    "error.cause says why cancelling failed (an AggregateError of the cancel's error and the statement's own, when the statement then failed too); where the runtime cannot cancel (no node:net and node:tls, as on a Worker without nodejs_compat), the statement always runs to its end. The connection is not reused.",
   "database.abortedQueued": "The caller's AbortSignal fired; nothing was sent to the database.",
   "database.abortedWaiting":
     "The caller's AbortSignal fired; nothing was sent to the database. A larger pool, or fewer statements at once, shortens the wait.",
@@ -94,7 +94,7 @@ export const messages = {
   "database.timeout":
     "Give the call a larger timeoutMs, or make the statement faster (an index, a narrower query); inside a transaction, the transaction is rolled back.",
   "database.timeoutNotCancelled":
-    "The cause says why cancelling failed; where the runtime cannot cancel (no node:net and node:tls, as on a Worker without nodejs_compat), the statement always runs to its end. The connection is not reused.",
+    "error.cause says why cancelling failed (an AggregateError of the cancel's error and the statement's own, when the statement then failed too); where the runtime cannot cancel (no node:net and node:tls, as on a Worker without nodejs_compat), the statement always runs to its end. The connection is not reused.",
   "database.timeoutQueued":
     "Give the call a larger timeoutMs, or run fewer statements at once on the transaction.",
   "database.timeoutSpent":

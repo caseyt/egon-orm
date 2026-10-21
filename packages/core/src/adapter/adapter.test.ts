@@ -661,6 +661,31 @@ describe("cancellation", () => {
     expect(driver.released).toEqual([{ id: 1, destroy: true }]);
   });
 
+  test("a statement that fails by itself after a failed cancel: the cause keeps both errors", async () => {
+    const { adapter, driver } = setup();
+    const statement = deferred<RawResult>();
+    const cancelError = new Error("could not connect to cancel");
+    driver.connectionSetup = (connection) => {
+      connection.respond = () => statement.promise;
+      connection.cancelResult = async () => {
+        throw cancelError;
+      };
+    };
+    const running = adapter.execute("select 1", [], { timeoutMs: 5 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const own = new Error("the statement failed on its own");
+    statement.reject(own);
+    const error = await running.catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: "timeout", id: "database.timeoutNotCancelled" });
+    const cause = (error as Error).cause;
+    expect(cause).toBeInstanceOf(AggregateError);
+    expect((cause as AggregateError).errors).toHaveLength(2);
+    expect((cause as AggregateError).errors[0]).toBe(cancelError);
+    expect(((cause as AggregateError).errors[1] as Error).message).toContain(
+      "the statement failed on its own",
+    );
+  });
+
   test("where cancelling is unsupported, a timeout says so and keeps the reason", async () => {
     const { adapter, driver } = setup();
     const statement = deferred<RawResult>();

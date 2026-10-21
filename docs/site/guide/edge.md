@@ -85,8 +85,9 @@ Measured from the packed packages with esbuild, minified, `pg` left out
 
 The packages are published one file per module, with `"sideEffects": false`, so a bundler
 keeps only the modules an application uses. The example Worker of the repository
-(`examples/edge-worker`, which also imports `egon-orm/messages`), with `pg`, is 570 KiB
-minified and 178 KiB gzip. Cloudflare limits a Worker to 64 MiB uncompressed on every plan,
+(`examples/edge-worker`, which also imports `egon-orm/messages`), with `pg`, is about
+570 KiB minified and 178 KiB gzip (October 2026; CI's `edge worker` job prints the current
+size in its summary). Cloudflare limits a Worker to 64 MiB uncompressed on every plan,
 with no compressed limit, and its global scope must start within 1 second
 ([Workers limits](https://developers.cloudflare.com/workers/platform/limits/#worker-size),
 as of October 2026).

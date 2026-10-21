@@ -313,8 +313,20 @@ function interruption(
   const details = { code: kind, sql, cause };
   if (cancelFailure !== undefined) {
     // The cancel request failed (or cancelling is not possible here, e.g. no node:net):
-    // the statement ran to its end. The reason is the cause, so the caller can see it.
-    const failed = { code: kind, sql, cause: cancelFailure };
+    // the statement ran to its end. The cause is the cancel's error; when the statement
+    // then failed by itself as well (a constraint, a lost connection), it is an
+    // AggregateError of both, the cancel's error first, so the caller learns of each.
+    const failed = {
+      code: kind,
+      sql,
+      cause:
+        cause === undefined
+          ? cancelFailure
+          : new AggregateError(
+              [cancelFailure, cause],
+              "Cancelling the statement failed, and the statement then failed by itself.",
+            ),
+    };
     return kind === "aborted"
       ? new DatabaseError(
           "database.abortedNotCancelled",

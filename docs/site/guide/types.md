@@ -61,7 +61,8 @@ Some details of what is accepted:
 driver's value as it is, and throws `CastError`, naming the field, when that value is not a
 number. Today that happens on Postgres for `bigint`, `bigserial` and `numeric` columns,
 which `pg` returns as text, and on MySQL for `decimal` columns and for `div` of an
-operand whose type the query does not know, such as `sum(p.views).div(2)` (see
+operand whose type the query does not know, such as
+`coalesce(p.views, val(0, t.integer())).div(2)` (see
 [Expressions](/guide/query-expressions#explicit-values-and-types)). Declare a 64-bit integer as
 `t.bigint({ mode: "number" })` (or `t.bigint()`), and a decimal as `t.decimal()`.
 

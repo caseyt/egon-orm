@@ -1,7 +1,17 @@
 // MySQL specifics the conformance suites do not reach (tier 2: EGON_TEST_TIER2=1): the
 // session time zone and datetime precision, writes read back by a composite key or a
 // client-generated uuid key (MySQL has no RETURNING), and ON DUPLICATE KEY UPDATE on them.
-import { change, createRepo, type DatabaseAdapter, from, type Repo, Schema, t, val } from "egon-orm";
+import {
+  change,
+  coalesce,
+  createRepo,
+  type DatabaseAdapter,
+  from,
+  type Repo,
+  Schema,
+  t,
+  val,
+} from "egon-orm";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
   createTestDatabase,
@@ -226,6 +236,15 @@ describe.runIf(tier2Enabled())("mysql", () => {
           .select(({ h }) => ({ m: h.n.mul(2), s: h.n.add(1) })),
       ),
     ).toEqual([{ m: 14, s: 8 }]);
+    // An operand whose type the query does not know (a function) keeps /, and its decimal
+    // result is refused by the t.integer() read (guide/types.md, "Good to know").
+    const unknown = from(Half, "h")
+      .where({ id: 1 })
+      .select(({ h }) => ({ d: coalesce(h.n, val(0, t.integer())).div(2) }));
+    expect(repo.toSql(unknown).sql).toContain(") / ");
+    await expect(repo.all(unknown)).rejects.toThrow(
+      '"d" is declared t.integer(), but the database returned a string for it, not a number',
+    );
     // A fraction bound as an integer is refused before it is sent (DIV would truncate it).
     await expect(repo.all(from(Half, "h").select(({ h }) => ({ d: h.n.div(2.5) })))).rejects.toThrow(
       /^Parameter 1 has the type t\.integer\(\) .* but its value is not a whole number\./,

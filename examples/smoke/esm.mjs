@@ -58,7 +58,11 @@ assert.ok(new MigrationError("migration.failed", "x") instanceof EgonError);
 const short = new MigrationError("migration.missingSteps", "defineMigration() was given no down().");
 assert.match(short.message, /^migration\.missingSteps: .+ See https:\/\//);
 assert.match(explain(short), /A migration has both up\(m\) and down\(m\)/);
-assert.deepEqual(JSON.parse(JSON.stringify(short)), { name: "MigrationError", code: "migration", id: "migration.missingSteps" });
+assert.deepEqual(JSON.parse(JSON.stringify(short)), {
+  name: "MigrationError",
+  code: "migration",
+  id: "migration.missingSteps",
+});
 assert.equal(defineMigration({ up() {}, down() {} }).transaction, true);
 
 console.log(`esm: egon-orm ${VERSION} (resolved to ${import.meta.resolve("egon-orm")})`);

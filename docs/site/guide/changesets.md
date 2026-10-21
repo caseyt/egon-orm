@@ -46,7 +46,8 @@ One changeset function is enough while every form on a table permits the same fi
 When they differ, write one function per way the record changes, named after it: sign-up,
 profile, email change, admin. The list of permitted fields is what keeps a profile form
 from setting `role` or `passwordHash`, so each function permits only what its form may
-set. Rules that several of them need go in a shared step, applied with `pipe`.
+set. Rules that several of them need go in a shared step, applied with
+[`pipe`](#working-with-changes).
 
 <<< @/examples/changesets.ts#several-changesets
 

@@ -85,12 +85,15 @@ declare function hashPassword(password: string): string;
 
 // Sign-up: a new user picks an email, a name and a password.
 export function registrationChangeset(params: unknown) {
-  return cast(User, params, ["email", "name", "password"]).pipe(validateEmail).pipe(validatePassword);
+  return cast(User, params, ["email", "name", "password"])
+    .pipe(validateEmail)
+    .pipe(validateName)
+    .pipe(validatePassword);
 }
 
 // The profile form: the name only. A request that also sends `email` or `role` changes nothing else.
 export function profileChangeset(user: User, params: unknown) {
-  return cast(user, params, ["name"]).validateLength("name", { min: 2, max: 80 });
+  return cast(user, params, ["name"]).pipe(validateName);
 }
 
 // Changing the email: the same rules as at sign-up.
@@ -98,9 +101,10 @@ export function emailChangeset(user: User, params: unknown) {
   return cast(user, params, ["email"]).pipe(validateEmail);
 }
 
-// An admin screen: the only place `role` is permitted.
+// An admin screen: the only place `role` is permitted. Its enum type already refuses any
+// value but "admin" and "member" (`is invalid`), so it needs no validation of its own.
 export function adminChangeset(user: User, params: unknown) {
-  return cast(user, params, ["name", "role"]).validateInclusion("role", ["admin", "member"]);
+  return cast(user, params, ["email", "name", "role"]).pipe(validateEmail).pipe(validateName);
 }
 
 // Steps shared by the functions above.
@@ -110,6 +114,10 @@ function validateEmail(cs: Changeset<typeof User>) {
     .validateRequired(["email"])
     .validateFormat("email", /^[^@\s]+@[^@\s]+$/)
     .uniqueConstraint("email");
+}
+
+function validateName(cs: Changeset<typeof User>) {
+  return cs.validateLength("name", { min: 2, max: 80 });
 }
 
 function validatePassword(cs: Changeset<typeof User>) {

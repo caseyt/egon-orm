@@ -2,6 +2,10 @@
 
 [![CI](https://github.com/egon-orm/egon-orm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/egon-orm/egon-orm/actions/workflows/ci.yml)
 ![Status: under construction](https://img.shields.io/badge/status-under%20construction-orange)
+[![Coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fegon-orm.github.io%2Fegon-orm%2Fbadges%2Fcoverage.json)](https://github.com/egon-orm/egon-orm/actions/workflows/docs.yml)
+[![Docs](https://img.shields.io/badge/docs-egon--orm.github.io-137c3d)](https://egon-orm.github.io/egon-orm/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+![Node >= 22.12](https://img.shields.io/badge/node-%3E%3D22.12-339933)
 
 A TypeScript ORM for Postgres, SQLite and MySQL with **schemas**, **changesets**,
 composable **queries** and a **repo**, typed end to end with no code generation.

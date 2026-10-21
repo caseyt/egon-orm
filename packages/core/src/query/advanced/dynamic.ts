@@ -311,8 +311,7 @@ export function field(binding: object, name: string): Expr<unknown, NoParams> {
     );
     throw new QueryError(
       "query.dynamicFieldUnknown",
-      `field() was given ${typeof name === "string" ? `"${name}"` : `a ${typeof name}`}, which is not a column of the binding.`,
-      { params: { columns: columns.join(", ") } },
+      `field() was given ${typeof name === "string" ? `"${name}"` : `a ${typeof name}`}, which is not a column of the binding. Its columns are: ${columns.join(", ")}.`,
     );
   }
   return column as Expr<unknown, NoParams>;

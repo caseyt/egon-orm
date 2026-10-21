@@ -2,15 +2,17 @@
 
 # Migration errors
 
-Thrown as `MigrationError` (`code: "migration"`), from `egon-orm/migration`. Each entry is an identifier (`error.id`), the message as the error
-states it (`{name}` stands for a value it names), and what to do about it: the text
-`useFullErrorMessages(messages)` and `explain(error)` add. See [Errors](/reference/errors).
+Thrown as `MigrationError` (`code: "migration"`), from `egon-orm/migration`. Each entry is an identifier (`error.id`), then the message as the
+error states it, where `{expression}` stands for the value of that expression in the source
+(`{…}` for one too long to show), then what to do about it: the text `useFullErrorMessages(messages)`
+and `explain(error)` add, where `{name}` stands for the error's parameter of that name.
+See [Errors](/reference/errors).
 
 ::: v-pre
 
 ## `migration.buildFailed` {#migration-buildfailed}
 
-> Migration &#123;version&#125;\_&#123;name&#125;: &#123;causeText&#125;
+> Migration &#123;source.version&#125;\_&#123;source.name&#125;: &#123;causeText(error)&#125;
 
 The cause is the error the migration's up() or down() threw while it described its statements; fix the migration.
 
@@ -22,7 +24,7 @@ change() is not supported: write the change in up(m) and what undoes it in down(
 
 ## `migration.concurrentIndexInTransaction` {#migration-concurrentindexintransaction}
 
-> Migration &#123;version&#125;\_&#123;name&#125; builds or drops an index concurrently, which cannot run inside a transaction.
+> Migration &#123;source.version&#125;\_&#123;source.name&#125; builds or drops an index concurrently, which cannot run inside a transaction.
 
 Add transaction: false to its defineMigration().
 
@@ -46,21 +48,21 @@ Write the constant in the template text, or use fragment.ident() for a name.
 
 ## `migration.dialectUnsupported` {#migration-dialectunsupported}
 
-> Migrations are not supported on &#123;String&#125; by this build of egon-orm: it has no migration dialect table for it.
+> Migrations are not supported on &#123;String(dialect)&#125; by this build of egon-orm: it has no migration dialect table for it.
 
-> Migrations are not supported on &#123;String&#125; by this build of egon-orm.
+> Migrations are not supported on &#123;String(adapter.dialect)&#125; by this build of egon-orm.
 
 See Dialect support for the databases migrations run on.
 
 ## `migration.failed` {#migration-failed}
 
-> Migration &#123;version&#125;\_&#123;name&#125; &#123;outcome&#125;: &#123;message&#125;&#123;stuck&#125;
+> Migration &#123;source.version&#125;\_&#123;source.name&#125; &#123;outcome&#125;: &#123;message&#125;&#123;stuck&#125;
 
 The cause is the database's error, and sql the statement that failed. Fix the migration and run it again; what stays applied is said above.
 
 ## `migration.featureUnsupported` {#migration-featureunsupported}
 
-> &#123;where&#125; is not supported on &#123;String&#125; by this build of egon-orm.
+> &#123;where&#125; is not supported on &#123;String(adapter.dialect)&#125; by this build of egon-orm.
 
 See Dialect support for what each database supports.
 
@@ -72,15 +74,15 @@ Rename it, for example "20261012093000\_&#123;match&#125;.&#123;match1&#125;".
 
 ## `migration.generatedKeyAlone` {#migration-generatedkeyalone}
 
-> The generated key "&#123;name&#125;" must be the table's only key column on &#123;name&#125;.
+> The generated key "&#123;column.name&#125;" must be the table's only key column on &#123;ctx.dialect.name&#125;.
 
 Make the generated key the table's only key column, or give it a plain integer type.
 
 ## `migration.indexMethod` {#migration-indexmethod}
 
-> The index method "&#123;using&#125;" is not one &#123;name&#125; has.
+> The index method "&#123;using&#125;" is not one &#123;ctx.dialect.name&#125; has; it has &#123;ctx.dialect.features.indexMethods.join(", ")&#125;.
 
-Use one of &#123;methods&#125;.
+Use one of the methods the database has, or write the statement with m.sql\`…\`.
 
 ## `migration.loadFailed` {#migration-loadfailed}
 
@@ -90,13 +92,13 @@ The cause is the error importing the file threw; fix the file, or the migration 
 
 ## `migration.lockTimeout` {#migration-locktimeout}
 
-> Gave up waiting for the migration lock after &#123;lockTimeoutMs&#125; ms: another runner is migrating the same database (tracking table "&#123;name&#125;").
+> Gave up waiting for the migration lock after &#123;lockTimeoutMs&#125; ms: another runner is migrating the same database (tracking table "&#123;this.\#settings.table.name&#125;").
 
 Wait for the other runner to finish, or give a larger lockTimeoutMs.
 
 ## `migration.lockTimeoutClaimed` {#migration-locktimeoutclaimed}
 
-> Gave up waiting for the migration lock after &#123;lockTimeoutMs&#125; ms: another runner is migrating the same database (tracking table "&#123;name&#125;").
+> Gave up waiting for the migration lock after &#123;lockTimeoutMs&#125; ms: another runner is migrating the same database (tracking table "&#123;this.\#settings.table.name&#125;").
 
 If no runner is running, one stopped while it ran a migration without a transaction: check what that migration did, then delete the row with version &#123;claim&#125; from "&#123;table&#125;".
 
@@ -108,7 +110,7 @@ A migration has both up(m) and down(m); when there is nothing to undo, write dow
 
 ## `migration.modifyWhole` {#migration-modifywhole}
 
-> &#123;name&#125; changes a column by writing it whole (MODIFY COLUMN).
+> &#123;ctx.dialect.name&#125; changes a column by writing it whole (MODIFY COLUMN), and modify() of "&#123;change.column&#125;" does not give both notNull and default.
 
 Give modify() both notNull and default (null for none) for "&#123;column&#125;".
 
@@ -144,13 +146,13 @@ Remove the NUL character or lone surrogate from the string.
 
 ## `migration.timestampColumn` {#migration-timestampcolumn}
 
-> The tracking table "&#123;name&#125;" has no column "&#123;timestampColumn&#125;".
+> The tracking table "&#123;table.name&#125;" has no column "&#123;timestampColumn&#125;".
 
 If it was created by another tool, pass its timestamp column: createMigrator(&#123; timestampColumn: "inserted\_at" &#125;) (or whatever it is called).
 
 ## `migration.trackingVersion` {#migration-trackingversion}
 
-> The tracking table "&#123;name&#125;" holds a version that is not a safe whole number: &#123;String&#125;.
+> The tracking table "&#123;table.name&#125;" holds a version that is not a safe whole number: &#123;String(row.version)&#125;.
 
 Fix the row in the tracking table: versions are 14-digit whole numbers (YYYYMMDDHHMMSS).
 
@@ -168,13 +170,13 @@ Run it with one: Node 22.18 or later strips types by itself (on 22.12 to 22.17 s
 
 ## `migration.unsupportedFeature` {#migration-unsupportedfeature}
 
-> &#123;feature&#125; is not supported by &#123;name&#125;.
+> &#123;feature&#125; is not supported by &#123;ctx.dialect.name&#125;.
 
 See Dialect support for what &#123;dialect&#125; supports; m.sql\`…\` can run any statement the builder has no method for.
 
 ## `migration.versionTwice` {#migration-versiontwice}
 
-> Two migrations have the version &#123;version&#125;: "&#123;name&#125;" and "&#123;name&#125;".
+> Two migrations have the version &#123;current.version&#125;: "&#123;previous.name&#125;" and "&#123;current.name&#125;".
 
 Give one of them a new version.
 

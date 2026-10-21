@@ -653,9 +653,33 @@ describe("cancellation", () => {
     controller.abort();
     await tick();
     statement.resolve(EMPTY);
-    await expect(running).rejects.toMatchObject({ code: "aborted" });
+    const error = await running.catch((e: unknown) => e);
+    // The caller learns that cancelling failed, and why: the cancel's error is the cause.
+    expect(error).toMatchObject({ code: "aborted", id: "database.abortedNotCancelled" });
+    expect(((error as Error).cause as Error).message).toBe("could not connect to cancel");
     // The request may still arrive late and cancel the next statement: never reuse it.
     expect(driver.released).toEqual([{ id: 1, destroy: true }]);
+  });
+
+  test("where cancelling is unsupported, a timeout says so and keeps the reason", async () => {
+    const { adapter, driver } = setup();
+    const statement = deferred<RawResult>();
+    const unsupported = new Error(
+      "Cancelling a statement needs node:net and node:tls, which this runtime does not provide.",
+    );
+    driver.connectionSetup = (connection) => {
+      connection.respond = () => statement.promise;
+      connection.cancelResult = async () => {
+        throw unsupported;
+      };
+    };
+    const running = adapter.execute("select 1", [], { timeoutMs: 5 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    statement.resolve(EMPTY);
+    const error = await running.catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: "timeout", id: "database.timeoutNotCancelled" });
+    expect((error as Error).cause).toBe(unsupported);
+    expect((error as Error).message).toContain("cancelling it failed, so it ran to its end");
   });
 
   test("a delivered cancel request leaves the connection reusable", async () => {

@@ -98,8 +98,7 @@ function checkedDbType(typeName: string, db: unknown, path: string): DbType {
   if (!SIMPLE_KINDS.has(kind)) {
     throw new SchemaDefinitionError(
       "schema.typeUnknownKind",
-      `Type "${typeName}": ${path}.kind is ${JSON.stringify(kind)}, which is not a column kind.`,
-      { params: { SIMPLE_KINDS: [...SIMPLE_KINDS].join(", ") } },
+      `Type "${typeName}": ${path}.kind is ${JSON.stringify(kind)}, which is not a column kind. The kinds are ${[...SIMPLE_KINDS].join(", ")}, "array" and "custom".`,
     );
   }
   return Object.freeze({ kind }) as DbType;

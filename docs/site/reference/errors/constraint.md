@@ -2,9 +2,11 @@
 
 # Constraint errors
 
-Thrown as `ConstraintError` (`code: "constraint"`). Each entry is an identifier (`error.id`), the message as the error
-states it (`{name}` stands for a value it names), and what to do about it: the text
-`useFullErrorMessages(messages)` and `explain(error)` add. See [Errors](/reference/errors).
+Thrown as `ConstraintError` (`code: "constraint"`). Each entry is an identifier (`error.id`), then the message as the
+error states it, where `{expression}` stands for the value of that expression in the source
+(`{…}` for one too long to show), then what to do about it: the text `useFullErrorMessages(messages)`
+and `explain(error)` add, where `{name}` stands for the error's parameter of that name.
+See [Errors](/reference/errors).
 
 ::: v-pre
 
@@ -16,10 +18,10 @@ Add: &#123;add&#125;
 
 ## `constraint.violated` {#constraint-violated}
 
-> &#123;message&#125;
+> &#123;details.message&#125;
 
 > The database rejected the write: &#123;what&#125; constraint&#123;name&#125;&#123;where&#125; was violated.
 
-To report this as a changeset error instead of an exception, call &#123;method&#125; on the changeset before the write.
+To report this as a changeset error instead of an exception, declare the constraint on the changeset before the write: uniqueConstraint for a unique constraint, foreignKeyConstraint for a foreign key (or noAssocConstraint on the referenced side), checkConstraint, exclusionConstraint, or validateRequired for a not-null column.
 
 :::

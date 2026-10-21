@@ -56,7 +56,8 @@ the call carry the full text: the short sentence, what to do about it, and the l
 <<< @/examples/errors.ts#full-messages
 
 It works on every runtime (it reads nothing from `process`), on Cloudflare Workers and
-Vercel Edge too. Without the call, `egon-orm/messages` is not in the bundle at all.
+Vercel Edge too. What brings the catalog into a bundle is importing `egon-orm/messages`
+(for `messages` or for `explain`); an application that never imports it ships no advice.
 
 ::: warning Call it before your schemas are defined
 An error made before the call keeps its short message. A schema whose definition is wrong
@@ -75,8 +76,9 @@ when the catalog has no entry for its identifier, or it was made by another copy
 package); any other `Error` gives `name: message`; anything else `String(value)`.
 
 Both take a catalog of your own instead, with the same shape: for an identifier, the
-advice that follows the short sentence. `{{name}}` in an entry is replaced by the value the
-message names. An identifier your catalog leaves out keeps its short message:
+advice that follows the short sentence. `{{name}}` in an entry is replaced by a parameter
+the error carries (a name such as the field or the column; the generated pages list each
+entry with its placeholders). An identifier your catalog leaves out keeps its short message:
 
 <<< @/examples/errors.ts#translated
 

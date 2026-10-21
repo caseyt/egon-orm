@@ -128,6 +128,10 @@ export interface RepoOptions {
    * Whether the row decoders are generated with `new Function` (the fast path). `false`
    * builds them without generating code, for a Content Security Policy without
    * `unsafe-eval`; the rows are the same, only slower to build. Default `true`.
+   *
+   * A decoder is kept on its compiled plan, and plans are shared by every adapter of the
+   * same configuration: a `codegen: false` repo never calls `new Function` itself, but may
+   * use a generated decoder that a repo with `codegen` on built for the same plan.
    */
   readonly codegen?: boolean | undefined;
 }

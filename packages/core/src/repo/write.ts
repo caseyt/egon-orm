@@ -283,8 +283,7 @@ export function persistedField(schemaMeta: SchemaMeta, name: unknown, where: str
   if (field === undefined || field.virtual) {
     throw new QueryError(
       "query.writeOptionField",
-      `${where}: ${typeof name === "string" ? `"${name}"` : describe(name)} is not ${field?.virtual === true ? "a stored field (it is virtual)" : "a field"} of ${schemaMeta.name}.`,
-      { params: { schemaMeta: schemaMeta.persisted.map((each) => each.name).join(", ") } },
+      `${where}: ${typeof name === "string" ? `"${name}"` : describe(name)} is not ${field?.virtual === true ? "a stored field (it is virtual)" : "a field"} of ${schemaMeta.name}. Its fields are: ${schemaMeta.persisted.map((each) => each.name).join(", ")}.`,
     );
   }
   return field;

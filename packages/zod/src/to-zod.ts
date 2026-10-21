@@ -282,8 +282,7 @@ function namesOf(list: unknown, option: string, allowed: ReadonlySet<string>): R
     if (typeof name !== "string" || !allowed.has(name)) {
       throw new QueryError(
         "query.zodUnknownField",
-        `toZod(): ${option} names ${typeof name === "string" ? `"${name}"` : String(name)}.`,
-        { params: { allowed: [...allowed].join(", ") } },
+        `toZod(): ${option} names ${typeof name === "string" ? `"${name}"` : String(name)}, which is not one of the fields: ${[...allowed].join(", ")}.`,
       );
     }
   }

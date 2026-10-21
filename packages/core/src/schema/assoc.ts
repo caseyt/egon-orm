@@ -20,7 +20,7 @@ import type {
   OnReplace,
   SchemaMeta,
 } from "../contracts/schema.js";
-import { type ErrorDetails, type IdsOf, SchemaDefinitionError } from "../errors.js";
+import { type ErrorDetails, type ErrorParams, type IdsOf, SchemaDefinitionError } from "../errors.js";
 import { isPlainObject } from "../internal/plain-object.js";
 import { definedOnPrototype, describe, isSchema } from "./guards.js";
 
@@ -420,9 +420,11 @@ function optionsOf(context: Omit<Context, "options">, declaration: Declaration):
   const allowed = OPTIONS[context.kind];
   for (const key of Object.keys(raw)) {
     if (!allowed.includes(key)) {
-      fail(full, "schema.assocUnknownOption", `${context.kind} has no option "${key}".`, {
-        params: { allowed: allowed.join(", ") },
-      });
+      fail(
+        full,
+        "schema.assocUnknownOption",
+        `${context.kind} has no option "${key}". It takes ${allowed.join(", ")}.`,
+      );
     }
   }
   return { ...context, options: raw as Readonly<Record<string, unknown>> };
@@ -484,15 +486,27 @@ function keyNames(context: Context, option: string, value: unknown): readonly st
   return Object.freeze([...(names as string[])]);
 }
 
-/** A stored field of `meta` by name. `role` and `fix` complete the message when it is missing. */
-function storedField(context: Context, meta: SchemaMeta, name: string, role: string, fix: string): FieldMeta {
+/** What a missing field is reported as: one identifier per role, and the values its advice names. */
+interface Missing {
+  readonly id: IdsOf<"schema">;
+  readonly params?: ErrorParams;
+}
+
+/** A stored field of `meta` by name. `role` names it in the message; `missing` is the error when there is none. */
+function storedField(
+  context: Context,
+  meta: SchemaMeta,
+  name: string,
+  role: string,
+  missing: Missing,
+): FieldMeta {
   const field = meta.fieldsByName.get(name);
   if (field === undefined) {
     fail(
       context,
-      "schema.assocFieldMissing",
+      missing.id,
       `${context.kind} expects the ${role} field "${name}" on ${meta.name}, but ${meta.name} has no such field.`,
-      { params: { fix } },
+      { params: { field: name, ...missing.params } },
     );
   }
   if (field.virtual) {
@@ -535,7 +549,7 @@ function checkPairs(
   foreignKey: readonly string[],
   referencedMeta: SchemaMeta,
   references: readonly string[],
-  foreignKeyFix: string,
+  foreignKeyMissing: Missing,
 ): void {
   if (foreignKey.length !== references.length) {
     fail(
@@ -545,14 +559,10 @@ function checkPairs(
     );
   }
   for (let i = 0; i < foreignKey.length; i++) {
-    const key = storedField(context, holderMeta, foreignKey[i] as string, "foreign key", foreignKeyFix);
-    const referenced = storedField(
-      context,
-      referencedMeta,
-      references[i] as string,
-      "referenced",
-      "Pass { references } with the field the key points at.",
-    );
+    const key = storedField(context, holderMeta, foreignKey[i] as string, "foreign key", foreignKeyMissing);
+    const referenced = storedField(context, referencedMeta, references[i] as string, "referenced", {
+      id: "schema.referencedFieldMissing",
+    });
     if (keyShape(key) !== keyShape(referenced)) {
       fail(
         context,
@@ -601,14 +611,7 @@ function whereOf(context: Context, targetMeta: SchemaMeta): Readonly<Record<stri
   return filterOf(
     context,
     "where",
-    (key) =>
-      storedField(
-        context,
-        targetMeta,
-        key,
-        "where",
-        "A where condition is written with the target's field names.",
-      ).name,
+    (key) => storedField(context, targetMeta, key, "where", { id: "schema.assocWhereFieldMissing" }).name,
   );
 }
 
@@ -621,7 +624,7 @@ function orderOf(context: Context, targetMeta: SchemaMeta): readonly AssocOrderM
   const add = (field: unknown, direction: unknown): void => {
     if (typeof field !== "string" || (direction !== "asc" && direction !== "desc"))
       fail(context, "schema.assocOrderBy", problem);
-    storedField(context, targetMeta, field, "orderBy", "An order is written with the target's field names.");
+    storedField(context, targetMeta, field, "orderBy", { id: "schema.assocOrderByFieldMissing" });
     order.push(Object.freeze({ field, direction }));
   };
   for (const entry of value as unknown[]) {
@@ -677,14 +680,7 @@ function resolveBelongsTo(context: Context, declaration: Declaration): ResolvedA
     options.references === undefined
       ? primaryKeyOf(context, targetMeta, "references")
       : keyNames(context, "references", options.references);
-  checkPairs(
-    context,
-    ownerMeta,
-    foreignKey,
-    targetMeta,
-    references,
-    `Declare it (${foreignKey[0]}: t.integer()) or pass { foreignKey }.`,
-  );
+  checkPairs(context, ownerMeta, foreignKey, targetMeta, references, { id: "schema.belongsToKeyMissing" });
   return assocMeta(context, {
     target: declaration.target as () => AnySchema,
     ownerKey: foreignKey,
@@ -709,14 +705,10 @@ function resolveHas(context: Context, declaration: Declaration): ResolvedAssoc {
     options.references === undefined
       ? primaryKeyOf(context, ownerMeta, "references")
       : keyNames(context, "references", options.references);
-  checkPairs(
-    context,
-    targetMeta,
-    foreignKey,
-    ownerMeta,
-    references,
-    `Declare it on ${targetMeta.name} (${foreignKey[0]}: t.integer()) or correct { foreignKey }.`,
-  );
+  checkPairs(context, targetMeta, foreignKey, ownerMeta, references, {
+    id: "schema.hasKeyMissing",
+    params: { target: targetMeta.name },
+  });
   return assocMeta(context, {
     target: declaration.target as () => AnySchema,
     ownerKey: references,
@@ -828,7 +820,7 @@ function resolveManyToMany(context: Context, declaration: Declaration): Resolved
         { params: { name: joinMeta.name } },
       );
     }
-    const fix = `Pass { joinKeys } with fields of ${joinMeta.name}.`;
+    const fix: Missing = { id: "schema.joinKeyFieldMissing", params: { join: joinMeta.name } };
     const ownerField = storedField(
       context,
       joinMeta,
@@ -866,13 +858,10 @@ function resolveManyToMany(context: Context, declaration: Declaration): Resolved
       context,
       "joinWhere",
       (key) =>
-        storedField(
-          context,
-          joinMeta,
-          key,
-          "joinWhere",
-          `A joinWhere condition is written with the field names of ${joinMeta.name}.`,
-        ).column,
+        storedField(context, joinMeta, key, "joinWhere", {
+          id: "schema.joinWhereFieldMissing",
+          params: { join: joinMeta.name },
+        }).column,
     );
   }
 
@@ -944,8 +933,7 @@ function checkPath(context: Context, assoc: ResolvedAssoc, path: readonly string
       fail(
         context,
         "schema.throughUnknownStep",
-        `through follows "${step}" on ${currentMeta.name}, but ${currentMeta.name} has no such association.`,
-        { params: { known: known.length === 0 ? "none" : known.join(", ") } },
+        `through follows "${step}" on ${currentMeta.name}, but ${currentMeta.name} has no such association. It has: ${known.length === 0 ? "none" : known.join(", ")}.`,
       );
     }
     [current, currentMeta] = targetOf(context, next.target, `target of ${currentMeta.name}.${step}`);

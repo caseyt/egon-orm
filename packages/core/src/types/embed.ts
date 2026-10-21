@@ -465,7 +465,10 @@ export function embedType(
       const target = schemaMeta();
       if (cardinality === "one") return loadEmbedded(target, json, loaded());
       if (!Array.isArray(json))
-        throw new CastError("cast.embedListNotArray", `A stored list of ${target.name} is not a JSON array.`);
+        throw new CastError(
+          "cast.embedStoredListNotArray",
+          `A stored list of ${target.name} is not a JSON array.`,
+        );
       const rowMeta = loaded();
       return json.map((item: unknown) => loadEmbedded(target, item, rowMeta));
     },

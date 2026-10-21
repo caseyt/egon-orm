@@ -482,7 +482,11 @@ describe("ConstraintError", () => {
 
   const cases: [ConstraintViolationType, string, string][] = [
     ["unique", "unique", "uniqueConstraint"],
-    ["foreignKey", "foreign-key", "foreignKeyConstraint (or noAssocConstraint on the referenced side)"],
+    [
+      "foreignKey",
+      "foreign-key",
+      "foreignKeyConstraint for a foreign key (or noAssocConstraint on the referenced side)",
+    ],
     ["check", "check", "checkConstraint"],
     ["exclusion", "exclusion", "exclusionConstraint"],
     ["notNull", "not-null", "validateRequired"],
@@ -497,8 +501,9 @@ describe("ConstraintError", () => {
       expect(make().message).not.toContain(call);
       useFullErrorMessages(messages);
       expect(make().message).toContain(
-        `${short} To report this as a changeset error instead of an exception, call ${call} on the changeset before the write.`,
+        `${short} To report this as a changeset error instead of an exception, declare the constraint on the changeset before the write:`,
       );
+      expect(make().message).toContain(call);
     },
   );
 
@@ -625,7 +630,7 @@ describe("message-only errors", () => {
     [CastError, "cast.paramsNotObject", 'Cannot cast params of type "string" to a changeset.'],
     [
       SchemaDefinitionError,
-      "schema.assocFieldMissing",
+      "schema.belongsToKeyMissing",
       'Post.author: belongsTo expects the field "authorId".',
     ],
   ] as const)("%o keeps the short sentence it is given, unchanged", (ErrorClass, id, message) => {

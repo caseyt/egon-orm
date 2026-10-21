@@ -168,8 +168,7 @@ function assocRelation(
   if (assoc.through !== undefined) {
     throw new QueryError(
       "query.nestedThroughReadOnly",
-      `${fn}(): "${name}" of ${ownerMeta.name} is a has-through association, which is read-only.`,
-      { params: { assoc: assoc.through.join(", ") } },
+      `${fn}(): "${name}" of ${ownerMeta.name} is a has-through association (through ${assoc.through.join(", ")}), which is read-only.`,
     );
   }
   const target = assoc.target();

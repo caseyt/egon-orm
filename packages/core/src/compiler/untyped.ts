@@ -32,8 +32,7 @@ function typeHint(value: unknown): string {
 export function untypedValue(where: string, value: unknown): QueryError {
   return new QueryError(
     "query.untypedValue",
-    `A value without a type is in ${where}, where nothing gives it one, so the database would return it as text.`,
-    { params: { typeHint: typeHint(value) } },
+    `A value without a type is in ${where}, where nothing gives it one, so the database would return it as text. It is ${typeHint(value)}.`,
   );
 }
 

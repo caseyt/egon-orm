@@ -159,8 +159,7 @@ export function assignments(
       const columns = meta.persisted.map((f) => f.name);
       throw new QueryError(
         "query.setUnknownField",
-        `set({ ${key} }): ${meta.name} has no ${field === undefined ? "field" : "column for the virtual field"} "${key}".`,
-        { params: { columns: columns.join(", ") } },
+        `set({ ${key} }): ${meta.name} has no ${field === undefined ? "field" : "column for the virtual field"} "${key}". Its columns are: ${columns.join(", ")}.`,
       );
     }
     const value = (values as Record<string, unknown>)[key];

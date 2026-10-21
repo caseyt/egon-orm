@@ -87,6 +87,7 @@ export async function measure() {
     install("packages/core", modules, "egon-orm");
     install("packages/postgres", modules, "@egon-orm/postgres");
     const results = [];
+    const failures = [];
     for (const [i, { name, source }] of CASES.entries()) {
       const entry = join(work, `entry-${i}.mjs`);
       writeFileSync(entry, source);
@@ -104,10 +105,24 @@ export async function measure() {
         external: ["pg", "pg-cursor", "node:*", "net", "tls"],
         write: false,
         logLevel: "silent",
-      }).catch(() => undefined);
+      }).catch((error) => {
+        // Only an entry that does not resolve (a subpath the packages lack) is "no such entry";
+        // every other failure is reported as one, with esbuild's errors.
+        const messages = error.errors ?? [];
+        const missingEntry =
+          messages.length > 0 &&
+          messages.every(
+            (m) => m.location?.file?.startsWith("entry-") && /^Could not resolve "egon-orm\//.test(m.text),
+          );
+        if (missingEntry) return undefined;
+        failures.push(`${name}: ${messages.map((m) => m.text).join("; ") || error.message}`);
+        return null;
+      });
+      if (out === null) continue;
       const code = out?.outputFiles[0]?.contents;
       results.push({ name, min: code?.length, gzip: code === undefined ? undefined : gzipSync(code).length });
     }
+    if (failures.length > 0) throw new Error(`The size report could not build:\n${failures.join("\n")}`);
     return results;
   } finally {
     rmSync(work, { recursive: true, force: true });

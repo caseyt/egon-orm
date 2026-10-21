@@ -201,7 +201,8 @@ export function fieldOf(spec: Spec, name: unknown, fn: string): FieldMeta {
       `${fn}(): "${name}" is an association of ${spec.name}, not a field.`,
     );
   }
-  throw new QueryError("query.changesetFieldUnknown", `${fn}(): ${spec.name} has no field "${name}".`, {
-    params: { fields: [...spec.fields.keys()].join(", ") },
-  });
+  throw new QueryError(
+    "query.changesetFieldUnknown",
+    `${fn}(): ${spec.name} has no field "${name}". Its fields are: ${[...spec.fields.keys()].join(", ")}.`,
+  );
 }

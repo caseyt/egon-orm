@@ -424,8 +424,7 @@ function bindDerived(
   if (extra.length > 0) {
     throw new QueryError(
       "query.paramsUnknown",
-      `The query has no named parameter${extra.length > 1 ? "s" : ""} ${extra.map((name) => `"${name}"`).join(", ")}.`,
-      { params: { original: original.map((name) => `"${name}"`).join(", ") } },
+      `The query has no named parameter${extra.length > 1 ? "s" : ""} ${extra.map((name) => `"${name}"`).join(", ")}; it takes ${original.map((name) => `"${name}"`).join(", ")}.`,
     );
   }
   for (const name of original) {
@@ -1001,8 +1000,7 @@ function rootField(ast: QueryAst, field: string): FieldMeta {
     const names = schemaMeta.persisted.map((each) => each.name).join(", ");
     throw new QueryError(
       "query.aggregateUnknownColumn",
-      `repo.aggregate(): ${schemaMeta.name} has no column "${field}"${found === undefined ? "" : " (it is a virtual field)"}.`,
-      { params: { names } },
+      `repo.aggregate(): ${schemaMeta.name} has no column "${field}"${found === undefined ? "" : " (it is a virtual field)"}. Its columns are: ${names}.`,
     );
   }
   return found;
@@ -1123,8 +1121,7 @@ export function byKey(schema: AnySchema, id: unknown): Query<unknown, unknown, n
   if (typeof id !== "object" || !isPlainObject(id)) {
     throw new QueryError(
       "query.getCompositeId",
-      `repo.get(${schemaMeta.name}, id): ${schemaMeta.name} has a composite primary key.`,
-      { params: { expected } },
+      `repo.get(${schemaMeta.name}, id): ${schemaMeta.name} has a composite primary key, so the id is an object of its fields: ${expected}.`,
     );
   }
   const given = id as Readonly<Record<string, unknown>>;
@@ -1134,8 +1131,7 @@ export function byKey(schema: AnySchema, id: unknown): Query<unknown, unknown, n
     if (value === undefined || value === null) {
       throw new QueryError(
         "query.getIdField",
-        `repo.get(${schemaMeta.name}, id): the id has no value for the key field "${name}" (it is ${String(value)}).`,
-        { params: { expected } },
+        `repo.get(${schemaMeta.name}, id): the id has no value for the key field "${name}" (it is ${String(value)}); the id is ${expected}.`,
       );
     }
     checkKeyValue(schemaMeta, schemaMeta.fieldsByName.get(name) as FieldMeta, value);
@@ -1145,8 +1141,7 @@ export function byKey(schema: AnySchema, id: unknown): Query<unknown, unknown, n
     if (!names.includes(name)) {
       throw new QueryError(
         "query.getIdUnknownField",
-        `repo.get(${schemaMeta.name}, id): "${name}" is not a field of the primary key of ${schemaMeta.name}.`,
-        { params: { expected } },
+        `repo.get(${schemaMeta.name}, id): "${name}" is not a field of the primary key of ${schemaMeta.name}; the id is ${expected}.`,
       );
     }
   }

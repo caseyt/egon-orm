@@ -100,7 +100,7 @@ describe("cast: params", () => {
 describe("cast: permitted fields", () => {
   test("throws for a name that is not a field", () => {
     expect(() => cast(User, {}, ["nickname" as "name"])).toThrowErrorMatchingInlineSnapshot(
-      `[QueryError: query.changesetFieldUnknown: cast(): User has no field "nickname". Its fields are: id, email, name, age, role, password, passwordHash, settings, lockVersion, createdAt, updatedAt. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-changesetfieldunknown]`,
+      `[QueryError: query.changesetFieldUnknown: cast(): User has no field "nickname". Its fields are: id, email, name, age, role, password, passwordHash, settings, lockVersion, createdAt, updatedAt. Name one of the schema's fields; a typo is the usual cause. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-changesetfieldunknown]`,
     );
   });
 

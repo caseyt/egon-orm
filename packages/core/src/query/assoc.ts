@@ -111,9 +111,10 @@ export function routeOf(ownerMeta: SchemaMeta, name: string): AssocRoute {
   const assoc = ownerMeta.assocs().get(name);
   if (assoc === undefined) {
     const known = [...ownerMeta.assocs().keys()];
-    throw new QueryError("query.assocUnknown", `${ownerMeta.name} has no association "${name}".`, {
-      params: { known: known.length === 0 ? "none" : known.join(", ") },
-    });
+    throw new QueryError(
+      "query.assocUnknown",
+      `${ownerMeta.name} has no association "${name}". Its associations are: ${known.length === 0 ? "none" : known.join(", ")}.`,
+    );
   }
   let route = routes.get(assoc);
   if (route === undefined) {

@@ -128,6 +128,34 @@ async function scenario(atRequest: () => void): Promise<unknown> {
   };
 }
 
+describe("codegen: false", () => {
+  test("a schema declared with it never calls new Function, for its rows or for validate()", async () => {
+    const runtime = fakeRuntime();
+    const { meta, Schema, t } = await import("../schema/index.js");
+    const { cast } = await import("../changeset/changeset.js");
+    class Gadget extends Schema(
+      "gadgets",
+      { id: t.integer().primaryKey(), label: t.string() },
+      { codegen: false },
+    ) {}
+    expect(runtime.attempts()).toBe(0);
+    const m = meta(Gadget);
+    const row = m.create([1, "a"], m.rowMeta("loaded", undefined)) as Gadget;
+    let seen: unknown;
+    cast(Gadget, { label: "b" }, ["label"]).validate((values: unknown) => {
+      seen = values;
+      return undefined;
+    });
+    cast(row, { label: "c" }, ["label"]).validate(() => undefined);
+    expect(runtime.attempts()).toBe(0);
+    expect(seen).toStrictEqual({ label: "b" });
+    // The same validation of a schema without the option does generate.
+    class Widget extends Schema("widgets", { id: t.integer().primaryKey(), label: t.string() }) {}
+    cast(Widget, { label: "b" }, ["label"]).validate(() => undefined);
+    expect(runtime.attempts()).toBeGreaterThan(0);
+  });
+});
+
 describe("a runtime that refuses code generation at request time", () => {
   test("every generated path falls back to its loop and returns the same results", async () => {
     vi.resetModules();

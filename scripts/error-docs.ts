@@ -77,12 +77,21 @@ function render(node: ts.Expression | undefined): string {
   return `{${label(node)}}`;
 }
 
+/**
+ * How an interpolated value is shown: the expression as the source writes it (`meta.name`,
+ * `describe(value)`), so that two values are never shown alike; a long or branching one
+ * (a conditional, a template) is shown as `…`.
+ */
 function label(node: ts.Expression): string {
-  if (ts.isIdentifier(node)) return node.text;
-  if (ts.isPropertyAccessExpression(node)) return node.name.text;
-  if (ts.isCallExpression(node)) return label(node.expression as ts.Expression);
   if (ts.isParenthesizedExpression(node)) return label(node.expression);
-  return "…";
+  const text = node.getText().replace(/\s+/g, " ");
+  const simple =
+    ts.isIdentifier(node) ||
+    ts.isPropertyAccessExpression(node) ||
+    ts.isElementAccessExpression(node) ||
+    ts.isCallExpression(node) ||
+    ts.isAsExpression(node);
+  return simple && text.length <= 48 ? text : "…";
 }
 
 export interface Site {
@@ -236,9 +245,11 @@ export function pages(catalog: ReadonlyMap<string, string>, sites: readonly Site
       "",
       `# ${info.title}`,
       "",
-      `Thrown as ${info.classes}. Each entry is an identifier (\`error.id\`), the message as the error`,
-      "states it (`{name}` stands for a value it names), and what to do about it: the text",
-      "`useFullErrorMessages(messages)` and `explain(error)` add. See [Errors](/reference/errors).",
+      `Thrown as ${info.classes}. Each entry is an identifier (\`error.id\`), then the message as the`,
+      "error states it, where `{expression}` stands for the value of that expression in the source",
+      "(`{…}` for one too long to show), then what to do about it: the text `useFullErrorMessages(messages)`",
+      "and `explain(error)` add, where `{name}` stands for the error's parameter of that name.",
+      "See [Errors](/reference/errors).",
       "",
       "::: v-pre",
       "",

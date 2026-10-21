@@ -253,7 +253,7 @@ describe("indexes", () => {
     const error = thrown(() => sqlOf((m) => m.createIndex("posts", ["tags"], { using: "rtree" })));
     expect(error).toBeInstanceOf(MigrationError);
     expect((error as Error).message).toMatchInlineSnapshot(
-      `"migration.indexMethod: The index method "rtree" is not one postgres has. Use one of btree, hash, gist, gin, spgist, brin. See https://egon-orm.github.io/egon-orm/reference/errors/migration#migration-indexmethod"`,
+      `"migration.indexMethod: The index method "rtree" is not one postgres has; it has btree, hash, gist, gin, spgist, brin. Use one of the methods the database has, or write the statement with m.sql\`…\`. See https://egon-orm.github.io/egon-orm/reference/errors/migration#migration-indexmethod"`,
     );
   });
 });

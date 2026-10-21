@@ -2044,8 +2044,7 @@ function embedField(value: AnyExpr, name: unknown): AnyExpr {
   if (field === undefined || field.virtual) {
     throw new QueryError(
       "query.fieldUnknown",
-      `field(): ${embedded.name} has no stored field ${typeof name === "string" ? `"${name}"` : String(name)}.`,
-      { params: { embedded: embedded.persisted.map((each) => each.name).join(", ") } },
+      `field(): ${embedded.name} has no stored field ${typeof name === "string" ? `"${name}"` : String(name)}. Its fields are: ${embedded.persisted.map((each) => each.name).join(", ")}.`,
     );
   }
   const kind = field.type.db.kind;

@@ -471,15 +471,6 @@ export class StaleEntryError extends EgonError {
  */
 export type ConstraintViolationType = "unique" | "foreignKey" | "check" | "exclusion" | "notNull";
 
-/** The changeset method that turns each kind of violation into a changeset error. */
-const CONSTRAINT_HELP: Readonly<Record<ConstraintViolationType, string>> = {
-  unique: "uniqueConstraint",
-  foreignKey: "foreignKeyConstraint (or noAssocConstraint on the referenced side)",
-  check: "checkConstraint",
-  exclusion: "exclusionConstraint",
-  notNull: "validateRequired",
-};
-
 /**
  * The database rejected a write because of a constraint that the changeset did not
  * declare. Declared constraints become changeset errors instead (step 13).
@@ -538,10 +529,7 @@ export class ConstraintError extends EgonError {
       super(
         "constraint.violated",
         `The database rejected the write: ${what} constraint${name}${where} was violated.`,
-        {
-          params: { method: CONSTRAINT_HELP[details.type] },
-          cause: details.cause,
-        },
+        { cause: details.cause },
       );
     }
     this.type = details.type;

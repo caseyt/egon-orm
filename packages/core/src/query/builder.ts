@@ -1463,8 +1463,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
         const names = Object.keys(binding).filter((name) => isExpr(binding[name]));
         throw new QueryError(
           "query.filterUnknownField",
-          `${clause}({ ${key} }) names a field that ${label} does not have as a column.`,
-          { params: { names: names.join(", ") } },
+          `${clause}({ ${key} }) names a field that ${label} does not have as a column. Its columns are: ${names.join(", ")}.`,
         );
       }
       if (value === undefined) {
@@ -1572,8 +1571,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     if (start === undefined || start.internal) {
       throw new QueryError(
         "query.assocJoinUnknownStart",
-        `${clause}("${fromAlias}", …) starts from a binding this query does not have.`,
-        { params: { visibleAliases: visibleAliases(scope0).join(", ") } },
+        `${clause}("${fromAlias}", …) starts from a binding this query does not have. Its bindings are: ${visibleAliases(scope0).join(", ")}.`,
       );
     }
     const name = checkAlias(scope0, alias, clause);
@@ -3135,8 +3133,7 @@ function assocJoins(
     const known = [...startMeta.assocs().keys()];
     throw new QueryError(
       "query.assocJoinUnknown",
-      `${clause}("${start.alias}", "${assocName}", …): ${startMeta.name} has no association "${assocName}".`,
-      { params: { known: known.length === 0 ? "none" : known.join(", ") } },
+      `${clause}("${start.alias}", "${assocName}", …): ${startMeta.name} has no association "${assocName}". Its associations are: ${known.length === 0 ? "none" : known.join(", ")}.`,
     );
   }
   const label = `${clause}("${start.alias}", "${assocName}", "${alias}"): the association ${startMeta.name}.${assocName}`;
@@ -3246,8 +3243,7 @@ function assocOf(schemaMeta: SchemaMeta, name: string, path: string): AssocMeta 
     const known = [...schemaMeta.assocs().keys()];
     throw new QueryError(
       "query.preloadUnknown",
-      `preload(${path === "" ? `"${name}"` : `{ ${path}${name} }`}): ${schemaMeta.name} has no association "${name}".`,
-      { params: { known: known.length === 0 ? "none" : known.join(", ") } },
+      `preload(${path === "" ? `"${name}"` : `{ ${path}${name} }`}): ${schemaMeta.name} has no association "${name}". Its associations are: ${known.length === 0 ? "none" : known.join(", ")}.`,
     );
   }
   return assoc;

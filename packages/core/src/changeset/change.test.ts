@@ -380,7 +380,7 @@ describe("applyChanges", () => {
   test("throws on a new record", () => {
     const cs = cast(User, { email: "x@example.com" }, ["email"]) as unknown as Changeset<typeof User, false>;
     expect(() => cs.applyChanges()).toThrowErrorMatchingInlineSnapshot(
-      `[QueryError: query.applyChangesNewRecord: applyChanges() and applyAction() need a changeset of a loaded row (or one without a schema class). This one is of a new User: a row the database never returned cannot exist. Insert it with the repo instead. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-applychangesnewrecord]`,
+      `[QueryError: query.applyChangesNewRecord: applyChanges() and applyAction() need a changeset of a loaded row (or one without a schema class); this one is of a new User. A row the database never returned cannot exist. Insert it with the repo instead. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-applychangesnewrecord]`,
     );
   });
 });

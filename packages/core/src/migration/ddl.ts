@@ -377,7 +377,7 @@ function alter(ref: TableRef, change: AlterChange, ctx: DdlContext): string {
         if (change.notNull === undefined || change.default === undefined) {
           throw new MigrationError(
             "migration.modifyWhole",
-            `${ctx.dialect.name} changes a column by writing it whole (MODIFY COLUMN).`,
+            `${ctx.dialect.name} changes a column by writing it whole (MODIFY COLUMN), and modify() of "${change.column}" does not give both notNull and default.`,
             { params: { column: change.column } },
           );
         }
@@ -401,8 +401,7 @@ function indexMethod(using: string, ctx: DdlContext): string {
   if (method === undefined) {
     throw new MigrationError(
       "migration.indexMethod",
-      `The index method "${using}" is not one ${ctx.dialect.name} has.`,
-      { params: { methods: ctx.dialect.features.indexMethods.join(", ") } },
+      `The index method "${using}" is not one ${ctx.dialect.name} has; it has ${ctx.dialect.features.indexMethods.join(", ")}.`,
     );
   }
   return method;

@@ -565,7 +565,7 @@ describe("exists", () => {
     await repo.exists(q, { minAge: 18, bonus: 5 });
     expect(statements[0]?.params).toEqual([18, 1]);
     await expect(repo.exists(q, { minAge: 18, bonus: 5, other: 1 } as never)).rejects.toThrow(
-      'query.paramsUnknown: The query has no named parameter "other".',
+      'query.paramsUnknown: The query has no named parameter "other"; it takes "minAge", "bonus".',
     );
     await expect(repo.exists(q, { minAge: 18, bonus: 5, other: 1, more: 2 } as never)).rejects.toThrow(
       /no named parameters "other", "more"/,

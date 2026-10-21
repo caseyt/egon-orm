@@ -1085,9 +1085,10 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
       if (!hasOwn(options, key) || key === "message") continue;
       limits++;
       if (!hasOwn(NUMBER_CHECKS, key)) {
-        throw new QueryError("query.numberUnknownOption", `validateNumber(): unknown option "${key}".`, {
-          params: { Object: Object.keys(NUMBER_CHECKS).join(", ") },
-        });
+        throw new QueryError(
+          "query.numberUnknownOption",
+          `validateNumber(): unknown option "${key}". The options are ${Object.keys(NUMBER_CHECKS).join(", ")} and message.`,
+        );
       }
       const limit: unknown = (options as Values)[key];
       if (typeof limit !== "bigint" && (typeof limit !== "number" || Number.isNaN(limit))) {
@@ -1953,8 +1954,7 @@ function applied(changeset: AnyChangeset): object {
   if (data === null) {
     throw new QueryError(
       "query.applyChangesNewRecord",
-      "applyChanges() and applyAction() need a changeset of a loaded row (or one without a schema class).",
-      { params: { name: spec.name } },
+      `applyChanges() and applyAction() need a changeset of a loaded row (or one without a schema class); this one is of a new ${spec.name}.`,
     );
   }
   if (spec.meta === null) {

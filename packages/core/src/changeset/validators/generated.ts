@@ -34,10 +34,27 @@ export interface GeneratedBuilders {
 }
 
 const generated = /* @__PURE__ */ new WeakMap<ReadonlyMap<string, FieldMeta>, GeneratedBuilders>();
+/** Field tables of schemas declared with `codegen: false`: never generated, always loops. */
+const loopsOnly = /* @__PURE__ */ new WeakSet<ReadonlyMap<string, FieldMeta>>();
+
+/**
+ * Marks the field table of a schema declared with `codegen: false`: its validator
+ * builders are never generated, so `new Function` is never called for it.
+ *
+ * @example
+ * ```ts
+ * if (options?.codegen === false) refuseGeneration(tables.fieldsByName);
+ * ```
+ */
+export function refuseGeneration(fields: ReadonlyMap<string, FieldMeta>): void {
+  loopsOnly.add(fields);
+}
 
 /**
  * The generated builders of a field table, made now if they were not made before.
- * `undefined` when the runtime refuses to generate code.
+ * `undefined` when the runtime refuses to generate code, or the table is of a schema
+ * declared with `codegen: false`. A changeset without a schema class has no such option:
+ * its table is generated when it is first validated, where the runtime allows it.
  *
  * The builders store one field at a time with its name as a literal, which is several
  * times faster than storing under computed names. A change is never `undefined`, so
@@ -51,6 +68,7 @@ const generated = /* @__PURE__ */ new WeakMap<ReadonlyMap<string, FieldMeta>, Ge
  * ```
  */
 export function generatedBuilders(fields: ReadonlyMap<string, FieldMeta>): GeneratedBuilders | undefined {
+  if (loopsOnly.has(fields)) return undefined;
   let builders = generated.get(fields);
   if (builders !== undefined) return builders;
   const keys = [...fields.keys()].map((name) => JSON.stringify(name));

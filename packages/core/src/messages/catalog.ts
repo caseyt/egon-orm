@@ -43,6 +43,8 @@ export const messages = {
     "Fix the stored JSON: an embedOne column holds a JSON object (or null for a nullable embed).",
   "cast.embedStoredField":
     "Fix the stored JSON, or change the embedded field's type to what the column holds.",
+  "cast.embedStoredListNotArray":
+    "Fix the stored JSON: an embedMany column holds a JSON array (or null for a nullable embed).",
   "cast.embedWrite": "Write the embed through a changeset (castEmbed or putEmbed), which checks each field.",
   "cast.enumStoredValue": "Add it to the enum, or fix the stored data.",
   "cast.enumWriteValue":
@@ -62,13 +64,15 @@ export const messages = {
   // --- constraint ---
   "constraint.undeclared": "Add: {{add}}",
   "constraint.violated":
-    "To report this as a changeset error instead of an exception, call {{method}} on the changeset before the write.",
+    "To report this as a changeset error instead of an exception, declare the constraint on the changeset before the write: uniqueConstraint for a unique constraint, foreignKeyConstraint for a foreign key (or noAssocConstraint on the referenced side), checkConstraint, exclusionConstraint, or validateRequired for a not-null column.",
 
   // --- database ---
   "database.aborted":
     "The caller's AbortSignal fired, and the database was asked to cancel the statement; inside a transaction, the transaction is rolled back.",
   "database.abortedBefore":
     "The caller's AbortSignal had fired before the statement was sent; nothing was sent to the database.",
+  "database.abortedNotCancelled":
+    "The cause says why cancelling failed; where the runtime cannot cancel (no node:net and node:tls, as on a Worker without nodejs_compat), the statement always runs to its end. The connection is not reused.",
   "database.abortedQueued": "The caller's AbortSignal fired; nothing was sent to the database.",
   "database.abortedWaiting":
     "The caller's AbortSignal fired; nothing was sent to the database. A larger pool, or fewer statements at once, shortens the wait.",
@@ -89,6 +93,8 @@ export const messages = {
     "Keep the connection until the stream is finished, or leave the for-await loop first.",
   "database.timeout":
     "Give the call a larger timeoutMs, or make the statement faster (an index, a narrower query); inside a transaction, the transaction is rolled back.",
+  "database.timeoutNotCancelled":
+    "The cause says why cancelling failed; where the runtime cannot cancel (no node:net and node:tls, as on a Worker without nodejs_compat), the statement always runs to its end. The connection is not reused.",
   "database.timeoutQueued":
     "Give the call a larger timeoutMs, or run fewer statements at once on the transaction.",
   "database.timeoutSpent":
@@ -119,7 +125,7 @@ export const messages = {
   "migration.fileName": 'Rename it, for example "20261012093000_{{match}}.{{match1}}".',
   "migration.generatedKeyAlone":
     "Make the generated key the table's only key column, or give it a plain integer type.",
-  "migration.indexMethod": "Use one of {{methods}}.",
+  "migration.indexMethod": "Use one of the methods the database has, or write the statement with m.sql`…`.",
   "migration.loadFailed":
     "The cause is the error importing the file threw; fix the file, or the migration it defines.",
   "migration.lockTimeout": "Wait for the other runner to finish, or give a larger lockTimeoutMs.",
@@ -164,23 +170,23 @@ export const messages = {
   "query.aggregateSubquerySelect":
     'The query must select the column "{{field}}" of its root binding "{{alias}}": whole rows of the root, or an object whose key "{{field}}" is that column. Otherwise compute the aggregate in the query\'s own select and read it with repo.one(…).',
   "query.aggregateUnknown": "Use the aggregates the query builder offers, or write the call as a fragment.",
-  "query.aggregateUnknownColumn": "Its columns are: {{names}}.",
+  "query.aggregateUnknownColumn": "Aggregate a stored field of the schema; a virtual field has no column.",
   "query.aliasMissing": 'Give the binding an alias, a non-empty string: {{clause}}(User, "u").',
   "query.aliasReserved":
     'Aliases that start with "$" are reserved for the bindings the builder adds itself; choose another.',
   "query.aliasTaken": "Each binding needs its own alias; for a self-join, give the second one another name.",
   "query.applyActionUnknown": 'Use "insert", "update", "delete", "replace" or "ignore".',
   "query.applyChangesNewRecord":
-    "This one is of a new {{name}}: a row the database never returned cannot exist. Insert it with the repo instead.",
+    "A row the database never returned cannot exist. Insert it with the repo instead.",
   "query.assocConstraintKind":
     "It applies to belongsTo associations; for the other side, use noAssocConstraint.",
   "query.assocJoinName":
     'Pass the name of an association second: {{clause}}("{{from}}", "posts", "{{name}}").',
   "query.assocJoinNoSchema": "Start the join from a binding of a schema class.",
   "query.assocJoinStart": 'Pass the alias of the binding to start from first: {{clause}}("u", "posts", "p").',
-  "query.assocJoinUnknown": "Its associations are: {{known}}.",
-  "query.assocJoinUnknownStart": "Its bindings are: {{visibleAliases}}.",
-  "query.assocUnknown": "Its associations are: {{known}}.",
+  "query.assocJoinUnknown": "Name an association the schema declares as a static member.",
+  "query.assocJoinUnknownStart": "Start from a binding the query has: the root alias, or one a join added.",
+  "query.assocUnknown": "Name an association the schema declares as a static member.",
   "query.astBooleanOperator":
     "The query tree is malformed: queries built with from() and the builder methods never produce this, a tree built or changed by hand can. If it came from the builder, please report it.",
   "query.astCaseEmpty":
@@ -256,7 +262,7 @@ export const messages = {
   "query.castType": "Pass a field type, such as t.integer() or t.string(), to name the type.",
   "query.changeEmbed": 'Change it with putEmbed("{{key}}", …) instead.',
   "query.changesetConstructor": "Make one with cast(User, params, [...]) or change(User, values).",
-  "query.changesetFieldUnknown": "Its fields are: {{fields}}.",
+  "query.changesetFieldUnknown": "Name one of the schema's fields; a typo is the usual cause.",
   "query.changesetSource":
     "Pass a schema class (for a new record), a row (for an update), a changeset, or { data, types } for a changeset without a schema class.",
   "query.changeValues": 'Pass the values as an object: change(User, { email: "…" }).',
@@ -312,7 +318,8 @@ export const messages = {
   "query.dynamicCombine": "Pass another dynamic expression: a.{{method}}(dynamic(…)).",
   "query.dynamicCondition": "Combine conditions, such as dynamic(({ u }) => u.age.gte(18)).",
   "query.dynamicFieldBinding": "Pass a binding first, such as u in ({ u }) => field(u, name).",
-  "query.dynamicFieldUnknown": "Its columns are: {{columns}}.",
+  "query.dynamicFieldUnknown":
+    "Name a column of the binding; check the name a request supplied before building the query.",
   "query.dynamicSchemaClass": "Name a schema class, such as { {{alias}}: User }.",
   "query.dynamicSchemas": "Pass the schemas by alias first: dynamic({ u: User }, ({ u }) => …).",
   "query.dynamicSecondCallback": "Pass a callback second: dynamic({ u: User }, ({ u }) => u.age.gte(18)).",
@@ -335,14 +342,15 @@ export const messages = {
   "query.fieldNameType": "Pass the field name as a string.",
   "query.fieldNotEmbed": "Use it on a t.embedOne() field; for other JSON use path() or pathText().",
   "query.fieldNotReadable": 'Read it with path("{{column}}") instead.',
-  "query.fieldUnknown": "Its fields are: {{embedded}}.",
+  "query.fieldUnknown": "Name a stored field of the embedded schema.",
   "query.fieldValidatorPromise":
     "An async validator runs with validateFieldAsync(); validateField() is synchronous.",
   "query.filterArgument": 'Pass a callback, or an object of field values: {{clause}}({ role: "admin" }).',
   "query.filterCondition": "Pass a boolean expression, such as p.published or p.views.gt(10).",
   "query.filterUndefined":
     "Leave the key out, or add the clause only when there is a value: if (value !== undefined) q = q.where({ {{key}}: value }).",
-  "query.filterUnknownField": "Its columns are: {{names}}.",
+  "query.filterUnknownField":
+    "Use a field name the schema declares (not its column name); a virtual field cannot be filtered on.",
   "query.formatPattern": "Pass a regular expression, such as /^[^@\\s]+@[^@\\s]+$/.",
   "query.fragmentCall":
     "Write the SQL between backquotes, fragment`lower(…)`, not fragment(text). Calling it as a function would turn a string into SQL text, so it is refused.",
@@ -352,12 +360,13 @@ export const messages = {
   "query.functionUnknown":
     "Use the functions the query builder offers, or write the call as a fragment, interpolating its arguments: fragment`my_function(…)`.",
   "query.getByValues": 'Pass an object of field values: repo.{{method}}(User, { email: "ada@example.com" }).',
-  "query.getCompositeId": "The id is an object of the key fields: {{expected}}.",
+  "query.getCompositeId": "Pass the id as an object with a value for every key field.",
   "query.getIdArray":
     'To read several rows by key, use repo.all(from({{name}}, "x").where(({ x }) => x.{{name1}}.in(ids))).',
-  "query.getIdField": "The id is {{expected}}.",
+  "query.getIdField":
+    "Give every key field a value; null or undefined usually means a value missing upstream.",
   "query.getIdObject": "The id is the value of the key field, as in repo.get({{schema}}, 42).",
-  "query.getIdUnknownField": "The id is {{expected}}.",
+  "query.getIdUnknownField": "Pass only the key fields in the id object.",
   "query.getMissingId":
     "This is almost always a missing value upstream (an unparsed route parameter, a field that was never set); check it before reading.",
   "query.getNoPrimaryKey": "Use repo.getBy({{name}}, { … }) instead.",
@@ -369,7 +378,7 @@ export const messages = {
   "query.inOperand":
     "Pass an array of values, as in u.id.in([1, 2, 3]), an expression of array type, or a query that selects one column.",
   "query.insertAllMixedColumns":
-    "Give every row the same fields ({{columns}}), or insert the rows in groups of the same fields.",
+    "Give every row the same fields, or insert the rows in groups of the same fields.",
   "query.insertAllNeverWritable": "Leave the field out of the rows: the database fills it.",
   "query.insertAllQuerySelect":
     "Select an object whose keys are the fields to fill, such as .select(({ u }) => ({ email: u.email, name: u.name })).",
@@ -453,7 +462,7 @@ export const messages = {
   "query.nestedOptions": "Pass the options as an object, such as { required: true }.",
   "query.nestedRequired": "Pass required: true or false, or leave it out.",
   "query.nestedRowSchema": "Pass a {{target}} row, a changeset of one, or a plain object of its fields.",
-  "query.nestedThroughReadOnly": "Change the associations it goes through ({{assoc}}) instead.",
+  "query.nestedThroughReadOnly": "Change the associations it goes through instead.",
   "query.nestedTransactionLeftRunning": "Await tx.transaction(…) inside the callback.",
   "query.nestedTransactionOpen":
     "Run the statements on the repo the nested callback was given (tx.transaction(async (inner) => …) runs them on inner), or await the nested transaction first.",
@@ -474,7 +483,7 @@ export const messages = {
   "query.numberLimit": "Pass the limit as a number (or a bigint for bigint fields), as in { lessThan: 100 }.",
   "query.numberNoLimit": "Pass at least one limit, such as { greaterThan: 0 }.",
   "query.numberOptions": "Pass the limits as an object: { greaterThan: 0 }.",
-  "query.numberUnknownOption": "The options are {{Object}} and message.",
+  "query.numberUnknownOption": "Pass only the options validateNumber() takes, as in { greaterThan: 0 }.",
   "query.onConflictKey": 'Pass { target, update }, as in onConflict: { target: ["email"], update: "all" }.',
   "query.onConflictNested": "Write the parent first, then the children.",
   "query.onConflictNoColumn": "Write a schema that has columns, or leave onConflict out.",
@@ -512,7 +521,7 @@ export const messages = {
   "query.paramArguments": 'Pass a name and a field type, as in param("minAge", t.integer()).',
   "query.paramNotWholeNumber": "Give a fraction a float type, val(2.5, t.float()), or round it.",
   "query.paramsMissing": "Pass a value for every named parameter, as in repo.all(q, { {{name}}: … }).",
-  "query.paramsUnknown": "The query takes {{original}}.",
+  "query.paramsUnknown": "Pass only the named parameters the query declares with param().",
   "query.paramTwoTypes": "A named parameter has one type: give the other use its own name.",
   "query.pathEmpty": 'Pass at least one key, as in path("address", "city").',
   "query.pathKey": 'Pass keys as strings, or whole numbers for array positions, as in path("tags", 0).',
@@ -549,7 +558,7 @@ export const messages = {
   "query.preloadSpec":
     'Pass an association name, an array, an object of nested preloads, or a name and a callback, as in preload("posts", (q) => q.limit(3)).',
   "query.preloadTwice": "Load it one way.",
-  "query.preloadUnknown": "Its associations are: {{known}}.",
+  "query.preloadUnknown": "Name an association the schema declares as a static member.",
   "query.preloadUnknownAssoc": "Preload an association the schema declares.",
   "query.prepareFunction":
     'Pass a function from changeset to changeset, as in prepareChanges((cs) => cs.putChange("slug", slugify(cs.getField("title")))).',
@@ -627,7 +636,7 @@ export const messages = {
     "Columns are combined by position, so both must select the same shape, with keys in the same order.",
   "query.setOperationUpdate": "An update cannot be combined with a query: run it on its own.",
   "query.setUndefined": "Leave the key out, or pass null to store NULL.",
-  "query.setUnknownField": "Its columns are: {{columns}}.",
+  "query.setUnknownField": "Set only stored fields of the schema; a virtual field has no column to update.",
   "query.setWithPreloads": 'An update cannot preload: exclude("preload") first.',
   "query.setWithSelect":
     'An update says what it returns with returning(), not select(): exclude("select"), then returning(({ p }) => p.id).',
@@ -688,7 +697,8 @@ export const messages = {
   "query.unsupportedFeature":
     "See Dialect support for what {{dialect}} supports; a fragment can write SQL the builder has no method for.",
   "query.untypedArithmetic": "Give a value a type: val(value, t.integer()) or val(value, t.float()).",
-  "query.untypedValue": "It is {{typeHint}}.",
+  "query.untypedValue":
+    "Give the value a type with val(value, t.integer()) (or the type it has), or compare it with a column, which gives it the column's type.",
   "query.updateAllArgument":
     'Pass a query with .set(...): repo.updateAll(from(Post, "p").where(…).set({ published: true })).',
   "query.updateAllNoSet":
@@ -712,7 +722,7 @@ export const messages = {
   "query.validateOnly": 'Pass only as a list of field names, as in { only: ["email"] }.',
   "query.validateOptions": 'Pass the options as an object, such as { scope: "changed" }.',
   "query.validateScope": 'Pass scope: "all" (the default) or "changed".',
-  "query.validateUnknownField": "The fields are: {{fields}}.",
+  "query.validateUnknownField": "Name one of the changeset's fields; a typo is the usual cause.",
   "query.validatorPromise": "An async validator runs with validateAsync(); validate() is synchronous.",
   "query.validatorValueType":
     "Use the validator on a field of the matching type, or validate the value with validateChange().",
@@ -754,7 +764,7 @@ export const messages = {
   "query.writeNotLoaded": "Pass a changeset of a row returned by a query or a write that was not deleted.",
   "query.writeNotWholeNumber":
     "Give it a whole number, or declare the field t.float() or t.decimal() if it holds fractions.",
-  "query.writeOptionField": "Its fields are: {{schemaMeta}}.",
+  "query.writeOptionField": "Name stored fields of the schema.",
   "query.writeOptionFields": 'Pass a non-empty list of field names, as in ["email"].',
   "query.writeSchemaless": "Use applyAction() to validate such data.",
   "query.writeUnknownChange":
@@ -766,7 +776,7 @@ export const messages = {
   "query.zodHint":
     "Give the type a zod hint that is a Zod schema, or a function of the field that returns one.",
   "query.zodMode": 'Pass mode: "row" (the default), "insert" or "update".',
-  "query.zodUnknownField": "Name only fields of the schema: {{allowed}}.",
+  "query.zodUnknownField": "Name only fields of the schema.",
 
   // --- rollback ---
   "rollback.batchFailed":
@@ -780,7 +790,6 @@ export const messages = {
   "schema.arrayElement": "Put the modifiers on the array: t.array(t.string()).nullable().",
   "schema.assocFieldClash":
     'A preloaded association is a property of the row, so rename one of them (the foreign-key field is usually "{{name}}Id").',
-  "schema.assocFieldMissing": "{{fix}}",
   "schema.assocFieldVirtual":
     "Point the association at a stored field: remove .virtual() from it, or use another field.",
   "schema.assocKeyCount": "Give one foreign-key field per referenced field, in the same order.",
@@ -795,6 +804,7 @@ export const messages = {
     'Pass the options as an object, as in hasMany(() => Post, { foreignKey: "authorId" }).',
   "schema.assocOrderBy":
     'Pass field names, as in ["createdAt"], or objects of a field and a direction, as in [{ createdAt: "desc" }].',
+  "schema.assocOrderByFieldMissing": "An order is written with the target's field names.",
   "schema.assocReservedName": "Rename the static member.",
   "schema.assocShadowedByMember":
     "A preloaded association is a property of the row, so the class member would hide it or make it impossible to set. Rename one of them.",
@@ -805,18 +815,21 @@ export const messages = {
     "It is called when associations are first used, by which time every schema module must have been loaded.",
   "schema.assocTargetThunk":
     "Pass a function that returns the class, so that classes can refer to each other: {{example}}.",
-  "schema.assocUnknownOption": "It takes {{allowed}}.",
+  "schema.assocUnknownOption": "Remove the option, or check its spelling against the ones listed.",
+  "schema.assocWhereFieldMissing": "A where condition is written with the target's field names.",
   "schema.assocWhereOption": "Pass an object from field name to value, such as { published: true }.",
   "schema.assocWhereUndefined": "Use null to match NULL, or leave the key out.",
   "schema.autogenerateFunction":
     "Pass a function that makes the value, such as autogenerate(() => crypto.randomUUID()).",
   "schema.autogenerateType":
     "autogenerate() without a function works for t.uuid() (a UUID v7) and for timestamps (the current time). For other types, pass the function: autogenerate(() => value).",
+  "schema.belongsToKeyMissing":
+    "Declare the field (as in authorId: t.integer()), or pass { foreignKey } with the field that holds the key.",
   "schema.bigintMode": 'Pass { mode: "bigint" } (the default) or { mode: "number" }.',
   "schema.columnName": 'Pass the column name, as in column("pw_hash").',
   "schema.columnTaken": 'Give one of them another column with .column("…").',
   "schema.createWithTwice": "List each association once.",
-  "schema.createWithUnknown": "It has: {{known}}. Preload only associations the schema declares.",
+  "schema.createWithUnknown": "Preload only associations the schema declares.",
   "schema.dateAsOption": 'Pass { as: "string" } (the default) or { as: "date" }.',
   "schema.decimalPrecision": "Pass a precision from 1 to 1000, as in t.decimal({ precision: 10, scale: 2 }).",
   "schema.decimalScale":
@@ -840,6 +853,9 @@ export const messages = {
   "schema.foreignKeyRequired":
     'Pass the field, as in {{kind}}(() => {{target}}, { foreignKey: "authorId" }).',
   "schema.generatedTwice": "Only one side can produce the value: remove .dbGenerated() or .autogenerate().",
+  "schema.hasKeyMissing":
+    "Declare the field on {{target}} (as in authorId: t.integer()), or correct { foreignKey }.",
+  "schema.joinKeyFieldMissing": "Pass { joinKeys } with fields of {{join}}.",
   "schema.joinKeysAmbiguous": "Pass { joinKeys: { owner, target } } with the fields of {{name}}.",
   "schema.joinKeysOption":
     'Pass joinKeys: { owner: "...", target: "..." }, each naming a {{unit}} of the join table.',
@@ -851,6 +867,7 @@ export const messages = {
   "schema.joinThroughEmpty": "Give the join table's name.",
   "schema.joinThroughRequired":
     'Pass { joinThrough: "posts_tags", joinKeys: { owner, target } } with the join table\'s name, or { joinThrough: () => PostTag } with its schema class.',
+  "schema.joinWhereFieldMissing": "A joinWhere condition is written with the field names of {{join}}.",
   "schema.keylessRow":
     "The schema is declared with { primaryKey: false }, or is an embedded schema without a key field.",
   "schema.keylessWithKey": "Remove one of the two.",
@@ -880,6 +897,7 @@ export const messages = {
     'Pass the options as an object, such as { schema: "tenant_1" }, or leave them out.',
   "schema.precisionOption": 'Pass precision "s", "ms" or "us", or leave it out for the type\'s default.',
   "schema.primaryKeyOption": "A key is declared on its field: id: t.integer().primaryKey().",
+  "schema.referencedFieldMissing": "Pass { references } with the field the key points at.",
   "schema.reservedName":
     'A field cannot be named "constructor", "__proto__" or "toJSON", or start with "$". Rename it, and keep the column with .column("{{name}}").',
   "schema.schemaOption":
@@ -890,7 +908,7 @@ export const messages = {
     "Remove the other options: the associations through follows already say how the rows are found.",
   "schema.throughPath":
     'Pass the names of the associations to follow, as in {{kind}}(() => Comment, { through: ["posts", "comments"] }).',
-  "schema.throughUnknownStep": "It has: {{known}}.",
+  "schema.throughUnknownStep": "Follow associations the schema declares, in the order the path takes them.",
   "schema.throughWrongTarget":
     "Make the last association of the path point at the declared target, or change the target to the class the path ends at.",
   "schema.timestampsField":
@@ -909,7 +927,7 @@ export const messages = {
   "schema.typeNotDefined": "For a built-in type use its own function, such as t.string().",
   "schema.typeOptionsDepth": "They probably contain themselves; options must be plain data.",
   "schema.typeUnknownKind":
-    'Use one of {{SIMPLE_KINDS}}, { kind: "array", of }, or { kind: "custom", sql } for any other SQL type.',
+    'Use one of the listed kinds; { kind: "array", of } for an array, or { kind: "custom", sql } for any other SQL type.',
   "schema.uniqueOption": "Pass unique: true or unique: false, or leave it out.",
   "schema.virtualStored": "Remove .virtual() or the other modifier.",
   "schema.writableOption":

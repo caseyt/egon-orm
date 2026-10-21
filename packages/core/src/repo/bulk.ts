@@ -516,8 +516,7 @@ function raggedRows(
 ): QueryError {
   return new QueryError(
     "query.insertAllMixedColumns",
-    `repo.insertAll(): row ${row} has no value for ${schemaMeta.name}.${field.name}, which other rows give, and ${dialect} cannot write DEFAULT in a VALUES list.`,
-    { params: { columns: columns.map((column) => column.name).join(", ") } },
+    `repo.insertAll(): row ${row} has no value for ${schemaMeta.name}.${field.name}, which other rows give (they give ${columns.map((column) => column.name).join(", ")}), and ${dialect} cannot write DEFAULT in a VALUES list.`,
   );
 }
 

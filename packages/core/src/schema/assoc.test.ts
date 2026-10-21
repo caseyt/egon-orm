@@ -417,7 +417,7 @@ describe("definition errors name the schema, the association and the fix", () =>
       `"schema.assocOptionsNotObject: Owner.x: the options of belongsTo must be an object, but got a string. Pass the options as an object, as in hasMany(() => Post, { foreignKey: "authorId" }). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocoptionsnotobject"`,
     );
     expect(message(belongsTo(() => User, { optional: true } as never))).toMatchInlineSnapshot(
-      `"schema.assocUnknownOption: Owner.x: belongsTo has no option "optional". It takes foreignKey, references, onReplace. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocunknownoption"`,
+      `"schema.assocUnknownOption: Owner.x: belongsTo has no option "optional". It takes foreignKey, references, onReplace. Remove the option, or check its spelling against the ones listed. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocunknownoption"`,
     );
     expect(message(hasMany(() => Post, { foreignKey: "authorId", onDelete: "cascade" } as never))).toMatch(
       /hasMany has no option "onDelete"/,
@@ -438,11 +438,11 @@ describe("definition errors name the schema, the association and the fix", () =>
 
   test("a foreign key that does not exist, or is virtual", () => {
     expect(message(belongsTo(() => User))).toMatchInlineSnapshot(
-      `"schema.assocFieldMissing: Owner.x: belongsTo expects the foreign key field "xId" on Owner, but Owner has no such field. Declare it (xId: t.integer()) or pass { foreignKey }. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocfieldmissing"`,
+      `"schema.belongsToKeyMissing: Owner.x: belongsTo expects the foreign key field "xId" on Owner, but Owner has no such field. Declare the field (as in authorId: t.integer()), or pass { foreignKey } with the field that holds the key. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-belongstokeymissing"`,
     );
     expect(message(belongsTo(() => User, { foreignKey: "ownerId" }))).toMatch(/"ownerId" on Owner/);
     expect(message(hasMany(() => Post, { foreignKey: "ownerId" as never }))).toMatchInlineSnapshot(
-      `"schema.assocFieldMissing: Owner.x: hasMany expects the foreign key field "ownerId" on Post, but Post has no such field. Declare it on Post (ownerId: t.integer()) or correct { foreignKey }. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocfieldmissing"`,
+      `"schema.hasKeyMissing: Owner.x: hasMany expects the foreign key field "ownerId" on Post, but Post has no such field. Declare the field on Post (as in authorId: t.integer()), or correct { foreignKey }. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-haskeymissing"`,
     );
     class Virtual extends Schema("virtuals", { id: t.integer().primaryKey(), xId: t.integer().virtual() }) {
       static x = belongsTo(() => User);
@@ -505,7 +505,7 @@ describe("definition errors name the schema, the association and the fix", () =>
         { xId: t.integer() },
       ),
     ).toMatchInlineSnapshot(
-      `"schema.assocFieldMissing: Owner.x: belongsTo expects the referenced field "nope" on User, but User has no such field. Pass { references } with the field the key points at. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocfieldmissing"`,
+      `"schema.referencedFieldMissing: Owner.x: belongsTo expects the referenced field "nope" on User, but User has no such field. Pass { references } with the field the key points at. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-referencedfieldmissing"`,
     );
     class KeylessOwner extends Schema("keyless_owners", { name: t.string() }, { primaryKey: false }) {
       static posts = hasMany(() => Post, { foreignKey: "authorId" });
@@ -623,7 +623,7 @@ describe("definition errors name the schema, the association and the fix", () =>
     expect(
       message(hasMany(() => Post, { foreignKey: "authorId", where: { nope: 1 } as never })),
     ).toMatchInlineSnapshot(
-      `"schema.assocFieldMissing: Owner.x: hasMany expects the where field "nope" on Post, but Post has no such field. A where condition is written with the target's field names. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocfieldmissing"`,
+      `"schema.assocWhereFieldMissing: Owner.x: hasMany expects the where field "nope" on Post, but Post has no such field. A where condition is written with the target's field names. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocwherefieldmissing"`,
     );
     expect(
       message(hasMany(() => Post, { foreignKey: "authorId", where: { title: undefined } })),
@@ -650,7 +650,7 @@ describe("definition errors name the schema, the association and the fix", () =>
     expect(
       message(hasMany(() => Post, { foreignKey: "authorId", orderBy: ["nope"] as never })),
     ).toMatchInlineSnapshot(
-      `"schema.assocFieldMissing: Owner.x: hasMany expects the orderBy field "nope" on Post, but Post has no such field. An order is written with the target's field names. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocfieldmissing"`,
+      `"schema.assocOrderByFieldMissing: Owner.x: hasMany expects the orderBy field "nope" on Post, but Post has no such field. An order is written with the target's field names. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocorderbyfieldmissing"`,
     );
   });
 
@@ -751,7 +751,7 @@ describe("definition errors name the schema, the association and the fix", () =>
         }),
       ),
     ).toMatchInlineSnapshot(
-      `"schema.assocFieldMissing: Owner.x: manyToMany expects the join key field "nope" on Membership, but Membership has no such field. Pass { joinKeys } with fields of Membership. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocfieldmissing"`,
+      `"schema.joinKeyFieldMissing: Owner.x: manyToMany expects the join key field "nope" on Membership, but Membership has no such field. Pass { joinKeys } with fields of Membership. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-joinkeyfieldmissing"`,
     );
     expect(
       message(
@@ -804,10 +804,10 @@ describe("definition errors name the schema, the association and the fix", () =>
       `"schema.throughCombined: Owner.x: through cannot be combined with foreignKey. Remove the other options: the associations through follows already say how the rows are found. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-throughcombined"`,
     );
     expect(message(hasMany(() => Comment, { through: ["posts", "comments"] }))).toMatchInlineSnapshot(
-      `"schema.throughUnknownStep: Owner.x: through follows "posts" on Owner, but Owner has no such association. It has: none. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-throughunknownstep"`,
+      `"schema.throughUnknownStep: Owner.x: through follows "posts" on Owner, but Owner has no such association. It has: none. Follow associations the schema declares, in the order the path takes them. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-throughunknownstep"`,
     );
     expect(message(hasMany(() => Comment, { through: ["x", "comments"] }))).toMatchInlineSnapshot(
-      `"schema.throughUnknownStep: Owner.x: through follows "x" on Owner, but Owner has no such association. It has: none. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-throughunknownstep"`,
+      `"schema.throughUnknownStep: Owner.x: through follows "x" on Owner, but Owner has no such association. It has: none. Follow associations the schema declares, in the order the path takes them. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-throughunknownstep"`,
     );
     class Hop extends Schema("hops", { id: t.integer().primaryKey(), userId: t.integer() }) {
       static user = belongsTo(() => User);

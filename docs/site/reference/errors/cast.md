@@ -2,9 +2,11 @@
 
 # Cast errors
 
-Thrown as `CastError` (`code: "cast"`). Each entry is an identifier (`error.id`), the message as the error
-states it (`{name}` stands for a value it names), and what to do about it: the text
-`useFullErrorMessages(messages)` and `explain(error)` add. See [Errors](/reference/errors).
+Thrown as `CastError` (`code: "cast"`). Each entry is an identifier (`error.id`), then the message as the
+error states it, where `{expression}` stands for the value of that expression in the source
+(`{…}` for one too long to show), then what to do about it: the text `useFullErrorMessages(messages)`
+and `explain(error)` add, where `{name}` stands for the error's parameter of that name.
+See [Errors](/reference/errors).
 
 ::: v-pre
 
@@ -46,13 +48,13 @@ Declare the field as t.date() to read it as a string.
 
 ## `cast.embedFieldMissing` {#cast-embedfieldmissing}
 
-> &#123;what&#125;, and the field &#123;name&#125; has no default and is not nullable.
+> &#123;what&#125;, and the field &#123;slot.field.name&#125; has no default and is not nullable.
 
 Give it a .default(…) (or make it .nullable()) so that rows stored before it existed can be read.
 
 ## `cast.embedGeneratedMissing` {#cast-embedgeneratedmissing}
 
-> &#123;what&#125;, the generated value of &#123;name&#125;: it was written without one (not through a changeset or insertAll).
+> &#123;what&#125;, the generated value of &#123;slot.field.name&#125;: it was written without one (not through a changeset or insertAll).
 
 Write the row through a changeset or insertAll(), which fill the generated value.
 
@@ -64,39 +66,43 @@ Store a valid Date: the value was created with new Date() from something that is
 
 ## `cast.embedListNotArray` {#cast-embedlistnotarray}
 
-> A list of &#123;name&#125; must be an array.
-
-> A stored list of &#123;name&#125; is not a JSON array.
+> A list of &#123;target.name&#125; must be an array.
 
 Pass an array of the embedded values; an empty list is \[\].
 
 ## `cast.embedNotObject` {#cast-embednotobject}
 
-> A stored &#123;name&#125; is not a JSON object.
+> A stored &#123;schemaMeta.name&#125; is not a JSON object.
 
 Fix the stored JSON: an embedOne column holds a JSON object (or null for a nullable embed).
 
 ## `cast.embedStoredField` {#cast-embedstoredfield}
 
-> The stored "&#123;key&#125;" of the embedded &#123;name&#125; is not &#123;what&#125;.
+> The stored "&#123;key&#125;" of the embedded &#123;schemaMeta.name&#125; is not &#123;what&#125;.
 
 Fix the stored JSON, or change the embedded field's type to what the column holds.
 
+## `cast.embedStoredListNotArray` {#cast-embedstoredlistnotarray}
+
+> A stored list of &#123;target.name&#125; is not a JSON array.
+
+Fix the stored JSON: an embedMany column holds a JSON array (or null for a nullable embed).
+
 ## `cast.embedWrite` {#cast-embedwrite}
 
-> A &#123;name&#125; cannot be written: &#123;row&#125;.
+> A &#123;target.name&#125; cannot be written: &#123;row&#125;.
 
 Write the embed through a changeset (castEmbed or putEmbed), which checks each field.
 
 ## `cast.enumStoredValue` {#cast-enumstoredvalue}
 
-> An enum column holds a &#123;…&#125; that is not one of the enum's stored values (&#123;join&#125;).
+> An enum column holds a &#123;…&#125; that is not one of the enum's stored values (&#123;stored.map((v) =\> JSON.stringify(v)).join(", ")&#125;).
 
 Add it to the enum, or fix the stored data.
 
 ## `cast.enumWriteValue` {#cast-enumwritevalue}
 
-> A value that is not a member of the enum (&#123;join&#125;) cannot be written to an enum column.
+> A value that is not a member of the enum (&#123;keys.map((k) =\> JSON.stringify(k)).join(", ")&#125;) cannot be written to an enum column.
 
 Write one of the enum's members; a changeset's cast rejects other values before they reach the database.
 

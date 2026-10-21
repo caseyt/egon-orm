@@ -15,8 +15,8 @@ compatibility_flags = ["nodejs_compat"]
 
 ### A repo per request
 
-A Worker may not use a connection that another request opened: a request that tries
-waits forever. So create the repo, and with it its pool, in the handler, and close it once
+A Worker may not use a connection that another request opened: a request that tries fails
+or hangs. So create the repo, and with it its pool, in the handler, and close it once
 the response is sent with `ctx.waitUntil`:
 
 <<< @/examples/edge.ts#worker
@@ -49,9 +49,10 @@ never be asked, such as a strict Content Security Policy.
 
 `timeoutMs` and `signal` cancel a running statement with Postgres's cancel request, which
 needs `node:net` and `node:tls`. `@egon-orm/postgres` loads them the first time a
-statement is cancelled, so the package loads where they are missing; there, cancelling
-fails, the statement runs to its end, the call still rejects, and its connection is not
-reused.
+statement is cancelled, so the package loads where they are missing. There, cancelling
+fails: the statement runs to its end, and the call rejects with
+`database.timeoutNotCancelled` (or `database.abortedNotCancelled`), whose `cause` says why;
+its connection is not reused.
 
 ## Error messages
 
@@ -80,12 +81,15 @@ Measured from the packed packages with esbuild, minified, `pg` left out
 | `cast` | 100 KB | 31 KB |
 | A query, not run | 121 KB | 38 KB |
 | `EgonError` only | 0.7 KB | 0.5 KB |
-| `egon-orm/messages` (the full messages, when imported) | 66 KB | 19 KB |
+| `egon-orm/messages` (the full messages, when imported) | 68 KB | 19 KB |
 
 The packages are published one file per module, with `"sideEffects": false`, so a bundler
 keeps only the modules an application uses. The example Worker of the repository
 (`examples/edge-worker`, which also imports `egon-orm/messages`), with `pg`, is 570 KiB
-minified and 178 KiB gzip; Cloudflare's limit is 64 MiB uncompressed.
+minified and 178 KiB gzip. Cloudflare limits a Worker to 64 MiB uncompressed on every plan,
+with no compressed limit, and its global scope must start within 1 second
+([Workers limits](https://developers.cloudflare.com/workers/platform/limits/#worker-size),
+as of October 2026).
 
 ## Not supported yet
 

@@ -204,9 +204,10 @@ function checkField(fields: ReadonlyMap<string, FieldMeta>, name: unknown, fn: s
   const field = typeof name === "string" ? fields.get(name) : undefined;
   if (field === undefined) {
     throw typeof name === "string"
-      ? new QueryError("query.validateUnknownField", `${fn}(): "${name}" is not a field.`, {
-          params: { fields: [...fields.keys()].join(", ") },
-        })
+      ? new QueryError(
+          "query.validateUnknownField",
+          `${fn}(): "${name}" is not a field. The fields are: ${[...fields.keys()].join(", ")}.`,
+        )
       : new QueryError("query.fieldNameType", `${fn}() takes a field name as a string.`);
   }
   return field;

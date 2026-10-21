@@ -2,15 +2,17 @@
 
 # Rollback errors
 
-Thrown as `RollbackError` (`code: "rollback"`). Each entry is an identifier (`error.id`), the message as the error
-states it (`{name}` stands for a value it names), and what to do about it: the text
-`useFullErrorMessages(messages)` and `explain(error)` add. See [Errors](/reference/errors).
+Thrown as `RollbackError` (`code: "rollback"`). Each entry is an identifier (`error.id`), then the message as the
+error states it, where `{expression}` stands for the value of that expression in the source
+(`{…}` for one too long to show), then what to do about it: the text `useFullErrorMessages(messages)`
+and `explain(error)` add, where `{name}` stands for the error's parameter of that name.
+See [Errors](/reference/errors).
 
 ::: v-pre
 
 ## `rollback.batchFailed` {#rollback-batchfailed}
 
-> The batch failed at its step "&#123;step&#125;" and was rolled back; error.reason holds &#123; step, error, completed &#125;.
+> The batch failed at its step "&#123;reason.step&#125;" and was rolled back; error.reason holds &#123; step, error, completed &#125;.
 
 Call repo.transaction(batch) instead of transactionOrThrow() to get it back as a failed Result.
 

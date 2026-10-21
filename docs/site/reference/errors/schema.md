@@ -2,9 +2,11 @@
 
 # Schema definition errors
 
-Thrown as `SchemaDefinitionError` (`code: "schemaDefinition"`). Each entry is an identifier (`error.id`), the message as the error
-states it (`{name}` stands for a value it names), and what to do about it: the text
-`useFullErrorMessages(messages)` and `explain(error)` add. See [Errors](/reference/errors).
+Thrown as `SchemaDefinitionError` (`code: "schemaDefinition"`). Each entry is an identifier (`error.id`), then the message as the
+error states it, where `{expression}` stands for the value of that expression in the source
+(`{…}` for one too long to show), then what to do about it: the text `useFullErrorMessages(messages)`
+and `explain(error)` add, where `{name}` stands for the error's parameter of that name.
+See [Errors](/reference/errors).
 
 ::: v-pre
 
@@ -16,25 +18,19 @@ Put the modifiers on the array: t.array(t.string()).nullable().
 
 ## `schema.assocFieldClash` {#schema-assocfieldclash}
 
-> &#123;name&#125; has a field and an association that are both named "&#123;name&#125;".
+> &#123;ownerMeta.name&#125; has a field and an association that are both named "&#123;name&#125;".
 
 A preloaded association is a property of the row, so rename one of them (the foreign-key field is usually "&#123;name&#125;Id").
 
-## `schema.assocFieldMissing` {#schema-assocfieldmissing}
-
-> &#123;kind&#125; expects the &#123;role&#125; field "&#123;name&#125;" on &#123;name&#125;, but &#123;name&#125; has no such field.
-
-&#123;fix&#125;
-
 ## `schema.assocFieldVirtual` {#schema-assocfieldvirtual}
 
-> the &#123;role&#125; field "&#123;name&#125;" of &#123;name&#125; is virtual, so it is not stored and cannot be part of an association.
+> the &#123;role&#125; field "&#123;name&#125;" of &#123;meta.name&#125; is virtual, so it is not stored and cannot be part of an association.
 
 Point the association at a stored field: remove .virtual() from it, or use another field.
 
 ## `schema.assocKeyCount` {#schema-assockeycount}
 
-> the foreign key has &#123;length&#125; field(s) (&#123;quoted&#125;) but it points at &#123;length&#125; (&#123;quoted&#125; on &#123;name&#125;).
+> the foreign key has &#123;foreignKey.length&#125; field(s) (&#123;quoted(foreignKey)&#125;) but it points at &#123;references.length&#125; (&#123;quoted(references)&#125; on &#123;referencedMeta.name&#125;).
 
 Give one foreign-key field per referenced field, in the same order.
 
@@ -46,31 +42,31 @@ Pass a field name, as in &#123; foreignKey: "authorId" &#125;, or an array of th
 
 ## `schema.assocKeyType` {#schema-assockeytype}
 
-> the foreign key &#123;name&#125;.&#123;name&#125; is of type &#123;name&#125;, but &#123;name&#125;.&#123;name&#125;, which it points at, is of type &#123;name&#125;.
+> the foreign key &#123;holderMeta.name&#125;.&#123;key.name&#125; is of type &#123;key.type.name&#125;, but &#123;referencedMeta.name&#125;.&#123;referenced.name&#125;, which it points at, is of type &#123;referenced.type.name&#125;.
 
 Declare both with the same type.
 
 ## `schema.assocNoPrimaryKey` {#schema-assocnoprimarykey}
 
-> &#123;name&#125; has no primary key, so the field the key points at cannot be guessed.
+> &#123;meta.name&#125; has no primary key, so the field the key points at cannot be guessed.
 
 Pass &#123; &#123;option&#125; &#125;.
 
 ## `schema.assocOnEmbedded` {#schema-assoconembedded}
 
-> &#123;name&#125; is an embedded schema: it is stored inside its parent's row and has no table to associate.
+> &#123;ownerMeta.name&#125; is an embedded schema: it is stored inside its parent's row and has no table to associate.
 
 Move the association to the parent schema.
 
 ## `schema.assocOnReplace` {#schema-assoconreplace}
 
-> onReplace must be one of &#123;quoted&#125; for &#123;kind&#125;.
+> onReplace must be one of &#123;quoted(allowed)&#125; for &#123;context.kind&#125;.
 
 Pick one of the listed modes; "error" (the default) refuses to replace existing associated rows.
 
 ## `schema.assocOptionsNotObject` {#schema-assocoptionsnotobject}
 
-> the options of &#123;kind&#125; must be an object, but got &#123;describe&#125;.
+> the options of &#123;context.kind&#125; must be an object, but got &#123;describe(raw)&#125;.
 
 Pass the options as an object, as in hasMany(() =\> Post, &#123; foreignKey: "authorId" &#125;).
 
@@ -80,6 +76,10 @@ Pass the options as an object, as in hasMany(() =\> Post, &#123; foreignKey: "au
 
 Pass field names, as in \["createdAt"\], or objects of a field and a direction, as in \[&#123; createdAt: "desc" &#125;\].
 
+## `schema.assocOrderByFieldMissing` {#schema-assocorderbyfieldmissing}
+
+An order is written with the target's field names.
+
 ## `schema.assocReservedName` {#schema-assocreservedname}
 
 > "&#123;name&#125;" cannot be the name of an association: "constructor", "\_\_proto\_\_", "toJSON", "fields" and names that start with "$" are reserved.
@@ -88,19 +88,19 @@ Rename the static member.
 
 ## `schema.assocShadowedByMember` {#schema-assocshadowedbymember}
 
-> &#123;name&#125; defines "&#123;name&#125;" as a getter, method or property of the class, and "&#123;name&#125;" is also an association.
+> &#123;ownerMeta.name&#125; defines "&#123;name&#125;" as a getter, method or property of the class, and "&#123;name&#125;" is also an association.
 
 A preloaded association is a property of the row, so the class member would hide it or make it impossible to set. Rename one of them.
 
 ## `schema.assocTargetEmbedded` {#schema-assoctargetembedded}
 
-> &#123;name&#125; is an embedded schema and has no table, so it cannot be the &#123;role&#125; of an association.
+> &#123;targetMeta.name&#125; is an embedded schema and has no table, so it cannot be the &#123;role&#125; of an association.
 
 Declare it as a field: t.embedOne(() =\> &#123;name&#125;).
 
 ## `schema.assocTargetNotSchema` {#schema-assoctargetnotschema}
 
-> the function for the &#123;role&#125; returned &#123;describe&#125;, not a schema class.
+> the function for the &#123;role&#125; returned &#123;describe(target)&#125;, not a schema class.
 
 The function must return a class declared with Schema(...), such as () =\> Post.
 
@@ -118,9 +118,13 @@ Pass a function that returns the class, so that classes can refer to each other:
 
 ## `schema.assocUnknownOption` {#schema-assocunknownoption}
 
-> &#123;kind&#125; has no option "&#123;key&#125;".
+> &#123;context.kind&#125; has no option "&#123;key&#125;". It takes &#123;allowed.join(", ")&#125;.
 
-It takes &#123;allowed&#125;.
+Remove the option, or check its spelling against the ones listed.
+
+## `schema.assocWhereFieldMissing` {#schema-assocwherefieldmissing}
+
+A where condition is written with the target's field names.
 
 ## `schema.assocWhereOption` {#schema-assocwhereoption}
 
@@ -142,13 +146,17 @@ Pass a function that makes the value, such as autogenerate(() =\> crypto.randomU
 
 ## `schema.autogenerateType` {#schema-autogeneratetype}
 
-> autogenerate() without a function has no value to make for the type &#123;name&#125;.
+> autogenerate() without a function has no value to make for the type &#123;type.name&#125;.
 
 autogenerate() without a function works for t.uuid() (a UUID v7) and for timestamps (the current time). For other types, pass the function: autogenerate(() =\> value).
 
+## `schema.belongsToKeyMissing` {#schema-belongstokeymissing}
+
+Declare the field (as in authorId: t.integer()), or pass &#123; foreignKey &#125; with the field that holds the key.
+
 ## `schema.bigintMode` {#schema-bigintmode}
 
-> t.bigint: mode must be "bigint" or "number", but got &#123;stringify&#125;.
+> t.bigint: mode must be "bigint" or "number", but got &#123;JSON.stringify(mode)&#125;.
 
 Pass &#123; mode: "bigint" &#125; (the default) or &#123; mode: "number" &#125;.
 
@@ -160,7 +168,7 @@ Pass the column name, as in column("pw\_hash").
 
 ## `schema.columnTaken` {#schema-columntaken}
 
-> &#123;label&#125;: the fields "&#123;other&#125;" and "&#123;name&#125;" are both stored in the column "&#123;column&#125;".
+> &#123;label&#125;: the fields "&#123;other&#125;" and "&#123;name&#125;" are both stored in the column "&#123;field.column&#125;".
 
 Give one of them another column with .column("…").
 
@@ -172,25 +180,25 @@ List each association once.
 
 ## `schema.createWithUnknown` {#schema-createwithunknown}
 
-> &#123;name&#125; has no association "&#123;assoc&#125;".
+> &#123;name&#125; has no association "&#123;assoc&#125;". It has: &#123;…&#125;.
 
-It has: &#123;known&#125;. Preload only associations the schema declares.
+Preload only associations the schema declares.
 
 ## `schema.dateAsOption` {#schema-dateasoption}
 
-> t.date: as must be "string" or "date", but got &#123;stringify&#125;.
+> t.date: as must be "string" or "date", but got &#123;JSON.stringify(as)&#125;.
 
 Pass &#123; as: "string" &#125; (the default) or &#123; as: "date" &#125;.
 
 ## `schema.decimalPrecision` {#schema-decimalprecision}
 
-> t.decimal: precision must be a whole number from 1 to 1000, but got &#123;String&#125;.
+> t.decimal: precision must be a whole number from 1 to 1000, but got &#123;String(precision)&#125;.
 
 Pass a precision from 1 to 1000, as in t.decimal(&#123; precision: 10, scale: 2 &#125;).
 
 ## `schema.decimalScale` {#schema-decimalscale}
 
-> t.decimal: scale must be a whole number from 0 to the precision (&#123;precision&#125;), but got &#123;String&#125;.
+> t.decimal: scale must be a whole number from 0 to the precision (&#123;precision&#125;), but got &#123;String(scale)&#125;.
 
 Pass a scale from 0 to the precision, as in t.decimal(&#123; precision: 10, scale: 2 &#125;).
 
@@ -214,7 +222,7 @@ Pass a function that returns the class, as in t.embedOne(() =\> Address) or t.em
 
 ## `schema.enumDuplicate` {#schema-enumduplicate}
 
-> t.enum values must be distinct, but got &#123;stringify&#125;.
+> t.enum values must be distinct, but got &#123;JSON.stringify(keys)&#125;.
 
 List each member once.
 
@@ -226,25 +234,25 @@ Give t.enum at least one member, as in t.enum(\["admin", "member"\]).
 
 ## `schema.enumMappingAmbiguous` {#schema-enummappingambiguous}
 
-> t.enum mapping is ambiguous: &#123;stringify&#125; is a key and also the stored value of &#123;stringify&#125;, so input &#123;stringify&#125; could mean either.
+> t.enum mapping is ambiguous: &#123;JSON.stringify(key)&#125; is a key and also the stored value of &#123;JSON.stringify(other)&#125;, so input &#123;JSON.stringify(key)&#125; could mean either.
 
 Choose stored values that are not also member names.
 
 ## `schema.enumMappingDuplicate` {#schema-enummappingduplicate}
 
-> t.enum mapping values must be distinct, but got &#123;join&#125;.
+> t.enum mapping values must be distinct, but got &#123;stored.map(describeMember).join(", ")&#125;.
 
 Give every member its own stored value.
 
 ## `schema.enumMappingValues` {#schema-enummappingvalues}
 
-> t.enum mapping values must be all strings or all whole numbers, but got &#123;join&#125;.
+> t.enum mapping values must be all strings or all whole numbers, but got &#123;stored.map(describeMember).join(", ")&#125;.
 
 Map every member to a string, or every member to a whole number, as in t.enum(&#123; low: 1, high: 2 &#125;).
 
 ## `schema.enumMemberType` {#schema-enummembertype}
 
-> t.enum values must be strings, but got &#123;describeMember&#125;.
+> t.enum values must be strings, but got &#123;describeMember(key)&#125;.
 
 For other stored values use a mapping: t.enum(&#123; low: 1, high: 2 &#125;).
 
@@ -256,13 +264,13 @@ Pass a list of strings, t.enum(\["admin", "member"\]), or a mapping, t.enum(&#12
 
 ## `schema.fieldsNotObject` {#schema-fieldsnotobject}
 
-> &#123;label&#125;: the fields must be an object from field name to type, such as &#123; id: t.integer().primaryKey() &#125;, but got &#123;describe&#125;.
+> &#123;label&#125;: the fields must be an object from field name to type, such as &#123; id: t.integer().primaryKey() &#125;, but got &#123;describe(declared)&#125;.
 
 Pass the fields as the second argument of Schema() (or the first of EmbeddedSchema()), an object whose values are field types made with t.
 
 ## `schema.foreignKeyRequired` {#schema-foreignkeyrequired}
 
-> &#123;kind&#125; needs &#123; foreignKey &#125;: the field on &#123;name&#125; that points at &#123;name&#125;.
+> &#123;kind&#125; needs &#123; foreignKey &#125;: the field on &#123;targetMeta.name&#125; that points at &#123;ownerMeta.name&#125;.
 
 Pass the field, as in &#123;kind&#125;(() =\> &#123;target&#125;, &#123; foreignKey: "authorId" &#125;).
 
@@ -272,15 +280,23 @@ Pass the field, as in &#123;kind&#125;(() =\> &#123;target&#125;, &#123; foreign
 
 Only one side can produce the value: remove .dbGenerated() or .autogenerate().
 
+## `schema.hasKeyMissing` {#schema-haskeymissing}
+
+Declare the field on &#123;target&#125; (as in authorId: t.integer()), or correct &#123; foreignKey &#125;.
+
+## `schema.joinKeyFieldMissing` {#schema-joinkeyfieldmissing}
+
+Pass &#123; joinKeys &#125; with fields of &#123;join&#125;.
+
 ## `schema.joinKeyType` {#schema-joinkeytype}
 
-> the join key &#123;name&#125;.&#123;name&#125; is of type &#123;name&#125;, but &#123;name&#125;.&#123;name&#125;, which it points at, is of type &#123;name&#125;.
+> the join key &#123;joinMeta.name&#125;.&#123;joinField.name&#125; is of type &#123;joinField.type.name&#125;, but &#123;side.name&#125;.&#123;key.name&#125;, which it points at, is of type &#123;key.type.name&#125;.
 
 Declare both with the same type.
 
 ## `schema.joinKeysAmbiguous` {#schema-joinkeysambiguous}
 
-> the join keys cannot be worked out: &#123;name&#125; declares &#123;length&#125; belongsTo association(s) to &#123;name&#125; and exactly one, with a single foreign key, is needed.
+> the join keys cannot be worked out: &#123;joinMeta.name&#125; declares &#123;found.length&#125; belongsTo association(s) to &#123;sideMeta.name&#125; and exactly one, with a single foreign key, is needed.
 
 Pass &#123; joinKeys: &#123; owner, target &#125; &#125; with the fields of &#123;name&#125;.
 
@@ -298,13 +314,13 @@ Pass joinKeys, as in &#123; joinThrough: "&#123;through&#125;", joinKeys: &#123;
 
 ## `schema.joinKeysSame` {#schema-joinkeyssame}
 
-> joinKeys.owner and joinKeys.target are both "&#123;owner&#125;".
+> joinKeys.owner and joinKeys.target are both "&#123;keys.owner&#125;".
 
 They are two different &#123;unit&#125;s.
 
 ## `schema.joinKeysSelf` {#schema-joinkeysself}
 
-> &#123;name&#125; is on both sides of this manyToMany, so the join keys cannot be told apart.
+> &#123;ownerMeta.name&#125; is on both sides of this manyToMany, so the join keys cannot be told apart.
 
 Pass &#123; joinKeys: &#123; owner, target &#125; &#125; with the fields of &#123;name&#125;.
 
@@ -320,21 +336,25 @@ Give the join table's name.
 
 Pass &#123; joinThrough: "posts\_tags", joinKeys: &#123; owner, target &#125; &#125; with the join table's name, or &#123; joinThrough: () =\> PostTag &#125; with its schema class.
 
+## `schema.joinWhereFieldMissing` {#schema-joinwherefieldmissing}
+
+A joinWhere condition is written with the field names of &#123;join&#125;.
+
 ## `schema.keylessRow` {#schema-keylessrow}
 
-> &#123;className&#125; has no primary key, so its rows have no key value.
+> &#123;className(row)&#125; has no primary key, so its rows have no key value.
 
 The schema is declared with &#123; primaryKey: false &#125;, or is an embedded schema without a key field.
 
 ## `schema.keylessWithKey` {#schema-keylesswithkey}
 
-> &#123;label&#125;: &#123; primaryKey: false &#125; says the table has no key, but the field "&#123;name&#125;" is declared with .primaryKey().
+> &#123;label&#125;: &#123; primaryKey: false &#125; says the table has no key, but the field "&#123;primaryKey\[0\]?.name&#125;" is declared with .primaryKey().
 
 Remove one of the two.
 
 ## `schema.manyToManyCompositeKey` {#schema-manytomanycompositekey}
 
-> manyToMany needs &#123;name&#125; to have a primary key of exactly one field, because a join table holds one column for each side. &#123;name&#125; has &#123;length&#125;.
+> manyToMany needs &#123;meta.name&#125; to have a primary key of exactly one field, because a join table holds one column for each side. &#123;meta.name&#125; has &#123;meta.primaryKey.length&#125;.
 
 Give the schema a single-field key, or declare the join as a schema class with belongsTo associations and use hasMany with through.
 
@@ -352,7 +372,7 @@ Pass naming: "snake\_case" (the default for tables), naming: "camelCase", or a f
 
 ## `schema.namingResult` {#schema-namingresult}
 
-> &#123;label&#125;: the naming function returned &#123;describe&#125; for the field "&#123;field&#125;".
+> &#123;label&#125;: the naming function returned &#123;describe(column)&#125; for the field "&#123;field&#125;".
 
 It must return the column name.
 
@@ -388,7 +408,7 @@ Pass a row returned by a query or a write, not a plain object or a changeset.
 
 ## `schema.notSchemaClass` {#schema-notschemaclass}
 
-> Expected a schema class (a class that extends Schema(...) or EmbeddedSchema(...)), but got &#123;describe&#125;.
+> Expected a schema class (a class that extends Schema(...) or EmbeddedSchema(...)), but got &#123;describe(schema)&#125;.
 
 Pass the class you declared with class User extends Schema("users", &#123; ... &#125;) &#123;&#125;, not an instance, a row or a plain object.
 
@@ -406,19 +426,19 @@ A key always has a value: remove .nullable().
 
 ## `schema.onReplaceOption` {#schema-onreplaceoption}
 
-> t.&#123;factory&#125;(): onReplace must be one of &#123;join&#125;.
+> t.&#123;factory&#125;(): onReplace must be one of &#123;…&#125;.
 
 Pick one of the listed modes; "error" (the default) refuses to replace an existing embed.
 
 ## `schema.optionsNotObject` {#schema-optionsnotobject}
 
-> &#123;label&#125;: the options must be an object, but got &#123;describe&#125;.
+> &#123;label&#125;: the options must be an object, but got &#123;describe(options)&#125;.
 
 Pass the options as an object, such as &#123; schema: "tenant\_1" &#125;, or leave them out.
 
 ## `schema.precisionOption` {#schema-precisionoption}
 
-> &#123;builder&#125;: precision must be "s", "ms" or "us", but got &#123;stringify&#125;.
+> &#123;builder&#125;: precision must be "s", "ms" or "us", but got &#123;JSON.stringify(precision)&#125;.
 
 Pass precision "s", "ms" or "us", or leave it out for the type's default.
 
@@ -427,6 +447,10 @@ Pass precision "s", "ms" or "us", or leave it out for the type's default.
 > &#123;label&#125;: primaryKey can only be false, for a table without a key.
 
 A key is declared on its field: id: t.integer().primaryKey().
+
+## `schema.referencedFieldMissing` {#schema-referencedfieldmissing}
+
+Pass &#123; references &#125; with the field the key points at.
 
 ## `schema.reservedName` {#schema-reservedname}
 
@@ -448,13 +472,13 @@ A plain object has no state.
 
 ## `schema.tableName` {#schema-tablename}
 
-> Schema() was given &#123;describe&#125; as the table name.
+> Schema() was given &#123;describe(source)&#125; as the table name.
 
 Pass the table name as a non-empty string: Schema("users", &#123; ... &#125;).
 
 ## `schema.throughCombined` {#schema-throughcombined}
 
-> through cannot be combined with &#123;join&#125;.
+> through cannot be combined with &#123;others.join(", ")&#125;.
 
 Remove the other options: the associations through follows already say how the rows are found.
 
@@ -466,13 +490,13 @@ Pass the names of the associations to follow, as in &#123;kind&#125;(() =\> Comm
 
 ## `schema.throughUnknownStep` {#schema-throughunknownstep}
 
-> through follows "&#123;step&#125;" on &#123;name&#125;, but &#123;name&#125; has no such association.
+> through follows "&#123;step&#125;" on &#123;currentMeta.name&#125;, but &#123;currentMeta.name&#125; has no such association. It has: &#123;…&#125;.
 
-It has: &#123;known&#125;.
+Follow associations the schema declares, in the order the path takes them.
 
 ## `schema.throughWrongTarget` {#schema-throughwrongtarget}
 
-> through \[&#123;quoted&#125;\] ends at &#123;name&#125;, but the association is declared with &#123;name&#125; as its target.
+> through \[&#123;quoted(path)&#125;\] ends at &#123;currentMeta.name&#125;, but the association is declared with &#123;context.metaOf(target).name&#125; as its target.
 
 Make the last association of the path point at the declared target, or change the target to the class the path ends at.
 
@@ -484,7 +508,7 @@ Pass the field name as a string, as in timestamps(&#123; createdAt: "insertedAt"
 
 ## `schema.timestampsSameName` {#schema-timestampssamename}
 
-> timestamps(): createdAt and updatedAt are both named "&#123;String&#125;".
+> timestamps(): createdAt and updatedAt are both named "&#123;String(createdAt)&#125;".
 
 Give them different names, or pass false for one.
 
@@ -496,7 +520,7 @@ Pass a timestamp type such as t.timestamp() or t.localTimestamp(), without modif
 
 ## `schema.typeCast` {#schema-typecast}
 
-> Type "&#123;name&#125;": cast must be a function that returns &#123; success: true, data &#125; or &#123; success: false &#125;, but it is &#123;describe&#125;.
+> Type "&#123;name&#125;": cast must be a function that returns &#123; success: true, data &#125; or &#123; success: false &#125;, but it is &#123;describe(cast)&#125;.
 
 Pass cast: (value) =\> (&#123; success: true, data: value &#125;), returning &#123; success: false &#125; for a value it rejects.
 
@@ -508,19 +532,19 @@ It is written into the SQL text, so it must be a constant and can never come fro
 
 ## `schema.typeDbKind` {#schema-typedbkind}
 
-> Type "&#123;typeName&#125;": &#123;path&#125; must be a column type such as &#123; kind: "text" &#125;, but it is &#123;describe&#125;.
+> Type "&#123;typeName&#125;": &#123;path&#125; must be a column type such as &#123; kind: "text" &#125;, but it is &#123;describe(db)&#125;.
 
 Give db a column type, such as &#123; kind: "text" &#125;, &#123; kind: "array", of: &#123; kind: "integer" &#125; &#125; or &#123; kind: "custom", sql: "citext" &#125;.
 
 ## `schema.typeMember` {#schema-typemember}
 
-> Type "&#123;name&#125;": &#123;member&#125; must be a function or be left out, but it is &#123;describe&#125;.
+> Type "&#123;name&#125;": &#123;member&#125; must be a function or be left out, but it is &#123;describe(fn)&#125;.
 
 Pass a function, or leave the member out to use the identity.
 
 ## `schema.typeName` {#schema-typename}
 
-> defineType needs a non-empty name (it appears in error messages), but got &#123;describe&#125;.
+> defineType needs a non-empty name (it appears in error messages), but got &#123;describe(name)&#125;.
 
 Pass a name, as in defineType(&#123; name: "money", ... &#125;); it appears in error messages.
 
@@ -538,9 +562,9 @@ They probably contain themselves; options must be plain data.
 
 ## `schema.typeUnknownKind` {#schema-typeunknownkind}
 
-> Type "&#123;typeName&#125;": &#123;path&#125;.kind is &#123;stringify&#125;, which is not a column kind.
+> Type "&#123;typeName&#125;": &#123;path&#125;.kind is &#123;JSON.stringify(kind)&#125;, which is not a column kind. The kinds are &#123;\[...SIMPLE\_KINDS\].join(", ")&#125;, "array" and "custom".
 
-Use one of &#123;SIMPLE\_KINDS&#125;, &#123; kind: "array", of &#125;, or &#123; kind: "custom", sql &#125; for any other SQL type.
+Use one of the listed kinds; &#123; kind: "array", of &#125; for an array, or &#123; kind: "custom", sql &#125; for any other SQL type.
 
 ## `schema.uniqueOption` {#schema-uniqueoption}
 

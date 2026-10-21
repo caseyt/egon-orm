@@ -308,8 +308,25 @@ function interruption(
   timeoutMs: number | undefined,
   cause: unknown,
   waiting = false,
+  cancelFailure?: unknown,
 ): DatabaseError {
   const details = { code: kind, sql, cause };
+  if (cancelFailure !== undefined) {
+    // The cancel request failed (or cancelling is not possible here, e.g. no node:net):
+    // the statement ran to its end. The reason is the cause, so the caller can see it.
+    const failed = { code: kind, sql, cause: cancelFailure };
+    return kind === "aborted"
+      ? new DatabaseError(
+          "database.abortedNotCancelled",
+          "The call was aborted by its AbortSignal, but cancelling the statement failed, so it ran to its end.",
+          failed,
+        )
+      : new DatabaseError(
+          "database.timeoutNotCancelled",
+          `The statement ran longer than its timeoutMs (${timeoutMs} ms), but cancelling it failed, so it ran to its end.`,
+          failed,
+        );
+  }
   if (waiting) {
     return kind === "aborted"
       ? new DatabaseError(
@@ -401,13 +418,15 @@ function interruptible<T>(
   return new Promise<T>((resolve, reject) => {
     let reason: "aborted" | "timeout" | undefined;
     let cancelled: Promise<unknown> = Promise.resolve();
+    let cancelFailure: unknown;
     const interrupt = (kind: "aborted" | "timeout"): void => {
       if (reason !== undefined) return;
       reason = kind;
       // A failed cancel request leaves the statement running to its end; the call still
       // rejects, and the connection is not reused (`cancelFailed`).
-      cancelled = connection.cancel().catch(() => {
+      cancelled = connection.cancel().catch((error: unknown) => {
         cancelFailed.add(connection);
+        cancelFailure = error ?? new Error("The cancel request failed.");
       });
     };
     const onAbort = (): void => interrupt("aborted");
@@ -422,7 +441,9 @@ function interruptible<T>(
         else resolve(value as T);
         return;
       }
-      void cancelled.then(() => reject(interruption(kind, sql, timeoutMs, failed ? error : undefined)));
+      void cancelled.then(() =>
+        reject(interruption(kind, sql, timeoutMs, failed ? error : undefined, false, cancelFailure)),
+      );
     };
     work().then(
       (value) => settle(false, value, undefined),

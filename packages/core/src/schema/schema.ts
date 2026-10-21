@@ -5,7 +5,7 @@
  * @module
  */
 
-import { generatedBuilders } from "../changeset/validators/generated.js";
+import { generatedBuilders, refuseGeneration } from "../changeset/validators/generated.js";
 import type {
   AnySchema,
   EmbedMeta,
@@ -59,9 +59,11 @@ export interface SchemaOptions {
   /** `false` for a table without a primary key. Such rows cannot be updated or deleted one at a time. */
   readonly primaryKey?: false | undefined;
   /**
-   * `false` builds rows with a loop instead of a generated function. That is what happens
-   * by itself where generating code is not allowed (a strict Content Security Policy, or a
-   * Cloudflare Worker handling a request).
+   * `false` builds rows, and the values `changeset.validate()` hands a validator, with loops
+   * instead of generated functions, so nothing about this schema ever calls `new Function`
+   * (a strict Content Security Policy then reports nothing). Where generating code is
+   * refused (such a policy, or a Cloudflare Worker handling a request), the loops are used
+   * by themselves anyway.
    */
   readonly codegen?: boolean | undefined;
 }
@@ -445,10 +447,7 @@ function makeMeta(shared: Shared, model: AnySchema, name: string): Meta {
                 )
               : new SchemaDefinitionError(
                   "schema.createWithUnknown",
-                  `${name} has no association "${assoc}".`,
-                  {
-                    params: { known: [...known.keys()].join(", ") || "none" },
-                  },
+                  `${name} has no association "${assoc}". It has: ${[...known.keys()].join(", ") || "none"}.`,
                 );
           }
           seen.add(assoc);
@@ -629,6 +628,7 @@ function defineSchema(
   const codegen = options?.codegen !== false;
   // The builders `changeset.validate()` uses, for the same reason as the row factory.
   if (codegen) generatedBuilders(tables.fieldsByName);
+  else refuseGeneration(tables.fieldsByName);
   const own = makeMeta(
     {
       ...tables,

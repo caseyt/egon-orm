@@ -34,6 +34,21 @@ report it as an error on a field:
 
 `result.error.errorMessages()` is then `{ body: ["was changed by someone else; reload and try again"] }`.
 
+## An unchanged save
+
+A form submitted without edits changes nothing, so the update runs no query: the version
+is not incremented, and the copies other users have open stay current.
+
+<<< @/examples/recipes/optimistic-locking.ts#unchanged
+
+The increment alone does not count as a change. Any other change does, including one a
+`prepareChanges` function makes and a change to an association: a parent saved with only
+`castAssoc` or `putAssoc` changes is incremented and checked like any other update.
+
+Because no query runs, an unchanged save of a copy that is already stale is not checked:
+it succeeds, and nothing is written. Pass `{ force: true }` to run the update anyway: it
+then increments the version and checks it, and a stale copy fails.
+
 ::: tip Good to know
 - The version must travel with the form: send the version the user saw as a hidden field,
   and check it against the row you load when the form comes back (or keep the loaded row

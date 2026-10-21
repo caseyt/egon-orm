@@ -1327,6 +1327,9 @@ describe("a value of an integer type that is not a whole number names the field 
       { email: "b", age: val(1.5, t.integer()) },
     ];
     expect((await refusal(env.repo.insertAll(User, cells))).message).toBe(written("User.age"));
+    // An expression cell before the refused field binds two values: both are counted.
+    const counted = [{ email: "c", name: val("a", t.string()).concat(val("b", t.string())), age: 2.5 }];
+    expect((await refusal(env.repo.insertAll(User, counted))).message).toBe(written("User.age"));
     const posts = [{ authorId: 1.5, title: "x" }];
     expect((await refusal(env.repo.insertAll(Post, posts))).message).toBe(
       written("Post.authorId", 't.bigint({ mode: "number" })'),

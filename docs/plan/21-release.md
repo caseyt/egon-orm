@@ -1,6 +1,6 @@
 # Step 21 — Release hardening
 
-**Depends on:** all other steps, including 21a (edge readiness).
+**Depends on:** all other steps, including 21a (edge readiness) and 21b (JSON responses).
 **Owns:** release configuration, `SECURITY.md`, `CHANGELOG.md`, `docs/site/guide/upgrading.md`,
 `docs/plan/status/21-audit.md`. Fixes found here go to the owning area as normal PRs.
 

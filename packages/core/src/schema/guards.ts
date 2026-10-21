@@ -56,7 +56,8 @@ export function isRow(value: unknown): value is { readonly [ROW]: RowMeta } {
 export function stateOf(row: object): RowState {
   if (!isRow(row)) {
     throw new SchemaDefinitionError(
-      "stateOf() expects a row: an object returned by a query or a write. A plain object has no state.",
+      "schema.stateNotRow",
+      "stateOf() expects a row: an object returned by a query or a write.",
     );
   }
   return row[ROW].state;

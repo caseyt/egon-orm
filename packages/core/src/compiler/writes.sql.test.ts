@@ -419,13 +419,13 @@ describe("bulk update and delete errors", () => {
   test("a query with assignments cannot run as a select", () => {
     expect(() =>
       createCompiler(postgresDialect).compile(rebuild(posts.ast, { updates: set }), "all", undefined),
-    ).toThrow("The query has set(…) assignments; run it with updateAll.");
+    ).toThrow("query.updateWithAll: The query has set(…) assignments.");
   });
 
   test("a bulk write joins only with inner and cross joins", () => {
     const ast = rebuild(posts.leftJoin(User, "u", ({ p, u }) => u.id.eq(p.authorId)).ast, { updates: set });
     expect(() => compile(ast, "updateAll")).toThrow(
-      "updateAll can join only with join() or crossJoin(); a left join has no meaning there.",
+      "query.writeJoinKind: updateAll can join only with join() or crossJoin().",
     );
   });
 
@@ -506,7 +506,7 @@ describe("fragments as statements", () => {
 
   test("only a fragment is accepted", () => {
     expect(() => createCompiler(postgresDialect).compileFragment(selectOne(literalNode(1)) as never)).toThrow(
-      "compileFragment() takes a fragment: fragment`select …`.",
+      "query.compileFragmentArgument: compileFragment() takes a fragment.",
     );
   });
 });

@@ -5,8 +5,8 @@
  *
  * @module
  */
-import { isEgonError, MigrationError } from "../errors.js";
-import { isMigration, type Migration, missingSteps, missingStepsMessage } from "./define.js";
+import { isEgonError, MigrationError, shortMessageOf } from "../errors.js";
+import { isMigration, type Migration, missingSteps, missingStepsError } from "./define.js";
 
 /**
  * One migration with its version and name: what a file `20261012093000_create_users.ts`
@@ -49,7 +49,9 @@ export function parseMigrationFileName(file: string): { version: number; name: s
   const digits = match[1] as string;
   if (digits.length !== 14) {
     throw new MigrationError(
-      `The migration file "${file}" does not start with a 14-digit version (YYYYMMDDHHMMSS). Rename it, for example "20261012093000_${match[2] as string}.${match[3] as string}".`,
+      "migration.fileName",
+      `The migration file "${file}" does not start with a 14-digit version (YYYYMMDDHHMMSS).`,
+      { params: { match: match[2] as string, match1: match[3] as string } },
     );
   }
   return { version: Number(digits), name: match[2] as string };
@@ -80,7 +82,8 @@ function sorted(sources: MigrationSource[]): readonly MigrationSource[] {
     const current = sources[i] as MigrationSource;
     if (previous.version === current.version) {
       throw new MigrationError(
-        `Two migrations have the version ${current.version}: "${previous.name}" and "${current.name}". Give one of them a new version.`,
+        "migration.versionTwice",
+        `Two migrations have the version ${current.version}: "${previous.name}" and "${current.name}".`,
         { version: current.version },
       );
     }
@@ -131,7 +134,7 @@ function checkSteps(
 ): void {
   const missing = missingSteps(migration);
   if (missing.length > 0) {
-    throw new MigrationError(missingStepsMessage(subject, missing, "change" in migration), details);
+    throw missingStepsError(subject, missing, "change" in migration, details);
   }
 }
 
@@ -152,7 +155,8 @@ const TS_EXTENSION = /\.m?ts$/;
 /** The explanation for a TypeScript file that the process cannot load. */
 function typescriptHelp(file: string, cause: unknown): MigrationError {
   return new MigrationError(
-    `Cannot load the TypeScript migration "${file}": this process has no TypeScript loader. Run it with one: Node 22.18 or later strips types by itself (on 22.12 to 22.17 set NODE_OPTIONS=--experimental-strip-types, as in NODE_OPTIONS=--experimental-strip-types npx egon migrate), or use tsx (NODE_OPTIONS="--import tsx"), or Bun. Or compile the migrations to .js.`,
+    "migration.typescriptLoader",
+    `Cannot load the TypeScript migration "${file}": this process has no TypeScript loader.`,
     { cause },
   );
 }
@@ -191,7 +195,9 @@ export async function loadMigrations(
   try {
     files = await readdir(root);
   } catch (cause) {
-    throw new MigrationError(`Cannot read the migrations directory "${root}".`, { cause });
+    throw new MigrationError("migration.readDirectory", `Cannot read the migrations directory "${root}".`, {
+      cause,
+    });
   }
   const sources: MigrationSource[] = [];
   for (const file of files.sort()) {
@@ -205,8 +211,8 @@ export async function loadMigrations(
       const code = (cause as { readonly code?: unknown } | null)?.code;
       if (TS_EXTENSION.test(file) && code === "ERR_UNKNOWN_FILE_EXTENSION") throw typescriptHelp(path, cause);
       // defineMigration's own refusal (a missing up or down): say which file it is in.
-      const reason = isEgonError(cause, "migration") ? `: ${cause.message}` : ".";
-      throw new MigrationError(`Cannot load the migration file "${path}"${reason}`, {
+      const reason = isEgonError(cause, "migration") ? `: ${shortMessageOf(cause)}` : ".";
+      throw new MigrationError("migration.loadFailed", `Cannot load the migration file "${path}"${reason}`, {
         version: parsed.version,
         migration: parsed.name,
         cause,
@@ -215,10 +221,10 @@ export async function loadMigrations(
     // The export named `migration` (what `egon migrate create` writes) wins over a default export.
     const migration = isMigration(module.migration) ? module.migration : module.default;
     if (!isMigration(migration)) {
-      throw new MigrationError(
-        `The migration file "${path}" exports no migration. Export the result of defineMigration() as "migration" (export const migration = defineMigration(…)) or as the default export.`,
-        { version: parsed.version, migration: parsed.name },
-      );
+      throw new MigrationError("migration.noExport", `The migration file "${path}" exports no migration.`, {
+        version: parsed.version,
+        migration: parsed.name,
+      });
     }
     checkSteps(`The migration file "${path}" has`, migration, {
       version: parsed.version,

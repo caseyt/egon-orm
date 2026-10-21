@@ -167,6 +167,7 @@ function normalizeError(error: unknown, sql: string | undefined): unknown {
   if (!(error instanceof Error)) return error;
   if (error.message.startsWith("fatal")) {
     return new DatabaseError(
+      "database.rejected",
       "lost",
       sql === undefined ? { code: "connection", cause: error } : { code: "connection", sql, cause: error },
     );
@@ -369,7 +370,7 @@ describe("createAdapter", () => {
     const fatal = adapter.normalizeError(new Error("fatal: socket"));
     expect(fatal).toBeInstanceOf(DatabaseError);
     expect((fatal as DatabaseError).sql).toBeUndefined();
-    const own = new QueryError("mine");
+    const own = new QueryError("query.unsupportedFeature", "mine");
     expect(adapter.normalizeError(own)).toBe(own);
     expect(adapter.normalizeError("not an error")).toBe("not an error");
   });
@@ -1079,7 +1080,7 @@ describe("dedicated connections", () => {
     const { adapter } = setup();
     const released = await adapter.acquire();
     await released.release();
-    await expect(released.execute("select 1", [])).rejects.toThrow(/was released; acquire a new one/);
+    await expect(released.execute("select 1", [])).rejects.toThrow("database.connectionReleased: This connection was released.");
     await expect(released.stream("select 1", [])[Symbol.asyncIterator]().next()).rejects.toThrow(
       /was released/,
     );

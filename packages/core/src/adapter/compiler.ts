@@ -96,7 +96,8 @@ export function sqlDialectOf(dialect: Dialect): SqlDialect | undefined {
 
 function unavailable(method: string, dialect: Dialect): never {
   throw new QueryError(
-    `adapter.${method}() cannot compile for ${dialect}: this build of egon-orm has no SQL dialect table for it. Run SQL text with adapter.execute() instead.`,
+    "query.noDialectTable",
+    `adapter.${method}() cannot compile for ${dialect}: this build of egon-orm has no SQL dialect table for it.`,
   );
 }
 

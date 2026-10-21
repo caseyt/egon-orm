@@ -34,9 +34,7 @@ function namesOf(slots: readonly ParamSlot[]): ReadonlySet<string> {
  * What {@link wholeNumber} and {@link wholeBigintNumber} throw; {@link bindParams} replaces
  * it with an error naming the slot.
  */
-const NOT_WHOLE = new QueryError(
-  "A value of an integer type is not a whole number. Give a fraction a float type, val(2.5, t.float()), or round it.",
-);
+const NOT_WHOLE = new QueryError("query.notWholeNumber", "A value of an integer type is not a whole number.");
 
 /**
  * The bind-time check of a value of the built-in `t.integer()` type (owner decision,
@@ -95,7 +93,8 @@ function notWhole(slot: ParamSlot, position: number): QueryError {
         ? `An item of parameter ${position}`
         : `Parameter ${position}`;
   const error = new QueryError(
-    `${label} has the type ${wholeTypeName(slot)} (its own, or that of the column beside it), but its value is not a whole number. Give a fraction a float type, val(2.5, t.float()), or round it.`,
+    "query.paramNotWholeNumber",
+    `${label} has the type ${wholeTypeName(slot)} (its own, or that of the column beside it), but its value is not a whole number.`,
   );
   refusedSlots.set(error, slot);
   return error;
@@ -125,8 +124,9 @@ export function fieldOfRefusal(error: unknown, fieldAt: (index: number) => strin
   const field = fieldAt(slot.index);
   if (field === undefined) return error;
   return new QueryError(
-    `The value written to ${field} holds a number that is not a whole number where ${wholeTypeName(slot)} is expected. Give it a whole number, or declare the field t.float() or t.decimal() if it holds fractions.`,
-    error,
+    "query.writeNotWholeNumber",
+    `The value written to ${field} holds a number that is not a whole number where ${wholeTypeName(slot)} is expected.`,
+    { cause: error },
   );
 }
 
@@ -196,7 +196,9 @@ export function bindParams(
   }
   if (missing !== undefined) {
     throw new QueryError(
+      "query.namedParamMissing",
       `The query needs the named parameter${missing.length > 1 ? "s" : ""} ${missing.map((name) => `"${name}"`).join(", ")}, which ${missing.length > 1 ? "were" : "was"} not given a value.`,
+      { params: { first: missing[0] ?? "name" } },
     );
   }
   if (named !== undefined) checkExtra(slots, named);
@@ -214,6 +216,7 @@ function checkExtra(slots: readonly ParamSlot[], named: NamedValues): void {
   }
   if (extra !== undefined) {
     throw new QueryError(
+      "query.namedParamUnknown",
       `The query has no named parameter${extra.length > 1 ? "s" : ""} ${extra.map((name) => `"${name}"`).join(", ")}${names.size === 0 ? "; it takes none" : `; it takes ${[...names].map((name) => `"${name}"`).join(", ")}`}.`,
     );
   }

@@ -55,10 +55,12 @@ function wrongKind(label: string, type: AnyFieldType, value: unknown, written: b
   const article = got === "object" || got === "undefined" ? "an" : "a";
   return type === INTEGER
     ? new CastError(
-        `${label} is declared t.integer(), but the database returned ${article} ${got} for it, not a number: the column or expression is not of an integer type (Postgres reads bigint, bigserial and numeric columns as text; MySQL's / returns a decimal). Declare the field t.bigint({ mode: "number" }) for a 64-bit integer column, or t.decimal() for a decimal, or change the column's type.${after}`,
+        "cast.integerNotNumber",
+        `${label} is declared t.integer(), but the database returned ${article} ${got} for it, not a number.${after}`,
       )
     : new CastError(
-        `${label} is declared t.float(), but the database returned ${article} ${got} for it, not a number: the column or expression is not of a floating-point type (Postgres reads numeric columns as text). Declare the field t.decimal() for a decimal column, or change the column's type.${after}`,
+        "cast.floatNotNumber",
+        `${label} is declared t.float(), but the database returned ${article} ${got} for it, not a number.${after}`,
       );
 }
 

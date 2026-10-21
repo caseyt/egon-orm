@@ -19,8 +19,8 @@ import {
 describe("error codes", () => {
   test("each class has its literal code", () => {
     expectTypeOf(new NoResultsError().code).toEqualTypeOf<"noResults">();
-    expectTypeOf(new QueryError("x").code).toEqualTypeOf<"query">();
-    expectTypeOf(new DatabaseError("x").code).toEqualTypeOf<DatabaseErrorCode>();
+    expectTypeOf(new QueryError("query.unsupportedFeature", "x").code).toEqualTypeOf<"query">();
+    expectTypeOf(new DatabaseError("database.rejected", "x").code).toEqualTypeOf<DatabaseErrorCode>();
     expectTypeOf<EgonError["code"]>().toEqualTypeOf<ErrorCode>();
     expectTypeOf<DatabaseErrorCode>().toExtend<ErrorCode>();
   });
@@ -77,9 +77,9 @@ describe("constructors", () => {
     // @ts-expect-error noAssoc is a changeset declaration, not a database violation
     new ConstraintError({ type: "noAssoc", ...unreported });
     // @ts-expect-error not an adapter code
-    new DatabaseError("x", { code: "query" });
-    expectTypeOf(new DatabaseError("x").retryable).toEqualTypeOf<boolean>();
-    expectTypeOf(new DatabaseError("x").sql).toEqualTypeOf<string | undefined>();
+    new DatabaseError("database.rejected", "x", { code: "query" });
+    expectTypeOf(new DatabaseError("database.rejected", "x").retryable).toEqualTypeOf<boolean>();
+    expectTypeOf(new DatabaseError("database.rejected", "x").sql).toEqualTypeOf<string | undefined>();
   });
 
   test("the detail fields of every error are typed, never any", () => {

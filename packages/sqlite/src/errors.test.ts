@@ -137,7 +137,7 @@ describe("normalizeSqliteError", () => {
   });
 
   test("anything else is returned unchanged", () => {
-    const egon = new QueryError("mine");
+    const egon = new QueryError("query.unsupportedFeature", "mine");
     const plain = new Error("app");
     const type = new TypeError("not about the database");
     const named = sqliteError("NOT_SQLITE", "x");

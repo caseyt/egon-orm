@@ -122,7 +122,8 @@ export function normalizePgError(error: unknown, sql: string | undefined): unkno
 
   if (code !== undefined && NETWORK_CODES.has(code)) {
     return new DatabaseError(
-      `Could not reach the database, or lost the connection to it (${code}). Check that it is running and that the connection settings are right.`,
+      "database.unreachable",
+      `Could not reach the database, or lost the connection to it (${code}).`,
       withSql({ code: "connection" as const, cause: error }, sql),
     );
   }
@@ -153,6 +154,7 @@ export function normalizePgError(error: unknown, sql: string | undefined): unkno
       ? `: ${error.message}`
       : ". The database's message is on error.cause; it is left out here because it may quote a value";
     return new DatabaseError(
+      "database.rejected",
       `The database rejected the statement (SQLSTATE ${code})${said}.`,
       withSql({ code: egonCode, cause: error }, sql),
     );
@@ -160,6 +162,7 @@ export function normalizePgError(error: unknown, sql: string | undefined): unkno
 
   if (CONNECTION_MESSAGES.some((pattern) => pattern.test(error.message))) {
     return new DatabaseError(
+      "database.connectionFailed",
       `Lost the connection to the database, or could not open one: ${error.message}.`,
       withSql({ code: "connection" as const, cause: error }, sql),
     );

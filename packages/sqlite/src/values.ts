@@ -31,7 +31,8 @@ function readNumber(value: unknown): unknown {
   if (typeof value !== "bigint") return value;
   if (value > MAX_SAFE || value < MIN_SAFE) {
     throw new CastError(
-      "A number column received an integer from the database beyond Number.MAX_SAFE_INTEGER. Read it with t.bigint().",
+      "cast.unsafeInteger",
+      "A number column received an integer from the database beyond Number.MAX_SAFE_INTEGER.",
     );
   }
   return Number(value);
@@ -41,6 +42,7 @@ function readNumber(value: unknown): unknown {
 function writeFloat(value: unknown): unknown {
   if (typeof value === "number" && !Number.isFinite(value)) {
     throw new CastError(
+      "cast.floatNotFinite",
       "SQLite cannot store NaN, Infinity or -Infinity in a float column without losing it.",
     );
   }
@@ -108,10 +110,17 @@ function pad(value: number, width: number): string {
  */
 export function formatTimestamp(value: Date, withZone: boolean): string {
   const time = value.getTime();
-  if (Number.isNaN(time)) throw new CastError("An invalid Date cannot be written to a timestamp column.");
+  if (Number.isNaN(time))
+    throw new CastError(
+      "cast.timestampInvalidDate",
+      "An invalid Date cannot be written to a timestamp column.",
+    );
   const year = value.getUTCFullYear();
   if (year < 0 || year > 9999) {
-    throw new CastError("SQLite stores timestamps as text with a four-digit year: 0000 to 9999.");
+    throw new CastError(
+      "cast.timestampYearRange",
+      "SQLite stores timestamps as text with a four-digit year: 0000 to 9999.",
+    );
   }
   const text = `${pad(year, 4)}-${pad(value.getUTCMonth() + 1, 2)}-${pad(value.getUTCDate(), 2)}T${pad(
     value.getUTCHours(),
@@ -151,7 +160,10 @@ function readJson(value: unknown): unknown {
   try {
     return JSON.parse(value);
   } catch {
-    throw new CastError("A JSON column received text from the database that is not valid JSON.");
+    throw new CastError(
+      "cast.jsonInvalid",
+      "A JSON column received text from the database that is not valid JSON.",
+    );
   }
 }
 

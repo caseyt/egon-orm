@@ -282,9 +282,13 @@ describe("failures", () => {
     const secret = new Error(
       "duplicate key value violates unique constraint: Key (email)=(ada@secret.example) already exists",
     );
-    const normalized = new DatabaseError("The database rejected the statement (SQLSTATE 23505).", {
-      cause: secret,
-    });
+    const normalized = new DatabaseError(
+      "database.rejected",
+      "The database rejected the statement (SQLSTATE 23505).",
+      {
+        cause: secret,
+      },
+    );
     configure(THREE, { fail: (sql) => (sql.startsWith("select pg_advisory_lock") ? normalized : undefined) });
     const result = await egon(["migrate"]);
     expect(result.code).toBe(1);

@@ -745,6 +745,7 @@ export function sqlTypeName(dialect: SqlDialect, db: DbType): string {
     case "custom":
       if (typeof db.sql !== "string" || !CUSTOM_SQL_TYPE.test(db.sql)) {
         throw new QueryError(
+          "query.customTypeSql",
           "A custom column type's sql is not a plain type name (letters, digits, underscores, single spaces or dots, an optional (n) or (n, m) and [] pairs), so it was not written into the SQL.",
         );
       }
@@ -752,7 +753,11 @@ export function sqlTypeName(dialect: SqlDialect, db: DbType): string {
     default: {
       const name = Object.hasOwn(dialect.types, db.kind) ? dialect.types[db.kind as ScalarDbKind] : undefined;
       if (name === undefined) {
-        throw new QueryError(`The column type kind "${String(db.kind)}" has no SQL name in ${dialect.name}.`);
+        throw new QueryError(
+          "query.columnKindUnsupported",
+          `The column type kind "${String(db.kind)}" has no SQL name in ${dialect.name}.`,
+          { params: { dialect: dialect.name } },
+        );
       }
       return name;
     }
@@ -768,7 +773,9 @@ export function sqlTypeName(dialect: SqlDialect, db: DbType): string {
  * ```
  */
 export function unsupported(dialect: SqlDialect, feature: string): QueryError {
-  return new QueryError(`${feature} is not supported by ${dialect.name}.`);
+  return new QueryError("query.unsupportedFeature", `${feature} is not supported by ${dialect.name}.`, {
+    params: { dialect: dialect.name },
+  });
 }
 
 /**

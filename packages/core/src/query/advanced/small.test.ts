@@ -236,7 +236,7 @@ describe("selectedAs", () => {
 
   test("a reference cannot be selected itself", () => {
     expect(() => compiled(from(Post, "p").select(() => ({ t: selectedAs("total") })))).toThrow(
-      /cannot be selected itself/,
+      "query.selectedAsSelected: selectedAs(\"total\") without an expression refers to a selected value.",
     );
   });
 });

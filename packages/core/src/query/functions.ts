@@ -231,7 +231,7 @@ export class Aggregate<T, P = NoParams> extends Expr<T, P> {
    */
   filter<C extends Condition>(condition: C & Compatible<P, C>): Aggregate<T, MergeParams<P, ParamsOf<C>>> {
     if (!(condition instanceof Expr)) {
-      throw new QueryError("filter() takes a boolean expression, such as p.published or p.views.gt(10).");
+      throw new QueryError("query.filterCondition", "filter() takes a boolean expression.");
     }
     const agg = aggregatePart(this);
     const filter = agg.filter === undefined ? condition.node : naryNode("and", [agg.filter, condition.node]);
@@ -258,7 +258,8 @@ export class Aggregate<T, P = NoParams> extends Expr<T, P> {
   ): Aggregate<T, MergeParams<P, WindowParams<W>>>;
   over(window?: string | WindowSpec): AnyExpr {
     const agg = aggregatePart(this);
-    if (agg.over !== undefined) throw new QueryError("over() was already called on this aggregate.");
+    if (agg.over !== undefined)
+      throw new QueryError("query.overTwice", "over() was already called on this aggregate.");
     return rebuild(this, aggregateNode(agg.name, agg.args, agg.distinct, agg.filter, windowOf(window)));
   }
 }
@@ -294,13 +295,17 @@ function windowOf(window: string | WindowSpec | undefined): AggregateNode["over"
   if (typeof window === "string") {
     if (!IDENTIFIER.test(window)) {
       throw new QueryError(
-        "over() takes the name of a window declared on the query, an identifier (/^[A-Za-z_][A-Za-z0-9_$]*$/), or a window. The name given does not match, so it was refused.",
+        "query.overName",
+        "over() takes the name of a window declared on the query, an identifier (/^[A-Za-z_][A-Za-z0-9_$]*$/), or a window.",
       );
     }
     return window;
   }
   if (typeof window !== "object" || window === null) {
-    throw new QueryError("over() takes the name of a window, or { partitionBy, orderBy, frame }.");
+    throw new QueryError(
+      "query.overArgument",
+      "over() takes the name of a window, or { partitionBy, orderBy, frame }.",
+    );
   }
   const partitionBy: ExprNode[] = [];
   for (const item of window.partitionBy ?? NONE) partitionBy.push(expressionArgument(item, "over").node);
@@ -313,9 +318,7 @@ function windowOf(window: string | WindowSpec | undefined): AggregateNode["over"
   if (window.frame !== undefined) {
     frame = expressionArgument(window.frame, "over").node;
     if (frame.kind !== "fragment") {
-      throw new QueryError(
-        "over(): frame is a fragment, such as fragment`ROWS BETWEEN 1 PRECEDING AND CURRENT ROW`.",
-      );
+      throw new QueryError("query.overFrame", "over(): frame is a fragment.");
     }
   }
   return windowNode(partitionBy, orderBy, frame?.kind === "fragment" ? frame : undefined);
@@ -323,7 +326,7 @@ function windowOf(window: string | WindowSpec | undefined): AggregateNode["over"
 
 function expressionArgument(value: unknown, method: string): AnyExpr {
   if (value instanceof Expr) return value;
-  throw new QueryError(`${method}() takes an expression, such as p.views.`);
+  throw new QueryError("query.aggregateArgument", `${method}() takes an expression.`);
 }
 
 function aggregate(
@@ -370,7 +373,10 @@ const NUMERIC_KINDS: ReadonlySet<string> = new Set(["integer", "bigint", "float"
 function numericArgument(value: unknown, method: string): AnyExpr {
   const expr = expressionArgument(value, method);
   if (expr.type !== undefined && !NUMERIC_KINDS.has(expr.type.db.kind)) {
-    throw new QueryError(`${method}() adds up numbers, and this expression has the type ${expr.type.name}.`);
+    throw new QueryError(
+      "query.sumType",
+      `${method}() adds up numbers, and this expression has the type ${expr.type.name}.`,
+    );
   }
   return expr;
 }
@@ -553,7 +559,7 @@ function conditions(values: readonly unknown[], method: string): AnyExpr[] {
   const out: AnyExpr[] = [];
   for (const value of values) {
     if (!(value instanceof Expr)) {
-      throw new QueryError(`${method}() takes boolean expressions, such as u.age.gte(18).`);
+      throw new QueryError("query.booleanArguments", `${method}() takes boolean expressions.`);
     }
     out.push(value);
   }
@@ -657,7 +663,8 @@ export function coalesce<
 ): Expr<NonNullable<ValueOf<F>> | NullOf<ValueOf<Last<R>>>, ParamsOfAll<[F, ...R]>> &
   CoalesceMark<[F, ...R]> {
   const head = expressionArgument(first, "coalesce");
-  if (rest.length === 0) throw new QueryError("coalesce() needs at least two arguments.");
+  if (rest.length === 0)
+    throw new QueryError("query.coalesceArguments", "coalesce() needs at least two arguments.");
   const nodes: ExprNode[] = [head.node];
   let params = head.params;
   let lists = head.lists;
@@ -776,7 +783,7 @@ function branch(
 ): AnyExpr {
   const method = previous === undefined ? "caseWhen" : "when";
   if (!(condition instanceof Expr)) {
-    throw new QueryError(`${method}() takes a boolean expression as its condition, such as u.age.lt(18).`);
+    throw new QueryError("query.caseCondition", `${method}() takes a boolean expression as its condition.`);
   }
   // A plain value is bound with the type and redaction of the branches before it.
   const then = toOperand(value, previous?.type, previous?.redact ?? false, method, false, true);
@@ -826,7 +833,7 @@ export function caseWhen<C extends Condition, V extends Value>(
  */
 export function exists<Q extends SubqueryOperand<unknown, SomeParams>>(query: Q): Expr<boolean, ParamsOf<Q>> {
   if (typeof query !== "object" || query === null || typeof query[AS_SUBQUERY] !== "function") {
-    throw new QueryError("exists() takes a query.");
+    throw new QueryError("query.existsQuery", "exists() takes a query.");
   }
   const sub = subqueryOf(query, "exists");
   return new Expr(
@@ -862,7 +869,7 @@ export function exists<Q extends SubqueryOperand<unknown, SomeParams>>(query: Q)
 export function val<T, F extends FieldFlags>(value: NoInfer<T>, type: FieldBuilder<T, F>): Expr<T>;
 export function val<T>(value: T): Expr<T> & ([T] extends [string | null] ? NoType : Untyped);
 export function val(value: unknown, type?: unknown): AnyExpr {
-  if (value === undefined) throw new QueryError("val() was given undefined. Pass a value, or null.");
+  if (value === undefined) throw new QueryError("query.valUndefined", "val() was given undefined.");
   const fieldType = type === undefined ? undefined : typeArgument(type, "val");
   return new Expr(
     paramNode(value, fieldType, false),
@@ -918,7 +925,7 @@ export function param<const N extends string, T, F extends FieldFlags>(
   type: FieldBuilder<T, F>,
 ): Expr<T, { [K in N]: T }> {
   if (typeof name !== "string" || name === "") {
-    throw new QueryError('param() takes a name and a field type: param("minAge", t.integer()).');
+    throw new QueryError("query.paramArguments", "param() takes a name and a field type.");
   }
   const fieldType = typeArgument(type, "param");
   const node = namedParamNode(name, fieldType, false);
@@ -966,9 +973,7 @@ function isTemplate(strings: unknown, args: number): strings is TemplateStringsA
 
 function fragmentTag(strings: TemplateStringsArray, ...args: unknown[]): AnyExpr {
   if (!isTemplate(strings, args.length)) {
-    throw new QueryError(
-      "fragment is a tagged template: write the SQL between backquotes, fragment`lower(…)`, not fragment(text). Calling it as a function would turn a string into SQL text, so it is refused.",
-    );
+    throw new QueryError("query.fragmentCall", "fragment is a tagged template.");
   }
   const nodes: ExprNode[] = [];
   const shapes: number[] = [];
@@ -1007,12 +1012,14 @@ function fragmentArgument(value: unknown): AnyExpr {
     return subqueryOf(value, "fragment");
   if (value instanceof OrderExpr) {
     throw new QueryError(
-      "fragment() was given an order item (asc() or desc()), which is not an expression. Interpolate the expression, and write ASC or DESC in the template.",
+      "query.fragmentOrderItem",
+      "fragment() was given an order item (asc() or desc()), which is not an expression.",
     );
   }
   if (value !== undefined && !isBoundValue(value)) {
     throw new QueryError(
-      "fragment() binds strings, numbers, bigints, booleans, dates, bytes, null, and arrays of those (one array parameter). An array of expressions is not bound: interpolate each expression on its own. For a JSON value pass val(value, t.json()).",
+      "query.fragmentValue",
+      "fragment() binds strings, numbers, bigints, booleans, dates, bytes, null, and arrays of those (one array parameter).",
     );
   }
   return toOperand(value, undefined, false, "fragment", false, true);

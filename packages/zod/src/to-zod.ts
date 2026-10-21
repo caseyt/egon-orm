@@ -135,6 +135,7 @@ function hintOf(type: AnyFieldType): z.ZodType | undefined {
   const schema: unknown = typeof hint === "function" ? (hint as () => unknown)() : hint;
   if (!(schema instanceof z.ZodType)) {
     throw new QueryError(
+      "query.zodHint",
       `toZod(): the zod hint of the type "${type.name}" is not a Zod schema (or a function returning one).`,
     );
   }
@@ -275,11 +276,14 @@ function rowObject(schema: AnySchema): z.ZodObject {
 }
 
 function namesOf(list: unknown, option: string, allowed: ReadonlySet<string>): ReadonlySet<string> {
-  if (!Array.isArray(list)) throw new QueryError(`toZod(): ${option} must be a list of field names.`);
+  if (!Array.isArray(list))
+    throw new QueryError("query.zodFieldList", `toZod(): ${option} must be a list of field names.`);
   for (const name of list) {
     if (typeof name !== "string" || !allowed.has(name)) {
       throw new QueryError(
-        `toZod(): ${option} names ${typeof name === "string" ? `"${name}"` : String(name)}, which is not one of the fields: ${[...allowed].join(", ")}.`,
+        "query.zodUnknownField",
+        `toZod(): ${option} names ${typeof name === "string" ? `"${name}"` : String(name)}.`,
+        { params: { allowed: [...allowed].join(", ") } },
       );
     }
   }
@@ -317,7 +321,7 @@ export function toZod<
 ): z.ZodObject<ToZodShape<S, M, Exclude<P & ToZodKeys<S, M>, O>>> {
   const mode: unknown = options?.mode ?? "row";
   if (mode !== "row" && mode !== "insert" && mode !== "update") {
-    throw new QueryError('toZod(): mode must be "row", "insert" or "update".');
+    throw new QueryError("query.zodMode", 'toZod(): mode must be "row", "insert" or "update".');
   }
   const pick = options?.pick;
   const omit = options?.omit;

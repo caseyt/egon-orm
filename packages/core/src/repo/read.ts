@@ -349,6 +349,7 @@ export function rootQuery(schema: AnySchema): Query<unknown, unknown, never, str
   const schemaMeta = meta(schema);
   if (schemaMeta.source === null) {
     throw new QueryError(
+      "query.readEmbedded",
       `${schemaMeta.name} is an embedded schema: it is stored inside its parent's row and has no table to read.`,
     );
   }
@@ -422,12 +423,18 @@ function bindDerived(
   }
   if (extra.length > 0) {
     throw new QueryError(
-      `The query has no named parameter${extra.length > 1 ? "s" : ""} ${extra.map((name) => `"${name}"`).join(", ")}; it takes ${original.map((name) => `"${name}"`).join(", ")}.`,
+      "query.paramsUnknown",
+      `The query has no named parameter${extra.length > 1 ? "s" : ""} ${extra.map((name) => `"${name}"`).join(", ")}.`,
+      { params: { original: original.map((name) => `"${name}"`).join(", ") } },
     );
   }
   for (const name of original) {
     if (!Object.hasOwn(named, name) || named[name] === undefined) {
-      throw new QueryError(`The query needs the named parameter "${name}", which was not given a value.`);
+      throw new QueryError(
+        "query.paramsMissing",
+        `The query needs the named parameter "${name}", which was not given a value.`,
+        { params: { name } },
+      );
     }
   }
   return bindParams(plan.slots, ast.params, used);
@@ -953,12 +960,15 @@ function selectOf(expr: AnyExpr): SelectNode {
 export function aggregateAst(ast: QueryAst, fn: AggregateFunction, field: string | undefined): QueryAst {
   if (!AGGREGATES.includes(fn)) {
     throw new QueryError(
-      `repo.aggregate() was given the function ${JSON.stringify(fn)}; it takes "count", "sum", "avg", "min" or "max".`,
+      "query.aggregateFunction",
+      `repo.aggregate() was given the function ${JSON.stringify(fn)}.`,
     );
   }
   if (field === undefined && fn !== "count") {
     throw new QueryError(
-      `repo.aggregate(query, "${fn}") needs the field to aggregate: repo.aggregate(query, "${fn}", "views").`,
+      "query.aggregateField",
+      `repo.aggregate(query, "${fn}") needs the field to aggregate.`,
+      { params: { fn } },
     );
   }
   return cached(ast, field === undefined ? fn : `${fn}:${field}`, () => {
@@ -979,14 +989,17 @@ function rootField(ast: QueryAst, field: string): FieldMeta {
   const schemaMeta = rootMeta(ast);
   if (schemaMeta === undefined) {
     throw new QueryError(
-      `repo.aggregate() over the field "${field}" needs a query whose root binding is a schema; this one reads ${ast.from.kind === "subquerySource" ? "a subquery" : `a ${ast.from.kind} source`}.`,
+      "query.aggregateRootSchema",
+      `repo.aggregate() over the field "${field}" needs a query whose root binding is a schema.`,
     );
   }
   const found = schemaMeta.fieldsByName.get(field);
   if (found === undefined || found.virtual) {
     const names = schemaMeta.persisted.map((each) => each.name).join(", ");
     throw new QueryError(
-      `repo.aggregate(): ${schemaMeta.name} has no column "${field}"${found === undefined ? "" : " (it is a virtual field)"}. Its columns are: ${names}.`,
+      "query.aggregateUnknownColumn",
+      `repo.aggregate(): ${schemaMeta.name} has no column "${field}"${found === undefined ? "" : " (it is a virtual field)"}.`,
+      { params: { names } },
     );
   }
   return found;
@@ -1015,7 +1028,9 @@ function wrappedColumn(ast: QueryAst, field: FieldMeta, reason: string): FieldMe
     }
   }
   throw new QueryError(
-    `repo.aggregate() over "${field.name}": this query is aggregated as a subquery (${reason}), so it must select the column "${field.name}" of its root binding "${ast.from.alias}": whole rows of the root, or an object whose key "${field.name}" is that column (${ast.from.alias}.${field.name}). Otherwise compute the aggregate in the query's own select and read it with repo.one(…).`,
+    "query.aggregateSubquerySelect",
+    `repo.aggregate() over "${field.name}": this query is aggregated as a subquery (${reason}).`,
+    { params: { field: field.name, alias: ast.from.alias } },
   );
 }
 
@@ -1076,12 +1091,15 @@ export function byKey(schema: AnySchema, id: unknown): Query<unknown, unknown, n
   const key = schemaMeta.primaryKey;
   if (key.length === 0) {
     throw new QueryError(
-      `repo.get(${schemaMeta.name}, id): ${schemaMeta.name} has no primary key, so it cannot be read by id. Use repo.getBy(${schemaMeta.name}, { … }) instead.`,
+      "query.getNoPrimaryKey",
+      `repo.get(${schemaMeta.name}, id): ${schemaMeta.name} has no primary key, so it cannot be read by id.`,
+      { params: { name: schemaMeta.name } },
     );
   }
   if (id === undefined || id === null) {
     throw new QueryError(
-      `repo.get(${schemaMeta.name}, ${String(id)}): the id is ${String(id)}. This is almost always a missing value upstream (an unparsed route parameter, a field that was never set); check it before reading.`,
+      "query.getMissingId",
+      `repo.get(${schemaMeta.name}, ${String(id)}): the id is ${String(id)}.`,
     );
   }
   const query = rootQuery(schema);
@@ -1090,7 +1108,9 @@ export function byKey(schema: AnySchema, id: unknown): Query<unknown, unknown, n
     checkKeyValue(schemaMeta, field, id);
     if (typeof id === "object" && isPlainObject(id)) {
       throw new QueryError(
-        `repo.get(${schemaMeta.name}, id): the primary key of ${schemaMeta.name} is the single field "${field.name}", so the id is its value, not an object.`,
+        "query.getIdObject",
+        `repo.get(${schemaMeta.name}, id): the primary key of ${schemaMeta.name} is the single field "${field.name}".`,
+        { params: { schema: schemaMeta.name } },
       );
     }
     return query.where({ [field.name]: id } as never) as Query<unknown, unknown, never, string>;
@@ -1099,7 +1119,9 @@ export function byKey(schema: AnySchema, id: unknown): Query<unknown, unknown, n
   const expected = `{ ${names.map((name) => `${name}: …`).join(", ")} }`;
   if (typeof id !== "object" || !isPlainObject(id)) {
     throw new QueryError(
-      `repo.get(${schemaMeta.name}, id): ${schemaMeta.name} has a composite primary key, so the id is an object of its fields: ${expected}.`,
+      "query.getCompositeId",
+      `repo.get(${schemaMeta.name}, id): ${schemaMeta.name} has a composite primary key.`,
+      { params: { expected } },
     );
   }
   const given = id as Readonly<Record<string, unknown>>;
@@ -1108,7 +1130,9 @@ export function byKey(schema: AnySchema, id: unknown): Query<unknown, unknown, n
     const value = Object.hasOwn(given, name) ? given[name] : undefined;
     if (value === undefined || value === null) {
       throw new QueryError(
-        `repo.get(${schemaMeta.name}, id): the id has no value for the key field "${name}" (it is ${String(value)}). The id is ${expected}.`,
+        "query.getIdField",
+        `repo.get(${schemaMeta.name}, id): the id has no value for the key field "${name}" (it is ${String(value)}).`,
+        { params: { expected } },
       );
     }
     checkKeyValue(schemaMeta, schemaMeta.fieldsByName.get(name) as FieldMeta, value);
@@ -1117,7 +1141,9 @@ export function byKey(schema: AnySchema, id: unknown): Query<unknown, unknown, n
   for (const name of Object.keys(given)) {
     if (!names.includes(name)) {
       throw new QueryError(
-        `repo.get(${schemaMeta.name}, id): "${name}" is not a field of the primary key of ${schemaMeta.name}. The id is ${expected}.`,
+        "query.getIdUnknownField",
+        `repo.get(${schemaMeta.name}, id): "${name}" is not a field of the primary key of ${schemaMeta.name}.`,
+        { params: { expected } },
       );
     }
   }
@@ -1132,7 +1158,9 @@ export function byKey(schema: AnySchema, id: unknown): Query<unknown, unknown, n
 function checkKeyValue(schemaMeta: SchemaMeta, field: FieldMeta, value: unknown): void {
   if (Array.isArray(value) && !comparedWhole(field)) {
     throw new QueryError(
-      `repo.get(${schemaMeta.name}, id): the key field "${field.name}" holds one value, but it was given an array. To read several rows by key, use repo.all(from(${schemaMeta.name}, "x").where(({ x }) => x.${field.name}.in(ids))).`,
+      "query.getIdArray",
+      `repo.get(${schemaMeta.name}, id): the key field "${field.name}" holds one value, but it was given an array.`,
+      { params: { name: schemaMeta.name, name1: field.name } },
     );
   }
 }
@@ -1141,13 +1169,14 @@ function checkKeyValue(schemaMeta: SchemaMeta, field: FieldMeta, value: unknown)
 export function byClauses(input: QueryInput, clauses: unknown, method: string): QueryInput {
   if (input.query === undefined) {
     throw new QueryError(
-      `repo.${method}() adds its clauses with the query's where(); this query object has no where() method. Pass a query built with from(), or a schema class.`,
+      "query.readQueryWhere",
+      `repo.${method}() adds its clauses with the query's where(); this query object has no where() method.`,
     );
   }
   if (typeof clauses !== "object" || clauses === null || !isPlainObject(clauses)) {
-    throw new QueryError(
-      `repo.${method}() takes an object of field values: repo.${method}(User, { email: "ada@example.com" }).`,
-    );
+    throw new QueryError("query.getByValues", `repo.${method}() takes an object of field values.`, {
+      params: { method },
+    });
   }
   const query = input.query.where(clauses as never) as Query<unknown, unknown, never, string>;
   return { ast: query.ast, names: input.names, query };
@@ -1166,7 +1195,8 @@ export async function* stream(
   const info = infoOf(plan);
   if (info.preloads) {
     throw new QueryError(
-      "repo.stream() cannot preload associations: the rows are yielded one at a time, before their associations could be loaded. Stream the parents without preload, or read them in batches with repo.all(query.limit(n).offset(…)) and preload each batch.",
+      "query.streamPreload",
+      "repo.stream() cannot preload associations: the rows are yielded one at a time, before their associations could be loaded.",
     );
   }
   const values = bindParams(plan.slots, ast.params, named);
@@ -1346,6 +1376,7 @@ export async function reload(
     const schemaMeta = meta(schema);
     if (schemaMeta.primaryKey.length === 0) {
       throw new QueryError(
+        "query.reloadNoPrimaryKey",
         `repo.reload(): ${schemaMeta.name} has no primary key, so its rows cannot be found again.`,
       );
     }
@@ -1467,6 +1498,7 @@ function reloadAst(
       const value = row[field.name];
       if (value === null || value === undefined) {
         throw new QueryError(
+          "query.reloadNoKeyValue",
           `repo.reload(): a row of ${schemaMeta.name} has no value for its key field "${field.name}", so it cannot be found again.`,
         );
       }

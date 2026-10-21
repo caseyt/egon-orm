@@ -175,7 +175,7 @@ describe("a t.integer() value that is not a whole number (owner decision, 2026-1
       { n: 1.5 },
     );
     expect(fieldOfRefusal(byName, () => "User.age")).toBe(byName);
-    const other = new QueryError("something else");
+    const other = new QueryError("query.unsupportedFeature", "something else");
     expect(fieldOfRefusal(other, () => "User.age")).toBe(other);
     expect(fieldOfRefusal("text", () => "User.age")).toBe("text");
   });

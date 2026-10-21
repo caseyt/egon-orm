@@ -135,7 +135,7 @@ describe("validateField", () => {
   test("throws when the validator answers with a promise", () => {
     const cs = cast(User, { email: "a@b.c" }, ["email"]);
     expect(() => cs.validateField("email", async () => [])).toThrow(
-      "validator returned a Promise; use validateFieldAsync",
+      "query.fieldValidatorPromise: The field validator returned a Promise.",
     );
   });
 

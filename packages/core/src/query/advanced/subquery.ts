@@ -47,7 +47,7 @@ export function subquery<Q extends QueryLike>(
   query: Q & SourceCheck<Q>,
 ): Source<SourceBindingOf<Q>, SourceRowOf<Q>, QueryParams<Q>> {
   if (!(query instanceof Query)) {
-    throw new QueryError('subquery() takes a query: subquery(from(Post, "p").select(…)).');
+    throw new QueryError("query.subqueryArgument", "subquery() takes a query.");
   }
   const ast = query.ast;
   const columns = sourceColumns(query, "subquery");
@@ -108,17 +108,19 @@ export function scalar<Q extends QueryLike>(
   query: Q & ScalarCheck<Q>,
 ): Expr<QueryResult<Q> | null, QueryParams<Q>> {
   if (!(query instanceof Query)) {
-    throw new QueryError(
-      'scalar() takes a query that selects one value: scalar(from(Post, "p").select(() => count())).',
-    );
+    throw new QueryError("query.scalarArgument", "scalar() takes a query that selects one value.");
   }
   const select = query.ast.select;
   if (select === undefined || select.shape.kind !== "expr") {
     throw new QueryError(
-      "scalar() takes a query that selects one expression, such as select(() => count()); this query selects " +
-        (select === undefined
-          ? "whole rows."
-          : `${select.shape.kind === "binding" ? "a whole binding" : `an ${select.shape.kind}`}.`),
+      "query.scalarShape",
+      `scalar() takes a query that selects one expression, and this query selects ${
+        select === undefined
+          ? "whole rows"
+          : select.shape.kind === "binding"
+            ? "a whole binding"
+            : `an ${select.shape.kind}`
+      }.`,
     );
   }
   return subqueryOf(query, "scalar") as AnyExpr as never;
@@ -144,16 +146,19 @@ const OUTER_BINDINGS = new WeakMap<SchemaMeta, Map<string, object>>();
  */
 export function outerRef<S extends AnySchema>(alias: string, schema: S): Binding<S> {
   if (typeof alias !== "string" || alias === "") {
-    throw new QueryError('outerRef() takes the alias of the outer binding first: outerRef("u", User).');
+    throw new QueryError("query.outerRefAlias", "outerRef() takes the alias of the outer binding first.");
   }
   if (!isSchema(schema)) {
     throw new QueryError(
-      `outerRef("${alias}", …) takes the schema class of that binding second: outerRef("${alias}", User).`,
+      "query.outerRefSchema",
+      `outerRef("${alias}", …) takes the schema class of that binding second.`,
+      { params: { alias } },
     );
   }
   const schemaMeta = meta(schema);
   if (schemaMeta.source === null) {
     throw new QueryError(
+      "query.outerRefEmbedded",
       `outerRef("${alias}", ${schemaMeta.name}): an embedded schema has no table, so no query binds it.`,
     );
   }

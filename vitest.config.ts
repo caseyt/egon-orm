@@ -32,6 +32,8 @@ function projectsFor(pkg: (typeof PACKAGES)[number]): TestProjectConfiguration[]
         root,
         environment: "node",
         include: ["src/**/*.test.ts", "test/**/*.test.ts"],
+        // Full error messages, so that tests can match their advice (ADR 0007).
+        setupFiles: [fromRoot("./packages/core/test/support/full-messages.ts")],
       },
     },
     {
@@ -62,6 +64,7 @@ function projectsFor(pkg: (typeof PACKAGES)[number]): TestProjectConfiguration[]
         include: ["src/**/*.itest.ts", "test/**/*.itest.ts"],
         // Gives the run an id and sweeps leaked test databases before and after it.
         globalSetup: [fromRoot("./packages/core/test/support/global-setup.ts")],
+        setupFiles: [fromRoot("./packages/core/test/support/full-messages.ts")],
         // Files run in parallel (each owns a database, see test/support/db.ts);
         // tests inside one file run serially.
         fileParallelism: true,

@@ -504,7 +504,7 @@ describe("putAssoc", () => {
       change(catalogue).putAssoc("genres", [loaded(Shelf, { id: 1, room: "a" })] as never),
     ).toThrow(/must be a Genre/);
     expect(() => change(catalogue).putAssoc("genres", [3] as never)).toThrow(/plain object of its fields/);
-    expect(() => change(catalogue).putAssoc("genres", g1 as never)).toThrow(/give an array/);
+    expect(() => change(catalogue).putAssoc("genres", g1 as never)).toThrow("query.nestedNotArray: putAssoc(\"genres\"): Catalogue.genres holds a list.");
     expect(() => change(catalogue).putAssoc("genres", undefined as never)).toThrow(/undefined/);
     expect(() => change(catalogue).putAssoc("genres", [{ nope: 1 }] as never)).toThrow(
       /no field or association/,

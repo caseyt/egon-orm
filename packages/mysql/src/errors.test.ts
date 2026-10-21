@@ -162,7 +162,7 @@ describe("normalizeMysqlError", () => {
   });
 
   test("anything else is returned unchanged", () => {
-    const egon = new QueryError("mine");
+    const egon = new QueryError("query.unsupportedFeature", "mine");
     const plain = new Error("app");
     const half = Object.assign(new Error("no state"), { errno: 1062 });
     expect(normalizeMysqlError(egon, "x")).toBe(egon);

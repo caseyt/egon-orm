@@ -70,12 +70,15 @@ export function checkCombination(method: string, left: QueryAst, right: QueryAst
   if (left.orderBys.length > 0 || left.limit !== undefined || left.offset !== undefined) {
     const clause =
       left.orderBys.length > 0 ? "an orderBy()" : left.limit !== undefined ? "a limit()" : "an offset()";
-    throw new QueryError(
-      `${method}() was called on a query with ${clause}. On a combined query those apply to the combined rows, not to this side: add them after ${method}(), or, to order or limit this side alone, wrap it: from(subquery(q), "s").`,
-    );
+    throw new QueryError("query.setOperationClause", `${method}() was called on a query with ${clause}.`, {
+      params: { method },
+    });
   }
   if (left.lock !== undefined || right.lock !== undefined) {
-    throw new QueryError(`${method}(): a query with a row lock cannot be combined with another.`);
+    throw new QueryError(
+      "query.setOperationLock",
+      `${method}(): a query with a row lock cannot be combined with another.`,
+    );
   }
   for (const [side, ast] of [
     ["this query", left],
@@ -83,13 +86,12 @@ export function checkCombination(method: string, left: QueryAst, right: QueryAst
   ] as const) {
     if (ast.preloads.length > 0) {
       throw new QueryError(
-        `${method}(): ${side} has preloads, which a set operation cannot carry. Preload in a query over the combined rows, or exclude("preload") first.`,
+        "query.setOperationPreloads",
+        `${method}(): ${side} has preloads, which a set operation cannot carry.`,
       );
     }
     if (ast.updates.length > 0) {
-      throw new QueryError(
-        `${method}(): ${side} has set(…) assignments; an update cannot be combined with a query.`,
-      );
+      throw new QueryError("query.setOperationUpdate", `${method}(): ${side} has set(…) assignments.`);
     }
   }
   const a = skeleton(left, method);
@@ -124,7 +126,8 @@ function skeletonOf(shape: SelectShape, method: string, path: string): Skeleton 
       return { kind: "row", meta: shape.meta };
     case "constant":
       throw new QueryError(
-        `${method}(): a side selects a plain value${at(path)}, which is returned as it is and never sent to the database, so the rows of the other side would get it too. Select it as a value with a type: val(value, t.string()).`,
+        "query.setOperationPlainValue",
+        `${method}(): a side selects a plain value${at(path)}, which is returned as it is and never sent to the database, so the rows of the other side would get it too.`,
       );
     case "object":
       return {
@@ -165,7 +168,8 @@ function describe(node: Skeleton): string {
 
 function mismatch(method: string, a: Skeleton, b: Skeleton, path: string): QueryError {
   return new QueryError(
-    `${method}(): the two sides return different shapes${at(path)}: this query returns ${describe(a)}, the other ${describe(b)}. Columns are combined by position, so both must select the same shape, with keys in the same order.`,
+    "query.setOperationShapes",
+    `${method}(): the two sides return different shapes${at(path)}: this query returns ${describe(a)}, the other ${describe(b)}.`,
   );
 }
 

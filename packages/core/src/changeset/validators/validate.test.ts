@@ -768,14 +768,14 @@ describe("validate: apply", () => {
 describe("validate: sync and async", () => {
   test("validate throws when a function answers with a promise", () => {
     const cs = cast(User, {}, []);
-    expect(() => cs.validate(async () => [])).toThrow("validator returned a Promise; use validateAsync");
+    expect(() => cs.validate(async () => [])).toThrow("query.validatorPromise: The validator returned a Promise.");
     expect(() => cs.validate(async () => [])).toThrow(QueryError);
   });
 
   test("validate throws when a Standard Schema answers with a promise, and the promise's rejection is handled", async () => {
     const cs = cast(User, {}, []);
     const rejecting = standard(() => Promise.reject(new Error("remote check failed")));
-    expect(() => cs.validate(rejecting)).toThrow("validator returned a Promise; use validateAsync");
+    expect(() => cs.validate(rejecting)).toThrow("query.validatorPromise: The validator returned a Promise.");
     // An unhandled rejection would fail the run.
     await new Promise((resolve) => setTimeout(resolve, 0));
   });

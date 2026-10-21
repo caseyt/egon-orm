@@ -447,6 +447,7 @@ export function migrationDialectOf(dialect: Dialect): MigrationDialect {
   const table = Object.hasOwn(TABLES, dialect) ? TABLES[dialect] : undefined;
   if (table === undefined) {
     throw new MigrationError(
+      "migration.dialectUnsupported",
       `Migrations are not supported on ${String(dialect)} by this build of egon-orm: it has no migration dialect table for it.`,
     );
   }

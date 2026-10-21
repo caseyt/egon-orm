@@ -177,13 +177,12 @@ export function sourceColumns(
   const ast = query.ast;
   if (ast.preloads.length > 0) {
     throw new QueryError(
-      `${method}(): the query has preloads, which a query read as a source cannot run: exclude("preload") first.`,
+      "query.sourceWithPreloads",
+      `${method}(): the query has preloads, which a query read as a source cannot run.`,
     );
   }
   if (ast.updates.length > 0) {
-    throw new QueryError(
-      `${method}(): the query has set(…) assignments, an update; only a query that reads can be a source.`,
-    );
+    throw new QueryError("query.sourceIsUpdate", `${method}(): the query has set(…) assignments, an update.`);
   }
   const select = ast.select;
   if (select === undefined) {
@@ -238,6 +237,7 @@ export function sourceColumns(
 
 function refused(method: string, what: string): QueryError {
   return new QueryError(
+    "query.sourceShape",
     `${method}() reads a query as a source, so the query must select an object of expressions or whole rows of a schema; it selects ${what}.`,
   );
 }

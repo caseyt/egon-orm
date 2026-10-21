@@ -274,7 +274,8 @@ export function listNode(
 export function literalNode(value: null | boolean | number): LiteralNode {
   if (!isLiteral(value)) {
     throw new QueryError(
-      "lit() takes true, false, null or a finite number, which are written into the SQL. Every other value is bound: use val(value) instead.",
+      "query.litValue",
+      "lit() takes true, false, null or a finite number, which are written into the SQL.",
     );
   }
   return { kind: "literal", value };
@@ -392,9 +393,7 @@ export function windowNode(
  */
 export function identNode(name: string): IdentNode {
   if (typeof name !== "string" || !IDENTIFIER.test(name)) {
-    throw new QueryError(
-      "fragment.ident() takes an identifier: a letter or underscore, then letters, digits, underscores or $ (/^[A-Za-z_][A-Za-z0-9_$]*$/). The name given does not match, so it was refused.",
-    );
+    throw new QueryError("query.identName", "fragment.ident() takes an identifier.");
   }
   return { kind: "ident", name };
 }

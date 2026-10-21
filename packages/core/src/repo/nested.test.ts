@@ -302,7 +302,7 @@ describe("nested insert", () => {
     const { repo, driver } = setup();
     driver.respond = (sql) =>
       sql.startsWith('insert into "boats"')
-        ? new DatabaseError("boom", { code: "connection" })
+        ? new DatabaseError("database.rejected", "boom", { code: "connection" })
         : sql.startsWith("insert")
           ? { rows: [{ c0: 1 }], rowCount: 1 }
           : {};

@@ -163,7 +163,8 @@ function jsonOf(value: unknown): unknown {
   }
   if (value === null) return null;
   if (value instanceof Date) {
-    if (Number.isNaN(value.getTime())) throw new CastError("An embedded field holds an invalid Date.");
+    if (Number.isNaN(value.getTime()))
+      throw new CastError("cast.embedInvalidDate", "An embedded field holds an invalid Date.");
     return value.toISOString();
   }
   if (value instanceof Uint8Array) return toBase64(value);
@@ -177,7 +178,10 @@ function jsonOf(value: unknown): unknown {
 }
 
 function unreadable(what: string, key: string, schemaMeta: SchemaMeta): CastError {
-  return new CastError(`The stored "${key}" of the embedded ${schemaMeta.name} is not ${what}.`);
+  return new CastError(
+    "cast.embedStoredField",
+    `The stored "${key}" of the embedded ${schemaMeta.name} is not ${what}.`,
+  );
 }
 
 /** A JSON value as the driver value of a column of kind `db.kind`. */
@@ -238,11 +242,13 @@ function missingKey(schemaMeta: SchemaMeta, slot: Slot, isNull: boolean): CastEr
   const what = `A stored ${schemaMeta.name} has ${isNull ? `null for "${slot.key}"` : `no "${slot.key}"`}`;
   if (slot.field.autogenerate !== undefined) {
     return new CastError(
+      "cast.embedGeneratedMissing",
       `${what}, the generated value of ${slot.field.name}: it was written without one (not through a changeset or insertAll).`,
     );
   }
   return new CastError(
-    `${what}, and the field ${slot.field.name} has no default and is not nullable. Give it a .default(…) (or make it .nullable()) so that rows stored before it existed can be read.`,
+    "cast.embedFieldMissing",
+    `${what}, and the field ${slot.field.name} has no default and is not nullable.`,
   );
 }
 
@@ -298,7 +304,7 @@ export function dumpEmbedded(schemaMeta: SchemaMeta, row: object): Record<string
  */
 export function loadEmbedded(schemaMeta: SchemaMeta, json: unknown, rowMeta: RowMeta): object {
   if (typeof json !== "object" || json === null || Array.isArray(json)) {
-    throw new CastError(`A stored ${schemaMeta.name} is not a JSON object.`);
+    throw new CastError("cast.embedNotObject", `A stored ${schemaMeta.name} is not a JSON object.`);
   }
   const { slots } = codecOf(schemaMeta);
   const stored = json as Readonly<Record<string, unknown>>;
@@ -417,13 +423,15 @@ export function embedType(
   // what is written can be read back; one that cannot be is refused.
   const dumpOne = (value: unknown, target: SchemaMeta): Record<string, unknown> => {
     const row = rowFrom(schema(), target, value);
-    if (typeof row === "string") throw new CastError(`A ${target.name} cannot be written: ${row}.`);
+    if (typeof row === "string")
+      throw new CastError("cast.embedWrite", `A ${target.name} cannot be written: ${row}.`);
     return dumpEmbedded(target, row);
   };
   const dump = (value: unknown): unknown => {
     const target = schemaMeta();
     if (cardinality === "one") return dumpOne(value, target);
-    if (!Array.isArray(value)) throw new CastError(`A list of ${target.name} must be an array.`);
+    if (!Array.isArray(value))
+      throw new CastError("cast.embedListNotArray", `A list of ${target.name} must be an array.`);
     return value.map((row) => dumpOne(row, target));
   };
   const type: FieldType<unknown, unknown> = Object.freeze({
@@ -454,7 +462,8 @@ export function embedType(
       const json = parse(value);
       const target = schemaMeta();
       if (cardinality === "one") return loadEmbedded(target, json, loaded());
-      if (!Array.isArray(json)) throw new CastError(`A stored list of ${target.name} is not a JSON array.`);
+      if (!Array.isArray(json))
+        throw new CastError("cast.embedListNotArray", `A stored list of ${target.name} is not a JSON array.`);
       const rowMeta = loaded();
       return json.map((item: unknown) => loadEmbedded(target, item, rowMeta));
     },

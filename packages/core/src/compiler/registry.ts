@@ -129,7 +129,7 @@ const registry = new Map<string, NodeEmitter>();
  */
 export function registerNodeEmitter(kind: string, emitter: NodeEmitter): void {
   if (BUILT_IN_KINDS.has(kind) || registry.has(kind)) {
-    throw new QueryError(`The node kind "${kind}" already has an emitter.`);
+    throw new QueryError("query.emitterTwice", `The node kind "${kind}" already has an emitter.`);
   }
   registry.set(kind, emitter);
 }

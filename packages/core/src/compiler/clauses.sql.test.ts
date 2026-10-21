@@ -207,7 +207,7 @@ describe("clause errors", () => {
       lock: { kind: "lock", clause: "FOR UPDATE; drop table users" },
     });
     expect(() => compile(ast)).toThrow(
-      'The lock clause "FOR UPDATE; drop table users" is not one postgres accepts as a string; use a fragment.',
+      "query.lockClause: The lock clause \"FOR UPDATE; drop table users\" is not one postgres accepts as a string.",
     );
   });
 

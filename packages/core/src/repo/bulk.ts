@@ -230,9 +230,7 @@ function pushCell(
     return bindExpr(typed, values, names, expandLists);
   }
   if (isQueryLike(value)) {
-    throw new QueryError(
-      "repo.insertAll(): a row holds a query as a value. A subquery that selects one value is written scalar(query), which also types it.",
-    );
+    throw new QueryError("query.insertAllQueryValue", "repo.insertAll(): a row holds a query as a value.");
   }
   cells.push(VALUE_CELL);
   values.push(value);
@@ -289,13 +287,17 @@ function checkPlaceholders(
   const unknown = given.filter((name) => !names.has(name));
   if (unknown.length > 0) {
     throw new QueryError(
-      `repo.insertAll(): placeholders ${unknown.map((name) => `"${name}"`).join(", ")} ${unknown.length > 1 ? "are" : "is"} not used by any row; ${names.size === 0 ? "the rows use none" : `the rows use ${[...names].map((name) => `"${name}"`).join(", ")}`}. Use one in a row as param("${unknown[0]}", type).`,
+      "query.placeholdersUnused",
+      `repo.insertAll(): placeholders ${unknown.map((name) => `"${name}"`).join(", ")} ${unknown.length > 1 ? "are" : "is"} not used by any row; ${names.size === 0 ? "the rows use none" : `the rows use ${[...names].map((name) => `"${name}"`).join(", ")}`}.`,
+      { params: { unknown: unknown[0] as string } },
     );
   }
   const missing = [...names].filter((name) => placeholders === undefined || placeholders[name] === undefined);
   if (missing.length > 0) {
     throw new QueryError(
-      `repo.insertAll(): the rows use the named parameter${missing.length > 1 ? "s" : ""} ${missing.map((name) => `"${name}"`).join(", ")}; give ${missing.length > 1 ? "their values" : "its value"} in the placeholders option.`,
+      "query.placeholdersMissing",
+      `repo.insertAll(): the rows use the named parameter${missing.length > 1 ? "s" : ""} ${missing.map((name) => `"${name}"`).join(", ")}.`,
+      { params: { name: missing[0] ?? "name" } },
     );
   }
 }
@@ -400,6 +402,7 @@ export async function insertAll(
       const field = persistedField(schemaMeta, key, `repo.insertAll(): row ${r}`);
       if (field.writable === "never") {
         throw new QueryError(
+          "query.insertAllNeverWritable",
           `repo.insertAll(): row ${r} gives a value for ${schemaMeta.name}.${field.name}, which the database owns (writable: "never").`,
         );
       }
@@ -515,7 +518,9 @@ function raggedRows(
   columns: readonly FieldMeta[],
 ): QueryError {
   return new QueryError(
-    `repo.insertAll(): row ${row} has no value for ${schemaMeta.name}.${field.name}, which other rows give, and ${dialect} cannot write DEFAULT in a VALUES list. Give every row the same fields (${columns.map((column) => column.name).join(", ")}), or insert the rows in groups of the same fields.`,
+    "query.insertAllMixedColumns",
+    `repo.insertAll(): row ${row} has no value for ${schemaMeta.name}.${field.name}, which other rows give, and ${dialect} cannot write DEFAULT in a VALUES list.`,
+    { params: { columns: columns.map((column) => column.name).join(", ") } },
   );
 }
 
@@ -658,7 +663,8 @@ async function insertFromQuery(
   const shape = ast.select?.shape;
   if (shape === undefined || shape.kind !== "object") {
     throw new QueryError(
-      `repo.insertAll(${schemaMeta.name}, query): the query must select an object whose keys are the fields to fill, such as .select(({ u }) => ({ email: u.email, name: u.name })).`,
+      "query.insertAllQuerySelect",
+      `repo.insertAll(${schemaMeta.name}, query): the query must select an object whose keys are the fields to fill.`,
     );
   }
   const columns = shape.keys.map((key, i) => {
@@ -669,11 +675,13 @@ async function insertFromQuery(
     );
     if (shape.values[i]?.kind !== "expr") {
       throw new QueryError(
-        `repo.insertAll(${schemaMeta.name}, query): the select's "${key}" is not one SQL value (a plain value is kept out of the statement, and a binding is a whole row). Select an expression; for a value, val(value, t.integer()).`,
+        "query.insertAllSelectValue",
+        `repo.insertAll(${schemaMeta.name}, query): the select's "${key}" is not one SQL value (a plain value is kept out of the statement, and a binding is a whole row).`,
       );
     }
     if (field.writable === "never") {
       throw new QueryError(
+        "query.insertAllSelectNeverWritable",
         `repo.insertAll(): the query selects ${schemaMeta.name}.${field.name}, which the database owns (writable: "never").`,
       );
     }
@@ -738,16 +746,12 @@ export async function modifyAll(
   args: readonly unknown[],
 ): Promise<BulkResult<unknown>> {
   if (operation === "updateAll" && isSchema(queryable)) {
-    throw new QueryError(
-      'repo.updateAll() takes a query with .set(...): repo.updateAll(from(Post, "p").where(…).set({ published: true })).',
-    );
+    throw new QueryError("query.updateAllArgument", "repo.updateAll() takes a query with .set(...)");
   }
   const input = inputOf(operation, queryable);
   const ast = input.ast;
   if (operation === "updateAll" && ast.updates.length === 0) {
-    throw new QueryError(
-      'repo.updateAll() needs a query with .set(...), the values to write: repo.updateAll(from(Post, "p").where(…).set({ published: true })).',
-    );
+    throw new QueryError("query.updateAllNoSet", "repo.updateAll() needs a query with .set(...)");
   }
   const split: SplitArgs<ReadOptions> = splitArgs<ReadOptions>(
     operation,

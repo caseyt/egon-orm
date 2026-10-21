@@ -171,14 +171,22 @@ function checkBegin(
       );
     }
     if (!capabilities.isolationLevels.includes(isolation)) {
-      throw new QueryError(`The isolation level "${isolation}" is not supported by ${dialect}.`);
+      throw new QueryError(
+        "query.isolationUnsupported",
+        `The isolation level "${isolation}" is not supported by ${dialect}.`,
+        { params: { dialect } },
+      );
     }
   }
   if (readOnly !== undefined) {
     if (typeof readOnly !== "boolean")
       throw new TypeError("connection.begin({ readOnly }): readOnly must be a boolean.");
     if (readOnly && !capabilities.readOnlyTransactions) {
-      throw new QueryError(`A read-only transaction (readOnly: true) is not supported by ${dialect}.`);
+      throw new QueryError(
+        "query.readOnlyUnsupported",
+        `A read-only transaction (readOnly: true) is not supported by ${dialect}.`,
+        { params: { dialect } },
+      );
     }
   }
   if (deferrable !== undefined) {
@@ -186,7 +194,11 @@ function checkBegin(
       throw new TypeError("connection.begin({ deferrable }): deferrable must be a boolean.");
     }
     if (deferrable && !capabilities.deferrableTransactions) {
-      throw new QueryError(`A deferrable transaction (deferrable: true) is not supported by ${dialect}.`);
+      throw new QueryError(
+        "query.deferrableUnsupported",
+        `A deferrable transaction (deferrable: true) is not supported by ${dialect}.`,
+        { params: { dialect } },
+      );
     }
   }
   return { isolation, readOnly, deferrable };
@@ -297,14 +309,31 @@ function interruption(
   cause: unknown,
   waiting = false,
 ): DatabaseError {
-  const message = waiting
-    ? kind === "aborted"
-      ? "The statement was not run: its AbortSignal fired while it waited for a free connection."
-      : `The statement was not run: it waited longer than its timeoutMs (${timeoutMs} ms) for a free connection.`
-    : kind === "aborted"
-      ? "The statement was cancelled because its AbortSignal fired."
-      : `The statement was cancelled because it ran longer than its timeoutMs (${timeoutMs} ms).`;
-  return new DatabaseError(message, { code: kind, sql, cause });
+  const details = { code: kind, sql, cause };
+  if (waiting) {
+    return kind === "aborted"
+      ? new DatabaseError(
+          "database.abortedWaiting",
+          "The statement was not run: its AbortSignal fired while it waited for a free connection.",
+          details,
+        )
+      : new DatabaseError(
+          "database.timeoutWaiting",
+          `The statement was not run: it waited longer than its timeoutMs (${timeoutMs} ms) for a free connection.`,
+          details,
+        );
+  }
+  return kind === "aborted"
+    ? new DatabaseError(
+        "database.aborted",
+        "The statement was cancelled because its AbortSignal fired.",
+        details,
+      )
+    : new DatabaseError(
+        "database.timeout",
+        `The statement was cancelled because it ran longer than its timeoutMs (${timeoutMs} ms).`,
+        details,
+      );
 }
 
 /**
@@ -315,6 +344,7 @@ function interruption(
  */
 function spent(sql: string, timeoutMs: number | undefined): DatabaseError {
   return new DatabaseError(
+    "database.timeoutSpent",
     `The statement was not run: its timeoutMs (${timeoutMs} ms) was spent before it could start.`,
     { code: "timeout", sql },
   );
@@ -322,7 +352,8 @@ function spent(sql: string, timeoutMs: number | undefined): DatabaseError {
 
 function closedError(sql: string | undefined): DatabaseError {
   return new DatabaseError(
-    "This adapter is closed: adapter.close() was called. Create a new adapter to keep using the database.",
+    "database.adapterClosed",
+    "This adapter is closed: adapter.close() was called.",
     sql === undefined ? { code: "connection" } : { code: "connection", sql },
   );
 }
@@ -430,7 +461,8 @@ async function* cursorRows(
       // would never be answered.
       if (!open()) {
         throw new DatabaseError(
-          "The connection of this stream was released or destroyed while the stream was open; the stream cannot go on.",
+          "database.streamConnectionGone",
+          "The connection of this stream was released or destroyed while the stream was open.",
           { code: "connection", sql },
         );
       }
@@ -1000,22 +1032,22 @@ class SharedConnection implements Connection {
   private usable(sql: string): void {
     if (this.state !== "open") {
       throw new DatabaseError(
-        `This connection was ${this.state === "released" ? "released" : "destroyed"}; acquire a new one.`,
+        "database.connectionReleased",
+        `This connection was ${this.state === "released" ? "released" : "destroyed"}.`,
         { code: "connection", sql },
       );
     }
     if (cancelFailed.has(this.connection)) {
       throw new DatabaseError(
-        "A cancel request for this connection failed, and it may still reach the server and cancel whatever runs next. The connection takes no more statements; release it (it is closed, not pooled) and acquire a new one.",
+        "database.cancelFailed",
+        "A cancel request for this connection failed, and it may still reach the server and cancel whatever runs next.",
         { code: "connection", sql },
       );
     }
     // A statement sent now would queue behind the open cursor and wait for the stream to
     // end, which may never happen (the loop that reads it may be the one waiting).
     if (this.openStreams > 0) {
-      throw new QueryError(
-        "A stream is still open on this connection. Finish it, or leave its for-await loop (break or return), before running another statement or stream on the same connection.",
-      );
+      throw new QueryError("query.streamOpen", "A stream is still open on this connection.");
     }
   }
 

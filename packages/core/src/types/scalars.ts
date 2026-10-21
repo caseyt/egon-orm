@@ -144,6 +144,7 @@ function bigintColumnToNumber(value: number | bigint | string): number {
     number = integerTextToNumber(value);
     if (Number.isNaN(number)) {
       throw new CastError(
+        "cast.bigintNumberString",
         'A bigint column read with { mode: "number" } received a string from the driver that is not a whole number.',
       );
     }
@@ -153,7 +154,8 @@ function bigintColumnToNumber(value: number | bigint | string): number {
   if (!Number.isSafeInteger(number)) {
     // The value itself is left out: the field may be redacted.
     throw new CastError(
-      'A bigint column read with { mode: "number" } holds a value outside the safe integer range of a JavaScript number (±9007199254740991). Declare the field as t.bigint() to read it as a bigint.',
+      "cast.bigintNumberRange",
+      'A bigint column read with { mode: "number" } holds a value outside the safe integer range of a JavaScript number (±9007199254740991).',
     );
   }
   return number;
@@ -205,6 +207,7 @@ export function bigintType(
   if (mode === "bigint") return BIGINT;
   if (mode === "number") return BIGINT_AS_NUMBER;
   throw new SchemaDefinitionError(
+    "schema.bigintMode",
     `t.bigint: mode must be "bigint" or "number", but got ${JSON.stringify(mode)}.`,
   );
 }
@@ -402,11 +405,13 @@ export function decimalType(options?: DecimalOptions): FieldType<string, string>
   const { precision, scale = 0 } = options;
   if (!Number.isInteger(precision) || precision < 1 || precision > 1000) {
     throw new SchemaDefinitionError(
+      "schema.decimalPrecision",
       `t.decimal: precision must be a whole number from 1 to 1000, but got ${String(precision)}.`,
     );
   }
   if (!Number.isInteger(scale) || scale < 0 || scale > precision) {
     throw new SchemaDefinitionError(
+      "schema.decimalScale",
       `t.decimal: scale must be a whole number from 0 to the precision (${precision}), but got ${String(scale)}.`,
     );
   }

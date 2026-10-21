@@ -141,7 +141,7 @@ describe("connection failures", () => {
 
 describe("anything else", () => {
   test("is returned unchanged", () => {
-    const egon = new QueryError("already ours");
+    const egon = new QueryError("query.unsupportedFeature", "already ours");
     expect(normalizePgError(egon, SQL)).toBe(egon);
     const plain = new TypeError("a bug in the application");
     expect(normalizePgError(plain, SQL)).toBe(plain);

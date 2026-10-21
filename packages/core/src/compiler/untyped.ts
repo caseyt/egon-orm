@@ -31,7 +31,9 @@ function typeHint(value: unknown): string {
  */
 export function untypedValue(where: string, value: unknown): QueryError {
   return new QueryError(
-    `A value without a type is in ${where}, where nothing gives it one, so the database would return it as text. It is ${typeHint(value)}.`,
+    "query.untypedValue",
+    `A value without a type is in ${where}, where nothing gives it one, so the database would return it as text.`,
+    { params: { typeHint: typeHint(value) } },
   );
 }
 
@@ -47,7 +49,8 @@ export function untypedValue(where: string, value: unknown): QueryError {
  */
 export function untypedArithmetic(op: string): QueryError {
   return new QueryError(
-    `Arithmetic (${op}()) on values without a type, where nothing gives them one, so the database cannot choose an operator. Give a value a type: val(value, t.integer()) or val(value, t.float()).`,
+    "query.untypedArithmetic",
+    `Arithmetic (${op}()) on values without a type, where nothing gives them one, so the database cannot choose an operator.`,
   );
 }
 

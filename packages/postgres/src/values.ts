@@ -132,7 +132,10 @@ function pad(value: number, width: number): string {
 export function formatTimestamp(value: Date, withZone: boolean): string {
   const time = value.getTime();
   if (Number.isNaN(time)) {
-    throw new CastError("An invalid Date cannot be written to a timestamp column.");
+    throw new CastError(
+      "cast.timestampInvalidDate",
+      "An invalid Date cannot be written to a timestamp column.",
+    );
   }
   const year = value.getUTCFullYear();
   const bc = year < 1;
@@ -203,7 +206,8 @@ function readBigint(value: unknown): unknown {
     return BigInt(value);
   } catch {
     throw new CastError(
-      "A bigint column received a value from the database that is not a whole number. Read a fractional numeric column with t.decimal().",
+      "cast.bigintFraction",
+      "A bigint column received a value from the database that is not a whole number.",
     );
   }
 }

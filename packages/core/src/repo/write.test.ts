@@ -445,7 +445,7 @@ describe("insert", () => {
   });
 
   test("other database errors are passed through", async () => {
-    const failure = new DatabaseError("down", { code: "connection" });
+    const failure = new DatabaseError("database.rejected", "down", { code: "connection" });
     const { repo, events } = setup(() => failure);
     expect(await rejection(repo.insert(change(Tag, { name: "a" })))).toBe(failure);
     expect(events[0]?.error).toBe(failure);
@@ -723,7 +723,7 @@ describe("update", () => {
     expect(result.success).toBe(false);
     const error = await rejection(env.repo.update(change(user, { email: "b" })));
     expect((error as Error).message).toContain("violated on update of");
-    env.driver.respond = () => new DatabaseError("x");
+    env.driver.respond = () => new DatabaseError("database.rejected", "x");
     expect(await rejection(env.repo.update(change(user, { email: "b" })))).toBeInstanceOf(DatabaseError);
   });
 });
@@ -782,7 +782,7 @@ describe("delete", () => {
     if (result.success) throw new Error("expected a failure");
     expect(result.error.errorMessages()).toEqual({ posts: ["is still associated with this entry"] });
     expect(await rejection(env.repo.delete(user))).toBeInstanceOf(ConstraintError);
-    env.driver.respond = () => new DatabaseError("x");
+    env.driver.respond = () => new DatabaseError("database.rejected", "x");
     expect(await rejection(env.repo.delete(user))).toBeInstanceOf(DatabaseError);
   });
 
@@ -1088,7 +1088,7 @@ describe("insertAll", () => {
   test("a failed acquire is passed on", async () => {
     const small: Capabilities = { ...POSTGRES_CAPABILITIES, maxParams: 1 };
     const env = setup(() => ({ rowCount: 1 }), small);
-    env.driver.gate = Promise.reject(new DatabaseError("no", { code: "connection" }));
+    env.driver.gate = Promise.reject(new DatabaseError("database.rejected", "no", { code: "connection" }));
     env.driver.gate.catch(() => undefined);
     expect(
       await rejection(env.repo.insertAll(Tag, [{ name: "a" }, { name: "b" }], { timeoutMs: 1_000 })),
@@ -1190,7 +1190,7 @@ describe("timeoutMs is one budget for the whole call", () => {
     expect((await env.repo.insertAll(Tag, rows, { timeoutMs: 1_000 })).count).toBe(2);
     // Errors that are not timeouts pass unchanged.
     env.driver.delay = () => 0;
-    const failure = new DatabaseError("no", { code: "connection" });
+    const failure = new DatabaseError("database.rejected", "no", { code: "connection" });
     env.driver.respond = (sql) => (sql.startsWith("insert") ? failure : { rowCount: 1 });
     expect(await rejection(env.repo.insertAll(Tag, rows, { timeoutMs: 1_000 }))).toBe(failure);
   });

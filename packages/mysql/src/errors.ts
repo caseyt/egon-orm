@@ -174,7 +174,8 @@ export function normalizeMysqlError(error: unknown, sql: string | undefined): un
     CONNECTION_MESSAGES.some((p) => p.test(error.message))
   ) {
     return new DatabaseError(
-      `Could not reach the database, or lost the connection to it (${code ?? error.message}). Check that it is running and that the connection settings are right.`,
+      "database.unreachable",
+      `Could not reach the database, or lost the connection to it (${code ?? error.message}).`,
       withSql({ code: "connection" as const, cause: error }),
     );
   }
@@ -189,12 +190,14 @@ export function normalizeMysqlError(error: unknown, sql: string | undefined): un
       ? `: ${error.message}`
       : ". The database's message is on error.cause; it is left out here because it may quote a value";
     return new DatabaseError(
+      "database.rejected",
       `The database rejected the statement (MySQL error ${errno}, ${code ?? "unknown"})${said}.`,
       withSql({ code: egonCode, ...(RETRYABLE.has(errno) ? { retryable: true } : {}), cause: error }),
     );
   }
   if (fields.fatal === true) {
     return new DatabaseError(
+      "database.connectionFailed",
       `Lost the connection to the database, or could not open one: ${error.message}.`,
       withSql({ code: "connection" as const, cause: error }),
     );

@@ -466,7 +466,7 @@ describe("integer and float values must be numbers", () => {
     // pg reads a numeric column as text.
     const decode = decoderOf(kind, rowLeaf(GAUGE, 0));
     expect(() => decode(rawRow(GAUGE, 0, { id: 1, level: "1.5", label: "a", total: 1 }), [])).toThrow(
-      "Gauge.level is declared t.float(), but the database returned a string for it, not a number: the column or expression is not of a floating-point type (Postgres reads numeric columns as text). Declare the field t.decimal() for a decimal column, or change the column's type.",
+      "cast.floatNotNumber: Gauge.level is declared t.float(), but the database returned a string for it, not a number.",
     );
   });
 
@@ -564,10 +564,10 @@ describe("integer and float values must be numbers", () => {
           ? generateDecoder(returned, codecs, "Gauge")
           : interpretDecoder(returned, codecs, "Gauge");
       expect(() => decode({ c0: "12" }, [])).toThrow(
-        /^Gauge\.id is declared t\.integer\(\).* The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction\.$/,
+        "cast.integerNotNumber: Gauge.id is declared t.integer(), but the database returned a string for it, not a number. The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction.",
       );
       // A read says nothing about writes.
-      expect(() => decoderOf(kind, returned)({ c0: "12" }, [])).toThrow(/change the column's type\.$/);
+      expect(() => decoderOf(kind, returned)({ c0: "12" }, [])).toThrow("cast.integerNotNumber: \"id\" is declared t.integer(), but the database returned a string for it, not a number.");
       expect(decode({ c0: 12 }, [])).toEqual({ id: 12 });
     },
   );
@@ -577,7 +577,7 @@ describe("integer and float values must be numbers", () => {
       output: { kind: "object", keys: ["id"], values: [{ kind: "value", alias: "c0", type: integerType() }] },
       decoder: undefined,
     } as unknown as CompiledQuery;
-    expect(() => decoderFor(plan, codecs, false, "Gauge")({ c0: "1" }, [])).toThrow(/^Gauge\.id is declared/);
+    expect(() => decoderFor(plan, codecs, false, "Gauge")({ c0: "1" }, [])).toThrow("cast.integerNotNumber: Gauge.id is declared t.integer(), but the database returned a string for it, not a number. The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction.");
   });
 
   test("the generated decoder tests a value that needs no conversion inline", () => {

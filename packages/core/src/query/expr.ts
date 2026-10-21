@@ -505,7 +505,10 @@ export function subqueryOf(
 ): AnyExpr & { readonly node: { readonly kind: "subquery"; readonly query: QueryAst } } {
   const expr = value[AS_SUBQUERY]();
   if (!(expr instanceof Expr) || expr.node.kind !== "subquery") {
-    throw new QueryError(`${method}() takes a query, which did not produce a subquery expression.`);
+    throw new QueryError(
+      "query.subqueryExpected",
+      `${method}() takes a query, which did not produce a subquery expression.`,
+    );
   }
   return expr as AnyExpr & { readonly node: { readonly kind: "subquery"; readonly query: QueryAst } };
 }
@@ -938,7 +941,8 @@ export class Expr<out T, in P = NoParams> {
     this: Expr<S, SomeParams>,
     ...parts: A & CompatibleParams<P, ParamsOfAll<A>>
   ): Expr<string | NullOf<S> | NullOf<ValueOf<A[number]>>, MergeParams<P, ParamsOfAll<A>>> {
-    if (parts.length === 0) throw new QueryError("concat() needs at least one part to append.");
+    if (parts.length === 0)
+      throw new QueryError("query.concatEmpty", "concat() needs at least one part to append.");
     let result: AnyExpr = this;
     for (const part of parts) {
       result = operate("concat", result, part, STRING, this.redact, STRING, this.redact, "concat", false);
@@ -1535,7 +1539,8 @@ export function joinNamed(
         const left = namedTypeName(x);
         const right = namedTypeName(y);
         throw new QueryError(
-          `The named parameter "${x.name}" is used with two types, ${left} and ${left === right ? `another ${right} type (other values or options)` : right}. A named parameter has one type: give the other use its own name.`,
+          "query.paramTwoTypes",
+          `The named parameter "${x.name}" is used with two types, ${left} and ${left === right ? `another ${right} type (other values or options)` : right}.`,
         );
       }
     }
@@ -1573,9 +1578,7 @@ function namedTypeName(node: NamedParamNode): string {
 export function typeArgument(value: unknown, method: string): AnyFieldType {
   const state = fieldState(value);
   if (state === undefined) {
-    throw new QueryError(
-      `${method}() takes a field type such as t.integer() or t.string() to name the type.`,
-    );
+    throw new QueryError("query.castType", `${method}() takes a field type.`);
   }
   return state.type;
 }
@@ -1586,10 +1589,8 @@ function elementType(type: AnyFieldType | undefined): AnyFieldType | undefined {
 
 function nullOperand(method: string, comparison: boolean): QueryError {
   return comparison
-    ? new QueryError(
-        `${method}() was given null. A comparison with null is always unknown in SQL, so it would match nothing: use isNull() or isNotNull(), or isDistinctFrom() to compare treating null as a value.`,
-      )
-    : new QueryError(`${method}() was given null, which it cannot take.`);
+    ? new QueryError("query.compareNull", `${method}() was given null.`)
+    : new QueryError("query.nullNotAllowed", `${method}() was given null, which it cannot take.`);
 }
 
 /**
@@ -1632,11 +1633,12 @@ export function toOperand(
     return redact ? redacted(value) : value;
   }
   if (value === undefined) {
-    throw new QueryError(
-      allowNull
-        ? `${method}() was given undefined, which is not a value. Pass null for SQL NULL.`
-        : `${method}() was given undefined, which is not a value.`,
-    );
+    throw allowNull
+      ? new QueryError(
+          "query.undefinedOperandNullable",
+          `${method}() was given undefined, which is not a value.`,
+        )
+      : new QueryError("query.undefinedOperand", `${method}() was given undefined, which is not a value.`);
   }
   if (value === null && !allowNull) throw nullOperand(method, comparison);
   return new Expr(
@@ -1877,7 +1879,7 @@ export function booleanOperand(value: unknown, method: string): AnyExpr {
       shapeOfParam(BOOLEAN, false),
     );
   }
-  throw new QueryError(`${method}() takes a boolean expression, such as u.age.gte(18), or true or false.`);
+  throw new QueryError("query.booleanExpected", `${method}() takes a boolean expression.`);
 }
 
 function logical(op: "and" | "or", left: AnyExpr, right: unknown): AnyExpr {
@@ -1956,12 +1958,15 @@ function membership(op: "in" | "notIn", left: AnyExpr, values: unknown): AnyExpr
     for (let i = 0; i < length; i++) {
       const value: unknown = values[i];
       if (value === undefined) {
-        throw new QueryError(`${op}() was given a list holding undefined, which is not a value.`);
+        throw new QueryError(
+          "query.listUndefined",
+          `${op}() was given a list holding undefined, which is not a value.`,
+        );
       }
       if (value === null) {
-        throw new QueryError(
-          `${op}() was given a list holding null. x ${op === "in" ? "IN" : "NOT IN"} (…, NULL) never matches the null: filter it out and add isNull() separately.`,
-        );
+        throw new QueryError("query.listNull", `${op}() was given a list holding null.`, {
+          params: { operator: op === "in" ? "IN" : "NOT IN" },
+        });
       }
       copy[i] = value;
     }
@@ -1981,7 +1986,10 @@ function membership(op: "in" | "notIn", left: AnyExpr, values: unknown): AnyExpr
     right = left.redact ? redacted(values) : values;
   } else if (isSubqueryOperand(values)) right = subqueryOf(values, op);
   else {
-    throw new QueryError(`${op}() takes an array of values, an expression of array type, or a query.`);
+    throw new QueryError(
+      "query.inOperand",
+      `${op}() takes an array of values, an expression of array type, or a query.`,
+    );
   }
   const first = right.redact ? redacted(left) : left;
   return new Expr(
@@ -2004,20 +2012,25 @@ function embedField(value: AnyExpr, name: unknown): AnyExpr {
   const info = value.type === undefined ? undefined : embedTypeInfo(value.type);
   if (info === undefined || info.cardinality !== "one") {
     throw new QueryError(
-      `field() reads a field of an embedded row, and this expression is ${value.type === undefined ? "of no known type" : info === undefined ? `of the type ${value.type.name}` : "a list of embedded rows"}. Use it on a t.embedOne() field; for other JSON use path() or pathText().`,
+      "query.fieldNotEmbed",
+      `field() reads a field of an embedded row, and this expression is ${value.type === undefined ? "of no known type" : info === undefined ? `of the type ${value.type.name}` : "a list of embedded rows"}.`,
     );
   }
   const embedded = meta(info.schema());
   const field = typeof name === "string" ? embedded.fieldsByName.get(name) : undefined;
   if (field === undefined || field.virtual) {
     throw new QueryError(
-      `field(): ${embedded.name} has no stored field ${typeof name === "string" ? `"${name}"` : String(name)}. Its fields are: ${embedded.persisted.map((each) => each.name).join(", ")}.`,
+      "query.fieldUnknown",
+      `field(): ${embedded.name} has no stored field ${typeof name === "string" ? `"${name}"` : String(name)}.`,
+      { params: { embedded: embedded.persisted.map((each) => each.name).join(", ") } },
     );
   }
   const kind = field.type.db.kind;
   if (kind === "binary" || kind === "array") {
     throw new QueryError(
-      `field(): ${embedded.name}.${field.name} is ${kind === "binary" ? "bytes, stored as base64 text" : "a list, stored as a JSON array"}, which field() cannot read as its type. Read it with path("${field.column}") instead.`,
+      "query.fieldNotReadable",
+      `field(): ${embedded.name}.${field.name} is ${kind === "binary" ? "bytes, stored as base64 text" : "a list, stored as a JSON array"}, which field() cannot read as its type.`,
+      { params: { column: field.column } },
     );
   }
   const redact = value.redact || field.redact;
@@ -2050,16 +2063,20 @@ function jsonPath(
 ): AnyExpr {
   if (value.type !== undefined && !JSON_KINDS.has(value.type.db.kind)) {
     throw new QueryError(
-      `${method}() reads inside a JSON value, and this expression has the type ${value.type.name}. Use it on a t.json() or embedded field, or on a fragment.`,
+      "query.pathNotJson",
+      `${method}() reads inside a JSON value, and this expression has the type ${value.type.name}.`,
     );
   }
-  if (keys.length === 0) throw new QueryError(`${method}() needs at least one key.`);
+  if (keys.length === 0) throw new QueryError("query.pathEmpty", `${method}() needs at least one key.`);
   const path: ExprNode[] = [];
   const shapes: number[] = [];
   const keyShape = shapeOfParam(undefined, false);
   for (const key of keys) {
     if (typeof key !== "string" && !(typeof key === "number" && Number.isInteger(key))) {
-      throw new QueryError(`${method}() takes keys that are strings, or whole numbers for array positions.`);
+      throw new QueryError(
+        "query.pathKey",
+        `${method}() takes keys that are strings, or whole numbers for array positions.`,
+      );
     }
     path.push(paramNode(key, undefined, false));
     shapes.push(keyShape);

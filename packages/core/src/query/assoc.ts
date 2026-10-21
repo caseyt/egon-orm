@@ -111,9 +111,9 @@ export function routeOf(ownerMeta: SchemaMeta, name: string): AssocRoute {
   const assoc = ownerMeta.assocs().get(name);
   if (assoc === undefined) {
     const known = [...ownerMeta.assocs().keys()];
-    throw new QueryError(
-      `${ownerMeta.name} has no association "${name}". Its associations are: ${known.length === 0 ? "none" : known.join(", ")}.`,
-    );
+    throw new QueryError("query.assocUnknown", `${ownerMeta.name} has no association "${name}".`, {
+      params: { known: known.length === 0 ? "none" : known.join(", ") },
+    });
   }
   let route = routes.get(assoc);
   if (route === undefined) {
@@ -405,7 +405,8 @@ export function checkRows(method: string, schema: AnySchema, rows: readonly unkn
     const own = schemaOfRow(row);
     if (own === undefined || meta(own) !== schemaMeta) {
       throw new QueryError(
-        `${method} was given rows of ${schemaMeta.name}, but ${rows.length === 1 ? "the row" : `element ${i}`} is a row of ${own === undefined ? "no schema" : meta(own).name}. Rows of different schemas are preloaded in separate calls.`,
+        "query.preloadMixedRows",
+        `${method} was given rows of ${schemaMeta.name}, but ${rows.length === 1 ? "the row" : `element ${i}`} is a row of ${own === undefined ? "no schema" : meta(own).name}.`,
       );
     }
   }
@@ -465,6 +466,7 @@ export function assoc<S extends AnySchema, const K extends AssocKeys<S>>(
   const targetKey = route.targetMeta.primaryKey;
   if (targetKey.length !== 1) {
     throw new QueryError(
+      "query.throughKey",
       `assoc(${meta(schema).name}, …, "${name}"): ${route.targetMeta.name} needs a primary key of exactly one field to be found through a has-through chain.`,
     );
   }

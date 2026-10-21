@@ -281,7 +281,8 @@ interface Planner {
 function addItem(p: Planner, item: SelectItem): void {
   if (p.names.has(item.alias)) {
     throw new QueryError(
-      `The select list has two output columns named "${item.alias}". Give one of them another name.`,
+      "query.selectDuplicateColumn",
+      `The select list has two output columns named "${item.alias}".`,
     );
   }
   p.names.add(item.alias);
@@ -332,9 +333,10 @@ function bindSource(
   lateral = false,
 ): void {
   const alias = source.alias;
-  if (typeof alias !== "string" || alias === "") throw new QueryError("A source has no alias.");
+  if (typeof alias !== "string" || alias === "")
+    throw new QueryError("query.astSourceAlias", "A source has no alias.");
   if (scope.bindings.has(alias)) {
-    throw new QueryError(`The alias "${alias}" names two sources of one query; give each its own alias.`);
+    throw new QueryError("query.astSourceAliasTwice", `The alias "${alias}" names two sources of one query.`);
   }
   let entry: BindingEntry;
   switch (source.kind) {
@@ -353,7 +355,9 @@ function bindSource(
       const cte = findCte(scope, source.name);
       if (cte === undefined) {
         throw new QueryError(
+          "query.cteUndefined",
           `The source "${alias}" reads the CTE "${source.name}", which the query does not define.`,
+          { params: { name: source.name } },
         );
       }
       checkCteColumns(source, cte.output);
@@ -385,7 +389,10 @@ function bindSource(
       };
       break;
     default:
-      throw new QueryError(`Unknown source kind "${String((source as { kind: unknown }).kind)}".`);
+      throw new QueryError(
+        "query.astSourceKind",
+        `Unknown source kind "${String((source as { kind: unknown }).kind)}".`,
+      );
   }
   scope.bindings.set(alias, entry);
 }
@@ -414,7 +421,9 @@ function checkCteColumns(source: CteSourceNode, output: OutputPlan | undefined):
       .map((column) => `${column.key}: ${column.type?.name ?? "untyped"}`)
       .join(", ");
     throw new QueryError(
-      `The source "${source.alias}" reads the CTE "${source.name}" as { ${keys} }, but the query given to withCte("${source.name}", …) returns ${body === undefined ? "something else" : `{ ${body.keys.map((key, i) => `${key}: ${(body.values[i] as ObjectOfValues["values"][number]).type?.name ?? "untyped"}`).join(", ")} }`}. Refer to it with the same query: cte("${source.name}", query).`,
+      "query.cteShape",
+      `The source "${source.alias}" reads the CTE "${source.name}" as { ${keys} }, but the query given to withCte("${source.name}", …) returns ${body === undefined ? "something else" : `{ ${body.keys.map((key, i) => `${key}: ${(body.values[i] as ObjectOfValues["values"][number]).type?.name ?? "untyped"}`).join(", ")} }`}.`,
+      { params: { name: source.name } },
     );
   }
 }
@@ -429,6 +438,7 @@ function innerEntry(
   const inner = output?.kind === "row" ? output : undefined;
   if (inner !== undefined && declared !== undefined && inner.meta !== declared) {
     throw new QueryError(
+      "query.sourceSchemaMismatch",
       `The source "${alias}" is declared with the schema ${declared.name}, but ${what} selects rows of ${inner.meta.name}.`,
     );
   }
@@ -479,9 +489,10 @@ export function planCtes(scope: Scope, ast: QueryAst, querySchema: string | unde
  * @throws QueryError when the name is used twice in one query.
  */
 export function cteEntry(scope: Scope, cte: CteNode): CteEntry {
-  if (typeof cte.name !== "string" || cte.name === "") throw new QueryError("A CTE has no name.");
+  if (typeof cte.name !== "string" || cte.name === "")
+    throw new QueryError("query.astCteName", "A CTE has no name.");
   if (scope.ctes.has(cte.name)) {
-    throw new QueryError(`The CTE name "${cte.name}" is used twice in one query.`);
+    throw new QueryError("query.cteNameTwice", `The CTE name "${cte.name}" is used twice in one query.`);
   }
   const entry: CteEntry = { name: cte.name, output: undefined };
   if (cte.recursive) scope.ctes.set(cte.name, entry);
@@ -550,7 +561,8 @@ export function planSelect(
       return { items: p.items, output: columnsOutput(p, root, entry.columns) };
     if (entry?.meta === undefined) {
       throw new QueryError(
-        `The query has no select, and its root binding "${root}" has no schema to read rows of. Add a select.`,
+        "query.selectMissing",
+        `The query has no select, and its root binding "${root}" has no schema to read rows of.`,
       );
     }
     return { items: p.items, output: rowLeaf(p, root, entry.meta, ast.preloads) };
@@ -559,7 +571,8 @@ export function planSelect(
   const preloadsHere = shape.kind === "binding" && shape.binding === root;
   if (ast.preloads.length > 0 && !preloadsHere) {
     throw new QueryError(
-      "A query with preloads must return the whole rows of its root binding; its select returns something else.",
+      "query.preloadSelect",
+      "A query with preloads must return the whole rows of its root binding.",
     );
   }
   const output = planShape(p, shape, preloadsHere ? ast.preloads : [], true);
@@ -581,7 +594,10 @@ function planShape(
       return { kind: "constant", index: shape.index };
     case "object": {
       if (shape.keys.length !== shape.values.length) {
-        throw new QueryError("A select object has a different number of keys and values.");
+        throw new QueryError(
+          "query.astSelectObject",
+          "A select object has a different number of keys and values.",
+        );
       }
       const values: OutputPlan[] = [];
       for (let i = 0; i < shape.values.length; i++) {
@@ -599,7 +615,10 @@ function planShape(
       return { kind: "tuple", items };
     }
     default:
-      throw new QueryError(`Unknown select shape "${String((shape as { kind: unknown }).kind)}".`);
+      throw new QueryError(
+        "query.astSelectShape",
+        `Unknown select shape "${String((shape as { kind: unknown }).kind)}".`,
+      );
   }
 }
 
@@ -614,7 +633,9 @@ function planExpr(
   if (expr.kind === "selectedAs") {
     if (expr.expr === undefined) {
       throw new QueryError(
-        `selectedAs("${expr.name}") without an expression refers to a selected value; it cannot be selected itself.`,
+        "query.selectedAsSelected",
+        `selectedAs("${expr.name}") without an expression refers to a selected value.`,
+        { params: { name: expr.name } },
       );
     }
     node = expr.expr;
@@ -648,10 +669,14 @@ function columnsOutput(p: Planner, alias: string, columns: ObjectOfValues): Outp
 function rowLeaf(p: Planner, alias: string, meta: SchemaMeta, preloads: readonly PreloadNode[]): RowLeaf {
   const entry = p.scope.bindings.get(alias);
   if (entry === undefined) {
-    throw new QueryError(`The select returns the whole binding "${alias}", which the query does not have.`);
+    throw new QueryError(
+      "query.selectUnknownBinding",
+      `The select returns the whole binding "${alias}", which the query does not have.`,
+    );
   }
   if (entry.meta !== meta) {
     throw new QueryError(
+      "query.selectBindingSchema",
       `The select returns "${alias}" as rows of ${meta.name}, but that binding yields ${entry.meta === undefined ? "no schema's rows" : `rows of ${entry.meta.name}`}.`,
     );
   }
@@ -682,7 +707,10 @@ function rowLeaf(p: Planner, alias: string, meta: SchemaMeta, preloads: readonly
 function outputPreload(p: Planner, owner: SchemaMeta, node: PreloadNode): OutputPreload {
   const assoc = owner.assocs().get(node.assoc);
   if (assoc === undefined) {
-    throw new QueryError(`${owner.name} has no association "${node.assoc}" to preload.`);
+    throw new QueryError(
+      "query.preloadUnknownAssoc",
+      `${owner.name} has no association "${node.assoc}" to preload.`,
+    );
   }
   const cardinality = assoc.kind === "hasMany" || assoc.kind === "manyToMany" ? "many" : "one";
   if (node.from === undefined) return { assoc: node.assoc, cardinality, row: undefined };

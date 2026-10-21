@@ -565,7 +565,7 @@ describe("exists", () => {
     await repo.exists(q, { minAge: 18, bonus: 5 });
     expect(statements[0]?.params).toEqual([18, 1]);
     await expect(repo.exists(q, { minAge: 18, bonus: 5, other: 1 } as never)).rejects.toThrow(
-      /no named parameter "other"; it takes "minAge", "bonus"/,
+      "query.paramsUnknown: The query has no named parameter \"other\".",
     );
     await expect(repo.exists(q, { minAge: 18, bonus: 5, other: 1, more: 2 } as never)).rejects.toThrow(
       /no named parameters "other", "more"/,
@@ -715,11 +715,11 @@ describe("count and aggregate", () => {
     const inner = from(Post, "p").ast;
     const overSubquery: QueryAst = { ...inner, from: { kind: "subquerySource", query: inner, alias: "x" } };
     await expect(untyped(repo).aggregate({ ast: overSubquery } as never, "sum", "views")).rejects.toThrow(
-      /a subquery/,
+      "query.aggregateRootSchema: repo.aggregate() over the field \"views\" needs a query whose root binding is a schema.",
     );
     const overValues: QueryAst = { ...inner, from: { kind: "values", columns: ["a"], rows: [], alias: "x" } };
     await expect(untyped(repo).aggregate({ ast: overValues } as never, "sum", "views")).rejects.toThrow(
-      /a values source/,
+      "query.aggregateRootSchema: repo.aggregate() over the field \"views\" needs a query whose root binding is a schema.",
     );
   });
 

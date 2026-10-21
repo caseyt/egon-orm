@@ -164,7 +164,8 @@ function dateTextToDate(stored: string): Date {
   const time = dateTextToMillis(stored);
   if (Number.isNaN(time)) {
     throw new CastError(
-      'A date column read with { as: "date" } holds a value that is not a "YYYY-MM-DD" date (for example "infinity", or a date before year 1). Declare the field as t.date() to read it as a string.',
+      "cast.dateRead",
+      'A date column read with { as: "date" } holds a value that is not a "YYYY-MM-DD" date (for example "infinity", or a date before year 1).',
     );
   }
   return new Date(time);
@@ -173,11 +174,12 @@ function dateTextToDate(stored: string): Date {
 function dateToDateText(value: Date): string {
   const time = value.getTime();
   if (Number.isNaN(time)) {
-    throw new CastError("An invalid Date cannot be written to a date column.");
+    throw new CastError("cast.dateInvalidWrite", "An invalid Date cannot be written to a date column.");
   }
   // The same range that cast and fromDb accept: a date written here can be read back.
   if (time < FIRST_DAY || time >= LAST_DAY + DAY) {
     throw new CastError(
+      "cast.dateRange",
       'A Date outside the years 1 to 9999 cannot be written to a date column read with { as: "date" }.',
     );
   }
@@ -235,7 +237,10 @@ export function dateType(options?: DateOptions): FieldType<string, string> | Fie
   const as = options?.as ?? "string";
   if (as === "string") return DATE;
   if (as === "date") return DATE_AS_DATE;
-  throw new SchemaDefinitionError(`t.date: as must be "string" or "date", but got ${JSON.stringify(as)}.`);
+  throw new SchemaDefinitionError(
+    "schema.dateAsOption",
+    `t.date: as must be "string" or "date", but got ${JSON.stringify(as)}.`,
+  );
 }
 
 // --- time --------------------------------------------------------------------
@@ -380,6 +385,7 @@ function pickPrecision(
   const precision = options?.precision ?? "ms";
   if (precision === "s" || precision === "ms" || precision === "us") return types[precision];
   throw new SchemaDefinitionError(
+    "schema.precisionOption",
     `${builder}: precision must be "s", "ms" or "us", but got ${JSON.stringify(precision)}.`,
   );
 }

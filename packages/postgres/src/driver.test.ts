@@ -387,7 +387,9 @@ describe("pg-cursor", () => {
 
   test("a failed load is tried again next time", async () => {
     const { driver, runtime } = setup();
-    vi.mocked(runtime.loadCursor).mockRejectedValueOnce(new QueryError("missing"));
+    vi.mocked(runtime.loadCursor).mockRejectedValueOnce(
+      new QueryError("query.unsupportedFeature", "missing"),
+    );
     await expect(driver.cursorClass()).rejects.toThrow("missing");
     await expect(driver.cursorClass()).resolves.toBe(FakeCursor);
     expect(runtime.loadCursor).toHaveBeenCalledTimes(2);

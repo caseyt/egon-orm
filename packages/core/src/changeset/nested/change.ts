@@ -67,25 +67,30 @@ function defaultWith(target: AnySchema): WithFn | undefined {
 function castSettings(relation: Relation, options: unknown, fn: string): CastSettings {
   if (options !== undefined && (typeof options !== "object" || options === null || !isItem(options))) {
     throw new QueryError(
-      `${fn}("${relation.name}", options): the options must be an object, such as { required: true }.`,
+      "query.nestedOptions",
+      `${fn}("${relation.name}", options): the options must be an object.`,
     );
   }
   const given = (options ?? EMPTY) as { readonly with?: unknown; readonly required?: unknown };
   for (const key of Object.keys(given)) {
     if (key !== "with" && key !== "required") {
-      throw new QueryError(`${fn}(): unknown option "${key}". The options are with and required.`);
+      throw new QueryError("query.nestedUnknownOption", `${fn}(): unknown option "${key}".`);
     }
   }
   if (given.required !== undefined && typeof given.required !== "boolean") {
-    throw new QueryError(`${fn}(): required must be true or false.`);
+    throw new QueryError("query.nestedRequired", `${fn}(): required must be true or false.`);
   }
   if (given.with !== undefined && typeof given.with !== "function") {
-    throw new QueryError(`${fn}(): with must be the function that makes a child changeset.`);
+    throw new QueryError(
+      "query.nestedWith",
+      `${fn}(): with must be the function that makes a child changeset.`,
+    );
   }
   const withFn = (given.with as WithFn | undefined) ?? defaultWith(relation.target);
   if (withFn === undefined) {
     throw new QueryError(
-      `${fn}("${relation.name}"): ${relation.targetMeta.name} has no static changeset function, so pass one: { with: (row, params) => cast(row, params, [...]) }.`,
+      "query.nestedNoChangeset",
+      `${fn}("${relation.name}"): ${relation.targetMeta.name} has no static changeset function.`,
     );
   }
   return { with: withFn, required: given.required === true };
@@ -105,7 +110,9 @@ function childOf(relation: Relation, value: unknown, action: "insert" | "update"
   const child = value as AnyChangeset;
   if (child.model !== relation.target) {
     throw new QueryError(
+      "query.nestedChildSchema",
       `${fn}("${relation.name}"): the child changesets must be of ${relation.targetMeta.name}, but one is of ${child.model === null ? "no schema class" : meta(child.model as AnySchema).name}.`,
+      { params: { target: relation.targetMeta.name } },
     );
   }
   return withAction(child, action);
@@ -197,7 +204,16 @@ function onReplaceError(relation: Relation, fn: string): QueryError {
       ? `t.${relation.many ? "embedMany" : "embedOne"}(() => ${relation.targetMeta.name}, { onReplace: "delete" })`
       : `{ onReplace: "${relation.many ? "delete" : "update"}" } on the association`;
   return new QueryError(
-    `${fn}("${relation.name}"): the new value leaves out ${relation.many ? "rows" : "the row"} that ${relation.ownerName}.${relation.name} has, and its onReplace is "error". Say what happens to ${relation.many ? "them" : "it"}, for example with ${fix}; the options are "invalid", "delete"${relation.kind === "embed" ? "" : ', "deleteIfExists", "setNull"'}${relation.many ? "" : ' and "update"'}.`,
+    "query.onReplaceError",
+    `${fn}("${relation.name}"): the new value leaves out ${relation.many ? "rows" : "the row"} that ${relation.ownerName}.${relation.name} has, and its onReplace is "error".`,
+    {
+      params: {
+        them: relation.many ? "them" : "it",
+        fix,
+        assocModes: relation.kind === "embed" ? "" : ', "deleteIfExists", "setNull"',
+        oneModes: relation.many ? "" : ' and "update"',
+      },
+    },
   );
 }
 
@@ -214,7 +230,8 @@ function checkSetNull(relation: Relation, fn: string): void {
     const field = relation.targetMeta.fieldsByName.get(name) as FieldMeta;
     if (!field.nullable) {
       throw new QueryError(
-        `${fn}("${relation.name}"): onReplace is "setNull", but ${relation.targetMeta.name}.${name} is not nullable. Make it .nullable(), or use onReplace "delete".`,
+        "query.onReplaceSetNull",
+        `${fn}("${relation.name}"): onReplace is "setNull", but ${relation.targetMeta.name}.${name} is not nullable.`,
       );
     }
   }
@@ -355,7 +372,8 @@ function finishOne(
         // A new value reuses the row (the caller made it from the row); only removing it lands here.
         if (relation.kind !== "embed") {
           throw new QueryError(
-            `${fn}("${relation.name}"): onReplace "update" reuses the row of ${relation.ownerName}.${relation.name} for a new value, so it cannot remove it. Use onReplace "delete", "deleteIfExists" or "setNull" to allow null.`,
+            "query.onReplaceUpdateNull",
+            `${fn}("${relation.name}"): onReplace "update" reuses the row of ${relation.ownerName}.${relation.name} for a new value, so it cannot remove it.`,
           );
         }
         break;
@@ -414,7 +432,9 @@ export function castRelation(
   const params = parent.params;
   if (params === null) {
     throw new QueryError(
-      `${fn}("${relation.name}") reads the params given to cast(), and this changeset was made with change(). Use ${embed ? "putEmbed" : "putAssoc"} for values you trust.`,
+      "query.castNestedWithoutParams",
+      `${fn}("${relation.name}") reads the params given to cast(), and this changeset was made with change().`,
+      { params: { embed: embed ? "putEmbed" : "putAssoc" } },
     );
   }
   const current = currentOf(parent, relation);
@@ -485,7 +505,11 @@ function putItem(
   }
   if (isRow(value)) {
     if (Object.getPrototypeOf(value) !== relation.target.prototype) {
-      throw new QueryError(`${fn}("${relation.name}"): a row given must be a ${relation.targetMeta.name}.`);
+      throw new QueryError(
+        "query.nestedRowSchema",
+        `${fn}("${relation.name}"): a row given must be a ${relation.targetMeta.name}.`,
+        { params: { target: relation.targetMeta.name } },
+      );
     }
     return {
       child: withAction(change(value as never) as AnyChangeset, "update"),
@@ -499,7 +523,9 @@ function putItem(
     return { child: withAction(fromValues(relation, target, value, fn), at >= 0 ? "update" : "insert"), at };
   }
   throw new QueryError(
+    "query.nestedValue",
     `${fn}("${relation.name}"): each value is a ${relation.targetMeta.name} row, a changeset of one, or a plain object of its fields, but one is ${describe(value)}.`,
+    { params: { target: relation.targetMeta.name } },
   );
 }
 
@@ -520,7 +546,9 @@ function fromValues(relation: Relation, target: unknown, values: Values, fn: str
       nested.push(key);
     } else {
       throw new QueryError(
+        "query.nestedUnknownKey",
         `${fn}("${relation.name}"): ${targetMeta.name} has no field or association "${key}".`,
+        { params: { target: targetMeta.name } },
       );
     }
   }
@@ -551,16 +579,17 @@ export function putRelation(
   const fn = embed ? "putEmbed" : "putAssoc";
   const relation = relationOf(parent, name, fn, embed ? "embed" : "assoc");
   if (value === undefined) {
-    throw new QueryError(
-      `${fn}("${relation.name}", undefined): give ${relation.many ? "a list" : "a value or null"}.`,
-    );
+    throw new QueryError("query.nestedUndefined", `${fn}("${relation.name}", undefined).`, {
+      params: { what: relation.many ? "a list" : "a value or null" },
+    });
   }
   const current = currentOf(parent, relation);
   const extra: ChangesetError[] = [];
   if (relation.many) {
     if (!Array.isArray(value)) {
       throw new QueryError(
-        `${fn}("${relation.name}"): ${relation.ownerName}.${relation.name} holds a list, so give an array.`,
+        "query.nestedNotArray",
+        `${fn}("${relation.name}"): ${relation.ownerName}.${relation.name} holds a list.`,
       );
     }
     const children: AnyChangeset[] = [];
@@ -573,6 +602,7 @@ export function putRelation(
         // The same row twice, whether the parent has it or not.
         if (indexOfRow(rows, relation.key, data) >= 0) {
           throw new QueryError(
+            "query.nestedDuplicate",
             `${fn}("${relation.name}"): the same ${relation.targetMeta.name} is given twice.`,
           );
         }

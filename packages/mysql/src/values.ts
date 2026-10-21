@@ -27,7 +27,8 @@ function readInteger(value: unknown): unknown {
     const number = Number(value);
     if (!Number.isSafeInteger(number)) {
       throw new CastError(
-        "A number column received an integer from the database beyond Number.MAX_SAFE_INTEGER. Read it with t.bigint().",
+        "cast.unsafeInteger",
+        "A number column received an integer from the database beyond Number.MAX_SAFE_INTEGER.",
       );
     }
     return number;
@@ -43,7 +44,10 @@ function readFloat(value: unknown): unknown {
 /** MySQL has no NaN or infinities: one is refused rather than sent. */
 function writeFloat(value: unknown): unknown {
   if (typeof value === "number" && !Number.isFinite(value)) {
-    throw new CastError("MySQL cannot store NaN, Infinity or -Infinity in a float column.");
+    throw new CastError(
+      "cast.floatNotFinite",
+      "MySQL cannot store NaN, Infinity or -Infinity in a float column.",
+    );
   }
   return value;
 }
@@ -108,10 +112,17 @@ function pad(value: number, width: number): string {
  */
 export function formatDatetime(value: Date): string {
   const time = value.getTime();
-  if (Number.isNaN(time)) throw new CastError("An invalid Date cannot be written to a timestamp column.");
+  if (Number.isNaN(time))
+    throw new CastError(
+      "cast.timestampInvalidDate",
+      "An invalid Date cannot be written to a timestamp column.",
+    );
   const year = value.getUTCFullYear();
   if (year < 0 || year > 9999)
-    throw new CastError("MySQL stores datetimes with a four-digit year: 0000 to 9999.");
+    throw new CastError(
+      "cast.timestampYearRange",
+      "MySQL stores datetimes with a four-digit year: 0000 to 9999.",
+    );
   return `${pad(year, 4)}-${pad(value.getUTCMonth() + 1, 2)}-${pad(value.getUTCDate(), 2)} ${pad(
     value.getUTCHours(),
     2,

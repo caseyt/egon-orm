@@ -200,48 +200,53 @@ function completedError(level: Level): QueryError {
   switch (level.kind) {
     case "checkout":
       return new QueryError(
-        "This checkout already ended: the repo it gave was used after its callback returned or threw (a promise that outlived the callback?). Await every call inside the callback.",
+        "query.checkoutEnded",
+        "This checkout already ended: the repo it gave was used after its callback returned or threw (a promise that outlived the callback?).",
       );
     case "sandbox":
       return new QueryError(
-        "This sandbox transaction was already rolled back: sandbox.rollback() ran before this call. Await every call inside the test.",
+        "query.sandboxRolledBack",
+        "This sandbox transaction was already rolled back: sandbox.rollback() ran before this call.",
       );
     default:
       return new QueryError(
-        "transaction already completed: tx was used after its callback returned or threw (a promise that outlived the callback?). Await every call on tx inside the callback.",
+        "query.transactionEnded",
+        "transaction already completed: tx was used after its callback returned or threw (a promise that outlived the callback?).",
       );
   }
 }
 
 function rolledBackError(): QueryError {
   return new QueryError(
+    "query.transactionRollingBack",
     "tx.rollback() was called on this transaction, so it takes no more statements: it is being rolled back.",
   );
 }
 
 function childOpenError(): QueryError {
-  return new QueryError(
-    "A nested transaction is open on this tx: run the statements on the repo the nested callback was given (tx.transaction(async (inner) => …) runs them on inner), or await the nested transaction first.",
-  );
+  return new QueryError("query.nestedTransactionOpen", "A nested transaction is open on this tx.");
 }
 
 function streamOpenError(): QueryError {
   return new QueryError(
-    "A stream is still open on this transaction's connection. Finish it, or leave its for-await loop (break or return), before running another statement or stream.",
+    "query.transactionStreamOpen",
+    "A stream is still open on this transaction's connection.",
   );
 }
 
 function failedError(cause: unknown): QueryError {
   return new QueryError(
-    "A statement in this transaction failed (see the cause), so the transaction can only be rolled back: Postgres refuses every further statement in it, and Egon does the same on every database. Roll back (throw, or tx.rollback(reason)), or run the statement that may fail in a nested transaction, tx.transaction(async (inner) => …), whose failure undoes only its own work.",
-    cause,
+    "query.transactionFailed",
+    "A statement in this transaction failed (see the cause), so the transaction can only be rolled back: Postgres refuses every further statement in it, and Egon does the same on every database.",
+    { cause },
   );
 }
 
 function brokenError(cause: unknown): QueryError {
   return new QueryError(
+    "query.savepointRollbackFailed",
     "This transaction could not roll back to one of its savepoints (see the cause), so its state is unknown: it can only be rolled back as a whole.",
-    cause,
+    { cause },
   );
 }
 
@@ -279,6 +284,7 @@ function attachSuppressed(error: unknown, suppressed: unknown): void {
 
 function transactionTimeout(level: Level, sql: string | undefined, cause: unknown): DatabaseError {
   return new DatabaseError(
+    "database.transactionTimeout",
     `The transaction ran longer than its timeoutMs (${level.timeoutMs} ms), which covers every statement in it, so it was stopped and rolled back.`,
     { code: "timeout", ...(sql === undefined ? {} : { sql }), cause },
   );
@@ -445,6 +451,7 @@ export class Session {
           entry.stop();
           reject(
             new DatabaseError(
+              "database.abortedQueued",
               "The statement was not run: its AbortSignal fired while it waited for the statements before it on this transaction's connection.",
               { code: "aborted", sql },
             ),
@@ -514,11 +521,16 @@ export class Session {
 const STATEMENT_SAVEPOINT = "egon_statement";
 
 function abortedBeforeRun(sql: string): DatabaseError {
-  return new DatabaseError("The statement was not run: its AbortSignal had fired.", { code: "aborted", sql });
+  return new DatabaseError(
+    "database.abortedBefore",
+    "The statement was not run: its AbortSignal had fired.",
+    { code: "aborted", sql },
+  );
 }
 
 function waitedTooLong(sql: string, timeoutMs: number): DatabaseError {
   return new DatabaseError(
+    "database.timeoutQueued",
     `The statement was not run: it waited longer than its timeoutMs (${timeoutMs} ms) for the statements before it on this transaction's connection.`,
     { code: "timeout", sql },
   );
@@ -833,7 +845,8 @@ function insideCallback(sandbox: Level): QueryError | undefined {
     return undefined;
   }
   return new QueryError(
-    "The repo was used inside one of its own transaction callbacks, in the test sandbox. Only calls on the tx the callback was given are inside the transaction; outside the sandbox this call would run on another connection, outside it, and in the sandbox's one connection it cannot. Pass tx to the code you call (or, if the call is meant to commit on its own, test it without the sandbox).",
+    "query.rootInSandboxTransaction",
+    "The repo was used inside one of its own transaction callbacks, in the test sandbox.",
   );
 }
 
@@ -953,9 +966,13 @@ function budgetError(level: Level, sql: string | undefined, cause: DatabaseError
   }
   const error =
     cause ??
-    new DatabaseError("The statement was not run: the call's timeoutMs was spent before it could start.", {
-      code: "timeout",
-    });
+    new DatabaseError(
+      "database.timeoutSpent",
+      "The statement was not run: the call's timeoutMs was spent before it could start.",
+      {
+        code: "timeout",
+      },
+    );
   return overBudget(error, owner.options) as DatabaseError;
 }
 
@@ -1074,7 +1091,8 @@ async function finish(level: Level, ended: Outcome): Promise<Ended> {
       outcome = {
         kind: "throw",
         error: new QueryError(
-          "A nested transaction was still running when its enclosing transaction's callback returned, so the enclosing one was rolled back. Await tx.transaction(…) inside the callback.",
+          "query.nestedTransactionLeftRunning",
+          "A nested transaction was still running when its enclosing transaction's callback returned, so the enclosing one was rolled back.",
         ),
       };
     }
@@ -1085,7 +1103,8 @@ async function finish(level: Level, ended: Outcome): Promise<Ended> {
     outcome = {
       kind: "throw",
       error: new QueryError(
-        "A stream on tx was still open when the transaction's callback returned, so the transaction was rolled back. Finish the stream, or leave its for-await loop, inside the callback.",
+        "query.transactionStreamLeftOpen",
+        "A stream on tx was still open when the transaction's callback returned, so the transaction was rolled back.",
       ),
     };
   }
@@ -1443,7 +1462,8 @@ async function onLevel(
   if (level.kind === "sandbox") return inSandbox(root, level, call, settings);
   if (settings.begin !== undefined || settings.retries > 0) {
     throw new QueryError(
-      `tx.${method}() inside a transaction runs in a savepoint, which cannot take isolation, readOnly or retries: give those to the outermost transaction.`,
+      "query.savepointOptions",
+      `tx.${method}() inside a transaction runs in a savepoint, which cannot take isolation, readOnly or retries.`,
     );
   }
   return runSavepoint(level, withRepo(root, call), settings.timeoutMs);
@@ -1475,15 +1495,17 @@ function settle(ended: Ended, orThrow: boolean, batch: AnyBatch | undefined): un
   if (ended.why === "statement") {
     throw new RollbackError({
       reason,
+      id: "rollback.statementFailed",
       message:
-        "The transaction was rolled back because a statement in it failed and the callback returned anyway (the statement's error is error.reason). Let the error propagate, or run the statement that may fail in a nested tx.transaction().",
+        "The transaction was rolled back because a statement in it failed and the callback returned anyway (the statement's error is error.reason).",
       cause: reason,
     });
   }
   if (batch !== undefined && isBatchFailure(reason)) {
     throw new RollbackError({
       reason,
-      message: `The batch failed at its step "${reason.step}" and was rolled back; error.reason holds { step, error, completed }. Call repo.transaction(batch) instead of transactionOrThrow() to get it back as a failed Result.`,
+      id: "rollback.batchFailed",
+      message: `The batch failed at its step "${reason.step}" and was rolled back; error.reason holds { step, error, completed }.`,
     });
   }
   throw new RollbackError({ reason });
@@ -1503,12 +1525,11 @@ function isBatchFailure(value: unknown): value is { readonly step: string } {
  */
 export function rollback(scope: Scope, reason: unknown): never {
   if (!(scope instanceof Level) || scope.kind === "checkout") {
-    throw new QueryError(
-      "rollback() is only available inside a transaction: call it on the tx that repo.transaction(async (tx) => …) gives the callback.",
-    );
+    throw new QueryError("query.rollbackOutside", "rollback() is only available inside a transaction.");
   }
   if (scope.kind === "sandbox") {
     throw new QueryError(
+      "query.rollbackSandbox",
       "The sandbox's transaction is rolled back by sandbox.rollback(), not by rollback() on the repo sandbox.begin() returned.",
     );
   }

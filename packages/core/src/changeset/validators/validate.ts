@@ -28,8 +28,6 @@ type AnyValidatorFn = (value: never, ctx: never) => unknown;
 
 const hasOwn = Object.hasOwn;
 const NO_PATH: readonly PropertyKey[] = Object.freeze([]);
-const PROMISE_MESSAGE = "validator returned a Promise; use validateAsync";
-const FIELD_PROMISE_MESSAGE = "validator returned a Promise; use validateFieldAsync";
 
 // ---------------------------------------------------------------------------
 // Field tables, computed once per field map
@@ -181,17 +179,18 @@ function optionsOf(
 ): Options {
   if (options === undefined) return DEFAULT_OPTIONS;
   if (typeof options !== "object" || options === null) {
-    throw new QueryError(`${fn}(): the options must be an object, such as { scope: "changed" }.`);
+    throw new QueryError("query.validateOptions", `${fn}(): the options must be an object.`);
   }
   const { scope, apply, only } = options;
   if (scope !== undefined && scope !== "all" && scope !== "changed") {
-    throw new QueryError(`${fn}(): scope must be "all" or "changed".`);
+    throw new QueryError("query.validateScope", `${fn}(): scope must be "all" or "changed".`);
   }
   if (apply !== undefined && typeof apply !== "boolean") {
-    throw new QueryError(`${fn}(): apply must be true or false.`);
+    throw new QueryError("query.validateApply", `${fn}(): apply must be true or false.`);
   }
   if (only !== undefined) {
-    if (!Array.isArray(only)) throw new QueryError(`${fn}(): only must be a list of field names.`);
+    if (!Array.isArray(only))
+      throw new QueryError("query.validateOnly", `${fn}(): only must be a list of field names.`);
     for (const name of only) checkField(fields, name, fn);
   }
   return { changedOnly: scope === "changed", apply: apply === true, only };
@@ -200,11 +199,11 @@ function optionsOf(
 function checkField(fields: ReadonlyMap<string, FieldMeta>, name: unknown, fn: string): FieldMeta {
   const field = typeof name === "string" ? fields.get(name) : undefined;
   if (field === undefined) {
-    throw new QueryError(
-      typeof name === "string"
-        ? `${fn}(): "${name}" is not a field. The fields are: ${[...fields.keys()].join(", ")}.`
-        : `${fn}() takes a field name as a string.`,
-    );
+    throw typeof name === "string"
+      ? new QueryError("query.validateUnknownField", `${fn}(): "${name}" is not a field.`, {
+          params: { fields: [...fields.keys()].join(", ") },
+        })
+      : new QueryError("query.fieldNameType", `${fn}() takes a field name as a string.`);
   }
   return field;
 }
@@ -689,7 +688,8 @@ function start(
   const checked = optionsOf(options, fields, fn);
   if (checked.apply && dispatched.standard === undefined) {
     throw new QueryError(
-      `${fn}(): apply needs a Standard Schema, whose output is written back. A validator function returns issues only; change values with putChange.`,
+      "query.validateApplyFunction",
+      `${fn}(): apply needs a Standard Schema, whose output is written back.`,
     );
   }
   if (checked.apply && (checked.only !== undefined || checked.changedOnly)) {
@@ -697,7 +697,8 @@ function start(
     // stopped it may be dropped, which would leave a valid changeset whose transform
     // silently did not happen.
     throw new QueryError(
-      `${fn}(): apply cannot be combined with ${checked.only !== undefined ? "only" : 'scope: "changed"'}. A schema that reports an issue has no output to apply, even when that issue is then left out. Validate with a schema of just the fields to transform instead.`,
+      "query.validateApplyCombined",
+      `${fn}(): apply cannot be combined with ${checked.only !== undefined ? "only" : 'scope: "changed"'}.`,
     );
   }
   return { dispatched, options: checked, fields };
@@ -758,7 +759,7 @@ export function validateChangeset<C extends AnyChangeset>(
   const result = call(changeset, run);
   if (isThenable(result)) {
     discard(result);
-    throw new QueryError(PROMISE_MESSAGE);
+    throw new QueryError("query.validatorPromise", "The validator returned a Promise.");
   }
   return finish(changeset, run, result, validator, options, "validate");
 }
@@ -844,7 +845,7 @@ export function validateFieldOf<C extends AnyChangeset>(changeset: C, field: str
   const result = callField(changeset, dispatched, value);
   if (isThenable(result)) {
     discard(result);
-    throw new QueryError(FIELD_PROMISE_MESSAGE);
+    throw new QueryError("query.fieldValidatorPromise", "The field validator returned a Promise.");
   }
   return finishField(changeset, field, dispatched.standard !== undefined, result, validator, "validateField");
 }

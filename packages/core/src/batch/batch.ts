@@ -156,9 +156,7 @@ function checkName(method: string, name: unknown): string {
 }
 
 function duplicateName(name: string): QueryError {
-  return new QueryError(
-    `The batch already has a step named "${name}". Step names are unique: their results are kept under them.`,
-  );
+  return new QueryError("query.batchStepTwice", `The batch already has a step named "${name}".`);
 }
 
 /**

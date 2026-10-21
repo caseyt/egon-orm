@@ -100,7 +100,8 @@ export async function writeNested(
 ): Promise<Result<object | null, AnyChangeset>> {
   if (settings.onConflict !== undefined) {
     throw new QueryError(
-      `repo.${method}(): onConflict cannot be combined with changes of associations: a row that is not inserted has no children to write. Write the parent first, then the children.`,
+      "query.onConflictNested",
+      `repo.${method}(): onConflict cannot be combined with changes of associations: a row that is not inserted has no children to write.`,
     );
   }
   const deadline = deadlineOf(settings.options);
@@ -174,6 +175,7 @@ class Run {
       }
       if (!assocs.has(key)) {
         throw new QueryError(
+          "query.writeUnknownChange",
           `repo.${method}(): the changeset holds a change of "${key}", which is neither a field nor an association of ${schemaMeta.name}.`,
         );
       }

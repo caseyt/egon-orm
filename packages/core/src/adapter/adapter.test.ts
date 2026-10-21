@@ -281,6 +281,58 @@ describe("createAdapter", () => {
     expect(adapter.planCacheStats()).toEqual({ hits: 1, misses: 1, collisions: 0, size: 1 });
   });
 
+  test("adapters with the same configuration share their plans, so a per-request adapter reuses them", () => {
+    const capabilities = { ...POSTGRES_CAPABILITIES };
+    const driverCodecs = { bigint: { fromDb: (value: unknown) => BigInt(value as string) } };
+    const first = setup({ capabilities, driverCodecs }).adapter;
+    const ast = from(User, "u").where(({ u }) => u.id.eq(1)).ast;
+    const plan = first.compile(ast, "all", undefined);
+    // A later "request": a new adapter, a query built again with another value.
+    const second = setup({ capabilities, driverCodecs }).adapter;
+    const again = from(User, "u").where(({ u }) => u.id.eq(2)).ast;
+    expect(second.compile(again, "all", undefined)).toBe(plan);
+    expect(second.planCacheStats()).toEqual({ hits: 1, misses: 1, collisions: 0, size: 1 });
+    expect(second.typeOverrides).toBe(first.typeOverrides);
+  });
+
+  test("adapters with other codecs, capabilities or cache size do not share plans", () => {
+    const capabilities = { ...POSTGRES_CAPABILITIES };
+    const driverCodecs = {};
+    const ast = from(User, "u").ast;
+    const plan = setup({ capabilities, driverCodecs }).adapter.compile(ast, "all", undefined);
+    const otherCodecs = setup({ capabilities, driverCodecs: {} }).adapter;
+    const otherCapabilities = setup({ capabilities: { ...POSTGRES_CAPABILITIES }, driverCodecs }).adapter;
+    const otherSize = setup({ capabilities, driverCodecs, planCacheSize: 5 }).adapter;
+    for (const adapter of [otherCodecs, otherCapabilities, otherSize]) {
+      expect(adapter.compile(ast, "all", undefined)).not.toBe(plan);
+      expect(adapter.planCacheStats()).toEqual({ hits: 0, misses: 1, collisions: 0, size: 1 });
+    }
+  });
+
+  test("a shared plan cache stays within planCacheSize under many distinct queries", () => {
+    const capabilities = { ...POSTGRES_CAPABILITIES };
+    const driverCodecs = {};
+    for (let i = 0; i < 40; i++) {
+      // A new adapter per "request", each compiling a query of a shape not seen before.
+      const { adapter } = setup({ capabilities, driverCodecs, planCacheSize: 8 });
+      let query = from(User, "u");
+      for (let j = 0; j <= i; j++) query = query.where(({ u }) => u.id.gt(j));
+      adapter.compile(query.ast, "all", undefined);
+      expect(adapter.planCacheStats().size).toBeLessThanOrEqual(8);
+    }
+    const { adapter } = setup({ capabilities, driverCodecs, planCacheSize: 8 });
+    expect(adapter.planCacheStats()).toMatchObject({ misses: 40, size: 8 });
+  });
+
+  test("a shared compiler still checks each definition against the SQL table", () => {
+    const capabilities = { ...POSTGRES_CAPABILITIES };
+    const driverCodecs = {};
+    setup({ capabilities, driverCodecs });
+    expect(() => setup({ capabilities, driverCodecs, quoteIdentifier: (name) => `[${name}]` })).toThrow(
+      TypeError,
+    );
+  });
+
   test("creates the driver on first use only, and once", async () => {
     const { adapter, driver, factory } = setup();
     expect(factory).not.toHaveBeenCalled();

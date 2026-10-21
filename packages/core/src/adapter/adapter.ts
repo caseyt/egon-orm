@@ -31,8 +31,8 @@ import type { FieldMeta, SchemaMeta } from "../contracts/schema.js";
 import type { AnyFieldType, Codec } from "../contracts/type.js";
 import { DatabaseError, isEgonError, QueryError } from "../errors.js";
 import { isPlainObject } from "../internal/plain-object.js";
-import { type DriverCodecs, typeOverridesFrom } from "./codecs.js";
-import { createStatementCompiler, type StatementCompiler } from "./compiler.js";
+import type { DriverCodecs } from "./codecs.js";
+import { type StatementCompiler, sharedStatementCompiler } from "./compiler.js";
 import type { DriverConnection, DriverHooks, DriverWrapper } from "./driver.js";
 import { type QueryListenerOptions, Telemetry } from "./telemetry.js";
 
@@ -79,7 +79,9 @@ export interface DatabaseAdapter extends Adapter {
   /**
    * The counters of this adapter's plan cache: lookups answered from it (`hits`), plans
    * compiled (`misses`), lookups whose key matched another shape (`collisions`, also
-   * misses; it should stay 0) and plans held (`size`).
+   * misses; it should stay 0) and plans held (`size`). The cache is shared by every
+   * adapter created with the same dialect, capabilities, driver codecs and
+   * `planCacheSize`, so the counters include their lookups too.
    */
   planCacheStats(): PlanCacheStats;
   /**
@@ -120,7 +122,10 @@ export interface AdapterDefinition {
    * recognise unchanged.
    */
   readonly normalizeError: (error: unknown, sql: string | undefined) => unknown;
-  /** The size of the plan cache. Default 1000. */
+  /**
+   * The size of the plan cache: how many query shapes it keeps. Default 1000. Adapters
+   * created with the same dialect, capabilities, driver codecs and size share one cache.
+   */
   readonly planCacheSize?: number;
 }
 
@@ -497,14 +502,16 @@ class SharedAdapter implements DatabaseAdapter {
     this.definition = definition;
     this.dialect = definition.dialect;
     this.capabilities = definition.capabilities;
-    this.typeOverrides = typeOverridesFrom(definition.driverCodecs);
-    this.compiler = createStatementCompiler({
+    // Shared with every adapter of the same configuration (see ./compiler.ts).
+    const shared = sharedStatementCompiler({
       dialect: definition.dialect,
       capabilities: definition.capabilities,
       quoteIdentifier: definition.quoteIdentifier,
       planCacheSize,
-      codecs: this,
+      driverCodecs: definition.driverCodecs,
     });
+    this.typeOverrides = shared.typeOverrides;
+    this.compiler = shared.compiler;
   }
 
   // --- compiling ---------------------------------------------------------------------

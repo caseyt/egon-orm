@@ -1,11 +1,21 @@
 /**
  * Where the adapter gets its statement compiler from. The compiler and its plan cache
- * belong to `../compiler/`; the adapter owns one compiler per instance, so that the plan
- * cache lives in the adapter and `planCacheSize` is an adapter option.
+ * belong to `../compiler/`; `planCacheSize` is an adapter option.
  *
  * This module is the one seam between the two: `createAdapter` calls
- * {@link createStatementCompiler} once, and the six `compile*` methods of the adapter
+ * {@link sharedStatementCompiler} once, and the six `compile*` methods of the adapter
  * delegate to what it returns.
+ *
+ * ## One plan cache per configuration
+ *
+ * A compiled plan depends only on the dialect, the capabilities, the driver's codecs and
+ * the cache's size, never on the adapter instance (its pool, its connection settings). So
+ * every adapter created with the same four shares one compiler and its plan cache: a repo
+ * (and its adapter) created per request, as on Cloudflare Workers, reuses the plans
+ * compiled by earlier requests. The capabilities and codecs are compared by identity,
+ * which is how the dialect packages pass them (module-level constants); the number of
+ * shared compilers is the number of configurations in use, and each one is bounded by its
+ * `planCacheSize`.
  *
  * ## Where each part of a dialect comes from
  *
@@ -36,7 +46,9 @@ import {
   sqliteDialect,
 } from "../compiler/index.js";
 import type { Adapter, Capabilities, Dialect } from "../contracts/adapter.js";
+import type { AnyFieldType, Codec } from "../contracts/type.js";
 import { QueryError } from "../errors.js";
+import { type DriverCodecs, typeOverridesFrom } from "./codecs.js";
 
 /** The part of the {@link Adapter} contract that compiles statements, and the plan cache's counters. */
 export type StatementCompiler = Pick<
@@ -88,6 +100,35 @@ function unavailable(method: string, dialect: Dialect): never {
   );
 }
 
+/** Checks that a definition agrees with its dialect's SQL table (see the module comment). */
+function checkAgainst(
+  syntax: SqlDialect,
+  options: Pick<StatementCompilerOptions, "dialect" | "capabilities" | "quoteIdentifier">,
+): void {
+  const { dialect } = options;
+  for (const clause of options.capabilities.lockModes) {
+    if (!Object.hasOwn(syntax.locks, clause)) {
+      throw new TypeError(
+        `The capabilities of ${dialect} accept the lock clause "${clause}", which its SQL dialect table cannot write.`,
+      );
+    }
+  }
+  const probe = 'a"b`c';
+  if (options.quoteIdentifier(probe) !== quoteIdentifier(syntax, probe)) {
+    throw new TypeError(
+      `The adapter's quoteIdentifier does not quote as the ${dialect} SQL dialect table does.`,
+    );
+  }
+}
+
+/** {@link checkAgainst} for a definition whose dialect may have no SQL table (nothing to check then). */
+function checkDefinition(
+  options: Pick<StatementCompilerOptions, "dialect" | "capabilities" | "quoteIdentifier">,
+): void {
+  const syntax = SYNTAX[options.dialect];
+  if (syntax !== undefined) checkAgainst(syntax, options);
+}
+
 /**
  * Creates the statement compiler of one adapter: the compiler of `../compiler/` with the
  * SQL syntax of `options.dialect` and the adapter's own capabilities, and a plan cache of
@@ -122,21 +163,84 @@ export function createStatementCompiler(options: StatementCompilerOptions): Stat
       stats: () => NO_STATS,
     };
   }
-  for (const clause of options.capabilities.lockModes) {
-    if (!Object.hasOwn(syntax.locks, clause)) {
-      throw new TypeError(
-        `The capabilities of ${dialect} accept the lock clause "${clause}", which its SQL dialect table cannot write.`,
-      );
-    }
-  }
-  const probe = 'a"b`c';
-  if (options.quoteIdentifier(probe) !== quoteIdentifier(syntax, probe)) {
-    throw new TypeError(
-      `The adapter's quoteIdentifier does not quote as the ${dialect} SQL dialect table does.`,
-    );
-  }
+  checkAgainst(syntax, options);
   return createCompiler(
     { ...syntax, capabilities: options.capabilities },
     { planCacheSize: options.planCacheSize, codecs: options.codecs },
   );
+}
+
+/** What {@link sharedStatementCompiler} needs: the parts of an adapter definition a plan depends on. */
+export interface SharedCompilerOptions {
+  readonly dialect: Dialect;
+  readonly capabilities: Capabilities;
+  readonly quoteIdentifier: (name: string) => string;
+  readonly planCacheSize: number;
+  readonly driverCodecs: DriverCodecs;
+}
+
+/** A compiler shared by every adapter of one configuration, and the type conversions its plans were built with. */
+export interface SharedCompiler {
+  readonly compiler: StatementCompiler;
+  /** The adapter's `typeOverrides`: one function per configuration, so that every sharing adapter converts alike. */
+  readonly typeOverrides: (type: AnyFieldType) => Codec | undefined;
+}
+
+/** dialect -> capabilities -> driver codecs -> plan cache size -> the shared compiler. */
+const SHARED = /* @__PURE__ */ new Map<
+  Dialect,
+  WeakMap<Capabilities, WeakMap<DriverCodecs, Map<number, SharedCompiler>>>
+>();
+
+/**
+ * The statement compiler of an adapter: shared with every adapter created with the same
+ * dialect, capabilities, driver codecs and `planCacheSize`, so that its plan cache
+ * outlives the adapter. The definition is checked against the dialect's SQL table every
+ * time, as {@link createStatementCompiler} checks it.
+ *
+ * @example
+ * ```ts
+ * const { compiler, typeOverrides } = sharedStatementCompiler({
+ *   dialect: "postgres",
+ *   capabilities: POSTGRES_CAPABILITIES,
+ *   quoteIdentifier,
+ *   planCacheSize: 1000,
+ *   driverCodecs: PG_DRIVER_CODECS,
+ * });
+ * ```
+ *
+ * @throws TypeError as {@link createStatementCompiler} does.
+ */
+export function sharedStatementCompiler(options: SharedCompilerOptions): SharedCompiler {
+  let byCapabilities = SHARED.get(options.dialect);
+  if (byCapabilities === undefined) {
+    byCapabilities = new WeakMap();
+    SHARED.set(options.dialect, byCapabilities);
+  }
+  let byCodecs = byCapabilities.get(options.capabilities);
+  if (byCodecs === undefined) {
+    byCodecs = new WeakMap();
+    byCapabilities.set(options.capabilities, byCodecs);
+  }
+  let bySize = byCodecs.get(options.driverCodecs);
+  if (bySize === undefined) {
+    bySize = new Map();
+    byCodecs.set(options.driverCodecs, bySize);
+  }
+  const found = bySize.get(options.planCacheSize);
+  if (found !== undefined) {
+    checkDefinition(options);
+    return found;
+  }
+  const typeOverrides = typeOverridesFrom(options.driverCodecs);
+  const compiler = createStatementCompiler({
+    dialect: options.dialect,
+    capabilities: options.capabilities,
+    quoteIdentifier: options.quoteIdentifier,
+    planCacheSize: options.planCacheSize,
+    codecs: { typeOverrides },
+  });
+  const shared: SharedCompiler = { compiler, typeOverrides };
+  bySize.set(options.planCacheSize, shared);
+  return shared;
 }

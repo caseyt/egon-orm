@@ -222,7 +222,8 @@ Suggested waves: **A** 01 → **B** 02 → **C** 03, 07, 11 → **D** 04, 10 →
 **F** 06, 12 → **G** 09, 13, 14 → **H** 15, 16 → **I** 17 → **J** 19, 20, 21 → **follow-up** 18.
 Step 21a (edge readiness) was added on 2026-10-20 and step 21b (JSON responses) on
 2026-10-21; both run before 21, in parallel with each other. Step 19 is postponed until the
-owner decides where benchmarks run.
+owner decides where benchmarks run; it is a one-off published run, not a CI gate
+(owner decision, 2026-10-21).
 
 Steps 01 and 02 are deliberately sequential and small: they freeze the interfaces that let
 everything after them proceed independently.
@@ -262,8 +263,8 @@ benchmark, a budget check or benchmark numbers, that item is **deferred to step 
 its Acceptance box "deferred to step 19 (owner decision, 2026-10-14)" and leave it unticked.
 The hot-path coding rules below still apply to every step.
 
-Budgets (Node 22, Apple M-series or CI reference runner; step 19 calibrates and records
-the reference numbers, then CI fails on a regression of more than 10%):
+Budgets (Node 22; step 19 measures them once on the machines the owner chooses and
+publishes the results. Nothing in CI gates on timings: owner decision, 2026-10-21):
 
 | Operation | Budget |
 |---|---|

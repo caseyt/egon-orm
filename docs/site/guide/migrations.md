@@ -17,7 +17,8 @@ migrations are kept in step by you, not inferred from each other.
 
 ## Running migrations
 
-From the command line, with the configuration in [`egon.config.ts`](/reference/cli#configuration):
+From the command line, with `@egon-orm/cli` installed (`npm install -D @egon-orm/cli`, then
+`npx egon …`) and the configuration in [`egon.config.ts`](/reference/cli#configuration):
 
 ```sh
 egon migrate create add_age  # write migrations/<version>_add_age.ts

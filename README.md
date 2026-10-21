@@ -100,7 +100,7 @@ API reference included, locally.
 | `@egon-orm/postgres` | The Postgres adapter (every feature) |
 | `@egon-orm/sqlite`, `@egon-orm/mysql` | The SQLite and MySQL adapters ([documented gaps](docs/site/reference/dialect-support.md)) |
 | `@egon-orm/zod` | Zod schemas derived from schema classes |
-| `@egon-orm/cli` | The `egon` command: migrations and development databases (not published yet) |
+| `@egon-orm/cli` | The `egon` command: migrations and development databases |
 
 ## Development
 

@@ -46,7 +46,7 @@
       "linter": { "rules": { "style": { "noNonNullAssertion": "off" } } }
     },
     {
-      "includes": ["**/*.config.ts", "docs/site/.vitepress/**"],
+      "includes": ["**/*.config.ts", "docs/site/.vitepress/**", "examples/blog/src/migrations/**"],
       "linter": { "rules": { "style": { "noDefaultExport": "off" } } }
     }
   ]

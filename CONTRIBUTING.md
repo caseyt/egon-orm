@@ -50,7 +50,7 @@ packages/postgres    "@egon-orm/postgres"
 packages/zod         "@egon-orm/zod"
 packages/sqlite       "@egon-orm/sqlite"
 packages/mysql        "@egon-orm/mysql"
-packages/cli          "@egon-orm/cli"       the egon command (private until the release decides)
+packages/cli          "@egon-orm/cli"       the egon command
 packages/core/test/support               shared test helpers, importable as "@egon-orm/test-support"
 benchmarks/          micro/<area>.bench.ts, harness in src/
 examples/smoke       an ESM consumer, a CommonJS consumer (require of the ES module), and a type-checked consumer

@@ -18,7 +18,7 @@ Egon ORM is under construction: nothing is published to npm yet.
 | Work | Notes |
 |---|---|
 | Performance | Benchmarks against the raw drivers. No numbers are published until then. |
-| Release hardening | Publishing the packages, versioning and the changelog. Whether `@egon-orm/cli` is published is decided then. |
+| Release hardening | Publishing the packages, `@egon-orm/cli` included, versioning and the changelog. |
 
 ## Planned after the first release
 

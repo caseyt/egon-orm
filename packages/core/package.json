@@ -6,11 +6,11 @@
   "author": "Casey Tickes",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/caseyt/ectype-orm.git",
+    "url": "git+https://github.com/egon-orm/egon-orm.git",
     "directory": "packages/core"
   },
-  "homepage": "https://github.com/caseyt/ectype-orm#readme",
-  "bugs": "https://github.com/caseyt/ectype-orm/issues",
+  "homepage": "https://github.com/egon-orm/egon-orm#readme",
+  "bugs": "https://github.com/egon-orm/egon-orm/issues",
   "keywords": [
     "orm",
     "typescript",

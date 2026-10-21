@@ -2,7 +2,7 @@
 // src/migrations/20261020090000_create_blog.ts
 import { defineMigration } from "egon-orm/migration";
 
-export const migration = defineMigration({
+export default defineMigration({
   up(m) {
     m.createTable("users", (table) => {
       table.id();

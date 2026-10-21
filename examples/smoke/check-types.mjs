@@ -26,7 +26,7 @@ const args = process.argv.slice(2);
 const keep = args.includes("--keep");
 const tsIndex = args.indexOf("--typescript");
 const tsVersion = tsIndex === -1 ? undefined : args[tsIndex + 1];
-const packages = ["core", "postgres", "mysql", "sqlite", "zod"];
+const packages = ["core", "postgres", "mysql", "sqlite", "zod", "cli"];
 
 // pnpm, as the script that started this one ran it (`pnpm smoke` sets npm_execpath).
 function pnpm(argv, cwd) {

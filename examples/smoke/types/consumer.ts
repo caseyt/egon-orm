@@ -3,6 +3,7 @@
 // exported with an inferred type on purpose: emitting its declarations needs every type
 // those inferred types mention to be reachable from a public entry point (TS2883 when
 // one is not), and checking the libraries' own .d.ts finds what tsc rejects there.
+import { defineConfig } from "@egon-orm/cli";
 import { mysql } from "@egon-orm/mysql";
 import { postgres } from "@egon-orm/postgres";
 import { sqlite } from "@egon-orm/sqlite";
@@ -247,6 +248,7 @@ export const otherAdapters = [
   mysql({ connectionString: "mysql://localhost/x" }),
 ];
 export const repo = createRepo({ adapter, log: { params: true } });
+export const config = defineConfig({ adapter, migrations: { directory: "migrations" } });
 export const allAdults = () => repo.all(adults);
 export const oneUser = () => repo.getOrThrow(User, 1);
 export const firstWithPosts = () => repo.first(withPosts);

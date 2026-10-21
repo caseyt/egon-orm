@@ -84,7 +84,8 @@ A migration creates them. Create `setup.ts`, and run it once with `npx tsx setup
 <<< @/examples/getting-started/setup.ts#file
 
 Here the migration is defined and run from a script; in a project, each migration is a
-file in a `migrations/` directory (see [Migrations](/guide/migrations)). If you already
+file in a `migrations/` directory, which `npx egon migrate create <name>` writes and
+`npx egon migrate` applies (see [Migrations](/guide/migrations)). If you already
 manage your tables with another tool, skip this step.
 
 The table callback names its builder `table`: `t` is already the field builder imported

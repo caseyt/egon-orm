@@ -45,7 +45,8 @@ succeeds (there is no query to find out). Nothing was written, so nothing is los
   version kept; changes only to a `writable("insert")` field with a lock: no statement;
   `force` with a lock and no change: the update with the increment and the guard, and stale
   when no row matched; a `prepareChanges` change registered before or after the lock: the
-  update with the increment. The first three fail without the fix.
+  update with the increment; a custom incrementer: no change sends nothing, `force`
+  writes its value. The first three fail without the fix.
 - Conformance (`test/conformance/write`, run by Postgres, SQLite and MySQL): an unchanged
   save sends nothing, keeps `lockVersion` and `updatedAt` in the database, and another open
   copy can still save; `force` with no change increments and makes the other copy stale; a
@@ -58,9 +59,12 @@ succeeds (there is no query to find out). Nothing was written, so nothing is los
 
 - `recipes/optimistic-locking.md`: a section "An unchanged save", with a new `#unchanged`
   region in `examples/recipes/optimistic-locking.ts` (a `// @run` file, so its `// =>`
-  comment is checked).
+  comments, including the version read back from the database, are checked). It says
+  that association changes count as a change, and that an unchanged save of a stale copy
+  is not checked (`force` checks it).
 - `guide/repo.md` (Update) and `guide/changesets.md` (Hooks for the repo): one sentence
-  each. The TSDoc of `optimisticLock` says the same.
+  each; the repo guide's `force` note now says a lock's version is written and checked
+  too. The TSDoc of `optimisticLock` says the same.
 
 ## Requests
 

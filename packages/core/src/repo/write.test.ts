@@ -718,6 +718,21 @@ describe("update", () => {
     expect(error).toBeInstanceOf(StaleEntryError);
   });
 
+  test("a custom incrementer: no change sends nothing, force writes its value", async () => {
+    const env = setup(() => ({ rowCount: 1 }));
+    const user = await loadedUser(env.repo, env.driver);
+    const locked = () => change(user).optimisticLock("lockVersion", (n) => n + 10);
+    expect(await env.repo.updateOrThrow(locked())).toBe(user);
+    expect(env.statements).toEqual([]);
+    const forced = await env.repo.updateOrThrow(locked(), { force: true });
+    expect(env.statements[0]?.sql).toBe(
+      'update "users" set "lock_version" = $1, "updated_at" = $2 where "id" = $3 and "lock_version" = $4',
+    );
+    expect(env.statements[0]?.params[0]).toBe(13);
+    expect(env.statements[0]?.params[3]).toBe(3);
+    expect(forced.lockVersion).toBe(13);
+  });
+
   test("a change made by a prepare function counts, before or after the lock", async () => {
     const env = setup(() => ({ rowCount: 1 }));
     const user = await loadedUser(env.repo, env.driver);

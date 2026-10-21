@@ -1281,6 +1281,12 @@ export async function update(
   return updateRow(core, schemaMeta, row, write, settings, method);
 }
 
+/** Whether `values` has an own key, without making the array of them. */
+function hasKeys(values: Readonly<Record<string, unknown>>): boolean {
+  for (const name in values) if (hasOwn(values, name)) return true;
+  return false;
+}
+
 /**
  * The changeset without its optimistic-lock bumps when they are all the update would
  * write: when every other change is to a virtual field or a field that may not be
@@ -1293,9 +1299,11 @@ export async function update(
  */
 function withoutLoneLockBump(prepared: AnyChangeset, schemaMeta: SchemaMeta): AnyChangeset {
   const filters = prepared.filters;
+  if (!hasKeys(filters)) return prepared;
   const changes = prepared.changes as Readonly<Record<string, unknown>>;
+  const names = Object.keys(changes);
   let bumped = false;
-  for (const name of Object.keys(changes)) {
+  for (const name of names) {
     if (hasOwn(filters, name)) {
       bumped = true;
       continue;
@@ -1305,7 +1313,7 @@ function withoutLoneLockBump(prepared: AnyChangeset, schemaMeta: SchemaMeta): An
   }
   if (!bumped) return prepared;
   const kept: Record<string, unknown> = {};
-  for (const name of Object.keys(changes)) if (!hasOwn(filters, name)) kept[name] = changes[name];
+  for (const name of names) if (!hasOwn(filters, name)) kept[name] = changes[name];
   return rebuild(prepared, { changes: kept });
 }
 

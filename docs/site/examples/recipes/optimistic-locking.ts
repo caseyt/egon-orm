@@ -82,6 +82,7 @@ export async function run(): Promise<void> {
   const current = await repo.getOrThrow(Page, page.id); // lockVersion 2
   const saved = await repo.updateOrThrow(Page.changeset(current, { body: current.body })); // no query
   saved.lockVersion; // => 2
+  (await repo.getOrThrow(Page, page.id)).lockVersion; // => 2
   // #endregion unchanged
 
   await repo.close();

@@ -1,12 +1,12 @@
 # 0007 — Error identifiers, short messages, and full text by explicit opt-in
 
-- **Status:** accepted (by the owner on 2026-10-21, as proposed; `explain(error)` is not
-  part of the decision)
+- **Status:** accepted (by the owner on 2026-10-21: as proposed, then amended the same day
+  to add option C4, `explain(error, messages?)`, beside C1)
 - **Date:** 2026-10-21
 - **Step:** 21a (edge readiness, part 4)
 - **Affects:** `EgonError` and every subclass (`packages/core/src/errors.ts`); every site
   that throws one, in every package; a new public entry `egon-orm/messages`; the public
-  API (one new function, one new field `error.id`, `error.toJSON()`); `reference/errors.md`
+  API (`useFullErrorMessages`, `explain`, one new field `error.id`, `error.toJSON()`); `reference/errors.md`
   and the guide pages that quote error messages
 
 ## Context
@@ -137,9 +137,27 @@ also what the docs pages are generated from. How does an application turn it on?
 - **Default message:** as in B.
 - **Opt-in:** option C1, `useFullErrorMessages(messages)`, with `messages` from
   `egon-orm/messages`. It is the only option that is explicit, covers errors thrown
-  outside a repo, and needs nothing from the runtime. Option C4 (`explain(error)`) is not
-  part of this decision; it remains a possible later addition beside C1, and would be
-  cheap, since it reads the same catalog.
+  outside a repo, and needs nothing from the runtime.
+- **And, beside it:** option C4 (owner amendment, 2026-10-21), `explain(error, messages?)`,
+  exported from `egon-orm/messages`. It returns the full text of one error at the catch
+  site and touches no global state, so it also covers what C1 misses: an error constructed
+  before `useFullErrorMessages` was called (a schema that fails while its module is
+  imported). Details:
+  - **The catalog is an optional parameter, defaulting to the English catalog.** `explain`
+    lives in `egon-orm/messages`, the entry that holds the catalog, so importing `explain`
+    already brings the catalog into the bundle and a default costs nothing more; the
+    default bundle (`egon-orm` alone) does not change, because nothing in `egon-orm` refers
+    to `explain` or the catalog. The parameter lets a translated or custom catalog be used,
+    as with C1. Requiring the catalog as an argument was considered and rejected: it would
+    save nothing (the function is in the catalog's own module) and make the common call
+    longer.
+  - **Any value is accepted.** An Egon error gives `<id>: <short> <advice> See <link>`,
+    built from its identifier, short sentence and parameters (the catalog entry is filled
+    in as C1 would). An Egon error whose identifier the catalog has no entry for (a newer
+    release, a partial catalog) gives its message as it is. An Egon error from another copy
+    of the package, whose short sentence this copy cannot see, also gives its message as it
+    is. Any other `Error` gives `<name>: <message>`, and any other value `String(value)`.
+  - It needs nothing from the runtime, so it works on Workers and Vercel Edge.
 - **`error.toJSON()`** returns `{ name, code, id }` in every mode (owner decision,
   2026-10-21): the message, the cause and any SQL stay on the server.
 
@@ -151,7 +169,8 @@ also what the docs pages are generated from. How does an application turn it on?
   catalog and the throw sites; `pnpm docs:check` fails when an identifier is thrown without
   a catalog entry or an entry is never thrown.
 - Guide pages that quote error messages are updated to the short form.
-- Developers who want the old experience add two lines at startup. A Worker can do the
+- Developers who want the old experience add two lines at startup, or call `explain(error)`
+  where they log an error. A Worker can do the
   same in development; the catalog adds its own size (roughly the 46 KB this saves) only
   to bundles that import it.
 - Revisit if a common runtime turns out to need a per-request setting (for example

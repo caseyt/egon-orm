@@ -171,6 +171,7 @@ export default defineConfig({
           text: "In an application",
           items: [
             page("Framework integration", "/guide/frameworks"),
+            page("Edge runtimes", "/guide/edge"),
             page("FAQ and troubleshooting", "/guide/faq"),
             { text: "Recipes", link: "/recipes/" },
           ],

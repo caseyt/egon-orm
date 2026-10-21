@@ -292,7 +292,9 @@ function main() {
   const config = readFileSync(join(SITE, ".vitepress/config.ts"), "utf8");
   // Links only: a sidebar key ("/guide/": …) is followed by a colon.
   const linked = new Set(
-    [...config.matchAll(/"(\/(?:guide|recipes|reference|internals|api)\/[\w/-]*)"(?!\s*:)/g)].map((m) => m[1]),
+    [...config.matchAll(/"(\/(?:guide|recipes|reference|internals|api)\/[\w/-]*)"(?!\s*:)/g)].map(
+      (m) => m[1],
+    ),
   );
   for (const link of linked) {
     const file = link.endsWith("/") ? join(SITE, link, "index.md") : join(SITE, `${link}.md`);

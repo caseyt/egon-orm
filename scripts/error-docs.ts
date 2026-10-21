@@ -169,7 +169,7 @@ const namespaceOf = (id: string): string => (id.includes(".") ? (id.split(".")[0
 const anchorOf = (id: string): string => id.replace(".", "-").toLowerCase();
 
 /** Escapes text for a Markdown paragraph inside a `v-pre` block. */
-function escape(text: string): string {
+function escapeMarkdown(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/([\\`*_[\]<>|#~])/g, "\\$1");
 }
 
@@ -202,8 +202,11 @@ export function pages(catalog: ReadonlyMap<string, string>, sites: readonly Site
         ...new Set(sites.filter((site) => site.id === id).map((site) => site.message)),
       ].filter((message) => message !== "");
       lines.push(`## \`${id}\` {#${anchorOf(id)}}`, "");
-      for (const message of messages) lines.push(`> ${escape(message).replace(/\n+/g, " ")}`, "");
-      lines.push(escape((catalog.get(id) ?? "").replace(/\{\{(\w+)\}\}/g, "{$1}")).replace(/\n/g, " "), "");
+      for (const message of messages) lines.push(`> ${escapeMarkdown(message).replace(/\n+/g, " ")}`, "");
+      lines.push(
+        escapeMarkdown((catalog.get(id) ?? "").replace(/\{\{(\w+)\}\}/g, "{$1}")).replace(/\n/g, " "),
+        "",
+      );
     }
     lines.push(":::", "");
     out.set(`${ns}.md`, lines.join("\n"));

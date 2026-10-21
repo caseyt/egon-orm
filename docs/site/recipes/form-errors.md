@@ -4,6 +4,12 @@ A sign-up form whose server action returns the changeset's errors, and fields th
 them. The example uses React 19's `useActionState` and a server action, as in Next.js; the
 part that matters, the state the action returns, works with any framework.
 
+## Setup
+
+Both parts below use these imports, the repo and the schema:
+
+<<< ../../../examples/react-form/src/form-errors.tsx#setup
+
 ## The action
 
 <<< ../../../examples/react-form/src/form-errors.tsx#action

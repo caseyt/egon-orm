@@ -3,16 +3,14 @@
 Keep deleted rows, marked with the time they were deleted, and leave them out of every
 listing.
 
-::: details The schemas and tables this recipe uses
-Run the recipe in an empty database of its own: each recipe creates its own tables, and
-some have the same names (`posts`) with other columns.
+## Setup
+
+The code of this recipe depends on these declarations: the imports, the schema classes, the
+repo, and the migration that creates the tables. Run the recipe in an empty database of its
+own: each recipe creates its own tables, and some have the same names (`posts`) with other
+columns.
 
 <<< @/examples/recipes/soft-deletes.ts#setup
-
-The examples start from these rows, after creating the tables:
-
-<<< @/examples/recipes/soft-deletes.ts#seed
-:::
 
 ## The field
 
@@ -43,8 +41,13 @@ it is what an admin page or a restore needs. Start listings from `posts`, or fro
 A soft delete is an update, so it goes through a changeset, sets `updatedAt` if the schema
 has timestamps, and can carry an [optimistic lock](/recipes/optimistic-locking).
 
-Both the changeset and `restore` declare the unique index, so a clash is a field error. A
-deleted post's title is free for a new post; restoring the old one then meets the index:
+The example below starts from these rows, after creating the tables:
+
+<<< @/examples/recipes/soft-deletes.ts#seed
+
+It deletes a post, which leaves the listing but stays in the table. Both the changeset and
+`restore` declare the unique index, so a clash is a field error: a deleted post's title is
+free for a new post, and restoring the old one then meets the index.
 
 <<< @/examples/recipes/soft-deletes.ts#use
 

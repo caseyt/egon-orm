@@ -5,16 +5,14 @@ operators have no builder methods, so the query writes them with `fragment`: a t
 template whose text is written into the SQL as it is, and whose interpolations (`${terms}`)
 are bound parameters, never SQL text ([Fragments](/guide/query-expressions#fragments)).
 
-::: details The schemas and tables this recipe uses
-Run the recipe in an empty database of its own: each recipe creates its own tables, and
-some have the same names (`posts`) with other columns.
+## Setup
+
+The code of this recipe depends on these declarations: the imports, the schema classes, the
+repo, and the migration that creates the tables. Run the recipe in an empty database of its
+own: each recipe creates its own tables, and some have the same names (`posts`) with other
+columns.
 
 <<< @/examples/recipes/full-text-search.ts#setup
-
-The examples start from these rows, after creating the tables:
-
-<<< @/examples/recipes/full-text-search.ts#seed
-:::
 
 ## The index
 
@@ -43,6 +41,10 @@ application never reads it.
 
 `ts_headline` marks the matching words with `<b>` tags: escape the rest of the text
 before you render it as HTML.
+
+The examples above run against these rows, after creating the tables:
+
+<<< @/examples/recipes/full-text-search.ts#seed
 
 ::: tip Good to know
 - This is Postgres only. SQLite has FTS5 virtual tables and MySQL `FULLTEXT` indexes with

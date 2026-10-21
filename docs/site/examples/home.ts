@@ -30,7 +30,7 @@ class Post extends Schema("posts", {
 const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATABASE_URL }) });
 
 const result = await repo.insert(User.changeset(User, { email: "ada@example.com" }));
-if (!result.success) console.log(result.error.errorMessages()); // { email: ["has already been taken"] }
+if (!result.success) console.log(result.error.errorMessages()); // if the email is taken: { email: ["has already been taken"] }
 
 const authors = await repo.all(
   from(User, "u")

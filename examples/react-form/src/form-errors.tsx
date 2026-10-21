@@ -2,6 +2,7 @@
 // server action returns the changeset's errors. Type-checked; it is not run. It stands for two
 // files of a Next.js app, so their directives are comments here: a file holds one or the other.
 // (A package of its own, so that the React types stay out of the docs site's dependencies.)
+// #region setup
 import { postgres } from "@egon-orm/postgres";
 import { cast, createRepo, type ErrorTree, Schema, t } from "egon-orm";
 import { useActionState } from "react";
@@ -20,6 +21,7 @@ class User extends Schema("users", {
       .uniqueConstraint("email");
   }
 }
+// #endregion setup
 
 // #region action
 // actions.ts

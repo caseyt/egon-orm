@@ -28,7 +28,7 @@
     "docs:dialects": "tsx scripts/dialect-support.ts",
     "docs:api": "pnpm --filter @egon-orm/docs-site run api",
     "docs:exports": "tsx scripts/api-index.ts",
-    "docs:check": "node scripts/check-docs.mjs && tsx scripts/api-index.ts --check && cspell --no-progress",
+    "docs:check": "node scripts/check-docs.mjs && tsx scripts/api-index.ts --check && tsx scripts/check-page-order.ts && cspell --no-progress",
     "docs:dev": "pnpm --filter @egon-orm/docs-site run dev",
     "docs:build": "pnpm --filter @egon-orm/docs-site run build",
     "docs:preview": "pnpm --filter @egon-orm/docs-site run preview",

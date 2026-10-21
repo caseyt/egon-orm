@@ -27,15 +27,12 @@ mkdir -p src/migrations test
 
 Egon is published as ES modules only, hence `"type": "module"`.
 
-**Optional:** `@egon-orm/cli` is the `egon` command, which writes migration files and
-creates databases. It is not on npm yet (the [CLI](/reference/cli) page says how to use it
-from the repository); the tutorial does not need it, and mentions it where it would help.
-Once it is published, install it separately, so that a missing package cannot stop the
-other installs:
-
-```sh
-npm install -D @egon-orm/cli
-```
+**The `egon` command is not available yet.** `@egon-orm/cli`, which writes migration files
+and creates databases, comes with the first release; it is not on npm today, so do not
+install it. The tutorial does everything without it: you write the migration file by hand
+(step 3) and create the test database with `createdb` (step 10). Once it is published,
+install it on its own line, `npm install -D @egon-orm/cli`, so that it cannot stop the other
+installs.
 
 Add a `tsconfig.json`:
 
@@ -59,12 +56,13 @@ Node.js expects.
 Start a database and tell the application where it is:
 
 ```sh
-docker run -d --name blog-db -e POSTGRES_PASSWORD=blog -p 5432:5432 postgres:16
-export DATABASE_URL=postgres://postgres:blog@localhost:5432/postgres
+docker run -d --name blog-db -e POSTGRES_PASSWORD=blog -e POSTGRES_DB=blog -p 5432:5432 postgres:16
+export DATABASE_URL=postgres://postgres:blog@localhost:5432/blog
 ```
 
-Without Docker, any Postgres 14 or later works (a local install or a hosted one): point
-`DATABASE_URL` at it.
+`POSTGRES_DB=blog` creates the blog's own database, so its tables do not land in the server's
+default `postgres` database. Without Docker, any Postgres 14 or later works (a local install
+or a hosted one): create an empty database there, `blog`, and point `DATABASE_URL` at it.
 
 ## 2. Connect
 
@@ -78,9 +76,10 @@ it.
 
 ## 3. Create the tables
 
-A migration describes a change to the database. Write it by hand, in a file whose name
-starts with its version (a UTC timestamp). With the CLI, `npx egon migrate create
-create_blog --dir src/migrations` writes an empty one for you to fill in:
+A migration describes a change to the database. Write it by hand: create the file
+`src/migrations/20261020090000_create_blog.ts`, whose name starts with its version (a UTC
+timestamp, `YYYYMMDDHHMMSS`) and then its name. (Once the CLI is out,
+`npx egon migrate create create_blog --dir src/migrations` writes the empty file for you.)
 
 <<< ../../../examples/blog/src/migrations/20261020090000_create_blog.ts#migration
 
@@ -257,9 +256,12 @@ publish twice. Reading the row in the transaction, with `lock("update")`, makes 
 see the current row, and keeps a second publisher waiting until the first one's
 transaction ends.
 
-If any step fails, everything is rolled back and the result says which step failed
-(`result.error.step` is typed as the names of the steps that can fail) and what had
-already completed. Because a batch is a value, a test can check its steps without running
+If any step fails, everything is rolled back and the result says which step failed and
+what had already completed. `result.error.step` is typed as the names of the steps that can
+fail, here `"unpublished" | "published"` (the `run` step that may return `failure`, and the
+update); a read such as `one` cannot fail, so it is not in the union. `publish` returns
+`published: true` or `false` beside the rest, so a caller can tell the two cases apart with
+one check. Because a batch is a value, a test can check its steps without running
 it (see below).
 
 ## 10. Test it
@@ -287,6 +289,9 @@ Then run the tests against the test database:
 ```sh
 DATABASE_URL=postgres://postgres:blog@localhost:5432/blog_test npx vitest run
 ```
+
+With another Postgres, the URL names your server and the test database:
+`postgres://<user>:<password>@<host>:<port>/blog_test`.
 
 `egon-orm/testing` has a **sandbox**: each test runs in a transaction that is rolled back
 afterwards, so tests see their own writes, start from empty tables, and need no cleanup.

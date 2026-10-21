@@ -4,16 +4,14 @@ Give each tenant its own database schema (a Postgres schema, a MySQL database) w
 same tables, and choose the schema per request. The schema classes stay the same for every
 tenant.
 
-::: details The schemas and tables this recipe uses
-Run the recipe in an empty database of its own: each recipe creates its own tables, and
-some have the same names (`posts`) with other columns.
+## Setup
+
+The code of this recipe depends on these declarations: the imports, the schema classes, the
+repo, and the migration that creates the tables. Run the recipe in an empty database of its
+own: each recipe creates its own tables, and some have the same names (`posts`) with other
+columns.
 
 <<< @/examples/recipes/multi-tenancy.ts#setup
-
-The examples start from these rows, after creating the tables:
-
-<<< @/examples/recipes/multi-tenancy.ts#seed
-:::
 
 ## Creating a tenant's tables
 
@@ -37,6 +35,10 @@ A repo created with `schema` uses it by default. Repos are cheap: several can sh
 adapter, and so one connection pool.
 
 <<< @/examples/recipes/multi-tenancy.ts#per-tenant-repo
+
+The examples below start from these rows, after creating the tables:
+
+<<< @/examples/recipes/multi-tenancy.ts#seed
 
 <<< @/examples/recipes/multi-tenancy.ts#use
 

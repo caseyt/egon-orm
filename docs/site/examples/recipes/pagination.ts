@@ -57,16 +57,20 @@ export async function page(number: number, perPage = 20) {
 type Cursor = { createdAt: Date; id: number };
 
 export async function after(cursor: Cursor | null, perPage = 20) {
-  const rows = await repo.all(
-    from(Post, "p")
-      .where(({ p }) =>
-        cursor === null ? p.id.isNotNull() : tuple(p.createdAt, p.id).lt(tuple(cursor.createdAt, cursor.id)),
-      )
-      .orderBy(({ p }) => [p.createdAt.desc(), p.id.desc()]) // the same columns, in the same order
-      .limit(perPage),
-  );
+  let query = from(Post, "p")
+    .orderBy(({ p }) => [p.createdAt.desc(), p.id.desc()]) // the same columns as the where
+    .limit(perPage);
+  // The first page has no cursor, so no condition.
+  if (cursor !== null) {
+    const { createdAt, id } = cursor;
+    query = query.where(({ p }) => tuple(p.createdAt, p.id).lt(tuple(createdAt, id)));
+  }
+  const rows = await repo.all(query);
   const last = rows.at(-1);
-  return { rows, next: last === undefined ? null : { createdAt: last.createdAt, id: last.id } };
+  // A short page is the last one: no cursor, so the caller does not ask for an empty page.
+  const next =
+    last === undefined || rows.length < perPage ? null : { createdAt: last.createdAt, id: last.id };
+  return { rows, next };
 }
 // #endregion keyset
 
@@ -91,13 +95,15 @@ export async function run(): Promise<void> {
   // #region keyset-use
   let cursor: Cursor | null = null;
   let seen = 0;
+  let queries = 0;
   do {
     const batch = await after(cursor);
+    queries += 1;
     seen += batch.rows.length;
     cursor = batch.next;
   } while (cursor !== null);
+  ({ seen, queries }); // => { seen: 45, queries: 3 }
   // #endregion keyset-use
-  seen === 45; // => true
 
   await repo.close();
 }

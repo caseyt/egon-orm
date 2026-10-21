@@ -83,13 +83,13 @@ export async function run(): Promise<void> {
   await repo.insertAll(Post, [{ title: "One" }, { title: "Two" }]);
   // #endregion seed
 
-  const one = await repo.getByOrThrow(Post, { title: "One" });
-  const deleted = await softDelete(one);
+  // #region use
+  const deleted = await softDelete(await repo.getByOrThrow(Post, { title: "One" }));
   deleted.isDeleted; // => true
+  // The listing leaves it out; the table still has it.
   (await repo.all(posts)).map((p) => p.title); // => ["Two"]
   await repo.count(Post); // => 2
 
-  // #region use
   // While "One" is deleted, its title is free for a new post...
   const again = await repo.insert(Post.changeset(Post, { title: "One" }));
   again.success; // => true

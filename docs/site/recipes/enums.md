@@ -2,16 +2,14 @@
 
 A field that holds one of a fixed set of values.
 
-::: details The schemas and tables this recipe uses
-Run the recipe in an empty database of its own: each recipe creates its own tables, and
-some have the same names (`posts`) with other columns.
+## Setup
+
+The code of this recipe depends on these declarations: the imports, the schema classes, the
+repo, and the migration that creates the tables. Run the recipe in an empty database of its
+own: each recipe creates its own tables, and some have the same names (`posts`) with other
+columns.
 
 <<< @/examples/recipes/enums.ts#setup
-
-The examples start from these rows, after creating the tables:
-
-<<< @/examples/recipes/enums.ts#seed
-:::
 
 ## Declaring one
 
@@ -34,6 +32,10 @@ A check constraint keeps other values out of the table, whatever writes to it:
 value (casting rejects it first), so the constraint guards against other writers.
 
 ## Using it
+
+The examples below start from these rows, after creating the tables:
+
+<<< @/examples/recipes/enums.ts#seed
 
 <<< @/examples/recipes/enums.ts#use
 

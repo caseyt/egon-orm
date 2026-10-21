@@ -3,20 +3,22 @@
 Return the row with a given unique value, creating it if it does not exist, safely when two
 requests ask at once.
 
-::: details The schemas and tables this recipe uses
-Run the recipe in an empty database of its own: each recipe creates its own tables, and
-some have the same names (`posts`) with other columns.
+## Setup
+
+The code of this recipe depends on these declarations: the imports, the schema classes, the
+repo, and the migration that creates the tables. Run the recipe in an empty database of its
+own: each recipe creates its own tables, and some have the same names (`posts`) with other
+columns.
 
 <<< @/examples/recipes/find-or-create.ts#setup
-
-The examples start from these rows, after creating the tables:
-
-<<< @/examples/recipes/find-or-create.ts#seed
-:::
 
 ## The function
 
 <<< @/examples/recipes/find-or-create.ts#find-or-create
+
+The examples below start from these rows, after creating the tables:
+
+<<< @/examples/recipes/find-or-create.ts#seed
 
 <<< @/examples/recipes/find-or-create.ts#use
 

@@ -16,7 +16,7 @@ class Setting extends Schema("settings", {
 
 class DailyView extends Schema("daily_views", {
   pageId: t.integer().primaryKey(),
-  day: t.date().primaryKey(),
+  day: t.date().primaryKey(), // a "YYYY-MM-DD" string
   views: t.integer(),
 }) {}
 
@@ -108,10 +108,12 @@ export async function run(): Promise<void> {
   // #endregion bulk
   await repo.count(DailyView); // => 2
 
+  // #region counter-use
   await countView(3, "2026-10-21"); // a new row: views 1
   await countView(3, "2026-10-21"); // the same row: views 2
   const counted = await repo.getOrThrow(DailyView, { pageId: 3, day: "2026-10-21" });
   counted.views; // => 2
+  // #endregion counter-use
 
   await repo.close();
 }

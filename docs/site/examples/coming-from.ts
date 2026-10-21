@@ -195,14 +195,16 @@ export async function run(): Promise<void> {
       .offset(2),
   );
 
-  const afterId = page2[0]?.id ?? 0; // keyset: continue after the last row seen
+  // Keyset: continue after the last row seen, so the next page cannot repeat it.
+  const afterId = page2.at(-1)?.id ?? 0;
   const next = await repo.all(
     from(Post, "p")
       .where(({ p }) => p.id.gt(afterId))
       .orderBy(({ p }) => p.id)
       .limit(2),
   );
-  next.length; // => 2
+  next.length; // => 1
+  next.some((p) => page2.some((seen) => seen.id === p.id)); // => false
   // #endregion paginate
 
   // #region include

@@ -257,7 +257,7 @@ Prisma: `prisma.post.delete({ where: { id } })` and `deleteMany({ where })`.
 | Prisma | In Egon |
 |---|---|
 | `prisma generate` and `schema.prisma` | Not needed: schema classes are TypeScript. |
-| `prisma migrate dev` (migrations from schema changes) | Not supported. Migrations are written by hand; `egon migrate create <name>` writes an empty one to fill in. See [Migrations](/guide/migrations). |
+| `prisma migrate dev` (migrations from schema changes) | Not supported. Migrations are written by hand, as in [The tables](#the-tables) above. (`egon migrate create <name>`, which writes an empty one, comes with the CLI in the first release.) See [Migrations](/guide/migrations). |
 | Fluent API (`prisma.user.findUnique(…).posts()`) | Not supported. Use `assoc(User, user, "posts")` for a query of the related rows, or preload. |
 | Nested `select` of relations (`select: { posts: { select: { title: true } } }`) | A preload callback with a `select`: `preload("posts", (q) => q.select(…))`. |
 | `createMany` | `repo.insertAll(Post, rows)`: no changesets, no validation, but defaults and timestamps. |

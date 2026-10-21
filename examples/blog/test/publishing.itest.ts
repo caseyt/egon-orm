@@ -43,7 +43,11 @@ test("publishing twice fails at the guard and writes nothing more", async () => 
   await publish(draft.id);
 
   // `draft` still says "not published": the batch reads the post again, so it is not fooled.
-  expect(await publish(draft.id)).toEqual({ failedAt: "unpublished", error: "already published" });
+  expect(await publish(draft.id)).toEqual({
+    published: false,
+    failedAt: "unpublished",
+    error: "already published",
+  });
   expect(await repo.count(Notification)).toBe(2);
 });
 

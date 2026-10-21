@@ -2,18 +2,20 @@
 
 Insert a row, or update the one that is already there, in one statement.
 
-::: details The schemas and tables this recipe uses
-Run the recipe in an empty database of its own: each recipe creates its own tables, and
-some have the same names (`posts`) with other columns.
+## Setup
+
+The code of this recipe depends on these declarations: the imports, the schema classes, the
+repo, and the migration that creates the tables. Run the recipe in an empty database of its
+own: each recipe creates its own tables, and some have the same names (`posts`) with other
+columns.
 
 <<< @/examples/recipes/upserts.ts#setup
 
-The examples start from these rows, after creating the tables:
+## Insert or update one row
+
+The examples below start from these rows, after creating the tables:
 
 <<< @/examples/recipes/upserts.ts#seed
-:::
-
-## Insert or update one row
 
 <<< @/examples/recipes/upserts.ts#one
 
@@ -42,6 +44,12 @@ is there. To increment a counter, insert the row if it is missing, and otherwise
 with an expression:
 
 <<< @/examples/recipes/upserts.ts#counter
+
+`DailyView.day` is a `t.date()` field: a calendar date with no time, which reads and writes
+as a `"YYYY-MM-DD"` string ([Types](/guide/types)), so `countView` takes the day as one.
+Counting the same page and day twice:
+
+<<< @/examples/recipes/upserts.ts#counter-use
 
 Inserting first is safe when two requests count at once: one inserts, the other finds the
 row there and increments it.

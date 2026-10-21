@@ -25,7 +25,11 @@ export function publishBatch(postId: number, now: Date = new Date()) {
 
 export async function publish(postId: number) {
   const result = await repo.transaction(publishBatch(postId));
-  if (!result.success) return { failedAt: result.error.step, error: result.error.error };
-  return { post: result.data.published, notified: result.data.notifications.count };
+  if (!result.success) {
+    // type: "unpublished" | "published", the steps that can fail
+    const failedAt = result.error.step;
+    return { published: false, failedAt, error: result.error.error } as const;
+  }
+  return { published: true, post: result.data.published, notified: result.data.notifications.count } as const;
 }
 // #endregion publish

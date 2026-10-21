@@ -3,16 +3,14 @@
 Stop a user from overwriting an edit made by someone else since they loaded the page,
 without holding a lock while they type.
 
-::: details The schemas and tables this recipe uses
-Run the recipe in an empty database of its own: each recipe creates its own tables, and
-some have the same names (`posts`) with other columns.
+## Setup
+
+The code of this recipe depends on these declarations: the imports, the schema classes, the
+repo, and the migration that creates the tables. Run the recipe in an empty database of its
+own: each recipe creates its own tables, and some have the same names (`posts`) with other
+columns.
 
 <<< @/examples/recipes/optimistic-locking.ts#setup
-
-The examples start from these rows, after creating the tables:
-
-<<< @/examples/recipes/optimistic-locking.ts#seed
-:::
 
 ## A version field
 
@@ -22,6 +20,10 @@ The examples start from these rows, after creating the tables:
 and increments the field. If someone else updated the row in between, no row matches.
 
 ## What happens on a conflict
+
+The examples below start from these rows, after creating the tables:
+
+<<< @/examples/recipes/optimistic-locking.ts#seed
 
 <<< @/examples/recipes/optimistic-locking.ts#conflict
 

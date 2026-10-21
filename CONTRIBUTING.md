@@ -209,8 +209,8 @@ const result = await repo.insert(User.changeset(User, params));
 
 ### Checks
 
-`pnpm docs:check` (part of `pnpm lint`) runs `scripts/check-docs.mjs`, the index check and
-the spell checker:
+`pnpm docs:check` (part of `pnpm lint`) runs `scripts/check-docs.mjs`, the index check,
+`scripts/check-page-order.ts` and the spell checker:
 
 - no hand-written TypeScript or JavaScript block; every included file and region exists;
 - `// =>` only in `// @run` files;
@@ -221,6 +221,9 @@ the spell checker:
   constant) is also named on a written page or shown in an included example;
 - every page is in the sidebar, and every sidebar link is a page;
 - the README's example is the `example` region of `docs/site/examples/home.ts`;
+- on the pages meant to be followed from the top (getting started, the tutorial, the
+  "Coming from" pages, the recipes), the parts of each file, joined in page order, compile,
+  and no name is used above the part that declares it (`scripts/check-page-order.ts`);
 - `cspell` with the project's word list, `docs/site/words.txt` (British spelling).
 
 `pnpm docs:build` runs TypeDoc first: an export without a TSDoc summary or `@example`

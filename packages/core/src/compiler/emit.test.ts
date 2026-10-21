@@ -21,7 +21,7 @@ import {
   windowNode,
 } from "../query/ast.js";
 import { meta } from "../schema/index.js";
-import { bindParams } from "./bind.js";
+import { bindParams, wholeBigintNumber } from "./bind.js";
 import { createCompiler } from "./compiler.js";
 import { POSTGRES_CAPABILITIES, postgresDialect, type SqlDialect } from "./dialect.js";
 import { precedenceOf } from "./emit.js";
@@ -112,9 +112,10 @@ describe("placeholders and slots", () => {
     );
     expect(plan.slots).toEqual([
       { kind: "named", name: "label", toDb: undefined, redact: false },
-      { kind: "element", index: 0, element: 0, toDb: undefined, redact: false },
-      { kind: "element", index: 0, element: 1, toDb: undefined, redact: false },
-      { kind: "element", index: 0, element: 2, toDb: undefined, redact: false },
+      // User.id is a bigint({ mode: "number" }): its values are checked to be whole numbers.
+      { kind: "element", index: 0, element: 0, toDb: wholeBigintNumber, redact: false },
+      { kind: "element", index: 0, element: 1, toDb: wholeBigintNumber, redact: false },
+      { kind: "element", index: 0, element: 2, toDb: wholeBigintNumber, redact: false },
       { kind: "element", index: 1, element: 0, toDb: undefined, redact: false },
     ]);
     expect(bindParams(plan.slots, q.ast.params, { label: "x" })).toEqual(["x", 4, 5, 6, "admin"]);

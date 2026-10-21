@@ -56,8 +56,8 @@ import { collectParams, IDENTIFIER } from "../query/ast.js";
 import { numericRank } from "../query/widen.js";
 import { resolveCodec } from "../types/codec.js";
 import { hidesValues } from "../types/embed.js";
-import { integerType } from "../types/scalars.js";
-import { wholeNumber } from "./bind.js";
+import { bigintType, integerType } from "../types/scalars.js";
+import { wholeBigintNumber, wholeNumber } from "./bind.js";
 import {
   LOCK_CLAUSES,
   lookup,
@@ -254,19 +254,21 @@ export function newContext(dialect: SqlDialect, codecs: CodecSource): EmitContex
  */
 export type EmitContext = Ctx;
 
-/** The built-in integer type, whose values are refused at bind time unless whole (see {@link wholeNumber}). */
+/** The built-in integer types, whose values are refused at bind time unless whole (see {@link wholeNumber}). */
 const INTEGER_TYPE: AnyFieldType = integerType();
+const BIGINT_NUMBER_TYPE: AnyFieldType = bigintType({ mode: "number" });
 
 /**
  * The conversion of a slot's values: the type's driver conversion, or none for the
- * identity. A value of the built-in `t.integer()` is checked instead (see
- * {@link wholeNumber}).
+ * identity. A value of the built-in `t.integer()` or `t.bigint({ mode: "number" })` is
+ * checked instead (see {@link wholeNumber}). This is the one exception to skipping an
+ * identity conversion (owner row 7, status 03): one call per such value per execution.
  */
 function toDbOf(ctx: Ctx, type: AnyFieldType | undefined): ToDb | undefined {
   if (type === undefined) return undefined;
   const toDb = resolveCodec(type, ctx.codecs).toDb;
   if (toDb !== IDENTITY) return toDb;
-  return type === INTEGER_TYPE ? wholeNumber : undefined;
+  return type === INTEGER_TYPE ? wholeNumber : type === BIGINT_NUMBER_TYPE ? wholeBigintNumber : undefined;
 }
 
 /**

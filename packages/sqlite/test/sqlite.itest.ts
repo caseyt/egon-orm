@@ -161,6 +161,10 @@ describe("sqlite", () => {
         typed: x.b.div(val(1024, t.bigint({ mode: "number" }))),
       }));
       expect(await repo.all(big)).toEqual([{ plain: 1125899906842623, typed: 1125899906842623 }]);
+      // A fraction beside the number-mode bigint is refused too (the cast would truncate it).
+      await expect(repo.all(from(Big, "x").select(({ x }) => ({ d: x.b.div(2.5) })))).rejects.toThrow(
+        /^Parameter 1 has the type t\.bigint\(\{ mode: "number" \}\) .* but its value is not a whole number\./,
+      );
     } finally {
       await repo.close();
     }

@@ -46,7 +46,7 @@ import {
   withRepo,
 } from "../changeset/changeset.js";
 import { embedChanges, isNestedValue, missingEmbedded } from "../changeset/nested/embed.js";
-import { bindParams } from "../compiler/bind.js";
+import { bindParams, fieldOfRefusal } from "../compiler/bind.js";
 import type {
   CompiledQuery,
   Connection,
@@ -482,6 +482,30 @@ export function remaining(
   deadline: number | undefined,
 ): number | undefined {
   return deadline === undefined ? options?.timeoutMs : Math.max(0, deadline - now());
+}
+
+/**
+ * Binds the values of a row-level write, whose first values are one per field of
+ * `fields` (an insert's columns, an update's set fields). When one of them is a value of
+ * an integer type that is not a whole number, the error names the field (`User.age`),
+ * with the error naming the parameter as its cause (owner row 7, status 03). The values
+ * after them (an update's key and lock, which come from a loaded row; an upsert's
+ * conflict values) keep the error that names the parameter.
+ */
+function bindFields(
+  plan: CompiledQuery,
+  values: readonly unknown[],
+  schemaMeta: SchemaMeta,
+  fields: readonly FieldMeta[],
+): unknown[] {
+  try {
+    return bindParams(plan.slots, values);
+  } catch (error) {
+    throw fieldOfRefusal(error, (index) => {
+      const field = fields[index];
+      return field === undefined ? undefined : `${schemaMeta.name}.${field.name}`;
+    });
+  }
 }
 
 /**
@@ -1041,7 +1065,7 @@ export async function insertRow(
     schema,
   );
   for (const value of settings.conflictParams) values.push(value);
-  const bound = bindParams(plan.slots, values);
+  const bound = bindFields(plan, values, schemaMeta, columns);
 
   let result: Written;
   let reread: Readonly<Record<string, unknown>> | undefined;
@@ -1337,7 +1361,7 @@ export async function updateRow(
       "update",
       schemaMeta.source as string,
       plan,
-      bindParams(plan.slots, values),
+      bindFields(plan, values, schemaMeta, set),
       settings.options,
       undefined,
       decodeWritten,

@@ -30,9 +30,12 @@ function namesOf(slots: readonly ParamSlot[]): ReadonlySet<string> {
   return names;
 }
 
-/** What {@link wholeNumber} throws; {@link bindParams} replaces it with an error naming the slot. */
+/**
+ * What {@link wholeNumber} and {@link wholeBigintNumber} throw; {@link bindParams} replaces
+ * it with an error naming the slot.
+ */
 const NOT_WHOLE = new QueryError(
-  "A value of the type t.integer() is not a whole number. Give a fraction a float type, val(2.5, t.float()), or round it.",
+  "A value of an integer type is not a whole number. Give a fraction a float type, val(2.5, t.float()), or round it.",
 );
 
 /**
@@ -57,7 +60,33 @@ export function wholeNumber(value: unknown): unknown {
   throw NOT_WHOLE;
 }
 
-/** The error for a slot whose value {@link wholeNumber} refused, naming it by its position or name. */
+/**
+ * The same check as {@link wholeNumber}, for the built-in `t.bigint({ mode: "number" })`
+ * type. A separate function only so that the error can name the type. (`t.bigint()`
+ * holds `bigint` values, which are always whole, and has no check.)
+ *
+ * @example
+ * ```ts
+ * wholeBigintNumber(2 ** 40); // 1099511627776
+ * wholeBigintNumber(2.5); // throws QueryError
+ * ```
+ *
+ * @throws QueryError for a number that is not a whole number.
+ */
+export function wholeBigintNumber(value: unknown): unknown {
+  if (typeof value !== "number" || Number.isInteger(value)) return value;
+  throw NOT_WHOLE;
+}
+
+/** The name of the integer type a slot's check stands for, as an error writes it. */
+function wholeTypeName(slot: ParamSlot): string {
+  return slot.toDb === wholeBigintNumber ? 't.bigint({ mode: "number" })' : "t.integer()";
+}
+
+/** The slot of each error {@link bindParams} threw for a value that is not a whole number. */
+const refusedSlots = new WeakMap<object, ParamSlot>();
+
+/** The error for a slot whose value was not a whole number, naming it by its position or name. */
 function notWhole(slot: ParamSlot, position: number): QueryError {
   const label =
     slot.kind === "named"
@@ -65,8 +94,39 @@ function notWhole(slot: ParamSlot, position: number): QueryError {
       : slot.kind === "list"
         ? `An item of parameter ${position}`
         : `Parameter ${position}`;
+  const error = new QueryError(
+    `${label} has the type ${wholeTypeName(slot)} (its own, or that of the column beside it), but its value is not a whole number. Give a fraction a float type, val(2.5, t.float()), or round it.`,
+  );
+  refusedSlots.set(error, slot);
+  return error;
+}
+
+/**
+ * For a write, whose bound values are written to fields: the error to throw in place of
+ * `error` when {@link bindParams} refused a value of an integer type that is not a whole
+ * number. It names the field (`User.age`) and keeps `error`, which names the parameter, as
+ * its `cause`. `fieldAt` gives the field label of an entry of the bound `params` (a slot's
+ * `index`), or `undefined` when the entry is no field's value; any other error, or a
+ * refused named parameter, is returned as it is. Called in a `catch`, so nothing runs on
+ * the path that binds.
+ *
+ * @example
+ * ```ts
+ * try {
+ *   bound = bindParams(plan.slots, values);
+ * } catch (error) {
+ *   throw fieldOfRefusal(error, (index) => `User.${columns[index]?.name}`);
+ * }
+ * ```
+ */
+export function fieldOfRefusal(error: unknown, fieldAt: (index: number) => string | undefined): unknown {
+  const slot = typeof error === "object" && error !== null ? refusedSlots.get(error) : undefined;
+  if (slot === undefined || slot.kind === "named") return error;
+  const field = fieldAt(slot.index);
+  if (field === undefined) return error;
   return new QueryError(
-    `${label} has the type t.integer() (its own, or that of the column beside it), but its value is not a whole number. Give a fraction a float type, val(2.5, t.float()), or round it.`,
+    `The value written to ${field} holds a number that is not a whole number where ${wholeTypeName(slot)} is expected. Give it a whole number, or declare the field t.float() or t.decimal() if it holds fractions.`,
+    error,
   );
 }
 

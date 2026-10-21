@@ -1293,3 +1293,66 @@ describe("insertAll cells, pinned in review round 2", () => {
     expect(env.statements[0]?.sql).toBe('insert into "tags" ("name") values ($1)');
   });
 });
+
+// --- whole numbers ------------------------------------------------------------------------
+
+describe("a value of an integer type that is not a whole number names the field it is written to (owner row 7, status 03)", () => {
+  const written = (field: string, type = "t.integer()") =>
+    `The value written to ${field} holds a number that is not a whole number where ${type} is expected. Give it a whole number, or declare the field t.float() or t.decimal() if it holds fractions.`;
+
+  async function refusal(promise: Promise<unknown>): Promise<QueryError> {
+    const error = await rejection(promise);
+    expect(error).toBeInstanceOf(QueryError);
+    // The error that names the parameter is kept as the cause.
+    expect(((error as Error).cause as Error).message).toMatch(/^Parameter \d+ has the type /);
+    return error as QueryError;
+  }
+
+  test("insert and update, before anything is sent", async () => {
+    const env = setup(() => ({ rows: [{ c0: 1 }] }));
+    const insert = await refusal(env.repo.insert(change(User, { email: "a@example.com", age: 2.5 })));
+    expect(insert.message).toBe(written("User.age"));
+    const user = await loadedUser(env.repo, env.driver);
+    const update = await refusal(env.repo.update(change(user, { lockVersion: 1.5 })));
+    expect(update.message).toBe(written("User.lockVersion"));
+    expect(env.statements).toHaveLength(0);
+  });
+
+  test("insertAll rows, a plain value or an expression cell, and a bigint({ mode: number }) field", async () => {
+    const env = setup(() => ({ rowCount: 2 }));
+    const rows = [{ email: "a" }, { email: "b", age: 2.5 }];
+    expect((await refusal(env.repo.insertAll(User, rows))).message).toBe(written("User.age"));
+    const cells = [
+      { email: "a", age: val(1, t.integer()) },
+      { email: "b", age: val(1.5, t.integer()) },
+    ];
+    expect((await refusal(env.repo.insertAll(User, cells))).message).toBe(written("User.age"));
+    const posts = [{ authorId: 1.5, title: "x" }];
+    expect((await refusal(env.repo.insertAll(Post, posts))).message).toBe(
+      written("Post.authorId", 't.bigint({ mode: "number" })'),
+    );
+    expect(env.statements).toHaveLength(0);
+  });
+
+  test("insertAll from a query, after values of its conditions", async () => {
+    const env = setup(() => ({ rowCount: 1 }));
+    const source = from(User, "u")
+      .where(({ u }) => u.age.gt(1))
+      .select(({ u }) => ({ authorId: u.id, title: u.email, views: val(2.5, t.integer()) }));
+    expect((await refusal(env.repo.insertAll(Post, source))).message).toBe(written("Post.views"));
+  });
+
+  test("updateAll's set; a value in its conditions keeps the error naming the parameter", async () => {
+    const env = setup(() => ({ rowCount: 1 }));
+    const set = from(Post, "p")
+      .where(({ p }) => p.id.eq(1))
+      .set(({ p }) => ({ published: true, views: p.views.mul(1.5) }));
+    expect((await refusal(env.repo.updateAll(set))).message).toBe(written("Post.views"));
+    const where = from(Post, "p")
+      .where(({ p }) => p.views.eq(2.5))
+      .set({ published: true });
+    const error = await rejection(env.repo.updateAll(where));
+    expect((error as Error).message).toMatch(/^Parameter 2 has the type t\.integer\(\) /);
+    expect(env.statements).toHaveLength(0);
+  });
+});

@@ -242,6 +242,10 @@ describe.runIf(tier2Enabled())("mysql", () => {
       typed: x.b.div(val(1024, t.bigint({ mode: "number" }))),
     }));
     expect(await repo.all(q)).toEqual([{ plain: 1125899906842623, typed: 1125899906842623 }]);
+    // A fraction beside the number-mode bigint is refused too (DIV would truncate it).
+    await expect(repo.all(from(Big, "x").select(({ x }) => ({ d: x.b.div(2.5) })))).rejects.toThrow(
+      /^Parameter 1 has the type t\.bigint\(\{ mode: "number" \}\) .* but its value is not a whole number\./,
+    );
   });
 
   test("an insert whose read-back row fails to decode says that the write was applied", async () => {

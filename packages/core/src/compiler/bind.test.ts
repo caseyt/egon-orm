@@ -4,7 +4,14 @@ import type { ParamSlot } from "../contracts/adapter.js";
 import type { QueryAst } from "../contracts/query.js";
 import { QueryError } from "../errors.js";
 import { from, param, t, val } from "../index.js";
-import { bindParams, type NamedValues, toSql, wholeNumber } from "./bind.js";
+import {
+  bindParams,
+  fieldOfRefusal,
+  type NamedValues,
+  toSql,
+  wholeBigintNumber,
+  wholeNumber,
+} from "./bind.js";
 import { createCompiler } from "./compiler.js";
 import { mysqlDialect, postgresDialect, sqliteDialect } from "./dialect.js";
 
@@ -131,6 +138,46 @@ describe("a t.integer() value that is not a whole number (owner decision, 2026-1
     const plain = from(Post, "p").set({ views: 2.5 });
     const planned = createCompiler(mysqlDialect).compile(plain.ast, "updateAll", undefined);
     expect(() => bindParams(planned.slots, plain.ast.params)).toThrow(`Parameter 1 ${MESSAGE}`);
+  });
+
+  test("covers t.bigint({ mode: number }), named as such; a bigint-mode bigint has no check", () => {
+    const BIGINT_MESSAGE = MESSAGE.replace("t.integer()", 't.bigint({ mode: "number" })');
+    const q = from(Post, "p").select(({ p }) => ({ d: p.authorId.div(2.5) }));
+    for (const dialect of [postgresDialect, mysqlDialect, sqliteDialect]) {
+      expect(() => bind(dialect, q)).toThrow(`Parameter 1 ${BIGINT_MESSAGE}`);
+    }
+    expect(wholeBigintNumber(2 ** 40)).toBe(2 ** 40);
+    expect(() => wholeBigintNumber(0.5)).toThrow(QueryError);
+    const exact = from(Post, "p").where(({ p }) => p.views.eq(val(5n, t.bigint()).cast(t.integer())));
+    const plan = createCompiler(postgresDialect).compile(exact.ast, "all", undefined);
+    expect(plan.slots[0]?.toDb).toBeUndefined();
+  });
+
+  test("fieldOfRefusal names the field of a refused positional value, and returns anything else as it is", () => {
+    const refused = (q: { readonly ast: QueryAst }, named?: NamedValues): unknown => {
+      try {
+        bind(postgresDialect, q, named);
+      } catch (error) {
+        return error;
+      }
+      throw new Error("expected a refusal");
+    };
+    const positional = refused(from(User, "u").where(({ u }) => u.age.eq(2.5)));
+    const named = fieldOfRefusal(positional, (index) => (index === 0 ? "User.age" : undefined));
+    expect((named as Error).message).toMatch(
+      /^The value written to User\.age holds a number that is not a whole number/,
+    );
+    expect((named as Error).cause).toBe(positional);
+    // No field for that entry, a named parameter, another error, a thrown non-object.
+    expect(fieldOfRefusal(positional, () => undefined)).toBe(positional);
+    const byName = refused(
+      from(User, "u").where(({ u }) => u.age.eq(param("n", t.integer()))),
+      { n: 1.5 },
+    );
+    expect(fieldOfRefusal(byName, () => "User.age")).toBe(byName);
+    const other = new QueryError("something else");
+    expect(fieldOfRefusal(other, () => "User.age")).toBe(other);
+    expect(fieldOfRefusal("text", () => "User.age")).toBe("text");
   });
 
   test("passes whole numbers, null, digit text and other types unchanged", () => {

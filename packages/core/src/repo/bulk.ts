@@ -23,7 +23,7 @@
  * @module
  */
 
-import { bindParams } from "../compiler/bind.js";
+import { bindParams, fieldOfRefusal } from "../compiler/bind.js";
 import { insertChunks } from "../compiler/write.js";
 import type {
   CompiledQuery,
@@ -33,7 +33,15 @@ import type {
   OnConflict,
   RawResult,
 } from "../contracts/adapter.js";
-import type { ExprNode, NamedParamNode, QueryAst, SelectNode, SelectShape } from "../contracts/query.js";
+import type {
+  ExprNode,
+  NamedParamNode,
+  QueryAst,
+  QueryNode,
+  SelectNode,
+  SelectShape,
+  TableSourceNode,
+} from "../contracts/query.js";
 import type { AnySchema, FieldMeta, FieldNames, InsertShape, SchemaMeta } from "../contracts/schema.js";
 import { QueryError } from "../errors.js";
 import { isPlainObject } from "../internal/plain-object.js";
@@ -467,7 +475,12 @@ export async function insertAll(
       const values: unknown[] = [];
       for (const row of chunk) for (const value of row.values) values.push(value);
       for (const value of settings.conflictParams) values.push(value);
-      const bound = bindParams(plan.slots, values, usedPlaceholders(plan, settings.placeholders));
+      let bound: unknown[];
+      try {
+        bound = bindParams(plan.slots, values, usedPlaceholders(plan, settings.placeholders));
+      } catch (error) {
+        throw fieldOfRefusal(error, (index) => cellFieldAt(schemaMeta, columns, chunk, index));
+      }
       const done = await runWrite(
         core,
         executor,
@@ -518,6 +531,81 @@ function generate(shares: readonly number[], field: FieldMeta, index: number, st
   const share = shares[index] as number;
   if (stamps[share] === undefined) stamps[share] = generator();
   return stamps[share];
+}
+
+// The field a refused value was written to (owner row 7, status 03). These run only when
+// binding failed, so counting a node's values again costs nothing on the path that binds.
+
+/** How many values `node` binds. */
+function valueCount(node: QueryNode): number {
+  const out: unknown[] = [];
+  collectParams(node, out);
+  return out.length;
+}
+
+/** How many values `nodes` bind. */
+function valueCountAll(nodes: readonly QueryNode[]): number {
+  let count = 0;
+  for (const node of nodes) count += valueCount(node);
+  return count;
+}
+
+/** The field of `insertAll` rows whose cell holds entry `index` of the chunk's values. */
+function cellFieldAt(
+  schemaMeta: SchemaMeta,
+  columns: readonly FieldMeta[],
+  chunk: readonly PreparedRow[],
+  index: number,
+): string | undefined {
+  let at = 0;
+  for (const row of chunk) {
+    for (let c = 0; c < row.cells.length; c++) {
+      const cell = row.cells[c] as InsertCell;
+      const count = cell === VALUE_CELL ? 1 : cell.kind === "expr" ? valueCount(cell.expr) : 0;
+      if (index < at + count) return `${schemaMeta.name}.${(columns[c] as FieldMeta).name}`;
+      at += count;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The field of `insertAll(Schema, query)` whose selected expression holds entry `index` of
+ * the source query's values: the select's values come after those of the source, the joins
+ * and the conditions (the canonical order of `collectParams`).
+ */
+function selectedFieldAt(
+  schemaMeta: SchemaMeta,
+  source: QueryAst,
+  columns: readonly FieldMeta[],
+  index: number,
+): string | undefined {
+  // insertFromQuery has checked that the select is an object of expressions, one per column.
+  const shape = (source.select as SelectNode).shape as Extract<SelectShape, { readonly kind: "object" }>;
+  let at = valueCount(source.from) + valueCountAll(source.joins) + valueCountAll(source.wheres);
+  for (let i = 0; i < shape.values.length; i++) {
+    const count = valueCount((shape.values[i] as Extract<SelectShape, { readonly kind: "expr" }>).expr);
+    if (index >= at && index < at + count) return `${schemaMeta.name}.${(columns[i] as FieldMeta).name}`;
+    at += count;
+  }
+  return undefined;
+}
+
+/**
+ * The field of `updateAll` whose `set` value holds entry `index` of the query's values: the
+ * set values come last (an update takes no hints; the canonical order of `collectParams`).
+ */
+function setFieldAt(ast: QueryAst, index: number): string | undefined {
+  // The plan was made, so the root is a table (the compiler refuses any other).
+  const from = ast.from as TableSourceNode;
+  const table = from.meta === undefined ? from.source : from.meta.name;
+  let at = ast.params.length - valueCountAll(ast.updates);
+  for (const update of ast.updates) {
+    const count = valueCount(update.value);
+    if (index >= at && index < at + count) return `${table}.${update.field}`;
+    at += count;
+  }
+  return undefined;
 }
 
 /** The typed copies of source queries, per query AST: a query is rewritten once. */
@@ -599,7 +687,12 @@ async function insertFromQuery(
     databaseSchema,
   );
   const values: unknown[] = [...source.params, ...settings.conflictParams];
-  const bound = bindParams(plan.slots, values, settings.placeholders);
+  let bound: unknown[];
+  try {
+    bound = bindParams(plan.slots, values, settings.placeholders);
+  } catch (error) {
+    throw fieldOfRefusal(error, (index) => selectedFieldAt(schemaMeta, source, columns, index));
+  }
   const done = await runWrite(
     core,
     core.executor,
@@ -669,7 +762,12 @@ export async function modifyAll(
     queryable instanceof PreparedQuery
       ? queryable.plan(core.adapter, operation, schema)
       : core.adapter.compile(ast, operation, schema);
-  const values = bindParams(plan.slots, ast.params, split.named);
+  let values: unknown[];
+  try {
+    values = bindParams(plan.slots, ast.params, split.named);
+  } catch (error) {
+    throw fieldOfRefusal(error, (index) => setFieldAt(ast, index));
+  }
   const source = ast.from.kind === "table" ? ast.from.source : undefined;
   return runWrite(
     core,

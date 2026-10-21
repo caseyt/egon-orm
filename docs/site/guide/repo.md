@@ -204,8 +204,12 @@ however many statements it runs.
 
 - Needs a changeset of a loaded row.
 - Writes only the columns that changed, plus `updatedAt`. **With no changes it runs no
-  query** and returns the row; pass `{ force: true }` to update anyway (only `updatedAt`
-  then). A field declared `writable("insert")` or `writable("never")` is not updated.
+  query** and returns the row; pass `{ force: true }` to update anyway (`updatedAt`, plus
+  the version of an optimistic lock, checked as usual). An
+  [optimistic lock](/guide/changesets#hooks-for-the-repo)'s increment on its own is not a
+  change: an unchanged save leaves the version alone and, as it runs no query, is not
+  checked for staleness. A field declared `writable("insert")` or `writable("never")` is
+  not updated.
 - If no row matched, because it was deleted or because an
   [optimistic lock](/guide/changesets#hooks-for-the-repo) failed, it throws
   `StaleEntryError`. `{ allowStale: true }` treats the row as updated, and

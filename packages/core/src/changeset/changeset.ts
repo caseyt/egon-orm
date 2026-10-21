@@ -1679,7 +1679,9 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
   /**
    * Makes an update or delete apply only if `field` still has the value it had when the
    * row was read, and has the update increment it (by default `n + 1`, wrapping to 1
-   * after 2147483647). A write that finds the row changed fails as stale.
+   * after 2147483647). A write that finds the row changed fails as stale. The increment on
+   * its own is not a change: an update with nothing else to write runs no query, so it is
+   * not checked either; with `force` it runs, increments the field and checks it.
    *
    * @example
    * ```ts

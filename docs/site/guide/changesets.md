@@ -239,7 +239,8 @@ are in `cs.constraints`.
 ## Hooks for the repo
 
 - `optimisticLock("lockVersion")` makes an update fail if the row changed since it was
-  read, and increments the field on update.
+  read, and increments the field on update. An update with no other change runs no query
+  and leaves the field alone.
 - `prepareChanges(fn)` runs `fn` just before the write, inside its transaction.
 - `validateUniqueAsync(fields, repo)` checks the database for an existing row. It returns
   a promise, is subject to races, and is only a convenience for early feedback: always

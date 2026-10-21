@@ -656,6 +656,112 @@ describe("update", () => {
     expect(updated.lockVersion).toBe(4);
   });
 
+  test("an optimistic lock with no other change: no query, the row itself, the version kept", async () => {
+    const env = setup(() => ({ rowCount: 1 }));
+    const user = await loadedUser(env.repo, env.driver);
+    env.events.splice(0);
+    expect(await env.repo.updateOrThrow(change(user).optimisticLock("lockVersion"))).toBe(user);
+    const same = cast(user, { name: "Ada" }, ["name"]).optimisticLock("lockVersion");
+    const result = await env.repo.update(same);
+    expect(result).toEqual({ success: true, data: user });
+    expect(user.lockVersion).toBe(3);
+    expect(env.statements).toEqual([]);
+    expect(env.events).toEqual([]);
+  });
+
+  test("an optimistic lock with only virtual changes: no query, the row with them, the version kept", async () => {
+    const env = setup(() => ({ rowCount: 1 }));
+    const user = await loadedUser(env.repo, env.driver);
+    const updated = await env.repo.updateOrThrow(
+      change(user, { password: "new" }).optimisticLock("lockVersion"),
+    );
+    expect(updated.password).toBe("new");
+    expect(updated.lockVersion).toBe(3);
+    expect(env.statements).toEqual([]);
+  });
+
+  test("an optimistic lock with only changes that may not be updated: no query, the version kept", async () => {
+    class Note extends Schema("notes", {
+      id: t.integer().primaryKey(),
+      owner: t.string().writable("insert"),
+      version: t.integer().default(1),
+    }) {}
+    const env = setup(() => ({ rows: [{ c0: 1, c1: "me", c2: 5 }] }));
+    const note = await env.repo.getOrThrow(Note, 1);
+    env.statements.splice(0);
+    env.driver.respond = () => ({ rowCount: 1 });
+    const updated = await env.repo.updateOrThrow(change(note, { owner: "you" }).optimisticLock("version"));
+    expect(updated.owner).toBe("me");
+    expect(updated.version).toBe(5);
+    expect(env.statements).toEqual([]);
+  });
+
+  test("force with an optimistic lock and no change: the update runs and increments the version", async () => {
+    const env = setup(() => ({ rowCount: 1 }));
+    const user = await loadedUser(env.repo, env.driver);
+    const updated = await env.repo.updateOrThrow(change(user).optimisticLock("lockVersion"), {
+      force: true,
+    });
+    expect(env.statements[0]?.sql).toBe(
+      'update "users" set "lock_version" = $1, "updated_at" = $2 where "id" = $3 and "lock_version" = $4',
+    );
+    expect(env.statements[0]?.params[0]).toBe(4);
+    expect(env.statements[0]?.params[3]).toBe(3);
+    expect(updated.lockVersion).toBe(4);
+  });
+
+  test("force with an optimistic lock and no change: no row matched is stale", async () => {
+    const env = setup(() => ({ rowCount: 0 }));
+    const user = await loadedUser(env.repo, env.driver);
+    const error = await rejection(
+      env.repo.update(change(user).optimisticLock("lockVersion"), { force: true }),
+    );
+    expect(error).toBeInstanceOf(StaleEntryError);
+  });
+
+  test("a custom incrementer: no change sends nothing, force writes its value", async () => {
+    const env = setup(() => ({ rowCount: 1 }));
+    const user = await loadedUser(env.repo, env.driver);
+    const locked = () => change(user).optimisticLock("lockVersion", (n) => n + 10);
+    expect(await env.repo.updateOrThrow(locked())).toBe(user);
+    expect(env.statements).toEqual([]);
+    const forced = await env.repo.updateOrThrow(locked(), { force: true });
+    expect(env.statements[0]?.sql).toBe(
+      'update "users" set "lock_version" = $1, "updated_at" = $2 where "id" = $3 and "lock_version" = $4',
+    );
+    expect(env.statements[0]?.params[0]).toBe(13);
+    expect(env.statements[0]?.params[3]).toBe(3);
+    expect(forced.lockVersion).toBe(13);
+  });
+
+  test("a change made by a prepare function counts, before or after the lock", async () => {
+    const env = setup(() => ({ rowCount: 1 }));
+    const user = await loadedUser(env.repo, env.driver);
+    const after = await env.repo.updateOrThrow(
+      change(user)
+        .optimisticLock("lockVersion")
+        .prepareChanges((cs) => cs.putChange("name", "Prepared")),
+    );
+    const before = await env.repo.updateOrThrow(
+      change(user)
+        .prepareChanges((cs) => cs.putChange("name", "Prepared"))
+        .optimisticLock("lockVersion"),
+    );
+    expect(env.statements).toHaveLength(2);
+    for (const statement of env.statements) {
+      expect(statement.sql).toBe(
+        'update "users" set "name" = $1, "lock_version" = $2, "updated_at" = $3 where "id" = $4 and "lock_version" = $5',
+      );
+      expect(statement.params[1]).toBe(4);
+    }
+    expect([after.name, after.lockVersion, before.name, before.lockVersion]).toEqual([
+      "Prepared",
+      4,
+      "Prepared",
+      4,
+    ]);
+  });
+
   test("stale: thrown, allowed, or reported on a key", async () => {
     const env = setup(() => ({ rowCount: 0 }));
     const user = await loadedUser(env.repo, env.driver);

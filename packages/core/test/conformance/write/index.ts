@@ -420,6 +420,90 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         expect(stored.lockVersion).toBe(2);
       });
 
+      test("an unchanged save with an optimistic lock sends nothing and keeps the version", async () => {
+        const { repo: r, events } = await watched();
+        const created = await seedUser(r, "ada@example.com", { name: "Ada" });
+        const mine = await r.getOrThrow(User, created.id);
+        const theirs = await r.getOrThrow(User, created.id);
+        events.splice(0);
+        const saved = ok(await r.update(cast(mine, { name: "Ada" }, ["name"]).optimisticLock("lockVersion")));
+        expect(saved).toBe(mine);
+        expect(events).toEqual([]);
+        const stored = await r.getOrThrow(User, created.id);
+        expect(stored.lockVersion).toBe(1);
+        expect(stored.updatedAt.getTime()).toBe(mine.updatedAt.getTime());
+        // The other open copy is still current: its edit goes through.
+        const edited = ok(
+          await r.update(cast(theirs, { name: "Ada L." }, ["name"]).optimisticLock("lockVersion")),
+        );
+        expect(edited.lockVersion).toBe(2);
+      });
+
+      test("force with an optimistic lock and no change runs the update and increments the version", async () => {
+        const { repo: r, events } = await watched();
+        const created = await seedUser(r);
+        const mine = await r.getOrThrow(User, created.id);
+        const theirs = await r.getOrThrow(User, created.id);
+        events.splice(0);
+        const forced = ok(await r.update(change(mine).optimisticLock("lockVersion"), { force: true }));
+        expect(events).toHaveLength(1);
+        expect(forced.lockVersion).toBe(2);
+        expect((await r.getOrThrow(User, created.id)).lockVersion).toBe(2);
+        const late = await rejection(r.update(change(theirs).optimisticLock("lockVersion"), { force: true }));
+        expect(late).toBeInstanceOf(StaleEntryError);
+      });
+
+      test("a change a prepare function makes, with an optimistic lock, is written and increments the version", async () => {
+        const r = await repo();
+        const created = await seedUser(r);
+        const mine = await r.getOrThrow(User, created.id);
+        const theirs = await r.getOrThrow(User, created.id);
+        const saved = ok(
+          await r.update(
+            change(mine)
+              .optimisticLock("lockVersion")
+              .prepareChanges((cs) => cs.putChange("name", "Prepared")),
+          ),
+        );
+        expect(saved.name).toBe("Prepared");
+        expect(saved.lockVersion).toBe(2);
+        const late = await rejection(
+          r.update(
+            change(theirs)
+              .optimisticLock("lockVersion")
+              .prepareChanges((cs) => cs.putChange("name", "Late")),
+          ),
+        );
+        expect(late).toBeInstanceOf(StaleEntryError);
+        const stored = await r.getOrThrow(User, created.id);
+        expect([stored.name, stored.lockVersion]).toEqual(["Prepared", 2]);
+      });
+
+      test("a parent with only association changes and an optimistic lock is guarded and incremented", async () => {
+        const { repo: r, events } = await watched();
+        const created = await seedUser(r);
+        const load = () => r.oneOrThrow(from(User, "u").where({ id: created.id }).preload("posts"));
+        const mine = await load();
+        const theirs = await load();
+        const addPost = (user: typeof mine, title: string) =>
+          cast(user, { posts: [{ title }] }, ["name"])
+            .castAssoc("posts", { with: (post, params) => cast(post, params, ["title"]) })
+            .optimisticLock("lockVersion");
+        events.splice(0);
+        const saved = ok(await r.update(addPost(mine, "First")));
+        expect(events.map((event) => event.operation).filter((op) => op !== "transaction")).toEqual([
+          "update",
+          "insert",
+        ]);
+        expect(saved.lockVersion).toBe(2);
+        expect(saved.posts.map((post) => post.title)).toEqual(["First"]);
+        const late = await rejection(r.update(addPost(theirs, "Late")));
+        expect(late).toBeInstanceOf(StaleEntryError);
+        const stored = await load();
+        expect(stored.lockVersion).toBe(2);
+        expect(stored.posts.map((post) => post.title)).toEqual(["First"]);
+      });
+
       test("concurrent updates through two adapters: one lock wins", async ({ onTestFinished }) => {
         // Two connections that see each other's commits: no sandbox; the tables are
         // emptied afterwards instead.

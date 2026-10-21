@@ -20,7 +20,8 @@
  * ## update
  *
  * An invalid changeset is a failure; the prepare functions run; with no change (and no
- * `force`) nothing is sent and the row is returned as it is. Otherwise `UPDATE … SET`
+ * `force`) nothing is sent and the row is returned as it is; an optimistic lock's bump on
+ * its own is not a change (an unchanged save leaves the version alone). Otherwise `UPDATE … SET`
  * the changed columns that may be updated, plus the fields generated on every write
  * (`updatedAt`), `WHERE` the primary key and the optimistic-lock filters. No row matched
  * is a stale entry.
@@ -41,6 +42,7 @@ import {
   Changeset,
   change,
   provideValidateUniqueAsync,
+  rebuild,
   withAction,
   withErrors,
   withRepo,
@@ -1288,7 +1290,44 @@ export async function update(
       Result<object, AnyChangeset>
     >;
   }
-  return updateRow(core, schemaMeta, row, prepared, settings, method);
+  const write = settings.force ? prepared : withoutLoneLockBump(prepared, schemaMeta);
+  return updateRow(core, schemaMeta, row, write, settings, method);
+}
+
+/** Whether `values` has an own key, without making the array of them. */
+function hasKeys(values: Readonly<Record<string, unknown>>): boolean {
+  for (const name in values) if (hasOwn(values, name)) return true;
+  return false;
+}
+
+/**
+ * The changeset without its optimistic-lock bumps when they are all the update would
+ * write: when every other change is to a virtual field or a field that may not be
+ * updated, an unchanged save sends nothing and leaves the version (and `updatedAt`)
+ * alone. The bumps are recognised by their fields, the keys of `filters`, after every
+ * prepare function has run, so a change a prepare function makes still counts whichever
+ * order it was registered in. `force` keeps the bump (the caller does not call this),
+ * and so does a parent written with association changes, which the nested writes send
+ * through {@link updateRow} directly.
+ */
+function withoutLoneLockBump(prepared: AnyChangeset, schemaMeta: SchemaMeta): AnyChangeset {
+  const filters = prepared.filters;
+  if (!hasKeys(filters)) return prepared;
+  const changes = prepared.changes as Readonly<Record<string, unknown>>;
+  const names = Object.keys(changes);
+  let bumped = false;
+  for (const name of names) {
+    if (hasOwn(filters, name)) {
+      bumped = true;
+      continue;
+    }
+    const field = schemaMeta.fieldsByName.get(name);
+    if (field === undefined || (!field.virtual && field.writable === "always")) return prepared;
+  }
+  if (!bumped) return prepared;
+  const kept: Record<string, unknown> = {};
+  for (const name of names) if (!hasOwn(filters, name)) kept[name] = changes[name];
+  return rebuild(prepared, { changes: kept });
 }
 
 /**

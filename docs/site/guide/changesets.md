@@ -40,6 +40,22 @@ A changeset function is usually a static method that accepts both:
 
 <<< @/examples/changesets.ts#changeset-function
 
+### Several changesets for one schema
+
+One changeset function is enough while every form on a table permits the same fields.
+When they differ, write one function per way the record changes, named after it: sign-up,
+profile, email change, admin. The list of permitted fields is what keeps a profile form
+from setting `role` or `passwordHash`, so each function permits only what its form may
+set. Rules that several of them need go in a shared step, applied with `pipe`.
+
+<<< @/examples/changesets.ts#several-changesets
+
+Each caller picks the function for its form:
+
+<<< @/examples/changesets.ts#several-changesets-use
+
+They can just as well be static methods on the schema class, like `User.changeset` above.
+
 ### What `cast` does
 
 <<< @/examples/changesets.ts#cast

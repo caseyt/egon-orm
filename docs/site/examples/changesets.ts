@@ -78,6 +78,58 @@ export function changesetFunction(user: User) {
   // #endregion changeset-function
 }
 
+declare function hashPassword(password: string): string;
+
+// #region several-changesets
+// One function per way the record changes. Each permits only the fields its form may set.
+
+// Sign-up: a new user picks an email, a name and a password.
+export function registrationChangeset(params: unknown) {
+  return cast(User, params, ["email", "name", "password"]).pipe(validateEmail).pipe(validatePassword);
+}
+
+// The profile form: the name only. A request that also sends `email` or `role` changes nothing else.
+export function profileChangeset(user: User, params: unknown) {
+  return cast(user, params, ["name"]).validateLength("name", { min: 2, max: 80 });
+}
+
+// Changing the email: the same rules as at sign-up.
+export function emailChangeset(user: User, params: unknown) {
+  return cast(user, params, ["email"]).pipe(validateEmail);
+}
+
+// An admin screen: the only place `role` is permitted.
+export function adminChangeset(user: User, params: unknown) {
+  return cast(user, params, ["name", "role"]).validateInclusion("role", ["admin", "member"]);
+}
+
+// Steps shared by the functions above.
+function validateEmail(cs: Changeset<typeof User>) {
+  return cs
+    .updateChange("email", (email) => email.trim().toLowerCase())
+    .validateRequired(["email"])
+    .validateFormat("email", /^[^@\s]+@[^@\s]+$/)
+    .uniqueConstraint("email");
+}
+
+function validatePassword(cs: Changeset<typeof User>) {
+  const checked = cs
+    .validateRequired(["password"])
+    .validateLength("password", { min: 12, max: 72, count: "bytes" });
+  const password = checked.getChange("password");
+  if (!checked.valid || password === undefined) return checked;
+  return checked.putChange("passwordHash", hashPassword(password));
+}
+// #endregion several-changesets
+
+export function severalChangesets(user: User) {
+  // #region several-changesets-use
+  registrationChangeset(input); //   repo.insert(...)
+  profileChangeset(user, input); //  repo.update(...)
+  adminChangeset(user, input); //    repo.update(...), behind an admin check
+  // #endregion several-changesets-use
+}
+
 export function castExample() {
   // #region cast
   const cs = cast(User, { email: "ada@example.com", age: "36", role: "admin" }, ["email", "age"]);

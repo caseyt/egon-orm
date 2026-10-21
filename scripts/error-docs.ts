@@ -90,6 +90,35 @@ export interface Site {
   readonly file: string;
   readonly line: number;
   readonly message: string;
+  /**
+   * The names of the parameters the site passes (`params: { … }`), when they are written
+   * out; `undefined` when they come from elsewhere (a variable, another error's).
+   */
+  readonly params: readonly string[] | undefined;
+}
+
+/** The keys of the `params` object literal inside `details`, when both are literals. */
+function paramNames(details: ts.Expression | undefined): readonly string[] | undefined {
+  if (details === undefined) return [];
+  if (!ts.isObjectLiteralExpression(details)) return undefined;
+  const params = details.properties.find(
+    (p): p is ts.PropertyAssignment =>
+      ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "params",
+  );
+  if (params === undefined) {
+    // A spread may bring params in from elsewhere.
+    return details.properties.some((p) => ts.isSpreadAssignment(p)) ? undefined : [];
+  }
+  if (!ts.isObjectLiteralExpression(params.initializer)) return undefined;
+  const names: string[] = [];
+  for (const p of params.initializer.properties) {
+    if (ts.isShorthandPropertyAssignment(p) || (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name))) {
+      names.push((p.name as ts.Identifier).text);
+    } else {
+      return undefined;
+    }
+  }
+  return names;
 }
 
 /**
@@ -110,12 +139,17 @@ export function findSites(catalog: ReadonlyMap<string, string>): Site[] {
       const rel = relative(ROOT, path);
       if (!rel.endsWith(".ts") || UNPUBLISHED.test(rel) || path === CATALOG) continue;
       const sf = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
-      const add = (literal: ts.StringLiteral, message: ts.Expression | undefined): void => {
+      const add = (
+        literal: ts.StringLiteral,
+        message: ts.Expression | undefined,
+        params: readonly string[] | undefined,
+      ): void => {
         sites.push({
           id: literal.text,
           file: rel,
           line: sf.getLineAndCharacterOfPosition(literal.getStart()).line + 1,
           message: render(message),
+          params,
         });
       };
       /** The string literals an argument names: itself, or the branches of a conditional or `??`. */
@@ -139,7 +173,7 @@ export function findSites(catalog: ReadonlyMap<string, string>): Site[] {
                 ts.isIdentifier(node.expression) &&
                 node.expression.text.endsWith("Error");
               if (catalog.has(literal.text) || (makesError && /^[a-z]+\.[a-zA-Z0-9]+$/.test(literal.text))) {
-                add(literal, node.arguments?.[i + 1]);
+                add(literal, node.arguments?.[i + 1], paramNames(node.arguments?.[i + 2]));
               }
             }
           });
@@ -155,7 +189,8 @@ export function findSites(catalog: ReadonlyMap<string, string>): Site[] {
                 (p): p is ts.PropertyAssignment =>
                   ts.isPropertyAssignment(p) && ts.isIdentifier(p.name) && p.name.text === "message",
               );
-              for (const literal of literals(property.initializer)) add(literal, message?.initializer);
+              for (const literal of literals(property.initializer))
+                add(literal, message?.initializer, paramNames(node));
             }
           }
         }
@@ -230,8 +265,21 @@ export function problems(catalog: ReadonlyMap<string, string>, sites: readonly S
   const out: string[] = [];
   const thrown = new Set(sites.map((site) => site.id));
   for (const site of sites) {
-    if (!catalog.has(site.id))
+    const advice = catalog.get(site.id);
+    if (advice === undefined) {
       out.push(`${site.file}:${site.line}: "${site.id}" has no entry in the catalog`);
+      continue;
+    }
+    // Every {{name}} of the entry must be passed, or the full text shows it unfilled.
+    if (site.params !== undefined) {
+      for (const [, name] of advice.matchAll(/\{\{(\w+)\}\}/g)) {
+        if (!site.params.includes(name as string)) {
+          out.push(
+            `${site.file}:${site.line}: "${site.id}" passes no parameter "${name}", which its catalog entry names`,
+          );
+        }
+      }
+    }
   }
   for (const [id, advice] of catalog) {
     if (!thrown.has(id)) out.push(`catalog: "${id}" is thrown nowhere`);

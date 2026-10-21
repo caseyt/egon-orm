@@ -1,6 +1,6 @@
 # Step 21 — Release hardening
 
-**Depends on:** all other steps.
+**Depends on:** all other steps, including 21a (edge readiness).
 **Owns:** release configuration, `SECURITY.md`, `CHANGELOG.md`, `docs/site/guide/upgrading.md`,
 `docs/plan/status/21-audit.md`. Fixes found here go to the owning area as normal PRs.
 
@@ -23,7 +23,8 @@ before `1.0`), and make publishing a one-command, repeatable act.
   a `where` callback under 200 ms on the 200-schema project). Test against the minimum
   supported TypeScript version and the latest, plus `next`, in CI.
 - **Error-message review.** Trigger every error class deliberately; each message must say
-  what happened, the offending name, and the fix. Do the same for the ten most likely
+  what happened, the offending name, and the fix (the fix in the full text that step 21a
+  makes opt-in; the default short message must still name what failed and link its entry). Do the same for the ten most likely
   **type** errors and make sure the docs' troubleshooting page covers them.
 - **Cross-step seams.** Scenario tests that cross features: nested changeset insert inside
   a Batch inside a savepoint with a constraint violation on the deepest child; preload of a

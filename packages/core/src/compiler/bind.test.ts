@@ -1,10 +1,19 @@
-import { User } from "@egon-orm/test-support";
+import { Post, User } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
 import type { ParamSlot } from "../contracts/adapter.js";
-import { from, param, t } from "../index.js";
-import { bindParams, toSql } from "./bind.js";
+import type { QueryAst } from "../contracts/query.js";
+import { QueryError } from "../errors.js";
+import { from, param, t, val } from "../index.js";
+import {
+  bindParams,
+  fieldOfRefusal,
+  type NamedValues,
+  toSql,
+  wholeBigintNumber,
+  wholeNumber,
+} from "./bind.js";
 import { createCompiler } from "./compiler.js";
-import { postgresDialect } from "./dialect.js";
+import { mysqlDialect, postgresDialect, sqliteDialect } from "./dialect.js";
 
 const double = (value: unknown) => (value as number) * 2;
 
@@ -79,5 +88,114 @@ describe("bindParams", () => {
       sql: 'select "u"."id" as "c0", "u"."email" as "c1", "u"."name" as "c2", "u"."age" as "c3", "u"."role" as "c4", "u"."password_hash" as "c5", "u"."settings" as "c6", "u"."lock_version" as "c7", "u"."created_at" as "c8", "u"."updated_at" as "c9" from "users" as "u" where "u"."age" >= $1 and "u"."role" = $2 limit $3',
       params: [18, "admin", 10],
     });
+  });
+});
+
+describe("a t.integer() value that is not a whole number (owner decision, 2026-10-20)", () => {
+  const MESSAGE =
+    "has the type t.integer() (its own, or that of the column beside it), but its value is not a whole number. Give a fraction a float type, val(2.5, t.float()), or round it.";
+  const bind = (
+    dialect: Parameters<typeof createCompiler>[0],
+    q: { readonly ast: QueryAst },
+    named?: NamedValues,
+  ) => bindParams(createCompiler(dialect).compile(q.ast, "all", undefined).slots, q.ast.params, named);
+
+  test("is refused when bound, naming the parameter by its position, on every dialect", () => {
+    const q = from(User, "u")
+      .where(({ u }) => u.role.eq("admin"))
+      .where(({ u }) => u.age.eq(2.5));
+    for (const dialect of [postgresDialect, mysqlDialect, sqliteDialect]) {
+      expect(() => bind(dialect, q)).toThrow(QueryError);
+      expect(() => bind(dialect, q)).toThrow(`Parameter 2 ${MESSAGE}`);
+    }
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, -0.5]) {
+      expect(() =>
+        bind(
+          postgresDialect,
+          from(User, "u").where(({ u }) => u.age.lt(bad)),
+        ),
+      ).toThrow(`Parameter 1 ${MESSAGE}`);
+    }
+  });
+
+  test("names a named parameter, and an item of a list", () => {
+    const named = from(User, "u").where(({ u }) => u.age.gte(param("minAge", t.integer())));
+    expect(() => bind(postgresDialect, named, { minAge: 17.5 })).toThrow(
+      `The named parameter "minAge" ${MESSAGE}`,
+    );
+    const listed = from(User, "u").where(({ u }) => u.age.in([1, 2.5]));
+    expect(() => bind(postgresDialect, listed)).toThrow(`An item of parameter 1 ${MESSAGE}`);
+    // Expanded into one placeholder per item where there are no array parameters.
+    expect(() => bind(mysqlDialect, listed)).toThrow(`Parameter 2 ${MESSAGE}`);
+  });
+
+  test("covers between and the values of updateAll's set", () => {
+    const between = from(User, "u").where(({ u }) => u.age.between(1, 2.5));
+    expect(() => bind(postgresDialect, between)).toThrow(`Parameter 2 ${MESSAGE}`);
+    const update = from(Post, "p").set(({ p }) => ({ views: p.views.mul(1.5) }));
+    const plan = createCompiler(sqliteDialect).compile(update.ast, "updateAll", undefined);
+    expect(() => bindParams(plan.slots, update.ast.params)).toThrow(`Parameter 1 ${MESSAGE}`);
+    const plain = from(Post, "p").set({ views: 2.5 });
+    const planned = createCompiler(mysqlDialect).compile(plain.ast, "updateAll", undefined);
+    expect(() => bindParams(planned.slots, plain.ast.params)).toThrow(`Parameter 1 ${MESSAGE}`);
+  });
+
+  test("covers t.bigint({ mode: number }), named as such; a bigint-mode bigint has no check", () => {
+    const BIGINT_MESSAGE = MESSAGE.replace("t.integer()", 't.bigint({ mode: "number" })');
+    const q = from(Post, "p").select(({ p }) => ({ d: p.authorId.div(2.5) }));
+    for (const dialect of [postgresDialect, mysqlDialect, sqliteDialect]) {
+      expect(() => bind(dialect, q)).toThrow(`Parameter 1 ${BIGINT_MESSAGE}`);
+    }
+    expect(wholeBigintNumber(2 ** 40)).toBe(2 ** 40);
+    expect(() => wholeBigintNumber(0.5)).toThrow(QueryError);
+    const exact = from(Post, "p").where(({ p }) => p.views.eq(val(5n, t.bigint()).cast(t.integer())));
+    const plan = createCompiler(postgresDialect).compile(exact.ast, "all", undefined);
+    expect(plan.slots[0]?.toDb).toBeUndefined();
+  });
+
+  test("fieldOfRefusal names the field of a refused positional value, and returns anything else as it is", () => {
+    const refused = (q: { readonly ast: QueryAst }, named?: NamedValues): unknown => {
+      try {
+        bind(postgresDialect, q, named);
+      } catch (error) {
+        return error;
+      }
+      throw new Error("expected a refusal");
+    };
+    const positional = refused(from(User, "u").where(({ u }) => u.age.eq(2.5)));
+    const named = fieldOfRefusal(positional, (index) => (index === 0 ? "User.age" : undefined));
+    expect((named as Error).message).toMatch(
+      /^The value written to User\.age holds a number that is not a whole number/,
+    );
+    expect((named as Error).cause).toBe(positional);
+    // No field for that entry, a named parameter, another error, a thrown non-object.
+    expect(fieldOfRefusal(positional, () => undefined)).toBe(positional);
+    const byName = refused(
+      from(User, "u").where(({ u }) => u.age.eq(param("n", t.integer()))),
+      { n: 1.5 },
+    );
+    expect(fieldOfRefusal(byName, () => "User.age")).toBe(byName);
+    const other = new QueryError("something else");
+    expect(fieldOfRefusal(other, () => "User.age")).toBe(other);
+    expect(fieldOfRefusal("text", () => "User.age")).toBe("text");
+  });
+
+  test("passes whole numbers, null, digit text and other types unchanged", () => {
+    const q = from(User, "u")
+      .where(({ u }) => u.age.eq(-3))
+      .where(({ u }) => u.age.isDistinctFrom(param("none", t.integer())))
+      .select(({ u }) => ({ f: u.age.mul(val(2.5, t.float())) }));
+    expect(bind(postgresDialect, q, { none: null })).toEqual([2.5, -3, null]);
+    expect(wholeNumber("12")).toBe("12");
+    expect(wholeNumber(7)).toBe(7);
+  });
+
+  test("is one shared check, so plans compiled twice are equal", () => {
+    const q = from(User, "u").where(({ u }) => u.age.eq(3));
+    const [a, b] = [createCompiler(postgresDialect), createCompiler(postgresDialect)].map(
+      (compiler) => compiler.compile(q.ast, "all", undefined).slots,
+    );
+    expect(a?.[0]?.toDb).toBe(wholeNumber);
+    expect(a).toEqual(b);
   });
 });

@@ -370,7 +370,10 @@ describe("egon migrate create, then egon migrate", () => {
     const source = await readFile(file, "utf8");
     const filled = source
       .replace("    // the change\n", '    m.createTable("things", (t) => t.id());\n')
-      .replace("    // undo it, or leave a // noop comment\n", '    m.dropTable("things");\n');
+      .replace(
+        "  down() {\n    // undo the change (write down(m) to use m), or leave a // noop comment\n",
+        '  down(m) {\n    m.dropTable("things");\n',
+      );
     expect(filled).not.toBe(source);
     await writeFile(file, filled);
     const dry = await egon(["migrate", "--dry-run"]);

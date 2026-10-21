@@ -114,4 +114,59 @@ describe("sqlite", () => {
       await repo.close();
     }
   });
+
+  test("a division of two integers reads the integer quotient, though a bound number is a real", async () => {
+    // better-sqlite3 binds every JavaScript number as a real, so `n / ?` alone gives 3.5;
+    // the quotient is cast back to an integer, truncating towards zero (owner decision,
+    // 2026-10-20).
+    const adapter = sqlite({ filename: ":memory:" });
+    const repo = createRepo({ adapter });
+    try {
+      await adapter.execute("create table halves (id integer primary key, n integer not null)", []);
+      await adapter.execute("insert into halves values (1, 7), (2, -7)", []);
+      class Half extends Schema("halves", { id: t.integer().primaryKey(), n: t.integer() }) {}
+      const q = from(Half, "h")
+        .orderBy(({ h }) => h.id)
+        .select(({ h }) => ({ d: h.n.div(2) }));
+      expect(repo.toSql(q).sql).toContain('cast("h"."n" / cast(? as integer) as integer)');
+      expect(await repo.all(q)).toEqual([{ d: 3 }, { d: -3 }]);
+      // A fraction bound as an integer is refused before it is sent (the cast would truncate it).
+      await expect(repo.all(from(Half, "h").select(({ h }) => ({ d: h.n.div(2.5) })))).rejects.toThrow(
+        /^Parameter 1 has the type t\.integer\(\) .* but its value is not a whole number\./,
+      );
+      // A float operand keeps /, and reads the fraction.
+      expect(
+        await repo.all(
+          from(Half, "h")
+            .where({ id: 1 })
+            .select(({ h }) => ({ f: h.n.div(val(2, t.float())) })),
+        ),
+      ).toEqual([{ f: 3.5 }]);
+    } finally {
+      await repo.close();
+    }
+  });
+
+  test("a division of two integers is exact above 2^53", async () => {
+    // The bound divisor is cast to an integer, so SQLite does not divide a real (which gives
+    // ...624). The same test runs on Postgres and MySQL.
+    const adapter = sqlite({ filename: ":memory:" });
+    const repo = createRepo({ adapter });
+    try {
+      await adapter.execute("create table bigs (id integer primary key, b integer not null)", []);
+      await adapter.execute("insert into bigs values (1, 1152921504606846975)", []);
+      class Big extends Schema("bigs", { id: t.integer().primaryKey(), b: t.bigint({ mode: "number" }) }) {}
+      const big = from(Big, "x").select(({ x }) => ({
+        plain: x.b.div(1024),
+        typed: x.b.div(val(1024, t.bigint({ mode: "number" }))),
+      }));
+      expect(await repo.all(big)).toEqual([{ plain: 1125899906842623, typed: 1125899906842623 }]);
+      // A fraction beside the number-mode bigint is refused too (the cast would truncate it).
+      await expect(repo.all(from(Big, "x").select(({ x }) => ({ d: x.b.div(2.5) })))).rejects.toThrow(
+        /^Parameter 1 has the type t\.bigint\(\{ mode: "number" \}\) .* but its value is not a whole number\./,
+      );
+    } finally {
+      await repo.close();
+    }
+  });
 });

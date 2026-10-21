@@ -664,6 +664,49 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         for (const value of Object.values(row ?? {})) expect(typeof value).toBe("number");
       });
 
+      test("a division of two integers gives the integer quotient, truncated, on every database", async () => {
+        // Post 12: 45 views (integer), author 2 (bigint({ mode: "number" })). MySQL's / would
+        // give the decimal 22.5000, and SQLite, which binds a number as a real, 22.5.
+        const [row] = await repo().all(
+          from(Post, "p")
+            .where({ id: 12 })
+            .select(({ p }) => ({
+              half: p.views.div(2),
+              typed: p.views.div(val(2, t.integer())),
+              wide: p.views.div(val(4, t.bigint({ mode: "number" }))),
+              key: p.authorId.div(val(4, t.integer())),
+              nested: p.views.add(1).div(4),
+              negative: p.views.neg().div(2),
+              named: p.views.div(param("by", t.integer())),
+              float: p.views.div(val(2, t.float())),
+            })),
+          { by: 7 },
+        );
+        expect(row).toEqual({
+          half: 22,
+          typed: 22,
+          wide: 11,
+          key: 0,
+          nested: 11,
+          negative: -22,
+          named: 6,
+          float: 22.5,
+        });
+        for (const value of Object.values(row ?? {})) expect(typeof value).toBe("number");
+        const ids = await repo().all(
+          from(Post, "p")
+            .where(({ p }) => p.views.div(2).eq(22))
+            .select(({ p }) => p.id),
+        );
+        expect(ids).toEqual([12]);
+        // count() is an integer on every database: three posts, halved.
+        expect(await repo().all(from(Post, "p").select(() => count().div(2)))).toEqual([1]);
+        // Another aggregate's type is not known; the guide's workaround casts it (165 views).
+        expect(
+          await repo().all(from(Post, "p").select(({ p }) => sum(p.views).cast(t.integer()).div(2))),
+        ).toEqual([82]);
+      });
+
       test("in where", async () => {
         const ids = await repo().all(
           from(Post, "p")

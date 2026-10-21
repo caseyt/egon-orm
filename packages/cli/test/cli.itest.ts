@@ -104,7 +104,7 @@ const LIBRARY = `    m.createTable("authors", (t) => {
     m.createIndex("authors", ["email"], { unique: true });
 `;
 
-/** What the test writes into the created migration's down(m) { … }: the undoing of LIBRARY. */
+/** What the test writes into the created migration's down(m) { … } (adding the m): the undoing of LIBRARY. */
 const UNDO_LIBRARY = `    m.dropIndex("authors", ["email"], { unique: true });
     m.dropTable("books");
     m.dropTable("authors");
@@ -159,7 +159,7 @@ describe("egon, the built binary", () => {
     const path = join(project, "migrations", file as string);
     const source = await readFile(path, "utf8");
     expect(source).toBe(
-      'import { defineMigration } from "egon-orm/migration";\n\nexport default defineMigration({\n  up(m) {\n    // the change\n  },\n  down(m) {\n    // undo it, or leave a // noop comment\n  },\n});\n',
+      'import { defineMigration } from "egon-orm/migration";\n\nexport default defineMigration({\n  up(m) {\n    // the change\n  },\n  down() {\n    // undo the change (write down(m) to use m), or leave a // noop comment\n  },\n});\n',
     );
     // --json and --dir: one object naming the file, written elsewhere.
     const asJson = await egon(["migrate", "create", "create_other", "--dir", "drafts", "--json"]);
@@ -173,7 +173,10 @@ describe("egon, the built binary", () => {
     expect(await readdir(join(project, "migrations"))).toEqual([file]);
     const filled = source
       .replace("    // the change\n", LIBRARY)
-      .replace("    // undo it, or leave a // noop comment\n", UNDO_LIBRARY);
+      .replace(
+        "  down() {\n    // undo the change (write down(m) to use m), or leave a // noop comment\n",
+        `  down(m) {\n${UNDO_LIBRARY}`,
+      );
     expect(filled).toContain(LIBRARY);
     expect(filled).toContain(UNDO_LIBRARY);
     await writeFile(path, filled);
@@ -259,6 +262,55 @@ export default defineMigration({
     } finally {
       await rm(file);
       await egon(["rollback", "--all"]);
+    }
+  });
+
+  test("the created file, with up written and down left as it is, compiles under strict and noUnusedParameters", async () => {
+    // A user always writes up(m), and may leave down() as a noop, so that is what is
+    // compiled: against the built egon-orm, as an installed package would be.
+    const created = await egon(["migrate", "create", "typed_noop", "--dir", "typecheck", "--json"]);
+    expect(created.code).toBe(0);
+    const { path } = JSON.parse(created.stdout) as { path: string };
+    const dir = join(project, "typecheck");
+    try {
+      const source = await readFile(path, "utf8");
+      const written = source.replace("    // the change\n", '    m.createTable("things", (t) => t.id());\n');
+      expect(written).not.toBe(source);
+      await writeFile(path, written);
+      // The same file with the m parameter kept on an untouched down: the check must see it.
+      const unusedDown = join(dir, "unused_down.ts");
+      await writeFile(unusedDown, written.replace("  down() {", "  down(m) {"));
+      const tsc = join(
+        dirname(createRequire(join(ROOT, "package.json")).resolve("typescript/package.json")),
+        "bin/tsc",
+      );
+      const check = (file: string) =>
+        spawnNode(
+          [
+            tsc,
+            "--noEmit",
+            "--strict",
+            "--noUnusedParameters",
+            "--skipLibCheck",
+            "false",
+            "--module",
+            "nodenext",
+            "--moduleResolution",
+            "nodenext",
+            "--target",
+            "es2022",
+            file,
+          ],
+          project,
+        );
+      expect(await check(path)).toEqual({ code: 0, stdout: "", stderr: "" });
+      const refused = await check(unusedDown);
+      expect(refused.code).not.toBe(0);
+      expect(refused.stdout).toMatch(
+        /unused_down\.ts\(\d+,\d+\): error TS6133: 'm' is declared but its value is never read\./,
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
     }
   });
 

@@ -1,7 +1,17 @@
 // MySQL specifics the conformance suites do not reach (tier 2: EGON_TEST_TIER2=1): the
 // session time zone and datetime precision, writes read back by a composite key or a
 // client-generated uuid key (MySQL has no RETURNING), and ON DUPLICATE KEY UPDATE on them.
-import { change, createRepo, type DatabaseAdapter, from, type Repo, Schema, t } from "egon-orm";
+import {
+  change,
+  coalesce,
+  createRepo,
+  type DatabaseAdapter,
+  from,
+  type Repo,
+  Schema,
+  t,
+  val,
+} from "egon-orm";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import {
   createTestDatabase,
@@ -198,20 +208,63 @@ describe.runIf(tier2Enabled())("mysql", () => {
     expect((await repo.all(from(Measure, "m"))).map((m) => m.amount)).toEqual([1.5]);
   });
 
-  test("integer division with / returns a decimal on MySQL, which a t.integer() result refuses", async () => {
-    // Pinned as it stands (status 03, follow-up, known gaps): MySQL's / returns DECIMAL text
-    // ("3.5000"), where Postgres and SQLite divide integers to an integer. Whether integer
-    // div should compile to MySQL's DIV is an open owner question.
+  test("a division of two integers is written with DIV and reads the integer quotient", async () => {
+    // MySQL's / returns DECIMAL text ("3.5000"), which a t.integer() result refuses; DIV
+    // divides as integers, truncating towards zero, as Postgres and SQLite do (owner
+    // decision, 2026-10-20).
     await handle.db.query("create table halves (id integer primary key, n integer not null)");
-    await handle.db.query("insert into halves values (1, 7)");
+    await handle.db.query("insert into halves values (1, 7), (2, -7)");
     class Half extends Schema("halves", { id: t.integer().primaryKey(), n: t.integer() }) {}
-    await expect(repo.all(from(Half, "h").select(({ h }) => ({ d: h.n.div(2) })))).rejects.toThrow(
+    const q = from(Half, "h")
+      .orderBy(({ h }) => h.id)
+      .select(({ h }) => ({ d: h.n.div(2) }));
+    expect(repo.toSql(q).sql).toContain("`h`.`n` div ?");
+    expect(await repo.all(q)).toEqual([{ d: 3 }, { d: -3 }]);
+    // A float operand keeps /, and reads the fraction.
+    expect(
+      await repo.all(
+        from(Half, "h")
+          .where({ id: 1 })
+          .select(({ h }) => ({ f: h.n.div(val(2, t.float())) })),
+      ),
+    ).toEqual([{ f: 3.5 }]);
+    // Other integer arithmetic reads numbers.
+    expect(
+      await repo.all(
+        from(Half, "h")
+          .where({ id: 1 })
+          .select(({ h }) => ({ m: h.n.mul(2), s: h.n.add(1) })),
+      ),
+    ).toEqual([{ m: 14, s: 8 }]);
+    // An operand whose type the query does not know (a function) keeps /, and its decimal
+    // result is refused by the t.integer() read (guide/types.md, "Good to know").
+    const unknown = from(Half, "h")
+      .where({ id: 1 })
+      .select(({ h }) => ({ d: coalesce(h.n, val(0, t.integer())).div(2) }));
+    expect(repo.toSql(unknown).sql).toContain(") / ");
+    await expect(repo.all(unknown)).rejects.toThrow(
       '"d" is declared t.integer(), but the database returned a string for it, not a number',
     );
-    // Other integer arithmetic reads numbers.
-    expect(await repo.all(from(Half, "h").select(({ h }) => ({ m: h.n.mul(2), s: h.n.add(1) })))).toEqual([
-      { m: 14, s: 8 },
-    ]);
+    // A fraction bound as an integer is refused before it is sent (DIV would truncate it).
+    await expect(repo.all(from(Half, "h").select(({ h }) => ({ d: h.n.div(2.5) })))).rejects.toThrow(
+      /^Parameter 1 has the type t\.integer\(\) .* but its value is not a whole number\./,
+    );
+  });
+
+  test("a division of two integers is exact above 2^53", async () => {
+    // The same test runs on Postgres and SQLite: one result everywhere.
+    await handle.db.query("create table bigs (id integer primary key, b bigint not null)");
+    await handle.db.query("insert into bigs values (1, 1152921504606846975)");
+    class Big extends Schema("bigs", { id: t.integer().primaryKey(), b: t.bigint({ mode: "number" }) }) {}
+    const q = from(Big, "x").select(({ x }) => ({
+      plain: x.b.div(1024),
+      typed: x.b.div(val(1024, t.bigint({ mode: "number" }))),
+    }));
+    expect(await repo.all(q)).toEqual([{ plain: 1125899906842623, typed: 1125899906842623 }]);
+    // A fraction beside the number-mode bigint is refused too (DIV would truncate it).
+    await expect(repo.all(from(Big, "x").select(({ x }) => ({ d: x.b.div(2.5) })))).rejects.toThrow(
+      /^Parameter 1 has the type t\.bigint\(\{ mode: "number" \}\) .* but its value is not a whole number\./,
+    );
   });
 
   test("an insert whose read-back row fails to decode says that the write was applied", async () => {

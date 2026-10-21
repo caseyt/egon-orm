@@ -1026,7 +1026,8 @@ export class Expr<out T, in P = NoParams> {
   }
 
   /**
-   * `/`. Between two integers the database divides as integers.
+   * `/`. Two integers divide as integers, truncating towards zero, on every database
+   * (on MySQL, whose `/` gives a decimal, it is written `DIV`).
    *
    * @example
    * ```ts

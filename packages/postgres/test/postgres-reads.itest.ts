@@ -4,7 +4,7 @@
 // that pg reads a bigint or numeric column as text, which a t.integer() or t.float() field
 // refuses.
 import { Comment, createTestDatabase, Post, type TestDatabaseHandle, User } from "@egon-orm/test-support";
-import { CastError, change, createRepo, from, type Repo, Schema, t } from "egon-orm";
+import { CastError, change, createRepo, from, type Repo, Schema, t, val } from "egon-orm";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { postgres } from "../src/index.js";
 
@@ -96,6 +96,28 @@ test("a t.float() field over a numeric column throws a CastError; t.decimal() or
   expect((await repo.all(from(ExactMeasure, "m"))).map((m) => m.amount)).toEqual(["1.50"]);
   const asFloat = from(ExactMeasure, "m").select(({ m }) => ({ amount: m.amount.cast(t.float()) }));
   expect(await repo.all(asFloat)).toEqual([{ amount: 1.5 }]);
+});
+
+test("a division of two integers is exact above 2^53, and a fraction bound as an integer is refused", async () => {
+  // The same test runs on MySQL and SQLite (their adapter itests): one result everywhere.
+  await handle.db.exec(`
+    create table bigs (id integer primary key, b bigint not null, n integer not null);
+    insert into bigs values (1, 1152921504606846975, 7);
+  `);
+  class Big extends Schema("bigs", {
+    id: t.integer().primaryKey(),
+    b: t.bigint({ mode: "number" }),
+    n: t.integer(),
+  }) {}
+  const q = from(Big, "x").select(({ x }) => ({
+    plain: x.b.div(1024),
+    typed: x.b.div(val(1024, t.bigint({ mode: "number" }))),
+    half: x.n.div(2),
+  }));
+  expect(await repo.all(q)).toEqual([{ plain: 1125899906842623, typed: 1125899906842623, half: 3 }]);
+  await expect(repo.all(from(Big, "x").select(({ x }) => ({ d: x.n.div(2.5) })))).rejects.toThrow(
+    /^Parameter 1 has the type t\.integer\(\) .* but its value is not a whole number\./,
+  );
 });
 
 test("a write whose returned key fails to decode throws after the row is written, naming the schema", async () => {

@@ -56,6 +56,8 @@ import { collectParams, IDENTIFIER } from "../query/ast.js";
 import { numericRank } from "../query/widen.js";
 import { resolveCodec } from "../types/codec.js";
 import { hidesValues } from "../types/embed.js";
+import { bigintType, integerType } from "../types/scalars.js";
+import { wholeBigintNumber, wholeNumber } from "./bind.js";
 import {
   LOCK_CLAUSES,
   lookup,
@@ -252,10 +254,21 @@ export function newContext(dialect: SqlDialect, codecs: CodecSource): EmitContex
  */
 export type EmitContext = Ctx;
 
+/** The built-in integer types, whose values are refused at bind time unless whole (see {@link wholeNumber}). */
+const INTEGER_TYPE: AnyFieldType = integerType();
+const BIGINT_NUMBER_TYPE: AnyFieldType = bigintType({ mode: "number" });
+
+/**
+ * The conversion of a slot's values: the type's driver conversion, or none for the
+ * identity. A value of the built-in `t.integer()` or `t.bigint({ mode: "number" })` is
+ * checked instead (see {@link wholeNumber}). This is the one exception to skipping an
+ * identity conversion (owner row 7, status 03): one call per such value per execution.
+ */
 function toDbOf(ctx: Ctx, type: AnyFieldType | undefined): ToDb | undefined {
   if (type === undefined) return undefined;
   const toDb = resolveCodec(type, ctx.codecs).toDb;
-  return toDb === IDENTITY ? undefined : toDb;
+  if (toDb !== IDENTITY) return toDb;
+  return type === INTEGER_TYPE ? wholeNumber : type === BIGINT_NUMBER_TYPE ? wholeBigintNumber : undefined;
 }
 
 /**
@@ -604,7 +617,13 @@ function binary(ctx: Ctx, frame: Frame, node: BinaryNode): string {
   ) {
     throw unsupported(ctx.dialect, `The ${op}() operator`);
   }
-  const sql = ctx.dialect.operators[op as TableOperator];
+  // A division of two integers is written so that it divides as integers on every database
+  // (see integerQuotient); it is decided from the plan's shape, so once per plan.
+  const integral = op === "div" ? integerQuotient(frame, left, right) : undefined;
+  const sql =
+    integral === undefined
+      ? ctx.dialect.operators[op as TableOperator]
+      : ctx.dialect.integerDivision.operator;
   const comparison = COMPARISONS.has(op);
   const typesOperands = comparison || ARITHMETIC.has(op);
   if (typesOperands && noSqlType(left) && noSqlType(right)) {
@@ -617,8 +636,10 @@ function binary(ctx: Ctx, frame: Frame, node: BinaryNode): string {
     if (!comparison && !typed) throw untypedArithmetic(op);
     const where = `a comparison of two values without a type (${op}())`;
     const type = firstType(left) ?? firstType(right);
-    const l = boundOperand(ctx, frame, left, where, typed, type);
-    return infix(ctx, op, sql, l, boundOperand(ctx, frame, right, where, typed, type));
+    const l = integerValue(ctx, frame, left, integral) ?? boundOperand(ctx, frame, left, where, typed, type);
+    const r =
+      integerValue(ctx, frame, right, integral) ?? boundOperand(ctx, frame, right, where, typed, type);
+    return quotient(ctx, integral, infix(ctx, op, sql, l, r));
   }
   const p = spec.precedence;
   const leftMin = p <= PRECEDENCE.like ? COMPARISON_OPERAND : p;
@@ -635,13 +656,112 @@ function binary(ctx: Ctx, frame: Frame, node: BinaryNode): string {
     ? typedCompound(ctx, frame, left, context)
     : comparison
       ? operand(ctx, frame, left, leftMin)
-      : typedArithmeticValue(ctx, frame, op, left, right, leftMin);
+      : (integerValue(ctx, frame, left, integral) ??
+        typedArithmeticValue(ctx, frame, op, left, right, leftMin));
   const r = isBoundCompound(right)
     ? typedCompound(ctx, frame, right, context)
     : comparison
       ? operand(ctx, frame, right, rightMin)
-      : typedArithmeticValue(ctx, frame, op, right, left, rightMin);
-  return infix(ctx, op, sql, l, r);
+      : (integerValue(ctx, frame, right, integral) ??
+        typedArithmeticValue(ctx, frame, op, right, left, rightMin));
+  return quotient(ctx, integral, infix(ctx, op, sql, l, r));
+}
+
+/**
+ * The type of the quotient when `left / right` divides two integers (`integer` or
+ * `bigint`, the first two places of the widening order of `query/widen.ts`): the wider of
+ * the two. `undefined` otherwise, and whenever the type of either operand is not known
+ * here; such a `div` is written with `/` as before. The dialect's
+ * {@link SqlDialect.integerDivision} then says how it is written: MySQL's `/` gives a
+ * decimal, so `div` is written there; SQLite's binds a number as a `real`, so the quotient
+ * is cast back.
+ */
+function integerQuotient(frame: Frame, left: ExprNode, right: ExprNode): DbType | undefined {
+  const type = arithmeticType(frame, left, right);
+  const rank = numericRank(type);
+  return rank !== undefined && rank <= INTEGER_RANK ? type : undefined;
+}
+
+/** The widening place of `bigint`: up to it, a type holds integers only. */
+const INTEGER_RANK = 1;
+
+/** The database type of an integer literal, which every database reads as an integer. */
+const INTEGER_LITERAL: DbType = Object.freeze({ kind: "integer" });
+
+/** The database type of `count`, which every database computes as a 64-bit integer. */
+const COUNT_TYPE: DbType = Object.freeze({ kind: "bigint" });
+
+/**
+ * The numeric type the database computes `node` in, as far as the plan says: a column of
+ * a schema's field, a typed value, a cast, an integer literal, `count`, and arithmetic or
+ * unary minus of those. `undefined` for anything else (a function, another aggregate, a
+ * fragment, a column of a source with no schema).
+ */
+function numericTypeOf(frame: Frame, node: ExprNode): DbType | undefined {
+  switch (node.kind) {
+    case "column":
+      return columnType(frame, node);
+    case "param":
+    case "namedParam":
+    case "cast":
+      return node.type?.db;
+    case "literal":
+      return typeof node.value === "number" && Number.isSafeInteger(node.value) ? INTEGER_LITERAL : undefined;
+    case "unary":
+      return node.op === "neg" ? numericTypeOf(frame, node.operand) : undefined;
+    case "aggregate":
+      // A count is a bigint on every database; other aggregates depend on their argument
+      // (Postgres's sum of a bigint is a numeric).
+      return node.name === "count" ? COUNT_TYPE : undefined;
+    case "binary":
+      return ARITHMETIC.has(node.op) ? arithmeticType(frame, node.left, node.right) : undefined;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * The type of arithmetic of `left` and `right`: the wider of the two operands' types (the
+ * widening order). A value bound without a type takes the other operand's type, as the
+ * database reads it; with either type still unknown, or outside the order, `undefined`.
+ */
+function arithmeticType(frame: Frame, left: ExprNode, right: ExprNode): DbType | undefined {
+  const l = numericTypeOf(frame, left);
+  const r = numericTypeOf(frame, right);
+  const a = l ?? (isUntypedValue(left) ? r : undefined);
+  const b = r ?? (isUntypedValue(right) ? l : undefined);
+  const ra = numericRank(a);
+  const rb = numericRank(b);
+  if (ra === undefined || rb === undefined) return undefined;
+  return rb > ra ? b : a;
+}
+
+/** A parameter bound without a type. */
+function isUntypedValue(node: ExprNode): boolean {
+  return (node.kind === "param" || node.kind === "namedParam") && node.type === undefined;
+}
+
+/**
+ * A bound value that is an operand of a division of two integers, cast to the integer type
+ * where the dialect asks for it (SQLite, which binds a number as a `real`):
+ * `cast(? as integer)`. `undefined` for any other operand or division, which is written as
+ * before.
+ */
+function integerValue(
+  ctx: Ctx,
+  frame: Frame,
+  node: ExprNode,
+  integral: DbType | undefined,
+): string | undefined {
+  if (integral === undefined || !ctx.dialect.integerDivision.castValues) return undefined;
+  if (node.kind !== "param" && node.kind !== "namedParam") return undefined;
+  return `cast(${expr(ctx, frame, node)} as ${sqlTypeName(ctx.dialect, integral)})`;
+}
+
+/** Writes a division of two integers in the dialect's form (see {@link integerQuotient}). */
+function quotient(ctx: Ctx, integral: DbType | undefined, sql: string): string {
+  if (integral === undefined || !ctx.dialect.integerDivision.castQuotient) return sql;
+  return `cast(${sql} as ${sqlTypeName(ctx.dialect, integral)})`;
 }
 
 /** The three `LIKE` operators, after whose pattern the dialect may add an `ESCAPE` clause. */

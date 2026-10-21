@@ -1,4 +1,4 @@
-# Egon ORM
+<h1><picture><source media="(prefers-color-scheme: dark)" srcset="docs/site/public/logo-dark.png"><img src="docs/site/public/logo.png" alt="" height="48" align="center" hspace="4"></picture>Egon ORM</h1>
 
 [![CI](https://github.com/egon-orm/egon-orm/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/egon-orm/egon-orm/actions/workflows/ci.yml)
 ![Status: under construction](https://img.shields.io/badge/status-under%20construction-orange)

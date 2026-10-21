@@ -501,7 +501,7 @@ export const SQLITE_CASES: DialectTable = {
       params: [2, 2],
     },
     "a division of two integers divides as integers on every database; a float keeps /": {
-      sql: 'select cast("p"."views" / ? as integer) as "c0", cast("p"."author_id" / ? as integer) as "c1", cast("p"."views" / ? as integer) as "c2", cast(("p"."views" + ?) / cast(? as integer) as integer) as "c3", cast("p"."views" / ? as integer) as "c4", "p"."views" / cast(? as real) as "c5" from "posts" as "p" where "p"."id" = ?',
+      sql: 'select cast("p"."views" / cast(? as integer) as integer) as "c0", cast("p"."author_id" / cast(? as integer) as integer) as "c1", cast("p"."views" / cast(? as integer) as integer) as "c2", cast(("p"."views" + ?) / cast(? as integer) as integer) as "c3", cast("p"."views" / cast(? as integer) as integer) as "c4", "p"."views" / cast(? as real) as "c5" from "posts" as "p" where "p"."id" = ?',
       params: [2, 2, 2, 1, 2, 2, 2, 2],
     },
     "a CASE or coalesce with no typed value beside a typed value takes its type (review round 1)": {

@@ -7,8 +7,20 @@
 import { Post, User } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
 import type { BinaryOp, ExprNode, QueryAst } from "../contracts/query.js";
-import { caseWhen, coalesce, defineType, from, lit, param, Schema, subquery, t, val } from "../index.js";
-import { caseNode, castNode, fnNode, literalNode, unaryNode } from "../query/ast.js";
+import {
+  caseWhen,
+  coalesce,
+  count,
+  defineType,
+  from,
+  lit,
+  param,
+  Schema,
+  subquery,
+  t,
+  val,
+} from "../index.js";
+import { aggregateNode, caseNode, castNode, fnNode, literalNode, unaryNode } from "../query/ast.js";
 import { bindParams } from "./bind.js";
 import { createCompiler } from "./compiler.js";
 import { mysqlDialect, postgresDialect, sqliteDialect } from "./dialect.js";
@@ -472,14 +484,36 @@ describe("a division of two integers (owner decision, 2026-10-20)", () => {
   const mysql = (node: ExprNode) => on(mysqlDialect, node);
   const age = col("u", "age");
 
-  test("is written with the dialect's integer division: / on Postgres, div on MySQL, a cast quotient on SQLite", () => {
+  test("is written with the dialect's integer division: / on Postgres, div on MySQL, cast values and quotient on SQLite", () => {
     const node = binary("div", age, typed(2));
     expect(on(postgresDialect, node)).toBe('select "u"."age" / $1 as "c0" from "users" as "u"');
     expect(mysql(node)).toBe("select `u`.`age` div ? as `c0` from `users` as `u`");
-    expect(on(sqliteDialect, node)).toBe('select cast("u"."age" / ? as integer) as "c0" from "users" as "u"');
-    // A bigint operand: the quotient is cast to the wider type's name.
+    expect(on(sqliteDialect, node)).toBe(
+      'select cast("u"."age" / cast(? as integer) as integer) as "c0" from "users" as "u"',
+    );
+    // A bigint operand, an untyped value on the left, two bound values: each bound operand is cast.
     expect(on(sqliteDialect, binary("div", age, value(2, bigint)))).toBe(
-      'select cast("u"."age" / ? as integer) as "c0" from "users" as "u"',
+      'select cast("u"."age" / cast(? as integer) as integer) as "c0" from "users" as "u"',
+    );
+    expect(on(sqliteDialect, binary("div", untyped(7), age))).toBe(
+      'select cast(cast(? as integer) / "u"."age" as integer) as "c0" from "users" as "u"',
+    );
+    expect(on(sqliteDialect, binary("div", typed(7), untyped(2)))).toBe(
+      'select cast(cast(? as integer) / cast(? as integer) as integer) as "c0" from "users" as "u"',
+    );
+    // Not an operand of the division itself: a value inside a nested sum is left as it was.
+    expect(on(sqliteDialect, binary("div", binary("add", age, typed(1)), age))).toBe(
+      'select cast(("u"."age" + ?) / "u"."age" as integer) as "c0" from "users" as "u"',
+    );
+  });
+
+  test("count() is a bigint on every database; other aggregates keep /", () => {
+    const counted = from(User, "u").select(({ u }) => ({ rows: count().div(2), ages: count(u.age).div(2) }));
+    expect(createCompiler(mysqlDialect).compile(counted.ast, "all", undefined).sql).toBe(
+      "select count(*) div cast(? as signed) as `c0`, count(`u`.`age`) div cast(? as signed) as `c1` from `users` as `u`",
+    );
+    expect(mysql(binary("div", aggregateNode("sum", [age], false, undefined, undefined), typed(2)))).toBe(
+      "select sum(`u`.`age`) / cast(? as signed) as `c0` from `users` as `u`",
     );
   });
 
@@ -501,14 +535,20 @@ describe("a division of two integers (owner decision, 2026-10-20)", () => {
     expect(mysql(binary("div", untyped(7), age))).toBe("select ? div `u`.`age` as `c0` from `users` as `u`");
   });
 
-  test("anything else keeps /: a float, a fraction, a custom type, an unknown or non-numeric operand", () => {
+  test("anything else keeps /: a float, a decimal, a fraction, a custom type, an unknown or non-numeric operand", () => {
     const money = defineType<number>({
       name: "money",
       db: { kind: "custom", sql: "money" },
       cast: (v) => ({ success: true, data: Number(v) }),
     });
+    const decimal = typeOf(t.decimal());
     for (const [left, right] of [
       [age, value(2, float)],
+      // MySQL's 7 DIV 2.5 is 2: a decimal operand must keep /.
+      [age, value("2", decimal)],
+      [age, value("2.5", decimal)],
+      [castNode(age, decimal), typed(2)],
+      [typed(7), castNode(age, decimal)],
       [age, literalNode(2.5)],
       [age, literalNode(true)],
       [age, value(2, money)],

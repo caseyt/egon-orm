@@ -226,6 +226,22 @@ describe.runIf(tier2Enabled())("mysql", () => {
           .select(({ h }) => ({ m: h.n.mul(2), s: h.n.add(1) })),
       ),
     ).toEqual([{ m: 14, s: 8 }]);
+    // A fraction bound as an integer is refused before it is sent (DIV would truncate it).
+    await expect(repo.all(from(Half, "h").select(({ h }) => ({ d: h.n.div(2.5) })))).rejects.toThrow(
+      /^Parameter 1 has the type t\.integer\(\) .* but its value is not a whole number\./,
+    );
+  });
+
+  test("a division of two integers is exact above 2^53", async () => {
+    // The same test runs on Postgres and SQLite: one result everywhere.
+    await handle.db.query("create table bigs (id integer primary key, b bigint not null)");
+    await handle.db.query("insert into bigs values (1, 1152921504606846975)");
+    class Big extends Schema("bigs", { id: t.integer().primaryKey(), b: t.bigint({ mode: "number" }) }) {}
+    const q = from(Big, "x").select(({ x }) => ({
+      plain: x.b.div(1024),
+      typed: x.b.div(val(1024, t.bigint({ mode: "number" }))),
+    }));
+    expect(await repo.all(q)).toEqual([{ plain: 1125899906842623, typed: 1125899906842623 }]);
   });
 
   test("an insert whose read-back row fails to decode says that the write was applied", async () => {

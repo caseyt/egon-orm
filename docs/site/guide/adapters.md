@@ -135,7 +135,11 @@ of used.
   names; give the value a built-in type there.
 - **Integer division is written `DIV`.** MySQL's `/` gives a decimal (`7 / 2` is
   `3.5000`), so `div` of two integers is written with `DIV`, which gives `3`, as Postgres
-  and SQLite do. With a float or decimal operand it is `/`.
+  and SQLite do. With a float or decimal operand it is `/`, and so it is with an operand
+  whose type the query does not know (an aggregate other than `count()`, a function, a
+  fragment), whose decimal result a `t.integer()` read refuses; cast that operand:
+  `sum(p.views).cast(t.integer()).div(2)`. Division by zero gives `null` in a select and
+  is refused in an update (strict mode, error 1365).
 - A write conflict between serializable transactions is reported as a deadlock
   (`code: "deadlock"`, retryable), not a serialization failure.
 - `timeoutMs` and `signal` stop a statement with `KILL QUERY`, sent on a connection of

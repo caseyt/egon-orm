@@ -699,6 +699,12 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
             .select(({ p }) => p.id),
         );
         expect(ids).toEqual([12]);
+        // count() is an integer on every database: three posts, halved.
+        expect(await repo().all(from(Post, "p").select(() => count().div(2)))).toEqual([1]);
+        // Another aggregate's type is not known; the guide's workaround casts it (165 views).
+        expect(
+          await repo().all(from(Post, "p").select(({ p }) => sum(p.views).cast(t.integer()).div(2))),
+        ).toEqual([82]);
       });
 
       test("in where", async () => {

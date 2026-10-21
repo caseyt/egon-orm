@@ -57,6 +57,10 @@ import {
 import { ROUND_TRIP_CASES } from "../adapter/values.js";
 import type { MakeWriteAdapterOptions, WriteConformanceProfile } from "./profile.js";
 
+/** An undeclared violation's message as thrown, with the full text: the first line, then the call to add. */
+const undeclared = (first: string, add: string, alternative?: string): string =>
+  `constraint.undeclared: ${first} ${add}${alternative === undefined ? "" : `\n${alternative}`} See https://egon-orm.github.io/egon-orm/reference/errors/constraint#constraint-undeclared`;
+
 export type { MakeWriteAdapterOptions, WriteConformanceProfile } from "./profile.js";
 
 async function rejection(promise: Promise<unknown>): Promise<unknown> {
@@ -521,11 +525,11 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         const error = await rejection(r.insert(cast(User, { email: "ada@example.com" }, ["email"])));
         expect(error).toBeInstanceOf(ConstraintError);
         expect((error as ConstraintError).message).toBe(
-          [
+          undeclared(
             'unique constraint "users_email_key" violated on insert into "users".',
             'The changeset has not defined this constraint. Add: .uniqueConstraint("email")',
             '(or .uniqueConstraint("email", { name: "users_email_key" }))',
-          ].join("\n"),
+          ),
         );
         expect((error as ConstraintError).constraint).toBe("users_email_key");
         expect((error as ConstraintError).message).not.toContain("ada@example.com");
@@ -536,8 +540,8 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         await seedUser(r, "ada@example.com");
         const grace = await seedUser(r, "grace@example.com");
         const error = await rejection(r.update(cast(grace, { email: "ada@example.com" }, ["email"])));
-        expect((error as ConstraintError).message.split("\n")[0]).toBe(
-          'unique constraint "users_email_key" violated on update of "users".',
+        expect((error as ConstraintError).message).toMatch(
+          /^constraint\.undeclared: unique constraint "users_email_key" violated on update of "users"\. /,
         );
         const handled = await r.update(
           cast(grace, { email: "ada@example.com" }, ["email"]).uniqueConstraint("email"),
@@ -602,11 +606,11 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         expect(onAssoc.error.errorMessages()).toEqual({ author: ["does not exist"] });
         const thrown = await rejection(r.insert(missing));
         expect((thrown as ConstraintError).message).toBe(
-          [
+          undeclared(
             'foreign-key constraint "posts_author_id_fkey" violated on insert into "posts".',
             'The changeset has not defined this constraint. Add: .foreignKeyConstraint("authorId")',
             '(or .foreignKeyConstraint("authorId", { name: "posts_author_id_fkey" }))',
-          ].join("\n"),
+          ),
         );
       });
 
@@ -623,11 +627,11 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         expect(handled.error.errorMessages()).toEqual({ posts: ["is still associated with this entry"] });
         const thrown = await rejection(r.delete(user));
         expect((thrown as ConstraintError).message).toBe(
-          [
+          undeclared(
             'foreign-key constraint "posts_author_id_fkey" violated on delete from "users".',
             'The changeset has not defined this constraint. Add: .noAssocConstraint("posts")',
             '(or .noAssocConstraint("posts", { name: "posts_author_id_fkey" }))',
-          ].join("\n"),
+          ),
         );
         expect(await r.get(User, user.id)).not.toBeNull();
       });
@@ -642,10 +646,10 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         expect(handled.error.errorMessages()).toEqual({ pages: ["must be positive"] });
         const thrown = await rejection(r.insert(thin));
         expect((thrown as ConstraintError).message).toBe(
-          [
+          undeclared(
             'check constraint "books_pages_check" violated on insert into "books".',
             'The changeset has not defined this constraint. Add: .checkConstraint("pages", { name: "books_pages_check" })',
-          ].join("\n"),
+          ),
         );
       });
 
@@ -663,11 +667,11 @@ export function runWriteConformance(profile: WriteConformanceProfile): void {
         expect(handled.error.errorMessages()).toEqual({ during: ["violates an exclusion constraint"] });
         const thrown = await rejection(r.insert(overlap));
         expect((thrown as ConstraintError).message).toBe(
-          [
+          undeclared(
             'exclusion constraint "bookings_during_excl" violated on insert into "bookings".',
             'The changeset has not defined this constraint. Add: .exclusionConstraint("during")',
             '(or .exclusionConstraint("during", { name: "bookings_during_excl" }))',
-          ].join("\n"),
+          ),
         );
       });
 

@@ -48,7 +48,7 @@ export function byId(error: unknown) {
   return undefined;
 }
 
-export function toClient(error: unknown) {
+export function toClient(error: unknown): Response {
   // #region to-json
   // { "name": "NoResultsError", "code": "noResults", "id": "noResults" }: no message, cause or SQL.
   if (isEgonError(error)) return new Response(JSON.stringify(error), { status: 400 });

@@ -92,6 +92,8 @@ jobs:
       # Before anything is built: the benchmark runner must refuse to run without dist/.
       - run: node scripts/check-bench-dist-guard.mjs
       - run: pnpm build
+      # Edge runtimes resolve Node built-ins only as node:… (step 21a).
+      - run: node scripts/check-node-specifiers.mjs
       - run: pnpm lint:packages
       # An ESM consumer, a CommonJS consumer that require()s the ES modules, and a consumer
       # project type-checked against the packed packages (examples/smoke). The type check

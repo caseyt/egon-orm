@@ -10,31 +10,31 @@ states it (`{name}` stands for a value it names), and what to do about it: the t
 
 ## `invalidChangeset` {#invalidchangeset}
 
-> Could not perform {action} because the changeset is invalid. Errors: {listing}
+> Could not perform &#123;action&#125; because the changeset is invalid. Errors: &#123;listing&#125;
 
 Fix the input, or call the variant without "OrThrow" to get the changeset back as a Result instead of an exception.
 
 ## `multipleResults` {#multipleresults}
 
-> Expected at most one result but got {count}{inQuery}.
+> Expected at most one result but got &#123;count&#125;&#123;inQuery&#125;.
 
 Narrow the query until it matches a single row, add limit(1), or use all().
 
 ## `noResults` {#noresults}
 
-> Expected at least one result but got none{inQuery}.
+> Expected at least one result but got none&#123;inQuery&#125;.
 
 Use the variant without "OrThrow" (it returns null) if a missing row is not an error.
 
 ## `notLoaded` {#notloaded}
 
-> Association "{association}" of {schema} is not loaded.
+> Association "&#123;association&#125;" of &#123;schema&#125; is not loaded.
 
-Preload it first: add .preload("{association}") to the query, or call repo.preload(rows, "{association}").
+Preload it first: add .preload("&#123;association&#125;") to the query, or call repo.preload(rows, "&#123;association&#125;").
 
 ## `staleEntry` {#staleentry}
 
-> Attempted to {action} a stale {schema} row: no row matched its primary key{…}.
+> Attempted to &#123;action&#125; a stale &#123;schema&#125; row: no row matched its primary key&#123;…&#125;.
 
 It was deleted or changed since it was loaded. Reload it and try again, or pass allowStale: true to ignore this.
 

@@ -16,13 +16,13 @@ Read a fractional numeric column with t.decimal().
 
 ## `cast.bigintNumberRange` {#cast-bigintnumberrange}
 
-> A bigint column read with { mode: "number" } holds a value outside the safe integer range of a JavaScript number (±9007199254740991).
+> A bigint column read with &#123; mode: "number" &#125; holds a value outside the safe integer range of a JavaScript number (±9007199254740991).
 
 Declare the field as t.bigint() to read it as a bigint.
 
 ## `cast.bigintNumberString` {#cast-bigintnumberstring}
 
-> A bigint column read with { mode: "number" } received a string from the driver that is not a whole number.
+> A bigint column read with &#123; mode: "number" &#125; received a string from the driver that is not a whole number.
 
 Check the column holds whole numbers; read it with t.decimal() if it holds fractions.
 
@@ -34,25 +34,25 @@ Pass a valid Date, or a "YYYY-MM-DD" string.
 
 ## `cast.dateRange` {#cast-daterange}
 
-> A Date outside the years 1 to 9999 cannot be written to a date column read with { as: "date" }.
+> A Date outside the years 1 to 9999 cannot be written to a date column read with &#123; as: "date" &#125;.
 
 Pass a Date in the years 1 to 9999, or declare the field as t.date() to work with strings.
 
 ## `cast.dateRead` {#cast-dateread}
 
-> A date column read with { as: "date" } holds a value that is not a "YYYY-MM-DD" date (for example "infinity", or a date before year 1).
+> A date column read with &#123; as: "date" &#125; holds a value that is not a "YYYY-MM-DD" date (for example "infinity", or a date before year 1).
 
 Declare the field as t.date() to read it as a string.
 
 ## `cast.embedFieldMissing` {#cast-embedfieldmissing}
 
-> {what}, and the field {name} has no default and is not nullable.
+> &#123;what&#125;, and the field &#123;name&#125; has no default and is not nullable.
 
 Give it a .default(…) (or make it .nullable()) so that rows stored before it existed can be read.
 
 ## `cast.embedGeneratedMissing` {#cast-embedgeneratedmissing}
 
-> {what}, the generated value of {name}: it was written without one (not through a changeset or insertAll).
+> &#123;what&#125;, the generated value of &#123;name&#125;: it was written without one (not through a changeset or insertAll).
 
 Write the row through a changeset or insertAll(), which fill the generated value.
 
@@ -64,39 +64,39 @@ Store a valid Date: the value was created with new Date() from something that is
 
 ## `cast.embedListNotArray` {#cast-embedlistnotarray}
 
-> A list of {name} must be an array.
+> A list of &#123;name&#125; must be an array.
 
-> A stored list of {name} is not a JSON array.
+> A stored list of &#123;name&#125; is not a JSON array.
 
 Pass an array of the embedded values; an empty list is \[\].
 
 ## `cast.embedNotObject` {#cast-embednotobject}
 
-> A stored {name} is not a JSON object.
+> A stored &#123;name&#125; is not a JSON object.
 
 Fix the stored JSON: an embedOne column holds a JSON object (or null for a nullable embed).
 
 ## `cast.embedStoredField` {#cast-embedstoredfield}
 
-> The stored "{key}" of the embedded {name} is not {what}.
+> The stored "&#123;key&#125;" of the embedded &#123;name&#125; is not &#123;what&#125;.
 
 Fix the stored JSON, or change the embedded field's type to what the column holds.
 
 ## `cast.embedWrite` {#cast-embedwrite}
 
-> A {name} cannot be written: {row}.
+> A &#123;name&#125; cannot be written: &#123;row&#125;.
 
 Write the embed through a changeset (castEmbed or putEmbed), which checks each field.
 
 ## `cast.enumStoredValue` {#cast-enumstoredvalue}
 
-> An enum column holds a {…} that is not one of the enum's stored values ({join}).
+> An enum column holds a &#123;…&#125; that is not one of the enum's stored values (&#123;join&#125;).
 
 Add it to the enum, or fix the stored data.
 
 ## `cast.enumWriteValue` {#cast-enumwritevalue}
 
-> A value that is not a member of the enum ({join}) cannot be written to an enum column.
+> A value that is not a member of the enum (&#123;join&#125;) cannot be written to an enum column.
 
 Write one of the enum's members; a changeset's cast rejects other values before they reach the database.
 
@@ -110,15 +110,15 @@ Store a finite number, or null.
 
 ## `cast.floatNotNumber` {#cast-floatnotnumber}
 
-> {label} is declared t.float(), but the database returned {article} {got} for it, not a number.{after}
+> &#123;label&#125; is declared t.float(), but the database returned &#123;article&#125; &#123;got&#125; for it, not a number.&#123;after&#125;
 
 The column or expression is not of a floating-point type (Postgres reads numeric columns as text). Declare the field t.decimal() for a decimal column, or change the column's type.
 
 ## `cast.integerNotNumber` {#cast-integernotnumber}
 
-> {label} is declared t.integer(), but the database returned {article} {got} for it, not a number.{after}
+> &#123;label&#125; is declared t.integer(), but the database returned &#123;article&#125; &#123;got&#125; for it, not a number.&#123;after&#125;
 
-The column or expression is not of an integer type (Postgres reads bigint, bigserial and numeric columns as text; MySQL's / returns a decimal). Declare the field t.bigint({ mode: "number" }) for a 64-bit integer column, or t.decimal() for a decimal, or change the column's type.
+The column or expression is not of an integer type (Postgres reads bigint, bigserial and numeric columns as text; MySQL's / returns a decimal). Declare the field t.bigint(&#123; mode: "number" &#125;) for a 64-bit integer column, or t.decimal() for a decimal, or change the column's type.
 
 ## `cast.jsonInvalid` {#cast-jsoninvalid}
 
@@ -128,7 +128,7 @@ Fix the stored text, or read the column with t.string().
 
 ## `cast.paramsNotObject` {#cast-paramsnotobject}
 
-> cast() expects params to be a plain object (or null or undefined for none), but got {kind}.
+> cast() expects params to be a plain object (or null or undefined for none), but got &#123;kind&#125;.
 
 Pass the params as a plain object, such as a parsed request body; null and undefined count as no params.
 

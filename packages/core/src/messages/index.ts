@@ -17,7 +17,6 @@
 import { type ErrorMessages, fullMessageOf, isEgonError } from "../errors.js";
 import { messages } from "./catalog.js";
 
-export type { ErrorId, ErrorMessages, ErrorParams } from "../errors.js";
 export { messages } from "./catalog.js";
 
 /**

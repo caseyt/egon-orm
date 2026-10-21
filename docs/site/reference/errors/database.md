@@ -18,7 +18,7 @@ The caller's AbortSignal fired, and the database was asked to cancel the stateme
 
 > The statement was not run: its AbortSignal had fired.
 
-> The {what} was not run: its AbortSignal had fired.
+> The &#123;what&#125; was not run: its AbortSignal had fired.
 
 The caller's AbortSignal had fired before the statement was sent; nothing was sent to the database.
 
@@ -32,7 +32,7 @@ The caller's AbortSignal fired; nothing was sent to the database.
 
 > The statement was not run: its AbortSignal fired while it waited for a free connection.
 
-> The {what} was not run: its AbortSignal fired while it waited for a free connection.
+> The &#123;what&#125; was not run: its AbortSignal fired while it waited for a free connection.
 
 The caller's AbortSignal fired; nothing was sent to the database. A larger pool, or fewer statements at once, shortens the wait.
 
@@ -44,7 +44,7 @@ Create a new adapter to keep using the database.
 
 ## `database.callTimeout` {#database-calltimeout}
 
-> The call ran longer than its timeoutMs ({timeoutMs} ms), which covers every statement it runs.
+> The call ran longer than its timeoutMs (&#123;timeoutMs&#125; ms), which covers every statement it runs.
 
 Give the call a larger timeoutMs: it covers every statement the call runs.
 
@@ -62,35 +62,35 @@ Create a new adapter to keep using the database.
 
 ## `database.connectionFailed` {#database-connectionfailed}
 
-> Lost the connection to the database, or could not open one: {message}.
+> Lost the connection to the database, or could not open one: &#123;message&#125;.
 
 Check that the database is running and that the connection settings are right; the cause is the driver's error.
 
 ## `database.connectionReleased` {#database-connectionreleased}
 
-> This connection was {…}.
+> This connection was &#123;…&#125;.
 
 Acquire a new connection.
 
 ## `database.locked` {#database-locked}
 
-> The database is locked by another connection ({code}).
+> The database is locked by another connection (&#123;code&#125;).
 
 Retrying can succeed.
 
 ## `database.openFailed` {#database-openfailed}
 
-> Could not open the SQLite database ({code}): {message}.
+> Could not open the SQLite database (&#123;code&#125;): &#123;message&#125;.
 
 Check the filename and its directory's permissions; the cause is the driver's error.
 
 ## `database.rejected` {#database-rejected}
 
-> The database rejected the statement (SQLSTATE {code}){said}.
+> The database rejected the statement (SQLSTATE &#123;code&#125;)&#123;said&#125;.
 
-> The database rejected the statement (MySQL error {errno}, {…}){said}.
+> The database rejected the statement (MySQL error &#123;errno&#125;, &#123;…&#125;)&#123;said&#125;.
 
-> The database rejected the statement ({code}){said}.
+> The database rejected the statement (&#123;code&#125;)&#123;said&#125;.
 
 The cause is the driver's error, with the database's full report; error.sql is the statement. Look the SQL state up in the database's documentation.
 
@@ -102,19 +102,19 @@ Keep the connection until the stream is finished, or leave the for-await loop fi
 
 ## `database.timeout` {#database-timeout}
 
-> The statement was cancelled because it ran longer than its timeoutMs ({timeoutMs} ms).
+> The statement was cancelled because it ran longer than its timeoutMs (&#123;timeoutMs&#125; ms).
 
 Give the call a larger timeoutMs, or make the statement faster (an index, a narrower query); inside a transaction, the transaction is rolled back.
 
 ## `database.timeoutQueued` {#database-timeoutqueued}
 
-> The statement was not run: it waited longer than its timeoutMs ({timeoutMs} ms) for the statements before it on this transaction's connection.
+> The statement was not run: it waited longer than its timeoutMs (&#123;timeoutMs&#125; ms) for the statements before it on this transaction's connection.
 
 Give the call a larger timeoutMs, or run fewer statements at once on the transaction.
 
 ## `database.timeoutSpent` {#database-timeoutspent}
 
-> The statement was not run: its timeoutMs ({timeoutMs} ms) was spent before it could start.
+> The statement was not run: its timeoutMs (&#123;timeoutMs&#125; ms) was spent before it could start.
 
 > The statement was not run: the call's timeoutMs was spent before it could start.
 
@@ -122,23 +122,23 @@ Give the call a larger timeoutMs: the time is shared by every statement of a cal
 
 ## `database.timeoutWaiting` {#database-timeoutwaiting}
 
-> The statement was not run: it waited longer than its timeoutMs ({timeoutMs} ms) for a free connection.
+> The statement was not run: it waited longer than its timeoutMs (&#123;timeoutMs&#125; ms) for a free connection.
 
-> The {what} was not run: it waited longer than its timeoutMs ({timeoutMs} ms) for a free connection.
+> The &#123;what&#125; was not run: it waited longer than its timeoutMs (&#123;timeoutMs&#125; ms) for a free connection.
 
 Nothing was sent to the database. Give the pool more connections, run fewer statements at once, or give the call a larger timeoutMs.
 
 ## `database.transactionTimeout` {#database-transactiontimeout}
 
-> The transaction ran longer than its timeoutMs ({timeoutMs} ms), which covers every statement in it, so it was stopped and rolled back.
+> The transaction ran longer than its timeoutMs (&#123;timeoutMs&#125; ms), which covers every statement in it, so it was stopped and rolled back.
 
 Give the transaction a larger timeoutMs, or do less in it.
 
 ## `database.unreachable` {#database-unreachable}
 
-> Could not reach the database, or lost the connection to it ({code}).
+> Could not reach the database, or lost the connection to it (&#123;code&#125;).
 
-> Could not reach the database, or lost the connection to it ({…}).
+> Could not reach the database, or lost the connection to it (&#123;…&#125;).
 
 Check that it is running and that the connection settings are right.
 

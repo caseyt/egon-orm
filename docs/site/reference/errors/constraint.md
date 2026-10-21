@@ -10,16 +10,16 @@ states it (`{name}` stands for a value it names), and what to do about it: the t
 
 ## `constraint.undeclared` {#constraint-undeclared}
 
-> {first} The changeset has not defined this constraint.
+> &#123;first&#125; The changeset has not defined this constraint.
 
-Add: {add}
+Add: &#123;add&#125;
 
 ## `constraint.violated` {#constraint-violated}
 
-> {message}
+> &#123;message&#125;
 
-> The database rejected the write: {what} constraint{name}{where} was violated.
+> The database rejected the write: &#123;what&#125; constraint&#123;name&#125;&#123;where&#125; was violated.
 
-To report this as a changeset error instead of an exception, call {method} on the changeset before the write.
+To report this as a changeset error instead of an exception, call &#123;method&#125; on the changeset before the write.
 
 :::

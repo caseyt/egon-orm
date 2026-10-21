@@ -10,19 +10,19 @@ states it (`{name}` stands for a value it names), and what to do about it: the t
 
 ## `migration.buildFailed` {#migration-buildfailed}
 
-> Migration {version}\_{name}: {causeText}
+> Migration &#123;version&#125;\_&#123;name&#125;: &#123;causeText&#125;
 
 The cause is the error the migration's up() or down() threw while it described its statements; fix the migration.
 
 ## `migration.changeNotSupported` {#migration-changenotsupported}
 
-> {subject} {what}.
+> &#123;subject&#125; &#123;what&#125;.
 
 change() is not supported: write the change in up(m) and what undoes it in down(m).
 
 ## `migration.concurrentIndexInTransaction` {#migration-concurrentindexintransaction}
 
-> Migration {version}\_{name} builds or drops an index concurrently, which cannot run inside a transaction.
+> Migration &#123;version&#125;\_&#123;name&#125; builds or drops an index concurrently, which cannot run inside a transaction.
 
 Add transaction: false to its defineMigration().
 
@@ -40,81 +40,81 @@ Give the custom type a plain SQL type name, such as "citext" or "numeric(10, 2)"
 
 ## `migration.ddlParams` {#migration-ddlparams}
 
-> {what} cannot bind values: DDL takes no parameters.
+> &#123;what&#125; cannot bind values: DDL takes no parameters.
 
 Write the constant in the template text, or use fragment.ident() for a name.
 
 ## `migration.dialectUnsupported` {#migration-dialectunsupported}
 
-> Migrations are not supported on {String} by this build of egon-orm: it has no migration dialect table for it.
+> Migrations are not supported on &#123;String&#125; by this build of egon-orm: it has no migration dialect table for it.
 
-> Migrations are not supported on {String} by this build of egon-orm.
+> Migrations are not supported on &#123;String&#125; by this build of egon-orm.
 
 See Dialect support for the databases migrations run on.
 
 ## `migration.failed` {#migration-failed}
 
-> Migration {version}\_{name} {outcome}: {message}{stuck}
+> Migration &#123;version&#125;\_&#123;name&#125; &#123;outcome&#125;: &#123;message&#125;&#123;stuck&#125;
 
 The cause is the database's error, and sql the statement that failed. Fix the migration and run it again; what stays applied is said above.
 
 ## `migration.featureUnsupported` {#migration-featureunsupported}
 
-> {where} is not supported on {String} by this build of egon-orm.
+> &#123;where&#125; is not supported on &#123;String&#125; by this build of egon-orm.
 
 See Dialect support for what each database supports.
 
 ## `migration.fileName` {#migration-filename}
 
-> The migration file "{file}" does not start with a 14-digit version (YYYYMMDDHHMMSS).
+> The migration file "&#123;file&#125;" does not start with a 14-digit version (YYYYMMDDHHMMSS).
 
-Rename it, for example "20261012093000\_{match}.{match1}".
+Rename it, for example "20261012093000\_&#123;match&#125;.&#123;match1&#125;".
 
 ## `migration.generatedKeyAlone` {#migration-generatedkeyalone}
 
-> The generated key "{name}" must be the table's only key column on {name}.
+> The generated key "&#123;name&#125;" must be the table's only key column on &#123;name&#125;.
 
 Make the generated key the table's only key column, or give it a plain integer type.
 
 ## `migration.indexMethod` {#migration-indexmethod}
 
-> The index method "{using}" is not one {name} has.
+> The index method "&#123;using&#125;" is not one &#123;name&#125; has.
 
-Use one of {methods}.
+Use one of &#123;methods&#125;.
 
 ## `migration.loadFailed` {#migration-loadfailed}
 
-> Cannot load the migration file "{path}"{reason}
+> Cannot load the migration file "&#123;path&#125;"&#123;reason&#125;
 
 The cause is the error importing the file threw; fix the file, or the migration it defines.
 
 ## `migration.lockTimeout` {#migration-locktimeout}
 
-> Gave up waiting for the migration lock after {lockTimeoutMs} ms: another runner is migrating the same database (tracking table "{name}").
+> Gave up waiting for the migration lock after &#123;lockTimeoutMs&#125; ms: another runner is migrating the same database (tracking table "&#123;name&#125;").
 
 Wait for the other runner to finish, or give a larger lockTimeoutMs.
 
 ## `migration.lockTimeoutClaimed` {#migration-locktimeoutclaimed}
 
-> Gave up waiting for the migration lock after {lockTimeoutMs} ms: another runner is migrating the same database (tracking table "{name}").
+> Gave up waiting for the migration lock after &#123;lockTimeoutMs&#125; ms: another runner is migrating the same database (tracking table "&#123;name&#125;").
 
-If no runner is running, one stopped while it ran a migration without a transaction: check what that migration did, then delete the row with version {claim} from "{table}".
+If no runner is running, one stopped while it ran a migration without a transaction: check what that migration did, then delete the row with version &#123;claim&#125; from "&#123;table&#125;".
 
 ## `migration.missingSteps` {#migration-missingsteps}
 
-> {subject} {what}.
+> &#123;subject&#125; &#123;what&#125;.
 
-A migration has both up(m) and down(m); when there is nothing to undo, write down() {} with a // noop comment.
+A migration has both up(m) and down(m); when there is nothing to undo, write down() &#123;&#125; with a // noop comment.
 
 ## `migration.modifyWhole` {#migration-modifywhole}
 
-> {name} changes a column by writing it whole (MODIFY COLUMN).
+> &#123;name&#125; changes a column by writing it whole (MODIFY COLUMN).
 
-Give modify() both notNull and default (null for none) for "{column}".
+Give modify() both notNull and default (null for none) for "&#123;column&#125;".
 
 ## `migration.noExport` {#migration-noexport}
 
-> The migration file "{path}" exports no migration.
+> The migration file "&#123;path&#125;" exports no migration.
 
 Export the result of defineMigration() as "migration" (export const migration = defineMigration(…)) or as the default export.
 
@@ -126,13 +126,13 @@ Pass a finite number.
 
 ## `migration.readDirectory` {#migration-readdirectory}
 
-> Cannot read the migrations directory "{root}".
+> Cannot read the migrations directory "&#123;root&#125;".
 
 Check that the directory exists and can be read; the cause has the system's error.
 
 ## `migration.rollbackMissingFile` {#migration-rollbackmissingfile}
 
-> Cannot roll back past version {version}: it is recorded as applied, but there is no migration with that version.
+> Cannot roll back past version &#123;version&#125;: it is recorded as applied, but there is no migration with that version.
 
 Restore its file, or remove the version from the tracking table if it is really gone.
 
@@ -144,13 +144,13 @@ Remove the NUL character or lone surrogate from the string.
 
 ## `migration.timestampColumn` {#migration-timestampcolumn}
 
-> The tracking table "{name}" has no column "{timestampColumn}".
+> The tracking table "&#123;name&#125;" has no column "&#123;timestampColumn&#125;".
 
-If it was created by another tool, pass its timestamp column: createMigrator({ timestampColumn: "inserted\_at" }) (or whatever it is called).
+If it was created by another tool, pass its timestamp column: createMigrator(&#123; timestampColumn: "inserted\_at" &#125;) (or whatever it is called).
 
 ## `migration.trackingVersion` {#migration-trackingversion}
 
-> The tracking table "{name}" holds a version that is not a safe whole number: {String}.
+> The tracking table "&#123;name&#125;" holds a version that is not a safe whole number: &#123;String&#125;.
 
 Fix the row in the tracking table: versions are 14-digit whole numbers (YYYYMMDDHHMMSS).
 
@@ -162,19 +162,19 @@ End every transaction a migration opens with m.sql\`commit\` (or let the runner 
 
 ## `migration.typescriptLoader` {#migration-typescriptloader}
 
-> Cannot load the TypeScript migration "{file}": this process has no TypeScript loader.
+> Cannot load the TypeScript migration "&#123;file&#125;": this process has no TypeScript loader.
 
 Run it with one: Node 22.18 or later strips types by itself (on 22.12 to 22.17 set NODE\_OPTIONS=--experimental-strip-types, as in NODE\_OPTIONS=--experimental-strip-types npx egon migrate), or use tsx (NODE\_OPTIONS="--import tsx"), or Bun. Or compile the migrations to .js.
 
 ## `migration.unsupportedFeature` {#migration-unsupportedfeature}
 
-> {feature} is not supported by {name}.
+> &#123;feature&#125; is not supported by &#123;name&#125;.
 
-See Dialect support for what {dialect} supports; m.sql\`…\` can run any statement the builder has no method for.
+See Dialect support for what &#123;dialect&#125; supports; m.sql\`…\` can run any statement the builder has no method for.
 
 ## `migration.versionTwice` {#migration-versiontwice}
 
-> Two migrations have the version {version}: "{name}" and "{name}".
+> Two migrations have the version &#123;version&#125;: "&#123;name&#125;" and "&#123;name&#125;".
 
 Give one of them a new version.
 

@@ -46,7 +46,8 @@ async function handle(request: Request, env: Env, ctx: ExecutionContext): Promis
     // A query error, as thrown by default, as explained, and as sent to a client.
     if (url.searchParams.has("full")) useFullErrorMessages(messages);
     try {
-      from(Note, "n").join(Note, "n", () => true as never);
+      // The types refuse a taken alias; an untyped caller gets the error at run time.
+      from(Note, "n").join(Note, "n" as never, () => true as never);
       return new Response("no error", { status: 500 });
     } catch (error) {
       useFullErrorMessages(null);

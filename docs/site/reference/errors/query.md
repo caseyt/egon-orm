@@ -16,67 +16,67 @@ Pass the message as a string, as in addError("email", "is taken").
 
 ## `query.aggregateArgument` {#query-aggregateargument}
 
-> {method}() takes an expression.
+> &#123;method&#125;() takes an expression.
 
 Pass an expression, such as p.views.
 
 ## `query.aggregateField` {#query-aggregatefield}
 
-> repo.aggregate(query, "{fn}") needs the field to aggregate.
+> repo.aggregate(query, "&#123;fn&#125;") needs the field to aggregate.
 
-Name the field: repo.aggregate(query, "{fn}", "views").
+Name the field: repo.aggregate(query, "&#123;fn&#125;", "views").
 
 ## `query.aggregateFunction` {#query-aggregatefunction}
 
-> repo.aggregate() was given the function {stringify}.
+> repo.aggregate() was given the function &#123;stringify&#125;.
 
 repo.aggregate() takes "count", "sum", "avg", "min" or "max".
 
 ## `query.aggregateRootSchema` {#query-aggregaterootschema}
 
-> repo.aggregate() over the field "{field}" needs a query whose root binding is a schema; this one reads {…}.
+> repo.aggregate() over the field "&#123;field&#125;" needs a query whose root binding is a schema; this one reads &#123;…&#125;.
 
 Aggregate a query rooted at a schema class, or compute the aggregate in the query's own select and read it with repo.one(…).
 
 ## `query.aggregateSubquerySelect` {#query-aggregatesubqueryselect}
 
-> repo.aggregate() over "{name}": this query is aggregated as a subquery ({reason}).
+> repo.aggregate() over "&#123;name&#125;": this query is aggregated as a subquery (&#123;reason&#125;).
 
-The query must select the column "{field}" of its root binding "{alias}": whole rows of the root, or an object whose key "{field}" is that column. Otherwise compute the aggregate in the query's own select and read it with repo.one(…).
+The query must select the column "&#123;field&#125;" of its root binding "&#123;alias&#125;": whole rows of the root, or an object whose key "&#123;field&#125;" is that column. Otherwise compute the aggregate in the query's own select and read it with repo.one(…).
 
 ## `query.aggregateUnknown` {#query-aggregateunknown}
 
-> The aggregate "{String}" is not in the {name} aggregate table.
+> The aggregate "&#123;String&#125;" is not in the &#123;name&#125; aggregate table.
 
 Use the aggregates the query builder offers, or write the call as a fragment.
 
 ## `query.aggregateUnknownColumn` {#query-aggregateunknowncolumn}
 
-> repo.aggregate(): {name} has no column "{field}"{…}.
+> repo.aggregate(): &#123;name&#125; has no column "&#123;field&#125;"&#123;…&#125;.
 
-Its columns are: {names}.
+Its columns are: &#123;names&#125;.
 
 ## `query.aliasMissing` {#query-aliasmissing}
 
-> {clause}() needs an alias for the binding.
+> &#123;clause&#125;() needs an alias for the binding.
 
-Give the binding an alias, a non-empty string: {clause}(User, "u").
+Give the binding an alias, a non-empty string: &#123;clause&#125;(User, "u").
 
 ## `query.aliasReserved` {#query-aliasreserved}
 
-> {clause}() was given the alias "{alias}".
+> &#123;clause&#125;() was given the alias "&#123;alias&#125;".
 
 Aliases that start with "$" are reserved for the bindings the builder adds itself; choose another.
 
 ## `query.aliasTaken` {#query-aliastaken}
 
-> {clause}() was given the alias "{alias}", which this query already uses{…}.
+> &#123;clause&#125;() was given the alias "&#123;alias&#125;", which this query already uses&#123;…&#125;.
 
 Each binding needs its own alias; for a self-join, give the second one another name.
 
 ## `query.applyActionUnknown` {#query-applyactionunknown}
 
-> applyAction(): "{String}" is not an action.
+> applyAction(): "&#123;String&#125;" is not an action.
 
 Use "insert", "update", "delete", "replace" or "ignore".
 
@@ -84,53 +84,53 @@ Use "insert", "update", "delete", "replace" or "ignore".
 
 > applyChanges() and applyAction() need a changeset of a loaded row (or one without a schema class).
 
-This one is of a new {name}: a row the database never returned cannot exist. Insert it with the repo instead.
+This one is of a new &#123;name&#125;: a row the database never returned cannot exist. Insert it with the repo instead.
 
 ## `query.assocConstraintKind` {#query-assocconstraintkind}
 
-> assocConstraint(): "{assoc}" is a {kind} association.
+> assocConstraint(): "&#123;assoc&#125;" is a &#123;kind&#125; association.
 
 It applies to belongsTo associations; for the other side, use noAssocConstraint.
 
 ## `query.assocJoinName` {#query-assocjoinname}
 
-> {clause}() takes the name of an association second.
+> &#123;clause&#125;() takes the name of an association second.
 
-Pass the name of an association second: {clause}("{from}", "posts", "{name}").
+Pass the name of an association second: &#123;clause&#125;("&#123;from&#125;", "posts", "&#123;name&#125;").
 
 ## `query.assocJoinNoSchema` {#query-assocjoinnoschema}
 
-> {clause}("{alias}", "{assocName}", …): the binding "{alias}" has no schema, so it has no associations.
+> &#123;clause&#125;("&#123;alias&#125;", "&#123;assocName&#125;", …): the binding "&#123;alias&#125;" has no schema, so it has no associations.
 
 Start the join from a binding of a schema class.
 
 ## `query.assocJoinStart` {#query-assocjoinstart}
 
-> {clause}() takes the alias of the binding to start from first.
+> &#123;clause&#125;() takes the alias of the binding to start from first.
 
-Pass the alias of the binding to start from first: {clause}("u", "posts", "p").
+Pass the alias of the binding to start from first: &#123;clause&#125;("u", "posts", "p").
 
 ## `query.assocJoinUnknown` {#query-assocjoinunknown}
 
-> {clause}("{alias}", "{assocName}", …): {name} has no association "{assocName}".
+> &#123;clause&#125;("&#123;alias&#125;", "&#123;assocName&#125;", …): &#123;name&#125; has no association "&#123;assocName&#125;".
 
-Its associations are: {known}.
+Its associations are: &#123;known&#125;.
 
 ## `query.assocJoinUnknownStart` {#query-assocjoinunknownstart}
 
-> {clause}("{fromAlias}", …) starts from a binding this query does not have.
+> &#123;clause&#125;("&#123;fromAlias&#125;", …) starts from a binding this query does not have.
 
-Its bindings are: {visibleAliases}.
+Its bindings are: &#123;visibleAliases&#125;.
 
 ## `query.assocUnknown` {#query-assocunknown}
 
-> {name} has no association "{name}".
+> &#123;name&#125; has no association "&#123;name&#125;".
 
-Its associations are: {known}.
+Its associations are: &#123;known&#125;.
 
 ## `query.astBooleanOperator` {#query-astbooleanoperator}
 
-> Unknown boolean operator "{String}".
+> Unknown boolean operator "&#123;String&#125;".
 
 The query tree is malformed: queries built with from() and the builder methods never produce this, a tree built or changed by hand can. If it came from the builder, please report it.
 
@@ -184,7 +184,7 @@ The query tree is malformed: queries built with from() and the builder methods n
 
 ## `query.astInsertCell` {#query-astinsertcell}
 
-> Unknown insert cell kind "{String}".
+> Unknown insert cell kind "&#123;String&#125;".
 
 The insert plan is malformed: the repo never produces this cell kind.
 
@@ -196,7 +196,7 @@ The insert plan is malformed: the repo always passes values, cells or a query.
 
 ## `query.astJoinKind` {#query-astjoinkind}
 
-> Unknown join kind "{String}".
+> Unknown join kind "&#123;String&#125;".
 
 The query tree is malformed: queries built with from() and the builder methods never produce this, a tree built or changed by hand can. If it came from the builder, please report it.
 
@@ -220,31 +220,31 @@ The query tree is malformed: lock() takes a mode or a fragment, so this one was 
 
 ## `query.astNodeKind` {#query-astnodekind}
 
-> Unknown expression node kind "{String}".
+> Unknown expression node kind "&#123;String&#125;".
 
 The query tree is malformed: queries built with from() and the builder methods never produce this, a tree built or changed by hand can. If it came from the builder, please report it.
 
 ## `query.astNullsOrder` {#query-astnullsorder}
 
-> Unknown nulls order "{String}".
+> Unknown nulls order "&#123;String&#125;".
 
 The query tree is malformed: queries built with from() and the builder methods never produce this, a tree built or changed by hand can. If it came from the builder, please report it.
 
 ## `query.astOperation` {#query-astoperation}
 
-> Unknown query operation "{String}".
+> Unknown query operation "&#123;String&#125;".
 
 Pass "all", "updateAll" or "deleteAll".
 
 ## `query.astOperator` {#query-astoperator}
 
-> Unknown operator "{String}".
+> Unknown operator "&#123;String&#125;".
 
 The query tree is malformed: queries built with from() and the builder methods never produce this, a tree built or changed by hand can. If it came from the builder, please report it.
 
 ## `query.astParamCount` {#query-astparamcount}
 
-> The query's params hold {length} values, but its parameter nodes hold {…}.
+> The query's params hold &#123;length&#125; values, but its parameter nodes hold &#123;…&#125;.
 
 Build queries with from(), or compute params with collectParams.
 
@@ -262,19 +262,19 @@ The query tree is malformed: queries built with from() and the builder methods n
 
 ## `query.astSelectShape` {#query-astselectshape}
 
-> Unknown select shape "{String}".
+> Unknown select shape "&#123;String&#125;".
 
 The query tree is malformed: queries built with from() and the builder methods never produce this, a tree built or changed by hand can. If it came from the builder, please report it.
 
 ## `query.astSetOperation` {#query-astsetoperation}
 
-> Unknown set operation "{String}".
+> Unknown set operation "&#123;String&#125;".
 
 The query tree is malformed: queries built with from() and the builder methods never produce this, a tree built or changed by hand can. If it came from the builder, please report it.
 
 ## `query.astSortDirection` {#query-astsortdirection}
 
-> Unknown sort direction "{String}".
+> Unknown sort direction "&#123;String&#125;".
 
 The query tree is malformed: queries built with from() and the builder methods never produce this, a tree built or changed by hand can. If it came from the builder, please report it.
 
@@ -286,13 +286,13 @@ The query tree is malformed: queries built with from() and the builder methods n
 
 ## `query.astSourceAliasTwice` {#query-astsourcealiastwice}
 
-> The alias "{alias}" names two sources of one query.
+> The alias "&#123;alias&#125;" names two sources of one query.
 
 Give each source its own alias.
 
 ## `query.astSourceKind` {#query-astsourcekind}
 
-> Unknown source kind "{String}".
+> Unknown source kind "&#123;String&#125;".
 
 The query tree is malformed: queries built with from() and the builder methods never produce this, a tree built or changed by hand can. If it came from the builder, please report it.
 
@@ -304,7 +304,7 @@ The query tree is malformed: tuple() refuses an empty list, so this one was buil
 
 ## `query.astUnaryOperator` {#query-astunaryoperator}
 
-> Unknown unary operator "{String}".
+> Unknown unary operator "&#123;String&#125;".
 
 The query tree is malformed: queries built with from() and the builder methods never produce this, a tree built or changed by hand can. If it came from the builder, please report it.
 
@@ -316,43 +316,43 @@ The query tree is malformed: windows() refuses such names when it is called, so 
 
 ## `query.batchStepTwice` {#query-batchsteptwice}
 
-> The batch already has a step named "{name}".
+> The batch already has a step named "&#123;name&#125;".
 
 Step names are unique: their results are kept under them.
 
 ## `query.booleanArguments` {#query-booleanarguments}
 
-> {method}() takes boolean expressions.
+> &#123;method&#125;() takes boolean expressions.
 
 Pass boolean expressions, such as u.age.gte(18).
 
 ## `query.booleanExpected` {#query-booleanexpected}
 
-> {method}() takes a boolean expression.
+> &#123;method&#125;() takes a boolean expression.
 
 Pass a boolean expression, such as u.age.gte(18), or true or false.
 
 ## `query.buildAssocKeyValue` {#query-buildassockeyvalue}
 
-> buildAssoc(): values sets {field}, the key that points at the {name} row, to another value.
+> buildAssoc(): values sets &#123;field&#125;, the key that points at the &#123;name&#125; row, to another value.
 
 Leave it out: buildAssoc sets it.
 
 ## `query.buildAssocKind` {#query-buildassockind}
 
-> buildAssoc(): "{name}" is {…} association.
+> buildAssoc(): "&#123;name&#125;" is &#123;…&#125; association.
 
 buildAssoc makes a child of a hasOne or hasMany; for the others, insert the row and use putAssoc.
 
 ## `query.buildAssocParent` {#query-buildassocparent}
 
-> buildAssoc(): the parent must be a {name} row.
+> buildAssoc(): the parent must be a &#123;name&#125; row.
 
-Pass a loaded {owner} row, as returned by a query or a write.
+Pass a loaded &#123;owner&#125; row, as returned by a query or a write.
 
 ## `query.buildAssocParentKey` {#query-buildassocparentkey}
 
-> buildAssoc(): the {name} row has no value for {name}, the key the child points at.
+> buildAssoc(): the &#123;name&#125; row has no value for &#123;name&#125;, the key the child points at.
 
 Pass a row that has its key: one returned by a query or a write.
 
@@ -360,43 +360,43 @@ Pass a row that has its key: one returned by a query or a write.
 
 > buildAssoc() takes the schema class first.
 
-Pass the schema class first: buildAssoc(User, user, "posts", { … }).
+Pass the schema class first: buildAssoc(User, user, "posts", &#123; … &#125;).
 
 ## `query.buildAssocUnknown` {#query-buildassocunknown}
 
-> buildAssoc(): {name} has no association "{String}".
+> buildAssoc(): &#123;name&#125; has no association "&#123;String&#125;".
 
 Name an association the schema declares.
 
 ## `query.callbackExpected` {#query-callbackexpected}
 
-> {clause}() takes a callback that receives the bindings.
+> &#123;clause&#125;() takes a callback that receives the bindings.
 
-Pass a callback that receives the bindings: {clause}(({ u }) =\> …).
+Pass a callback that receives the bindings: &#123;clause&#125;((&#123; u &#125;) =\> …).
 
 ## `query.caseCondition` {#query-casecondition}
 
-> {method}() takes a boolean expression as its condition.
+> &#123;method&#125;() takes a boolean expression as its condition.
 
 Pass a boolean expression, such as u.age.lt(18).
 
 ## `query.castEmbed` {#query-castembed}
 
-> cast(): "{name}" is an embed.
+> cast(): "&#123;name&#125;" is an embed.
 
-Cast it with castEmbed("{name}", …) instead.
+Cast it with castEmbed("&#123;name&#125;", …) instead.
 
 ## `query.castEmptyValues` {#query-castemptyvalues}
 
 > cast(): emptyValues must be an array.
 
-Pass emptyValues as an array, as in { emptyValues: \["", "n/a"\] }.
+Pass emptyValues as an array, as in &#123; emptyValues: \["", "n/a"\] &#125;.
 
 ## `query.castNestedWithoutParams` {#query-castnestedwithoutparams}
 
-> {fn}("{name}") reads the params given to cast(), and this changeset was made with change().
+> &#123;fn&#125;("&#123;name&#125;") reads the params given to cast(), and this changeset was made with change().
 
-Use {embed} for values you trust.
+Use &#123;embed&#125; for values you trust.
 
 ## `query.castPermitted` {#query-castpermitted}
 
@@ -406,21 +406,21 @@ Pass the permitted field names as an array: cast(User, params, \["email"\]).
 
 ## `query.castType` {#query-casttype}
 
-> {method}() takes a field type.
+> &#123;method&#125;() takes a field type.
 
 Pass a field type, such as t.integer() or t.string(), to name the type.
 
 ## `query.changeEmbed` {#query-changeembed}
 
-> change(): "{key}" is an embed.
+> change(): "&#123;key&#125;" is an embed.
 
-Change it with putEmbed("{key}", …) instead.
+Change it with putEmbed("&#123;key&#125;", …) instead.
 
 ## `query.changeValues` {#query-changevalues}
 
 > change() takes the values as an object.
 
-Pass the values as an object: change(User, { email: "…" }).
+Pass the values as an object: change(User, &#123; email: "…" &#125;).
 
 ## `query.changesetConstructor` {#query-changesetconstructor}
 
@@ -430,21 +430,21 @@ Make one with cast(User, params, \[...\]) or change(User, values).
 
 ## `query.changesetFieldUnknown` {#query-changesetfieldunknown}
 
-> {fn}(): {name} has no field "{name}".
+> &#123;fn&#125;(): &#123;name&#125; has no field "&#123;name&#125;".
 
-Its fields are: {fields}.
+Its fields are: &#123;fields&#125;.
 
 ## `query.changesetSource` {#query-changesetsource}
 
-> {fn}() takes a schema class (for a new record), a row (for an update), a changeset, or { data, types } for a changeset without a schema class.
+> &#123;fn&#125;() takes a schema class (for a new record), a row (for an update), a changeset, or &#123; data, types &#125; for a changeset without a schema class.
 
-Pass a schema class (for a new record), a row (for an update), a changeset, or { data, types } for a changeset without a schema class.
+Pass a schema class (for a new record), a row (for an update), a changeset, or &#123; data, types &#125; for a changeset without a schema class.
 
 ## `query.checkConstraintName` {#query-checkconstraintname}
 
 > checkConstraint() needs the constraint's name.
 
-Pass the constraint's name: checkConstraint("age", { name: "users\_age\_check" }).
+Pass the constraint's name: checkConstraint("age", &#123; name: "users\_age\_check" &#125;).
 
 ## `query.checkoutEnded` {#query-checkoutended}
 
@@ -466,9 +466,9 @@ Pass at least two expressions or values, as in coalesce(u.nickname, u.name).
 
 ## `query.columnKindUnsupported` {#query-columnkindunsupported}
 
-> The column type kind "{String}" has no SQL name in {name}.
+> The column type kind "&#123;String&#125;" has no SQL name in &#123;name&#125;.
 
-See Dialect support for the column types {dialect} has, or use a custom type with its SQL name.
+See Dialect support for the column types &#123;dialect&#125; has, or use a custom type with its SQL name.
 
 ## `query.combinedClause` {#query-combinedclause}
 
@@ -490,7 +490,7 @@ Name the one to sort by with selectedAs(…) and order by that name.
 
 ## `query.compareNull` {#query-comparenull}
 
-> {method}() was given null.
+> &#123;method&#125;() was given null.
 
 A comparison with null is always unknown in SQL, so it would match nothing: use isNull() or isNotNull(), or isDistinctFrom() to compare treating null as a value.
 
@@ -514,61 +514,61 @@ Pass at least one value or expression to append.
 
 ## `query.conditionExpected` {#query-conditionexpected}
 
-> {clause}() needs its callback to return a condition; it returned {describeValue}.
+> &#123;clause&#125;() needs its callback to return a condition; it returned &#123;describeValue&#125;.
 
-Return a condition from the callback, such as ({ u }) =\> u.age.gte(18).
+Return a condition from the callback, such as (&#123; u &#125;) =\> u.age.gte(18).
 
 ## `query.conditionNotBoolean` {#query-conditionnotboolean}
 
-> {clause}() needs a condition, and its callback returned the {name} expression{column}.
+> &#123;clause&#125;() needs a condition, and its callback returned the &#123;name&#125; expression&#123;column&#125;.
 
-Compare it: {clause}(({ u }) =\> u.age.gte(18)).
+Compare it: &#123;clause&#125;((&#123; u &#125;) =\> u.age.gte(18)).
 
 ## `query.constraintMatch` {#query-constraintmatch}
 
-> {fn}(): match must be "exact", "suffix" or "prefix".
+> &#123;fn&#125;(): match must be "exact", "suffix" or "prefix".
 
 Pass match: "exact" (the default), "suffix" or "prefix".
 
 ## `query.constraintMessage` {#query-constraintmessage}
 
-> {fn}(): message must be a string.
+> &#123;fn&#125;(): message must be a string.
 
-Pass the message as a string, as in { message: "is taken" }.
+Pass the message as a string, as in &#123; message: "is taken" &#125;.
 
 ## `query.constraintName` {#query-constraintname}
 
-> {fn}(): name must be a non-empty string.
+> &#123;fn&#125;(): name must be a non-empty string.
 
-Pass the name as a non-empty string, as in { name: "users\_email\_key" }.
+Pass the name as a non-empty string, as in &#123; name: "users\_email\_key" &#125;.
 
 ## `query.constraintNoTable` {#query-constraintnotable}
 
-> {fn}(): {…} has no table, so the constraint has no default name.
+> &#123;fn&#125;(): &#123;…&#125; has no table, so the constraint has no default name.
 
-Pass it: { name: "…" }.
+Pass it: &#123; name: "…" &#125;.
 
 ## `query.constraintOptions` {#query-constraintoptions}
 
-> {fn}(): the options must be an object.
+> &#123;fn&#125;(): the options must be an object.
 
-Pass the options as an object, as in { name: "users\_email\_key" }.
+Pass the options as an object, as in &#123; name: "users\_email\_key" &#125;.
 
 ## `query.constraintUnknownAssoc` {#query-constraintunknownassoc}
 
-> {fn}(): {name} has no association "{String}".
+> &#123;fn&#125;(): &#123;name&#125; has no association "&#123;String&#125;".
 
 Name an association the schema declares.
 
 ## `query.cteFragmentBody` {#query-ctefragmentbody}
 
-> The CTE "{name}" has a fragment body, which can only be read.
+> The CTE "&#123;name&#125;" has a fragment body, which can only be read.
 
 Read the CTE in the main query; to write rows, run the statement on its own.
 
 ## `query.cteMaterialized` {#query-ctematerialized}
 
-> withCte("{name}", …): materialized is true or false, or left out to let the database decide.
+> withCte("&#123;name&#125;", …): materialized is true or false, or left out to let the database decide.
 
 Pass materialized: true or false, or leave it out to let the database decide.
 
@@ -580,31 +580,31 @@ Pass a name first, a non-empty string: withCte("tree", query).
 
 ## `query.cteNameTwice` {#query-ctenametwice}
 
-> The CTE name "{name}" is used twice in one query.
+> The CTE name "&#123;name&#125;" is used twice in one query.
 
 Give each CTE its own name.
 
 ## `query.cteOptions` {#query-cteoptions}
 
-> withCte("{name}", query, options) takes its options as an object.
+> withCte("&#123;name&#125;", query, options) takes its options as an object.
 
-Pass the options as an object: { recursive: true }.
+Pass the options as an object: &#123; recursive: true &#125;.
 
 ## `query.cteRecursive` {#query-cterecursive}
 
-> withCte("{name}", …): recursive is true or false.
+> withCte("&#123;name&#125;", …): recursive is true or false.
 
 Pass recursive: true or false, or leave it out.
 
 ## `query.cteShape` {#query-cteshape}
 
-> The source "{alias}" reads the CTE "{name}" as { {keys} }, but the query given to withCte("{name}", …) returns {…}.
+> The source "&#123;alias&#125;" reads the CTE "&#123;name&#125;" as &#123; &#123;keys&#125; &#125;, but the query given to withCte("&#123;name&#125;", …) returns &#123;…&#125;.
 
-Refer to it with the same query: cte("{name}", query).
+Refer to it with the same query: cte("&#123;name&#125;", query).
 
 ## `query.cteSourceEmbedded` {#query-ctesourceembedded}
 
-> cte("{name}", {name}): an embedded schema has no rows of its own.
+> cte("&#123;name&#125;", &#123;name&#125;): an embedded schema has no rows of its own.
 
 Pass the schema class of a table, or the CTE's query.
 
@@ -616,37 +616,37 @@ Pass the CTE's name first, a non-empty string: cte("tree", Category).
 
 ## `query.cteSourceShape` {#query-ctesourceshape}
 
-> cte("{name}", shape) takes the schema class of its rows.
+> cte("&#123;name&#125;", shape) takes the schema class of its rows.
 
-Pass the schema class of its rows, cte("{name}", Category), or the CTE's query.
+Pass the schema class of its rows, cte("&#123;name&#125;", Category), or the CTE's query.
 
 ## `query.cteTwice` {#query-ctetwice}
 
-> withCte("{name}", …): this query already has a CTE named "{name}".
+> withCte("&#123;name&#125;", …): this query already has a CTE named "&#123;name&#125;".
 
 Give each its own name.
 
 ## `query.cteUndefined` {#query-cteundefined}
 
-> The source "{alias}" reads the CTE "{name}", which the query does not define.
+> The source "&#123;alias&#125;" reads the CTE "&#123;name&#125;", which the query does not define.
 
-Define it on the query with withCte("{name}", query), or read another source.
+Define it on the query with withCte("&#123;name&#125;", query), or read another source.
 
 ## `query.cteUnknownOption` {#query-cteunknownoption}
 
-> withCte("{name}", …) has no option "{key}".
+> withCte("&#123;name&#125;", …) has no option "&#123;key&#125;".
 
 withCte() takes recursive and materialized.
 
 ## `query.cteWithPreloads` {#query-ctewithpreloads}
 
-> withCte("{name}", …): the query has preloads, which a CTE cannot run.
+> withCte("&#123;name&#125;", …): the query has preloads, which a CTE cannot run.
 
 Preload in the query that reads the CTE.
 
 ## `query.cteWithUpdate` {#query-ctewithupdate}
 
-> withCte("{name}", …): the query has set(…) assignments.
+> withCte("&#123;name&#125;", …): the query has set(…) assignments.
 
 A CTE that writes rows is not supported; run the update on its own.
 
@@ -658,9 +658,9 @@ Give the custom type a plain SQL type name, such as "citext", "numeric(10, 2)" o
 
 ## `query.deferrableUnsupported` {#query-deferrableunsupported}
 
-> A deferrable transaction (deferrable: true) is not supported by {dialect}.
+> A deferrable transaction (deferrable: true) is not supported by &#123;dialect&#125;.
 
-Leave deferrable out on {dialect}.
+Leave deferrable out on &#123;dialect&#125;.
 
 ## `query.deleteNoKey` {#query-deletenokey}
 
@@ -676,73 +676,73 @@ A query has one.
 
 ## `query.dynamicBinding` {#query-dynamicbinding}
 
-> A dynamic expression needs the binding "{alias}" of {name}, which this query {…}.
+> A dynamic expression needs the binding "&#123;alias&#125;" of &#123;name&#125;, which this query &#123;…&#125;.
 
-Use the dynamic expression in a query that has the binding "{alias}" of {schema}, or build it for this query's bindings.
+Use the dynamic expression in a query that has the binding "&#123;alias&#125;" of &#123;schema&#125;, or build it for this query's bindings.
 
 ## `query.dynamicCallback` {#query-dynamiccallback}
 
 > dynamic() takes a callback that receives the bindings.
 
-Pass a callback that receives the bindings: dynamic(({ u }) =\> u.age.gte(18)).
+Pass a callback that receives the bindings: dynamic((&#123; u &#125;) =\> u.age.gte(18)).
 
 ## `query.dynamicCombine` {#query-dynamiccombine}
 
-> {method}() on a dynamic expression takes another dynamic expression.
+> &#123;method&#125;() on a dynamic expression takes another dynamic expression.
 
-Pass another dynamic expression: a.{method}(dynamic(…)).
+Pass another dynamic expression: a.&#123;method&#125;(dynamic(…)).
 
 ## `query.dynamicCondition` {#query-dynamiccondition}
 
-> dynamic {method}(): both sides must be conditions.
+> dynamic &#123;method&#125;(): both sides must be conditions.
 
-Combine conditions, such as dynamic(({ u }) =\> u.age.gte(18)).
+Combine conditions, such as dynamic((&#123; u &#125;) =\> u.age.gte(18)).
 
 ## `query.dynamicFieldBinding` {#query-dynamicfieldbinding}
 
 > field() takes a binding first.
 
-Pass a binding first, such as u in ({ u }) =\> field(u, name).
+Pass a binding first, such as u in (&#123; u &#125;) =\> field(u, name).
 
 ## `query.dynamicFieldUnknown` {#query-dynamicfieldunknown}
 
-> field() was given {…}, which is not a column of the binding.
+> field() was given &#123;…&#125;, which is not a column of the binding.
 
-Its columns are: {columns}.
+Its columns are: &#123;columns&#125;.
 
 ## `query.dynamicSchemaClass` {#query-dynamicschemaclass}
 
-> dynamic({ {alias} }, …): "{alias}" must name a schema class.
+> dynamic(&#123; &#123;alias&#125; &#125;, …): "&#123;alias&#125;" must name a schema class.
 
-Name a schema class, such as { {alias}: User }.
+Name a schema class, such as &#123; &#123;alias&#125;: User &#125;.
 
 ## `query.dynamicSchemas` {#query-dynamicschemas}
 
 > dynamic(schemas, callback) takes the schemas it needs by alias first.
 
-Pass the schemas by alias first: dynamic({ u: User }, ({ u }) =\> …).
+Pass the schemas by alias first: dynamic(&#123; u: User &#125;, (&#123; u &#125;) =\> …).
 
 ## `query.dynamicSecondCallback` {#query-dynamicsecondcallback}
 
 > dynamic(schemas, callback) takes a callback second.
 
-Pass a callback second: dynamic({ u: User }, ({ u }) =\> u.age.gte(18)).
+Pass a callback second: dynamic(&#123; u: User &#125;, (&#123; u &#125;) =\> u.age.gte(18)).
 
 ## `query.emitterTwice` {#query-emittertwice}
 
-> The node kind "{kind}" already has an emitter.
+> The node kind "&#123;kind&#125;" already has an emitter.
 
 Register each node kind once.
 
 ## `query.errorKey` {#query-errorkey}
 
-> {fn}(): the error key must be a non-empty string other than "\_\_proto\_\_".
+> &#123;fn&#125;(): the error key must be a non-empty string other than "\_\_proto\_\_".
 
 Pass a field name, or another non-empty key, as in addError("base", "…").
 
 ## `query.excludeCombined` {#query-excludecombined}
 
-> exclude("{clause}") on a query combined with union(), intersect() or except() would change its left side only.
+> exclude("&#123;clause&#125;") on a query combined with union(), intersect() or except() would change its left side only.
 
 Exclude it from that side before combining, or exclude("setOperations") first.
 
@@ -754,7 +754,7 @@ Exclude "having" first: q.exclude("having").exclude("groupBy").
 
 ## `query.excludeUnknown` {#query-excludeunknown}
 
-> exclude() was given {…}, which is not a clause it removes.
+> exclude() was given &#123;…&#125;, which is not a clause it removes.
 
 exclude() takes where, select, distinct, groupBy, having, orderBy, limit, offset, lock, preload, set, windows, withCte or setOperations.
 
@@ -762,7 +762,7 @@ exclude() takes where, select, distinct, groupBy, having, orderBy, limit, offset
 
 > exists() takes a query.
 
-Pass a query built with from(), as in exists(from(Post, "p").where(({ p }) =\> p.authorId.eq(u.id))).
+Pass a query built with from(), as in exists(from(Post, "p").where((&#123; p &#125;) =\> p.authorId.eq(u.id))).
 
 ## `query.explainAnalyze` {#query-explainanalyze}
 
@@ -772,15 +772,15 @@ Pass analyze: true or false, or leave it out.
 
 ## `query.explainAnalyzeJson` {#query-explainanalyzejson}
 
-> explain with both analyze and format "json" is not supported by {name}.
+> explain with both analyze and format "json" is not supported by &#123;name&#125;.
 
-Use one of the two on {dialect}.
+Use one of the two on &#123;dialect&#125;.
 
 ## `query.explainAnalyzeUnsupported` {#query-explainanalyzeunsupported}
 
-> explain's analyze option is not supported by {name}.
+> explain's analyze option is not supported by &#123;name&#125;.
 
-Leave the option out on {dialect}.
+Leave the option out on &#123;dialect&#125;.
 
 ## `query.explainFormat` {#query-explainformat}
 
@@ -790,45 +790,45 @@ Pass format: "text" or "json", or leave it out.
 
 ## `query.explainFormatUnsupported` {#query-explainformatunsupported}
 
-> explain's format option is not supported by {name}.
+> explain's format option is not supported by &#123;name&#125;.
 
-Leave the option out on {dialect}.
+Leave the option out on &#123;dialect&#125;.
 
 ## `query.expressionExpected` {#query-expressionexpected}
 
-> {clause}() needs its callback to return an expression or an array of them, such as ({ u }) =\> \[u.id\]; it returned {describeValue}{…}.
+> &#123;clause&#125;() needs its callback to return an expression or an array of them, such as (&#123; u &#125;) =\> \[u.id\]; it returned &#123;describeValue&#125;&#123;…&#125;.
 
-Return an expression or an array of them from the callback, such as ({ u }) =\> \[u.id\].
+Return an expression or an array of them from the callback, such as (&#123; u &#125;) =\> \[u.id\].
 
 ## `query.fieldIsAssoc` {#query-fieldisassoc}
 
-> {fn}(): "{name}" is an association of {name}, not a field.
+> &#123;fn&#125;(): "&#123;name&#125;" is an association of &#123;name&#125;, not a field.
 
 Associations are changed through castAssoc and putAssoc.
 
 ## `query.fieldNameType` {#query-fieldnametype}
 
-> {fn}() takes a field name as a string.
+> &#123;fn&#125;() takes a field name as a string.
 
 Pass the field name as a string.
 
 ## `query.fieldNotEmbed` {#query-fieldnotembed}
 
-> field() reads a field of an embedded row, and this expression is {…}.
+> field() reads a field of an embedded row, and this expression is &#123;…&#125;.
 
 Use it on a t.embedOne() field; for other JSON use path() or pathText().
 
 ## `query.fieldNotReadable` {#query-fieldnotreadable}
 
-> field(): {name}.{name} is {…}, which field() cannot read as its type.
+> field(): &#123;name&#125;.&#123;name&#125; is &#123;…&#125;, which field() cannot read as its type.
 
-Read it with path("{column}") instead.
+Read it with path("&#123;column&#125;") instead.
 
 ## `query.fieldUnknown` {#query-fieldunknown}
 
-> field(): {name} has no stored field {…}.
+> field(): &#123;name&#125; has no stored field &#123;…&#125;.
 
-Its fields are: {embedded}.
+Its fields are: &#123;embedded&#125;.
 
 ## `query.fieldValidatorPromise` {#query-fieldvalidatorpromise}
 
@@ -838,9 +838,9 @@ An async validator runs with validateFieldAsync(); validateField() is synchronou
 
 ## `query.filterArgument` {#query-filterargument}
 
-> {clause}() takes a callback or an object of field values.
+> &#123;clause&#125;() takes a callback or an object of field values.
 
-Pass a callback, or an object of field values: {clause}({ role: "admin" }).
+Pass a callback, or an object of field values: &#123;clause&#125;(&#123; role: "admin" &#125;).
 
 ## `query.filterCondition` {#query-filtercondition}
 
@@ -850,15 +850,15 @@ Pass a boolean expression, such as p.published or p.views.gt(10).
 
 ## `query.filterUndefined` {#query-filterundefined}
 
-> {clause}({ {key}: undefined }) on {label}: undefined is not a value, and a filter that silently disappears matches every row.
+> &#123;clause&#125;(&#123; &#123;key&#125;: undefined &#125;) on &#123;label&#125;: undefined is not a value, and a filter that silently disappears matches every row.
 
-Leave the key out, or add the clause only when there is a value: if (value !== undefined) q = q.where({ {key}: value }).
+Leave the key out, or add the clause only when there is a value: if (value !== undefined) q = q.where(&#123; &#123;key&#125;: value &#125;).
 
 ## `query.filterUnknownField` {#query-filterunknownfield}
 
-> {clause}({ {key} }) names a field that {label} does not have as a column.
+> &#123;clause&#125;(&#123; &#123;key&#125; &#125;) names a field that &#123;label&#125; does not have as a column.
 
-Its columns are: {names}.
+Its columns are: &#123;names&#125;.
 
 ## `query.formatPattern` {#query-formatpattern}
 
@@ -886,63 +886,63 @@ An array of expressions is not bound: interpolate each expression on its own. Fo
 
 ## `query.functionUnknown` {#query-functionunknown}
 
-> The function "{String}" is not in the {name} function table.
+> The function "&#123;String&#125;" is not in the &#123;name&#125; function table.
 
 Use the functions the query builder offers, or write the call as a fragment, interpolating its arguments: fragment\`my\_function(…)\`.
 
 ## `query.getByValues` {#query-getbyvalues}
 
-> repo.{method}() takes an object of field values.
+> repo.&#123;method&#125;() takes an object of field values.
 
-Pass an object of field values: repo.{method}(User, { email: "ada@example.com" }).
+Pass an object of field values: repo.&#123;method&#125;(User, &#123; email: "ada@example.com" &#125;).
 
 ## `query.getCompositeId` {#query-getcompositeid}
 
-> repo.get({name}, id): {name} has a composite primary key.
+> repo.get(&#123;name&#125;, id): &#123;name&#125; has a composite primary key.
 
-The id is an object of the key fields: {expected}.
+The id is an object of the key fields: &#123;expected&#125;.
 
 ## `query.getIdArray` {#query-getidarray}
 
-> repo.get({name}, id): the key field "{name}" holds one value, but it was given an array.
+> repo.get(&#123;name&#125;, id): the key field "&#123;name&#125;" holds one value, but it was given an array.
 
-To read several rows by key, use repo.all(from({name}, "x").where(({ x }) =\> x.{name1}.in(ids))).
+To read several rows by key, use repo.all(from(&#123;name&#125;, "x").where((&#123; x &#125;) =\> x.&#123;name1&#125;.in(ids))).
 
 ## `query.getIdField` {#query-getidfield}
 
-> repo.get({name}, id): the id has no value for the key field "{name}" (it is {String}).
+> repo.get(&#123;name&#125;, id): the id has no value for the key field "&#123;name&#125;" (it is &#123;String&#125;).
 
-The id is {expected}.
+The id is &#123;expected&#125;.
 
 ## `query.getIdObject` {#query-getidobject}
 
-> repo.get({name}, id): the primary key of {name} is the single field "{name}".
+> repo.get(&#123;name&#125;, id): the primary key of &#123;name&#125; is the single field "&#123;name&#125;".
 
-The id is the value of the key field, as in repo.get({schema}, 42).
+The id is the value of the key field, as in repo.get(&#123;schema&#125;, 42).
 
 ## `query.getIdUnknownField` {#query-getidunknownfield}
 
-> repo.get({name}, id): "{name}" is not a field of the primary key of {name}.
+> repo.get(&#123;name&#125;, id): "&#123;name&#125;" is not a field of the primary key of &#123;name&#125;.
 
-The id is {expected}.
+The id is &#123;expected&#125;.
 
 ## `query.getMissingId` {#query-getmissingid}
 
-> repo.get({name}, {String}): the id is {String}.
+> repo.get(&#123;name&#125;, &#123;String&#125;): the id is &#123;String&#125;.
 
 This is almost always a missing value upstream (an unparsed route parameter, a field that was never set); check it before reading.
 
 ## `query.getNoPrimaryKey` {#query-getnoprimarykey}
 
-> repo.get({name}, id): {name} has no primary key, so it cannot be read by id.
+> repo.get(&#123;name&#125;, id): &#123;name&#125; has no primary key, so it cannot be read by id.
 
-Use repo.getBy({name}, { … }) instead.
+Use repo.getBy(&#123;name&#125;, &#123; … &#125;) instead.
 
 ## `query.havingCallback` {#query-havingcallback}
 
-> {clause}() takes a callback.
+> &#123;clause&#125;() takes a callback.
 
-Pass a callback: {clause}(({ p }) =\> count(p.id).gt(3)).
+Pass a callback: &#123;clause&#125;((&#123; p &#125;) =\> count(p.id).gt(3)).
 
 ## `query.havingWithoutGroupBy` {#query-havingwithoutgroupby}
 
@@ -958,33 +958,33 @@ Pass an identifier: a letter or underscore, then letters, digits, underscores or
 
 ## `query.inOperand` {#query-inoperand}
 
-> {op}() takes an array of values, an expression of array type, or a query.
+> &#123;op&#125;() takes an array of values, an expression of array type, or a query.
 
 Pass an array of values, as in u.id.in(\[1, 2, 3\]), an expression of array type, or a query that selects one column.
 
 ## `query.inclusionValues` {#query-inclusionvalues}
 
-> {fn}() takes the values as an array.
+> &#123;fn&#125;() takes the values as an array.
 
-Pass the values as an array, as in {fn}("role", \["admin", "member"\]).
+Pass the values as an array, as in &#123;fn&#125;("role", \["admin", "member"\]).
 
 ## `query.insertAllMixedColumns` {#query-insertallmixedcolumns}
 
-> repo.insertAll(): row {row} has no value for {name}.{name}, which other rows give, and {dialect} cannot write DEFAULT in a VALUES list.
+> repo.insertAll(): row &#123;row&#125; has no value for &#123;name&#125;.&#123;name&#125;, which other rows give, and &#123;dialect&#125; cannot write DEFAULT in a VALUES list.
 
-Give every row the same fields ({columns}), or insert the rows in groups of the same fields.
+Give every row the same fields (&#123;columns&#125;), or insert the rows in groups of the same fields.
 
 ## `query.insertAllNeverWritable` {#query-insertallneverwritable}
 
-> repo.insertAll(): row {r} gives a value for {name}.{name}, which the database owns (writable: "never").
+> repo.insertAll(): row &#123;r&#125; gives a value for &#123;name&#125;.&#123;name&#125;, which the database owns (writable: "never").
 
 Leave the field out of the rows: the database fills it.
 
 ## `query.insertAllQuerySelect` {#query-insertallqueryselect}
 
-> repo.insertAll({name}, query): the query must select an object whose keys are the fields to fill.
+> repo.insertAll(&#123;name&#125;, query): the query must select an object whose keys are the fields to fill.
 
-Select an object whose keys are the fields to fill, such as .select(({ u }) =\> ({ email: u.email, name: u.name })).
+Select an object whose keys are the fields to fill, such as .select((&#123; u &#125;) =\> (&#123; email: u.email, name: u.name &#125;)).
 
 ## `query.insertAllQueryValue` {#query-insertallqueryvalue}
 
@@ -994,13 +994,13 @@ A subquery that selects one value is written scalar(query), which also types it.
 
 ## `query.insertAllSelectNeverWritable` {#query-insertallselectneverwritable}
 
-> repo.insertAll(): the query selects {name}.{name}, which the database owns (writable: "never").
+> repo.insertAll(): the query selects &#123;name&#125;.&#123;name&#125;, which the database owns (writable: "never").
 
 Leave the field out of the select: the database fills it.
 
 ## `query.insertAllSelectValue` {#query-insertallselectvalue}
 
-> repo.insertAll({name}, query): the select's "{key}" is not one SQL value (a plain value is kept out of the statement, and a binding is a whole row).
+> repo.insertAll(&#123;name&#125;, query): the select's "&#123;key&#125;" is not one SQL value (a plain value is kept out of the statement, and a binding is a whole row).
 
 Select an expression; for a value, val(value, t.integer()).
 
@@ -1012,25 +1012,25 @@ The insert plan is malformed: the repo always gives an insert of cells its colum
 
 ## `query.insertCellsRowLength` {#query-insertcellsrowlength}
 
-> Row {r} of the insert has {length} cells for {length} columns.
+> Row &#123;r&#125; of the insert has &#123;length&#125; cells for &#123;length&#125; columns.
 
 Give every row one cell per column.
 
 ## `query.insertDefaultsNoColumn` {#query-insertdefaultsnocolumn}
 
-> {name} has no column to insert defaults into.
+> &#123;name&#125; has no column to insert defaults into.
 
 Give the schema a column the database fills, or insert values.
 
 ## `query.insertLoadedRow` {#query-insertloadedrow}
 
-> repo.{method}() takes a changeset of a new record (made from the class, cast({name}, …)); this one is of a loaded row.
+> repo.&#123;method&#125;() takes a changeset of a new record (made from the class, cast(&#123;name&#125;, …)); this one is of a loaded row.
 
 Update it with repo.update(), or use repo.insertOrUpdate().
 
 ## `query.insertNoRow` {#query-insertnorow}
 
-> The insert into {name} reported no row written.
+> The insert into &#123;name&#125; reported no row written.
 
 The database reported no row for the insert; check triggers or rules on the table that may skip it.
 
@@ -1054,9 +1054,9 @@ The insert plan is malformed: the repo always passes a whole number of rows.
 
 ## `query.insertRowTooWide` {#query-insertrowtoowide}
 
-> One row of {columns} values is more than the {maxParams} parameters a statement may have.
+> One row of &#123;columns&#125; values is more than the &#123;maxParams&#125; parameters a statement may have.
 
-Write fewer columns per row, or split the table: a statement may have at most {maxParams} parameters.
+Write fewer columns per row, or split the table: a statement may have at most &#123;maxParams&#125; parameters.
 
 ## `query.insertValuesRows` {#query-insertvaluesrows}
 
@@ -1066,31 +1066,31 @@ The insert plan is malformed: the repo always passes a whole number of rows, at 
 
 ## `query.isolationUnsupported` {#query-isolationunsupported}
 
-> The isolation level "{isolation}" is not supported by {dialect}.
+> The isolation level "&#123;isolation&#125;" is not supported by &#123;dialect&#125;.
 
-See Dialect support for the isolation levels {dialect} has.
+See Dialect support for the isolation levels &#123;dialect&#125; has.
 
 ## `query.joinPreloadCallbackLimit` {#query-joinpreloadcallbacklimit}
 
-> {label}: its callback preloads "{many}" from a join, and its limit or offset would count the joined rows, not the rows of {name}, giving a parent fewer than it asks for.
+> &#123;label&#125;: its callback preloads "&#123;many&#125;" from a join, and its limit or offset would count the joined rows, not the rows of &#123;name&#125;, giving a parent fewer than it asks for.
 
-Preload "{many}" with a separate query instead (preload("{many}") in the callback).
+Preload "&#123;many&#125;" with a separate query instead (preload("&#123;many&#125;") in the callback).
 
 ## `query.joinPreloadLimit` {#query-joinpreloadlimit}
 
-> This query preloads "{many}" from a join, and {what} would count the joined rows, not the parents, cutting their "{many}" short.
+> This query preloads "&#123;many&#125;" from a join, and &#123;what&#125; would count the joined rows, not the parents, cutting their "&#123;many&#125;" short.
 
-Preload "{many}" with a separate query instead (preload("{many}"), or a callback with its own per-parent limit), or read the rows with repo.all() and no limit.
+Preload "&#123;many&#125;" with a separate query instead (preload("&#123;many&#125;"), or a callback with its own per-parent limit), or read the rows with repo.all() and no limit.
 
 ## `query.joinPreloadNoKey` {#query-joinpreloadnokey}
 
-> A join preload merges the result rows of each {name} by its primary key, and {name} has none.
+> A join preload merges the result rows of each &#123;name&#125; by its primary key, and &#123;name&#125; has none.
 
 Preload with a separate query instead.
 
 ## `query.joinPreloadUnderThrough` {#query-joinpreloadunderthrough}
 
-> {label}: a nested preload from a join is not supported under a {…} association.
+> &#123;label&#125;: a nested preload from a join is not supported under a &#123;…&#125; association.
 
 Preload the nested association with a separate query instead.
 
@@ -1102,7 +1102,7 @@ Pass the keys as strings, or whole numbers from 0 for array positions.
 
 ## `query.jsonPathKeyExpression` {#query-jsonpathkeyexpression}
 
-> A key of a JSON path on {name} must be a value (a string or a whole number), not an expression.
+> A key of a JSON path on &#123;name&#125; must be a value (a string or a whole number), not an expression.
 
 Pass the keys of the path as strings or whole numbers.
 
@@ -1114,7 +1114,7 @@ Read such a key with a fragment, or store the JSON with keys without quotes and 
 
 ## `query.lateralReference` {#query-lateralreference}
 
-> The column {alias}.{String} is read by a subquery in FROM or a join from a binding of the same query, "{alias}", which needs a lateral join.
+> The column &#123;alias&#125;.&#123;String&#125; is read by a subquery in FROM or a join from a binding of the same query, "&#123;alias&#125;", which needs a lateral join.
 
 Lateral joins are not supported yet: move the condition to the join's on, or use the subquery in where with exists() or in().
 
@@ -1128,41 +1128,41 @@ Pass count: "graphemes" (the default), "codepoints" or "bytes".
 
 > validateLength() needs at least one of is, min and max.
 
-Pass is, min or max, as in validateLength("name", { min: 2 }).
+Pass is, min or max, as in validateLength("name", &#123; min: 2 &#125;).
 
 ## `query.lengthOptions` {#query-lengthoptions}
 
 > validateLength() takes its limits as an object.
 
-Pass the limits as an object: { min: 2, max: 80 }.
+Pass the limits as an object: &#123; min: 2, max: 80 &#125;.
 
 ## `query.lengthWholeNumbers` {#query-lengthwholenumbers}
 
 > validateLength(): is, min and max must be whole numbers, 0 or more.
 
-Pass whole numbers of 0 or more, as in { min: 2, max: 80 }.
+Pass whole numbers of 0 or more, as in &#123; min: 2, max: 80 &#125;.
 
 ## `query.limitValue` {#query-limitvalue}
 
-> {clause}() takes a non-negative whole number or a named parameter, {clause}(param("{clause}", t.integer())); it was given {…}.
+> &#123;clause&#125;() takes a non-negative whole number or a named parameter, &#123;clause&#125;(param("&#123;clause&#125;", t.integer())); it was given &#123;…&#125;.
 
-Pass a non-negative whole number, or a named parameter: {clause}(param("{clause}", t.integer())).
+Pass a non-negative whole number, or a named parameter: &#123;clause&#125;(param("&#123;clause&#125;", t.integer())).
 
 ## `query.listNull` {#query-listnull}
 
-> {op}() was given a list holding null.
+> &#123;op&#125;() was given a list holding null.
 
-x {operator} (…, NULL) never matches the null: filter it out and add isNull() separately.
+x &#123;operator&#125; (…, NULL) never matches the null: filter it out and add isNull() separately.
 
 ## `query.listParamsUnsupported` {#query-listparamsunsupported}
 
-> A list of values outside in() needs array parameters, which {name} does not have.
+> A list of values outside in() needs array parameters, which &#123;name&#125; does not have.
 
-Use the list with in(), which expands it to one parameter per item, or see Dialect support for what {dialect} supports.
+Use the list with in(), which expands it to one parameter per item, or see Dialect support for what &#123;dialect&#125; supports.
 
 ## `query.listUndefined` {#query-listundefined}
 
-> {op}() was given a list holding undefined, which is not a value.
+> &#123;op&#125;() was given a list holding undefined, which is not a value.
 
 Remove the undefined items from the list; every item must be a value.
 
@@ -1180,7 +1180,7 @@ Pass a mode ("update", "share", "noKeyUpdate", "keyShare"), or a fragment of SQL
 
 ## `query.lockClause` {#query-lockclause}
 
-> The lock clause "{clause}" is not one {name} accepts as a string.
+> The lock clause "&#123;clause&#125;" is not one &#123;name&#125; accepts as a string.
 
 Use a fragment for that lock clause: lock(fragment\`…\`).
 
@@ -1198,13 +1198,13 @@ Pass a function that makes the next value, as in optimisticLock("version", (v) =
 
 ## `query.lockMode` {#query-lockmode}
 
-> lock() takes "update", "share", "noKeyUpdate" or "keyShare", optionally with { skipLocked } or { noWait }, or a fragment for any other lock clause.
+> lock() takes "update", "share", "noKeyUpdate" or "keyShare", optionally with &#123; skipLocked &#125; or &#123; noWait &#125;, or a fragment for any other lock clause.
 
-Pass "update", "share", "noKeyUpdate" or "keyShare", optionally with { skipLocked: true } or { noWait: true }, or a fragment for any other lock clause.
+Pass "update", "share", "noKeyUpdate" or "keyShare", optionally with &#123; skipLocked: true &#125; or &#123; noWait: true &#125;, or a fragment for any other lock clause.
 
 ## `query.lockNoValue` {#query-locknovalue}
 
-> optimisticLock(): "{field}" has no value to compare.
+> optimisticLock(): "&#123;field&#125;" has no value to compare.
 
 Give the field a default, such as t.integer().default(1).
 
@@ -1218,7 +1218,7 @@ Pass a function that makes the next value.
 
 > lock() takes its options as an object.
 
-Pass the options as an object: { skipLocked: true } or { noWait: true }.
+Pass the options as an object: &#123; skipLocked: true &#125; or &#123; noWait: true &#125;.
 
 ## `query.lockSkipAndNoWait` {#query-lockskipandnowait}
 
@@ -1228,13 +1228,13 @@ Choose one: a lock either skips locked rows or fails on them.
 
 ## `query.lockUnknownOption` {#query-lockunknownoption}
 
-> lock() has no option {join}.
+> lock() has no option &#123;join&#125;.
 
 lock() takes skipLocked and noWait.
 
 ## `query.mergeActions` {#query-mergeactions}
 
-> merge(): the changesets have different actions ("{action}" and "{action}").
+> merge(): the changesets have different actions ("&#123;action&#125;" and "&#123;action&#125;").
 
 Merge changesets with the same action, or set one with applyAction() first.
 
@@ -1258,99 +1258,99 @@ Return the message as a string from the message function, as in (meta) =\> "must
 
 ## `query.messageOption` {#query-messageoption}
 
-> {fn}(): message must be a string or a function that returns one.
+> &#123;fn&#125;(): message must be a string or a function that returns one.
 
-Pass a string, or a function that returns one, as in { message: "is required" }.
+Pass a string, or a function that returns one, as in &#123; message: "is required" &#125;.
 
 ## `query.namedParamMissing` {#query-namedparammissing}
 
-> The query needs the named parameter{…} {join}, which {…} not given a value.
+> The query needs the named parameter&#123;…&#125; &#123;join&#125;, which &#123;…&#125; not given a value.
 
-Pass a value for every named parameter in the params argument: repo.all(q, { {first}: … }).
+Pass a value for every named parameter in the params argument: repo.all(q, &#123; &#123;first&#125;: … &#125;).
 
 ## `query.namedParamUnknown` {#query-namedparamunknown}
 
-> The query has no named parameter{…} {join}{…}.
+> The query has no named parameter&#123;…&#125; &#123;join&#125;&#123;…&#125;.
 
 Pass only the named parameters the query declares with param().
 
 ## `query.nestedAssocNotEmbed` {#query-nestedassocnotembed}
 
-> {fn}(): "{name}" is an association of {name}, not an embed.
+> &#123;fn&#125;(): "&#123;name&#125;" is an association of &#123;name&#125;, not an embed.
 
-Use {fn}("{name}", …).
+Use &#123;fn&#125;("&#123;name&#125;", …).
 
 ## `query.nestedChildSchema` {#query-nestedchildschema}
 
-> {fn}("{name}"): the child changesets must be of {name}, but one is of {…}.
+> &#123;fn&#125;("&#123;name&#125;"): the child changesets must be of &#123;name&#125;, but one is of &#123;…&#125;.
 
-Make every child changeset from {target}, or from one of its rows.
+Make every child changeset from &#123;target&#125;, or from one of its rows.
 
 ## `query.nestedDuplicate` {#query-nestedduplicate}
 
-> {fn}("{name}"): the same {name} is given twice.
+> &#123;fn&#125;("&#123;name&#125;"): the same &#123;name&#125; is given twice.
 
 Give each row once.
 
 ## `query.nestedEmbedNotAssoc` {#query-nestedembednotassoc}
 
-> {fn}(): "{name}" is an embed field of {name}, not an association.
+> &#123;fn&#125;(): "&#123;name&#125;" is an embed field of &#123;name&#125;, not an association.
 
-Use {fn}("{name}", …).
+Use &#123;fn&#125;("&#123;name&#125;", …).
 
 ## `query.nestedName` {#query-nestedname}
 
-> {fn}() takes the name as a string.
+> &#123;fn&#125;() takes the name as a string.
 
 Pass the name of the association or embed as a string.
 
 ## `query.nestedNoChangeset` {#query-nestednochangeset}
 
-> {fn}("{name}"): {name} has no static changeset function.
+> &#123;fn&#125;("&#123;name&#125;"): &#123;name&#125; has no static changeset function.
 
-Give the schema a static changeset function, or pass one: { with: (row, params) =\> cast(row, params, \[...\]) }.
+Give the schema a static changeset function, or pass one: &#123; with: (row, params) =\> cast(row, params, \[...\]) &#125;.
 
 ## `query.nestedNoSchema` {#query-nestednoschema}
 
-> {fn}(): a changeset without a schema class has no associations.
+> &#123;fn&#125;(): a changeset without a schema class has no associations.
 
 Make the changeset from a schema class or a row to change associations.
 
 ## `query.nestedNotArray` {#query-nestednotarray}
 
-> {fn}("{name}"): {ownerName}.{name} holds a list.
+> &#123;fn&#125;("&#123;name&#125;"): &#123;ownerName&#125;.&#123;name&#125; holds a list.
 
 Give an array of values.
 
 ## `query.nestedNotEmbed` {#query-nestednotembed}
 
-> {fn}(): "{name}" is not an embed field (it is {name}).
+> &#123;fn&#125;(): "&#123;name&#125;" is not an embed field (it is &#123;name&#125;).
 
-{fn} changes fields declared with t.embedOne or t.embedMany; change other fields with {other}.
+&#123;fn&#125; changes fields declared with t.embedOne or t.embedMany; change other fields with &#123;other&#125;.
 
 ## `query.nestedOptions` {#query-nestedoptions}
 
-> {fn}("{name}", options): the options must be an object.
+> &#123;fn&#125;("&#123;name&#125;", options): the options must be an object.
 
-Pass the options as an object, such as { required: true }.
+Pass the options as an object, such as &#123; required: true &#125;.
 
 ## `query.nestedRequired` {#query-nestedrequired}
 
-> {fn}(): required must be true or false.
+> &#123;fn&#125;(): required must be true or false.
 
 Pass required: true or false, or leave it out.
 
 ## `query.nestedRowSchema` {#query-nestedrowschema}
 
-> {fn}("{name}"): a row given must be a {name}.
+> &#123;fn&#125;("&#123;name&#125;"): a row given must be a &#123;name&#125;.
 
-Pass a {target} row, a changeset of one, or a plain object of its fields.
+Pass a &#123;target&#125; row, a changeset of one, or a plain object of its fields.
 
 ## `query.nestedThroughReadOnly` {#query-nestedthroughreadonly}
 
-> {fn}(): "{name}" of {name} is a has-through association, which is read-only.
+> &#123;fn&#125;(): "&#123;name&#125;" of &#123;name&#125; is a has-through association, which is read-only.
 
-Change the associations it goes through ({assoc}) instead.
+Change the associations it goes through (&#123;assoc&#125;) instead.
 
 ## `query.nestedTransactionLeftRunning` {#query-nestedtransactionleftrunning}
 
@@ -1366,55 +1366,55 @@ Run the statements on the repo the nested callback was given (tx.transaction(asy
 
 ## `query.nestedUndefined` {#query-nestedundefined}
 
-> {fn}("{name}", undefined).
+> &#123;fn&#125;("&#123;name&#125;", undefined).
 
-Give {what}.
+Give &#123;what&#125;.
 
 ## `query.nestedUnknownAssoc` {#query-nestedunknownassoc}
 
-> {fn}(): {name} has no association "{name}". {…}.
+> &#123;fn&#125;(): &#123;name&#125; has no association "&#123;name&#125;". &#123;…&#125;.
 
 Name an association the schema declares.
 
 ## `query.nestedUnknownField` {#query-nestedunknownfield}
 
-> {fn}(): {ownerNameOf} has no field "{name}".
+> &#123;fn&#125;(): &#123;ownerNameOf&#125; has no field "&#123;name&#125;".
 
 Name an embed field the schema declares.
 
 ## `query.nestedUnknownKey` {#query-nestedunknownkey}
 
-> {fn}("{name}"): {name} has no field or association "{key}".
+> &#123;fn&#125;("&#123;name&#125;"): &#123;name&#125; has no field or association "&#123;key&#125;".
 
-Pass only the fields and associations {target} declares.
+Pass only the fields and associations &#123;target&#125; declares.
 
 ## `query.nestedUnknownOption` {#query-nestedunknownoption}
 
-> {fn}(): unknown option "{key}".
+> &#123;fn&#125;(): unknown option "&#123;key&#125;".
 
 The options are with and required.
 
 ## `query.nestedValue` {#query-nestedvalue}
 
-> {fn}("{name}"): each value is a {name} row, a changeset of one, or a plain object of its fields, but one is {describe}.
+> &#123;fn&#125;("&#123;name&#125;"): each value is a &#123;name&#125; row, a changeset of one, or a plain object of its fields, but one is &#123;describe&#125;.
 
-Pass a {target} row, a changeset of one, or a plain object of its fields for each value.
+Pass a &#123;target&#125; row, a changeset of one, or a plain object of its fields for each value.
 
 ## `query.nestedWith` {#query-nestedwith}
 
-> {fn}(): with must be the function that makes a child changeset.
+> &#123;fn&#125;(): with must be the function that makes a child changeset.
 
 Pass with: (row, params) =\> cast(row, params, \[...\]), the function that makes a child changeset.
 
 ## `query.noAssocConstraintKind` {#query-noassocconstraintkind}
 
-> noAssocConstraint(): "{assoc}" is {…} association.
+> noAssocConstraint(): "&#123;assoc&#125;" is &#123;…&#125; association.
 
 It applies to hasOne and hasMany associations with a foreign key.
 
 ## `query.noDialectTable` {#query-nodialecttable}
 
-> adapter.{method}() cannot compile for {dialect}: this build of egon-orm has no SQL dialect table for it.
+> adapter.&#123;method&#125;() cannot compile for &#123;dialect&#125;: this build of egon-orm has no SQL dialect table for it.
 
 Run SQL text with adapter.execute() instead.
 
@@ -1432,49 +1432,49 @@ Give a fraction a float type, val(2.5, t.float()), or round it.
 
 ## `query.nullNotAllowed` {#query-nullnotallowed}
 
-> {method}() was given null, which it cannot take.
+> &#123;method&#125;() was given null, which it cannot take.
 
 Pass a value; to test for SQL NULL use isNull() or isNotNull().
 
 ## `query.numberLimit` {#query-numberlimit}
 
-> validateNumber(): {key} must be a number.
+> validateNumber(): &#123;key&#125; must be a number.
 
-Pass the limit as a number (or a bigint for bigint fields), as in { lessThan: 100 }.
+Pass the limit as a number (or a bigint for bigint fields), as in &#123; lessThan: 100 &#125;.
 
 ## `query.numberNoLimit` {#query-numbernolimit}
 
 > validateNumber() needs at least one limit.
 
-Pass at least one limit, such as { greaterThan: 0 }.
+Pass at least one limit, such as &#123; greaterThan: 0 &#125;.
 
 ## `query.numberOptions` {#query-numberoptions}
 
 > validateNumber() takes its limits as an object.
 
-Pass the limits as an object: { greaterThan: 0 }.
+Pass the limits as an object: &#123; greaterThan: 0 &#125;.
 
 ## `query.numberUnknownOption` {#query-numberunknownoption}
 
-> validateNumber(): unknown option "{key}".
+> validateNumber(): unknown option "&#123;key&#125;".
 
-The options are {Object} and message.
+The options are &#123;Object&#125; and message.
 
 ## `query.onConflictKey` {#query-onconflictkey}
 
-> {where} has the keys target and update; "{key}" is not one of them.
+> &#123;where&#125; has the keys target and update; "&#123;key&#125;" is not one of them.
 
-Pass { target, update }, as in onConflict: { target: \["email"\], update: "all" }.
+Pass &#123; target, update &#125;, as in onConflict: &#123; target: \["email"\], update: "all" &#125;.
 
 ## `query.onConflictNested` {#query-onconflictnested}
 
-> repo.{method}(): onConflict cannot be combined with changes of associations: a row that is not inserted has no children to write.
+> repo.&#123;method&#125;(): onConflict cannot be combined with changes of associations: a row that is not inserted has no children to write.
 
 Write the parent first, then the children.
 
 ## `query.onConflictNoColumn` {#query-onconflictnocolumn}
 
-> {name} has no column to write onConflict with.
+> &#123;name&#125; has no column to write onConflict with.
 
 Write a schema that has columns, or leave onConflict out.
 
@@ -1486,81 +1486,81 @@ Use onConflict: "nothing" instead.
 
 ## `query.onConflictOption` {#query-onconflictoption}
 
-> {where} is "nothing" or { target, update }, but it is {describe}.
+> &#123;where&#125; is "nothing" or &#123; target, update &#125;, but it is &#123;describe&#125;.
 
 (There is no spelling for "raise": leave the option out.)
 
 ## `query.onConflictShape` {#query-onconflictshape}
 
-> onConflict is "nothing" or { target, update }.
+> onConflict is "nothing" or &#123; target, update &#125;.
 
-Pass onConflict: "nothing", or { target, update }, as in { target: \["email"\], update: "all" }.
+Pass onConflict: "nothing", or &#123; target, update &#125;, as in &#123; target: \["email"\], update: "all" &#125;.
 
 ## `query.onConflictTarget` {#query-onconflicttarget}
 
-> onConflict with update needs a target on {name}.
+> onConflict with update needs a target on &#123;name&#125;.
 
-Name the target: the conflicting fields, { constraint } or a fragment.
+Name the target: the conflicting fields, &#123; constraint &#125; or a fragment.
 
 ## `query.onConflictTargetEmpty` {#query-onconflicttargetempty}
 
 > onConflict's target lists no field.
 
-List at least one field in the target, or give { constraint: name } or a fragment.
+List at least one field in the target, or give &#123; constraint: name &#125; or a fragment.
 
 ## `query.onConflictTargetOption` {#query-onconflicttargetoption}
 
-> {where}'s target is a list of field names, { constraint: "name" } or a fragment, but it is {describe}.
+> &#123;where&#125;'s target is a list of field names, &#123; constraint: "name" &#125; or a fragment, but it is &#123;describe&#125;.
 
-Pass a list of field names, { constraint: "name" } or a fragment as the target.
+Pass a list of field names, &#123; constraint: "name" &#125; or a fragment as the target.
 
 ## `query.onConflictTargetShape` {#query-onconflicttargetshape}
 
-> onConflict's target is a list of fields, { constraint: name } or a fragment.
+> onConflict's target is a list of fields, &#123; constraint: name &#125; or a fragment.
 
-Pass a list of fields, { constraint: name } or a fragment as the target.
+Pass a list of fields, &#123; constraint: name &#125; or a fragment as the target.
 
 ## `query.onConflictUpdate` {#query-onconflictupdate}
 
-> onConflict's update is "all", a list of fields or { except }.
+> onConflict's update is "all", a list of fields or &#123; except &#125;.
 
-Pass update: "all", a list of fields, or { except: \[fields\] }.
+Pass update: "all", a list of fields, or &#123; except: \[fields\] &#125;.
 
 ## `query.onConflictUpdateOption` {#query-onconflictupdateoption}
 
-> {where}'s update is "all", a list of field names or { except: \[...\] }, but it is {describe}.
+> &#123;where&#125;'s update is "all", a list of field names or &#123; except: \[...\] &#125;, but it is &#123;describe&#125;.
 
 To ignore a conflict, use onConflict: "nothing".
 
 ## `query.onReplaceError` {#query-onreplaceerror}
 
-> {fn}("{name}"): the new value leaves out {…} that {ownerName}.{name} has, and its onReplace is "error".
+> &#123;fn&#125;("&#123;name&#125;"): the new value leaves out &#123;…&#125; that &#123;ownerName&#125;.&#123;name&#125; has, and its onReplace is "error".
 
-Say what happens to {them}, for example with {fix}; the options are "invalid", "delete"{assocModes}{oneModes}.
+Say what happens to &#123;them&#125;, for example with &#123;fix&#125;; the options are "invalid", "delete"&#123;assocModes&#125;&#123;oneModes&#125;.
 
 ## `query.onReplaceSetNull` {#query-onreplacesetnull}
 
-> {fn}("{name}"): onReplace is "setNull", but {name}.{name} is not nullable.
+> &#123;fn&#125;("&#123;name&#125;"): onReplace is "setNull", but &#123;name&#125;.&#123;name&#125; is not nullable.
 
 Make it .nullable(), or use onReplace "delete".
 
 ## `query.onReplaceUpdateNull` {#query-onreplaceupdatenull}
 
-> {fn}("{name}"): onReplace "update" reuses the row of {ownerName}.{name} for a new value, so it cannot remove it.
+> &#123;fn&#125;("&#123;name&#125;"): onReplace "update" reuses the row of &#123;ownerName&#125;.&#123;name&#125; for a new value, so it cannot remove it.
 
 Use onReplace "delete", "deleteIfExists" or "setNull" to allow null.
 
 ## `query.orderExpected` {#query-orderexpected}
 
-> {clause}() needs its callback to return an expression, an order item (u.createdAt.desc()) or an array of them; it returned {describeValue}{…}.
+> &#123;clause&#125;() needs its callback to return an expression, an order item (u.createdAt.desc()) or an array of them; it returned &#123;describeValue&#125;&#123;…&#125;.
 
 Return an expression, an order item (u.createdAt.desc()) or an array of them from the callback.
 
 ## `query.outerJoinAfterSelect` {#query-outerjoinafterselect}
 
-> {clause}() makes the rows of the bindings before it optional, and this query already has {…} that take them as they are.
+> &#123;clause&#125;() makes the rows of the bindings before it optional, and this query already has &#123;…&#125; that take them as they are.
 
-Add the {clause}() before {this}.
+Add the &#123;clause&#125;() before &#123;this&#125;.
 
 ## `query.outerRefAlias` {#query-outerrefalias}
 
@@ -1570,33 +1570,33 @@ Pass the alias of the outer binding first: outerRef("u", User).
 
 ## `query.outerRefEmbedded` {#query-outerrefembedded}
 
-> outerRef("{alias}", {name}): an embedded schema has no table, so no query binds it.
+> outerRef("&#123;alias&#125;", &#123;name&#125;): an embedded schema has no table, so no query binds it.
 
 Pass the schema class of a table: an embedded schema has no table, so no query binds it.
 
 ## `query.outerRefSchema` {#query-outerrefschema}
 
-> outerRef("{alias}", …) takes the schema class of that binding second.
+> outerRef("&#123;alias&#125;", …) takes the schema class of that binding second.
 
-Pass the schema class of that binding second: outerRef("{alias}", User).
+Pass the schema class of that binding second: outerRef("&#123;alias&#125;", User).
 
 ## `query.outerRefShadowed` {#query-outerrefshadowed}
 
-> outerRef("{alias}", {name}) refers to the binding "{alias}" of an outer query, but the query using it has its own binding "{alias}", which would be read instead.
+> outerRef("&#123;alias&#125;", &#123;name&#125;) refers to the binding "&#123;alias&#125;" of an outer query, but the query using it has its own binding "&#123;alias&#125;", which would be read instead.
 
 Give one of them another alias.
 
 ## `query.outerRefWrongSchema` {#query-outerrefwrongschema}
 
-> outerRef("{alias}", {name}) expects the outer binding "{alias}" to be {name}, but it is {…}.
+> outerRef("&#123;alias&#125;", &#123;name&#125;) expects the outer binding "&#123;alias&#125;" to be &#123;name&#125;, but it is &#123;…&#125;.
 
-Pass the schema class of the outer binding: outerRef("{alias}", {found}).
+Pass the schema class of the outer binding: outerRef("&#123;alias&#125;", &#123;found&#125;).
 
 ## `query.overArgument` {#query-overargument}
 
-> over() takes the name of a window, or { partitionBy, orderBy, frame }.
+> over() takes the name of a window, or &#123; partitionBy, orderBy, frame &#125;.
 
-Pass the name of a window declared with window(), or { partitionBy, orderBy, frame }.
+Pass the name of a window declared with window(), or &#123; partitionBy, orderBy, frame &#125;.
 
 ## `query.overFrame` {#query-overframe}
 
@@ -1624,43 +1624,43 @@ Pass a name and a field type, as in param("minAge", t.integer()).
 
 ## `query.paramNotWholeNumber` {#query-paramnotwholenumber}
 
-> {label} has the type {wholeTypeName} (its own, or that of the column beside it), but its value is not a whole number.
+> &#123;label&#125; has the type &#123;wholeTypeName&#125; (its own, or that of the column beside it), but its value is not a whole number.
 
 Give a fraction a float type, val(2.5, t.float()), or round it.
 
 ## `query.paramTwoTypes` {#query-paramtwotypes}
 
-> The named parameter "{name}" is used with two types, {left} and {…}.
+> The named parameter "&#123;name&#125;" is used with two types, &#123;left&#125; and &#123;…&#125;.
 
 A named parameter has one type: give the other use its own name.
 
 ## `query.paramsMissing` {#query-paramsmissing}
 
-> The query needs the named parameter "{name}", which was not given a value.
+> The query needs the named parameter "&#123;name&#125;", which was not given a value.
 
-Pass a value for every named parameter, as in repo.all(q, { {name}: … }).
+Pass a value for every named parameter, as in repo.all(q, &#123; &#123;name&#125;: … &#125;).
 
 ## `query.paramsUnknown` {#query-paramsunknown}
 
-> The query has no named parameter{…} {join}.
+> The query has no named parameter&#123;…&#125; &#123;join&#125;.
 
-The query takes {original}.
+The query takes &#123;original&#125;.
 
 ## `query.pathEmpty` {#query-pathempty}
 
-> {method}() needs at least one key.
+> &#123;method&#125;() needs at least one key.
 
 Pass at least one key, as in path("address", "city").
 
 ## `query.pathKey` {#query-pathkey}
 
-> {method}() takes keys that are strings, or whole numbers for array positions.
+> &#123;method&#125;() takes keys that are strings, or whole numbers for array positions.
 
 Pass keys as strings, or whole numbers for array positions, as in path("tags", 0).
 
 ## `query.pathNotJson` {#query-pathnotjson}
 
-> {method}() reads inside a JSON value, and this expression has the type {name}.
+> &#123;method&#125;() reads inside a JSON value, and this expression has the type &#123;name&#125;.
 
 Use it on a t.json() or embedded field, or on a fragment.
 
@@ -1678,33 +1678,33 @@ Pass a function from query to query: q.pipe(published).
 
 ## `query.placeholdersMissing` {#query-placeholdersmissing}
 
-> repo.insertAll(): the rows use the named parameter{…} {join}.
+> repo.insertAll(): the rows use the named parameter&#123;…&#125; &#123;join&#125;.
 
-Give their values in the placeholders option: repo.insertAll(Schema, rows, { placeholders: { {name}: … } }).
+Give their values in the placeholders option: repo.insertAll(Schema, rows, &#123; placeholders: &#123; &#123;name&#125;: … &#125; &#125;).
 
 ## `query.placeholdersUnused` {#query-placeholdersunused}
 
-> repo.insertAll(): placeholders {join} {…} not used by any row; {…}.
+> repo.insertAll(): placeholders &#123;join&#125; &#123;…&#125; not used by any row; &#123;…&#125;.
 
-Use one in a row as param("{unknown}", type).
+Use one in a row as param("&#123;unknown&#125;", type).
 
 ## `query.preloadBelowSelected` {#query-preloadbelowselected}
 
-> repo.preload(): "{assoc}" of {name} is loaded as selected values, not rows, so nothing can be preloaded below it.
+> repo.preload(): "&#123;assoc&#125;" of &#123;name&#125; is loaded as selected values, not rows, so nothing can be preloaded below it.
 
-Load it again with { force: true }.
+Load it again with &#123; force: true &#125;.
 
 ## `query.preloadBindingNotJoined` {#query-preloadbindingnotjoined}
 
-> preload({ {here}"{value}" }): "{value}" is a binding of this query, but it was not joined through the association "{key}"{…}, so it cannot fill it.
+> preload(&#123; &#123;here&#125;"&#123;value&#125;" &#125;): "&#123;value&#125;" is a binding of this query, but it was not joined through the association "&#123;key&#125;"&#123;…&#125;, so it cannot fill it.
 
-Join it with joinAssoc("{parent}", "{key}", "{value1}"), or name a nested association of {name}.
+Join it with joinAssoc("&#123;parent&#125;", "&#123;key&#125;", "&#123;value1&#125;"), or name a nested association of &#123;name&#125;.
 
 ## `query.preloadCallbackArgument` {#query-preloadcallbackargument}
 
-> preload("{name}", …) takes a function from query to query as its second argument.
+> preload("&#123;name&#125;", …) takes a function from query to query as its second argument.
 
-Pass a function that takes the query and returns it with clauses added: preload("{name}", (q) =\> q.limit(3)).
+Pass a function that takes the query and returns it with clauses added: preload("&#123;name&#125;", (q) =\> q.limit(3)).
 
 ## `query.preloadCallbackName` {#query-preloadcallbackname}
 
@@ -1714,67 +1714,67 @@ Pass one association name first: preload("posts", (q) =\> q.limit(3)).
 
 ## `query.preloadCallbackOtherQuery` {#query-preloadcallbackotherquery}
 
-> preload("{name}", callback): the callback must return the query it receives (rooted at {name} as "{name}"), with clauses added.
+> preload("&#123;name&#125;", callback): the callback must return the query it receives (rooted at &#123;name&#125; as "&#123;name&#125;"), with clauses added.
 
 Return the query the callback receives, with clauses added, not a new query.
 
 ## `query.preloadCallbackResult` {#query-preloadcallbackresult}
 
-> preload("{name}", callback): the callback must return a query, the one it receives with clauses added; it returned {describeValue}.
+> preload("&#123;name&#125;", callback): the callback must return a query, the one it receives with clauses added; it returned &#123;describeValue&#125;.
 
 Return the query the callback receives, with clauses added.
 
 ## `query.preloadCallbackTwice` {#query-preloadcallbacktwice}
 
-> preload "{assoc}" is given a callback twice.
+> preload "&#123;assoc&#125;" is given a callback twice.
 
 Put everything in one callback.
 
 ## `query.preloadFrom` {#query-preloadfrom}
 
-> preload({ {here}{ $from: {…} } }): $from names the binding to fill "{key}" from, which must be joined through that association.
+> preload(&#123; &#123;here&#125;&#123; $from: &#123;…&#125; &#125; &#125;): $from names the binding to fill "&#123;key&#125;" from, which must be joined through that association.
 
-Join the binding through that association first: joinAssoc("{parent}", "{key}", "{source}").
+Join the binding through that association first: joinAssoc("&#123;parent&#125;", "&#123;key&#125;", "&#123;source&#125;").
 
 ## `query.preloadLimitKey` {#query-preloadlimitkey}
 
-> {label}: limit and offset apply per parent, which needs {name} to have a primary key to rank its rows by.
+> &#123;label&#125;: limit and offset apply per parent, which needs &#123;name&#125; to have a primary key to rank its rows by.
 
-Give {target} a primary key, or preload without limit and offset.
+Give &#123;target&#125; a primary key, or preload without limit and offset.
 
 ## `query.preloadLimitOrder` {#query-preloadlimitorder}
 
-> limit in preload "{name}" needs an orderBy: the limit and offset of a preload apply per parent, and pick rows by order.
+> limit in preload "&#123;name&#125;" needs an orderBy: the limit and offset of a preload apply per parent, and pick rows by order.
 
-Add orderBy(({ {name} }) =\> …) to the callback, or an orderBy option to the association.
+Add orderBy((&#123; &#123;name&#125; &#125;) =\> …) to the callback, or an orderBy option to the association.
 
 ## `query.preloadMixedRows` {#query-preloadmixedrows}
 
-> {method} was given rows of {name}, but {…} is a row of {…}.
+> &#123;method&#125; was given rows of &#123;name&#125;, but &#123;…&#125; is a row of &#123;…&#125;.
 
 Rows of different schemas are preloaded in separate calls.
 
 ## `query.preloadNamedParams` {#query-preloadnamedparams}
 
-> repo.preload() runs its callback at once, so its query takes values, not named parameters ({join}).
+> repo.preload() runs its callback at once, so its query takes values, not named parameters (&#123;join&#125;).
 
 Write the values into the query.
 
 ## `query.preloadNoAssociations` {#query-preloadnoassociations}
 
-> preload() loads associations of a schema, and the root binding "{alias}" has none.
+> preload() loads associations of a schema, and the root binding "&#123;alias&#125;" has none.
 
 Preload from a query whose root binding is a schema with associations.
 
 ## `query.preloadOptionalRoot` {#query-preloadoptionalroot}
 
-> preload() attaches associations to the rows of the root binding "{alias}", which a right or full join makes optional.
+> preload() attaches associations to the rows of the root binding "&#123;alias&#125;", which a right or full join makes optional.
 
 Preload in a query without that join.
 
 ## `query.preloadOptionalRows` {#query-preloadoptionalrows}
 
-> preload("{name}", callback): the callback's query has a right or full join, which makes the rows of "{name}" optional, and a preloaded association needs rows that exist.
+> preload("&#123;name&#125;", callback): the callback's query has a right or full join, which makes the rows of "&#123;name&#125;" optional, and a preloaded association needs rows that exist.
 
 Use an inner or left join.
 
@@ -1786,37 +1786,37 @@ Select the whole root binding, or preload in a separate query.
 
 ## `query.preloadSelectKey` {#query-preloadselectkey}
 
-> preload "{name}" selects without its key.
+> preload "&#123;name&#125;" selects without its key.
 
-Add \`{key}: {name}.{key}\` to the select.
+Add \`&#123;key&#125;: &#123;name&#125;.&#123;key&#125;\` to the select.
 
 ## `query.preloadSelectedShape` {#query-preloadselectedshape}
 
-> preload() attaches associations to whole rows, and this query selects {describeShape}.
+> preload() attaches associations to whole rows, and this query selects &#123;describeShape&#125;.
 
-Preload before selecting a shape, or select the root binding: select(({ {alias} }) =\> {alias}).
+Preload before selecting a shape, or select the root binding: select((&#123; &#123;alias&#125; &#125;) =\> &#123;alias&#125;).
 
 ## `query.preloadSpec` {#query-preloadspec}
 
-> preload() takes an association name, an array, an object of nested preloads, or a name and a callback; {…} given {describeValue}.
+> preload() takes an association name, an array, an object of nested preloads, or a name and a callback; &#123;…&#125; given &#123;describeValue&#125;.
 
 Pass an association name, an array, an object of nested preloads, or a name and a callback, as in preload("posts", (q) =\> q.limit(3)).
 
 ## `query.preloadTwice` {#query-preloadtwice}
 
-> preload "{assoc}" is declared twice, once from {…} and once from {…}.
+> preload "&#123;assoc&#125;" is declared twice, once from &#123;…&#125; and once from &#123;…&#125;.
 
 Load it one way.
 
 ## `query.preloadUnknown` {#query-preloadunknown}
 
-> preload({…}): {name} has no association "{name}".
+> preload(&#123;…&#125;): &#123;name&#125; has no association "&#123;name&#125;".
 
-Its associations are: {known}.
+Its associations are: &#123;known&#125;.
 
 ## `query.preloadUnknownAssoc` {#query-preloadunknownassoc}
 
-> {name} has no association "{assoc}" to preload.
+> &#123;name&#125; has no association "&#123;assoc&#125;" to preload.
 
 Preload an association the schema declares.
 
@@ -1834,55 +1834,55 @@ Pass a query: prepare(from(User, "u").where(…)).
 
 ## `query.putChangeEmbed` {#query-putchangeembed}
 
-> {fn}(): "{name}" is an embed.
+> &#123;fn&#125;(): "&#123;name&#125;" is an embed.
 
 Change it with putEmbed.
 
 ## `query.putChangeUndefined` {#query-putchangeundefined}
 
-> {fn}("{name}", undefined): undefined is not a value.
+> &#123;fn&#125;("&#123;name&#125;", undefined): undefined is not a value.
 
-Use null for no value, or deleteChange("{name}") to remove the change.
+Use null for no value, or deleteChange("&#123;name&#125;") to remove the change.
 
 ## `query.rawArgument` {#query-rawargument}
 
-> repo.raw() takes a fragment, and was given {…}.
+> repo.raw() takes a fragment, and was given &#123;…&#125;.
 
 Pass a fragment: repo.raw(fragment\`select …\`). Values go into the template as interpolations, where they are bound.
 
 ## `query.readEmbedded` {#query-readembedded}
 
-> {name} is an embedded schema: it is stored inside its parent's row and has no table to read.
+> &#123;name&#125; is an embedded schema: it is stored inside its parent's row and has no table to read.
 
 Read the parent schema, and the embedded values from its rows.
 
 ## `query.readOnlyUnsupported` {#query-readonlyunsupported}
 
-> A read-only transaction (readOnly: true) is not supported by {dialect}.
+> A read-only transaction (readOnly: true) is not supported by &#123;dialect&#125;.
 
-Leave readOnly out on {dialect}.
+Leave readOnly out on &#123;dialect&#125;.
 
 ## `query.readQueryWhere` {#query-readquerywhere}
 
-> repo.{method}() adds its clauses with the query's where(); this query object has no where() method.
+> repo.&#123;method&#125;() adds its clauses with the query's where(); this query object has no where() method.
 
 Pass a query built with from(), or a schema class.
 
 ## `query.reloadNoKeyValue` {#query-reloadnokeyvalue}
 
-> repo.reload(): a row of {name} has no value for its key field "{name}", so it cannot be found again.
+> repo.reload(): a row of &#123;name&#125; has no value for its key field "&#123;name&#125;", so it cannot be found again.
 
 Reload rows read from the database, which have their keys.
 
 ## `query.reloadNoPrimaryKey` {#query-reloadnoprimarykey}
 
-> repo.reload(): {name} has no primary key, so its rows cannot be found again.
+> repo.reload(): &#123;name&#125; has no primary key, so its rows cannot be found again.
 
 Read the rows again with a query.
 
 ## `query.removesNamedParam` {#query-removesnamedparam}
 
-> {clause} would remove the named parameter "{name}", which the query's type still requires.
+> &#123;clause&#125; would remove the named parameter "&#123;name&#125;", which the query's type still requires.
 
 Build the query without that clause instead.
 
@@ -1894,13 +1894,13 @@ Pass a field name or a list of them, as in validateRequired(\["email", "name"\])
 
 ## `query.returningOption` {#query-returningoption}
 
-> repo.{method}(): returning is true or a list of field names, but it is {describe}.
+> repo.&#123;method&#125;(): returning is true or a list of field names, but it is &#123;describe&#125;.
 
 Pass returning: true for every field, or a list of field names, as in returning: \["id", "createdAt"\].
 
 ## `query.returningTwice` {#query-returningtwice}
 
-> returning() was called on a query that already has a {…}.
+> returning() was called on a query that already has a &#123;…&#125;.
 
 A query returns one shape: exclude("select") first.
 
@@ -1912,7 +1912,7 @@ An update or delete cannot preload: exclude("preload") first.
 
 ## `query.reverseOrderNone` {#query-reverseordernone}
 
-> reverseOrder() reverses the query's orderBy, and this query has none; its root "{alias}" has no primary key to order by either.
+> reverseOrder() reverses the query's orderBy, and this query has none; its root "&#123;alias&#125;" has no primary key to order by either.
 
 Add an orderBy() first.
 
@@ -1948,7 +1948,7 @@ Await every call inside the test.
 
 ## `query.savepointOptions` {#query-savepointoptions}
 
-> tx.{method}() inside a transaction runs in a savepoint, which cannot take isolation, readOnly or retries.
+> tx.&#123;method&#125;() inside a transaction runs in a savepoint, which cannot take isolation, readOnly or retries.
 
 Give isolation, readOnly and retries to the outermost transaction.
 
@@ -1966,7 +1966,7 @@ Pass a query that selects one value: scalar(from(Post, "p").select(() =\> count(
 
 ## `query.scalarShape` {#query-scalarshape}
 
-> scalar() takes a query that selects one expression, and this query selects {…}.
+> scalar() takes a query that selects one expression, and this query selects &#123;…&#125;.
 
 Select one expression, such as select(() =\> count()).
 
@@ -1978,67 +1978,67 @@ Pass the name of a database schema: schema("tenant\_1").
 
 ## `query.schemalessData` {#query-schemalessdata}
 
-> {fn}({ data, types }): data must be a plain object holding the current values.
+> &#123;fn&#125;(&#123; data, types &#125;): data must be a plain object holding the current values.
 
-Pass the current values as a plain object, or {} when there are none.
+Pass the current values as a plain object, or &#123;&#125; when there are none.
 
 ## `query.schemalessFieldName` {#query-schemalessfieldname}
 
-> "{name}" cannot be the name of a field.
+> "&#123;name&#125;" cannot be the name of a field.
 
 Rename the field: "constructor", "\_\_proto\_\_", "toJSON" and names that start with "$" are reserved.
 
 ## `query.schemalessFieldType` {#query-schemalessfieldtype}
 
-> The type of the field "{name}" is not a field type.
+> The type of the field "&#123;name&#125;" is not a field type.
 
-Give each field a type made with t, as in {name}: t.string().
+Give each field a type made with t, as in &#123;name&#125;: t.string().
 
 ## `query.schemalessGenerated` {#query-schemalessgenerated}
 
-> The field "{name}" is {…}, which means nothing without a table.
+> The field "&#123;name&#125;" is &#123;…&#125;, which means nothing without a table.
 
 Use .default() for a value it should start with.
 
 ## `query.schemalessShape` {#query-schemalessshape}
 
-> A changeset without a schema class needs { data, types }, where types is an object from field name to type.
+> A changeset without a schema class needs &#123; data, types &#125;, where types is an object from field name to type.
 
-Pass { data, types }, as in { data: {}, types: { q: t.string(), page: t.integer() } }.
+Pass &#123; data, types &#125;, as in &#123; data: &#123;&#125;, types: &#123; q: t.string(), page: t.integer() &#125; &#125;.
 
 ## `query.selectBinding` {#query-selectbinding}
 
-> {clause}() was given the whole binding "{alias}"{where}, which has no schema to read rows of.
+> &#123;clause&#125;() was given the whole binding "&#123;alias&#125;"&#123;where&#125;, which has no schema to read rows of.
 
 Select its columns one by one.
 
 ## `query.selectBindingSchema` {#query-selectbindingschema}
 
-> The select returns "{alias}" as rows of {name}, but that binding yields {…}.
+> The select returns "&#123;alias&#125;" as rows of &#123;name&#125;, but that binding yields &#123;…&#125;.
 
 Select the binding as the rows its source yields.
 
 ## `query.selectDuplicateColumn` {#query-selectduplicatecolumn}
 
-> The select list has two output columns named "{alias}".
+> The select list has two output columns named "&#123;alias&#125;".
 
 Give one of them another name.
 
 ## `query.selectMergeResult` {#query-selectmergeresult}
 
-> selectMerge() needs its callback to return an object of keys to add; it returned {describeShape}.
+> selectMerge() needs its callback to return an object of keys to add; it returned &#123;describeShape&#125;.
 
-Return an object of keys to add, as in selectMerge(({ p }) =\> ({ title: p.title })).
+Return an object of keys to add, as in selectMerge((&#123; p &#125;) =\> (&#123; title: p.title &#125;)).
 
 ## `query.selectMergeShape` {#query-selectmergeshape}
 
-> selectMerge() adds keys to an object select, and this query {…}.
+> selectMerge() adds keys to an object select, and this query &#123;…&#125;.
 
-Select an object first: select(({ u }) =\> ({ id: u.id })).
+Select an object first: select((&#123; u &#125;) =\> (&#123; id: u.id &#125;)).
 
 ## `query.selectMissing` {#query-selectmissing}
 
-> The query has no select, and its root binding "{root}" has no schema to read rows of.
+> The query has no select, and its root binding "&#123;root&#125;" has no schema to read rows of.
 
 Add a select.
 
@@ -2046,59 +2046,59 @@ Add a select.
 
 > select() was called on a query with set(…) assignments, an update.
 
-Declare what the update returns with returning(): returning(({ p }) =\> p.id).
+Declare what the update returns with returning(): returning((&#123; p &#125;) =\> p.id).
 
 ## `query.selectOrderItem` {#query-selectorderitem}
 
-> {clause}() was given an order item (asc() or desc()){where}.
+> &#123;clause&#125;() was given an order item (asc() or desc())&#123;where&#125;.
 
 Order items belong in orderBy(); select the expression itself.
 
 ## `query.selectQuery` {#query-selectquery}
 
-> {clause}() was given a query{where}.
+> &#123;clause&#125;() was given a query&#123;where&#125;.
 
 A query is not a value: select an expression, or use a subquery expression.
 
 ## `query.selectTuple` {#query-selecttuple}
 
-> {clause}() was given a row value (tuple){where}.
+> &#123;clause&#125;() was given a row value (tuple)&#123;where&#125;.
 
 A row value is compared, not selected: select its items.
 
 ## `query.selectTwice` {#query-selecttwice}
 
-> select() was called on a query that already has a {…}.
+> select() was called on a query that already has a &#123;…&#125;.
 
 A query has one: use selectMerge() to add keys, or exclude("select") first.
 
 ## `query.selectUnknownBinding` {#query-selectunknownbinding}
 
-> The select returns the whole binding "{alias}", which the query does not have.
+> The select returns the whole binding "&#123;alias&#125;", which the query does not have.
 
 Select a binding the query has.
 
 ## `query.selectValue` {#query-selectvalue}
 
-> {clause}() was given a {…}{where}, which is not a value.
+> &#123;clause&#125;() was given a &#123;…&#125;&#123;where&#125;, which is not a value.
 
 Select expressions, bindings and plain values.
 
 ## `query.selectWithPreloads` {#query-selectwithpreloads}
 
-> {clause}() was given a select that is not the whole root binding "{alias}", and the query preloads {join}.
+> &#123;clause&#125;() was given a select that is not the whole root binding "&#123;alias&#125;", and the query preloads &#123;join&#125;.
 
-Preloaded associations are attached to whole rows: select ({ {this} }) =\> {this}, or preload in a separate query.
+Preloaded associations are attached to whole rows: select (&#123; &#123;this&#125; &#125;) =\> &#123;this&#125;, or preload in a separate query.
 
 ## `query.selectedAsExpression` {#query-selectedasexpression}
 
-> selectedAs(expr, "{name}") takes an expression to name first.
+> selectedAs(expr, "&#123;name&#125;") takes an expression to name first.
 
 Pass an expression to name first, such as sum(p.views).
 
 ## `query.selectedAsInClause` {#query-selectedasinclause}
 
-> {clause}(): selectedAs("{name}") refers to a selected value by its name, which {clause}() cannot read: the database names selected values after this clause is computed.
+> &#123;clause&#125;(): selectedAs("&#123;name&#125;") refers to a selected value by its name, which &#123;clause&#125;() cannot read: the database names selected values after this clause is computed.
 
 Use the expression itself; names are for orderBy() and groupBy().
 
@@ -2110,21 +2110,21 @@ Pass a name, a non-empty string: selectedAs(sum(p.views), "total").
 
 ## `query.selectedAsSelected` {#query-selectedasselected}
 
-> selectedAs("{name}") without an expression refers to a selected value.
+> selectedAs("&#123;name&#125;") without an expression refers to a selected value.
 
-Select the expression itself, and name it: selectedAs(expr, "{name}").
+Select the expression itself, and name it: selectedAs(expr, "&#123;name&#125;").
 
 ## `query.selectedAsUnknown` {#query-selectedasunknown}
 
-> selectedAs("{String}") refers to a selected value of that name, and the query selects none.
+> selectedAs("&#123;String&#125;") refers to a selected value of that name, and the query selects none.
 
-Name one in the select: selectedAs(expr, "{String}").
+Name one in the select: selectedAs(expr, "&#123;String&#125;").
 
 ## `query.setArgument` {#query-setargument}
 
 > set() takes an object of field values, or a callback that returns one.
 
-Pass an object of field values, or a callback that returns one: set({ published: true }), set(({ p }) =\> ({ views: p.views.add(1) })).
+Pass an object of field values, or a callback that returns one: set(&#123; published: true &#125;), set((&#123; p &#125;) =\> (&#123; views: p.views.add(1) &#125;)).
 
 ## `query.setEmpty` {#query-setempty}
 
@@ -2134,69 +2134,69 @@ Set at least one.
 
 ## `query.setNotTable` {#query-setnottable}
 
-> set() updates the rows of a table, and the root binding "{alias}" is not a schema's table.
+> set() updates the rows of a table, and the root binding "&#123;alias&#125;" is not a schema's table.
 
-Update a query rooted at a schema class: from(Post, "p").set({ published: true }).
+Update a query rooted at a schema class: from(Post, "p").set(&#123; published: true &#125;).
 
 ## `query.setNullNotNullable` {#query-setnullnotnullable}
 
-> set({ {key}: null }): {name}.{key} is not nullable.
+> set(&#123; &#123;key&#125;: null &#125;): &#123;name&#125;.&#123;key&#125; is not nullable.
 
 Set the field to a value, or make it .nullable() in the schema (and the column nullable in the database).
 
 ## `query.setOperationArgument` {#query-setoperationargument}
 
-> {method}() takes another query.
+> &#123;method&#125;() takes another query.
 
-Pass another query: q.{method}(from(Post, "p").select(…)).
+Pass another query: q.&#123;method&#125;(from(Post, "p").select(…)).
 
 ## `query.setOperationClause` {#query-setoperationclause}
 
-> {method}() was called on a query with {clause}.
+> &#123;method&#125;() was called on a query with &#123;clause&#125;.
 
-On a combined query those apply to the combined rows, not to this side: add them after {method}(), or, to order or limit this side alone, wrap it: from(subquery(q), "s").
+On a combined query those apply to the combined rows, not to this side: add them after &#123;method&#125;(), or, to order or limit this side alone, wrap it: from(subquery(q), "s").
 
 ## `query.setOperationLock` {#query-setoperationlock}
 
-> {method}(): a query with a row lock cannot be combined with another.
+> &#123;method&#125;(): a query with a row lock cannot be combined with another.
 
 Lock the rows in a separate query, or remove lock() from the side.
 
 ## `query.setOperationPlainValue` {#query-setoperationplainvalue}
 
-> {method}(): a side selects a plain value{at}, which is returned as it is and never sent to the database, so the rows of the other side would get it too.
+> &#123;method&#125;(): a side selects a plain value&#123;at&#125;, which is returned as it is and never sent to the database, so the rows of the other side would get it too.
 
 Select it as a value with a type: val(value, t.string()).
 
 ## `query.setOperationPreloads` {#query-setoperationpreloads}
 
-> {method}(): {side} has preloads, which a set operation cannot carry.
+> &#123;method&#125;(): &#123;side&#125; has preloads, which a set operation cannot carry.
 
 Preload in a query over the combined rows, or exclude("preload") first.
 
 ## `query.setOperationShapes` {#query-setoperationshapes}
 
-> {method}(): the two sides return different shapes{at}: this query returns {describe}, the other {describe}.
+> &#123;method&#125;(): the two sides return different shapes&#123;at&#125;: this query returns &#123;describe&#125;, the other &#123;describe&#125;.
 
 Columns are combined by position, so both must select the same shape, with keys in the same order.
 
 ## `query.setOperationUpdate` {#query-setoperationupdate}
 
-> {method}(): {side} has set(…) assignments.
+> &#123;method&#125;(): &#123;side&#125; has set(…) assignments.
 
 An update cannot be combined with a query: run it on its own.
 
 ## `query.setUndefined` {#query-setundefined}
 
-> set({ {key}: undefined }): undefined is not a value.
+> set(&#123; &#123;key&#125;: undefined &#125;): undefined is not a value.
 
 Leave the key out, or pass null to store NULL.
 
 ## `query.setUnknownField` {#query-setunknownfield}
 
-> set({ {key} }): {name} has no {…} "{key}".
+> set(&#123; &#123;key&#125; &#125;): &#123;name&#125; has no &#123;…&#125; "&#123;key&#125;".
 
-Its columns are: {columns}.
+Its columns are: &#123;columns&#125;.
 
 ## `query.setWithPreloads` {#query-setwithpreloads}
 
@@ -2208,47 +2208,47 @@ An update cannot preload: exclude("preload") first.
 
 > set() was called on a query with a select.
 
-An update says what it returns with returning(), not select(): exclude("select"), then returning(({ p }) =\> p.id).
+An update says what it returns with returning(), not select(): exclude("select"), then returning((&#123; p &#125;) =\> p.id).
 
 ## `query.sourceEmbedded` {#query-sourceembedded}
 
-> {clause}() was given {name}, an embedded schema: it is stored inside its parent's row and has no table to query.
+> &#123;clause&#125;() was given &#123;name&#125;, an embedded schema: it is stored inside its parent's row and has no table to query.
 
 Query the parent schema, and read the embedded values from its rows (or with field() and path() in a query).
 
 ## `query.sourceInvalid` {#query-sourceinvalid}
 
-> {clause}() takes a schema class ({clause}(User, "{alias}")) or a source such as subquery(q) or cte(name, Schema).
+> &#123;clause&#125;() takes a schema class (&#123;clause&#125;(User, "&#123;alias&#125;")) or a source such as subquery(q) or cte(name, Schema).
 
-Pass a schema class, as in {clause}(User, "{alias}"), or a source such as subquery(q) or cte(name, Schema).
+Pass a schema class, as in &#123;clause&#125;(User, "&#123;alias&#125;"), or a source such as subquery(q) or cte(name, Schema).
 
 ## `query.sourceIsQuery` {#query-sourceisquery}
 
-> {clause}() does not take a query.
+> &#123;clause&#125;() does not take a query.
 
-To continue a query, call more methods on it; to use it as a source, wrap it: {clause}(subquery(q), "{alias}").
+To continue a query, call more methods on it; to use it as a source, wrap it: &#123;clause&#125;(subquery(q), "&#123;alias&#125;").
 
 ## `query.sourceIsUpdate` {#query-sourceisupdate}
 
-> {method}(): the query has set(…) assignments, an update.
+> &#123;method&#125;(): the query has set(…) assignments, an update.
 
 Only a query that reads can be a source; run the update on its own.
 
 ## `query.sourceSchemaMismatch` {#query-sourceschemamismatch}
 
-> The source "{alias}" is declared with the schema {name}, but {what} selects rows of {name}.
+> The source "&#123;alias&#125;" is declared with the schema &#123;name&#125;, but &#123;what&#125; selects rows of &#123;name&#125;.
 
 Declare the source with the schema its query selects.
 
 ## `query.sourceShape` {#query-sourceshape}
 
-> {method}() reads a query as a source, so the query must select an object of expressions or whole rows of a schema; it selects {what}.
+> &#123;method&#125;() reads a query as a source, so the query must select an object of expressions or whole rows of a schema; it selects &#123;what&#125;.
 
-Select an object of expressions, as in select(({ p }) =\> ({ id: p.id, title: p.title })), or whole rows of a schema.
+Select an object of expressions, as in select((&#123; p &#125;) =\> (&#123; id: p.id, title: p.title &#125;)), or whole rows of a schema.
 
 ## `query.sourceWithPreloads` {#query-sourcewithpreloads}
 
-> {method}(): the query has preloads, which a query read as a source cannot run.
+> &#123;method&#125;(): the query has preloads, which a query read as a source cannot run.
 
 Exclude them first: exclude("preload").
 
@@ -2272,7 +2272,7 @@ Pass a query: subquery(from(Post, "p").select(…)).
 
 ## `query.subqueryExpected` {#query-subqueryexpected}
 
-> {method}() takes a query, which did not produce a subquery expression.
+> &#123;method&#125;() takes a query, which did not produce a subquery expression.
 
 Pass a query built with from(), with a select() of one expression.
 
@@ -2296,25 +2296,25 @@ Pass the values as an array, as in validateSubset("tags", \["a", "b"\]).
 
 ## `query.sumType` {#query-sumtype}
 
-> {method}() adds up numbers, and this expression has the type {name}.
+> &#123;method&#125;() adds up numbers, and this expression has the type &#123;name&#125;.
 
 Pass an expression of a numeric type (integer, bigint, float or decimal).
 
 ## `query.throughKey` {#query-throughkey}
 
-> assoc({name}, …, "{name}"): {name} needs a primary key of exactly one field to be found through a has-through chain.
+> assoc(&#123;name&#125;, …, "&#123;name&#125;"): &#123;name&#125; needs a primary key of exactly one field to be found through a has-through chain.
 
 Give the target schema a single-field primary key, or preload the chain one association at a time.
 
 ## `query.throughLimitAmbiguous` {#query-throughlimitambiguous}
 
-> {label}: limit and offset apply per parent, and a row of {name} can be reached along more than one path of this has-through chain, so it would be counted more than once.
+> &#123;label&#125;: limit and offset apply per parent, and a row of &#123;name&#125; can be reached along more than one path of this has-through chain, so it would be counted more than once.
 
 Preload without limit, or preload the chain's associations themselves.
 
 ## `query.tooManyParams` {#query-toomanyparams}
 
-> The statement has {length} parameters, more than the {maxParams} {name} accepts.
+> The statement has &#123;length&#125; parameters, more than the &#123;maxParams&#125; &#123;name&#125; accepts.
 
 Split it into smaller statements.
 
@@ -2350,9 +2350,9 @@ Finish it, or leave its for-await loop (break or return), before running another
 
 ## `query.tupleCompare` {#query-tuplecompare}
 
-> {op}() on a tuple takes another tuple.
+> &#123;op&#125;() on a tuple takes another tuple.
 
-Pass another tuple: tuple(a, b).{op}(tuple(x, y)).
+Pass another tuple: tuple(a, b).&#123;op&#125;(tuple(x, y)).
 
 ## `query.tupleEmpty` {#query-tupleempty}
 
@@ -2362,7 +2362,7 @@ Pass at least one item, as in tuple(u.lastName, u.firstName).
 
 ## `query.tupleLength` {#query-tuplelength}
 
-> {op}(): the rows have {length} and {length} items.
+> &#123;op&#125;(): the rows have &#123;length&#125; and &#123;length&#125; items.
 
 Rows compare position by position, so give both as many items.
 
@@ -2380,19 +2380,19 @@ Pass a value or an expression for every item; undefined is usually a missing pro
 
 ## `query.tupleUntyped` {#query-tupleuntyped}
 
-> {op}(): position {…} of the rows has no type on either side, so the database would compare it as text.
+> &#123;op&#125;(): position &#123;…&#125; of the rows has no type on either side, so the database would compare it as text.
 
 Put a column there, or give one value a type: val(value, t.integer()).
 
 ## `query.undefinedOperand` {#query-undefinedoperand}
 
-> {method}() was given undefined, which is not a value.
+> &#123;method&#125;() was given undefined, which is not a value.
 
 Pass a value; undefined is usually a missing property or variable.
 
 ## `query.undefinedOperandNullable` {#query-undefinedoperandnullable}
 
-> {method}() was given undefined, which is not a value.
+> &#123;method&#125;() was given undefined, which is not a value.
 
 Pass null for SQL NULL; undefined is usually a missing property or variable.
 
@@ -2422,45 +2422,45 @@ Pass a field name or a non-empty list of them, as in uniqueConstraint(\["email"\
 
 ## `query.unknownBinding` {#query-unknownbinding}
 
-> The column {alias}.{String} refers to the binding "{alias}", which the query does not have.
+> The column &#123;alias&#125;.&#123;String&#125; refers to the binding "&#123;alias&#125;", which the query does not have.
 
 Use a binding of this query, or outerRef(alias, Schema) for one of an enclosing query.
 
 ## `query.unsupportedFeature` {#query-unsupportedfeature}
 
-> {feature} is not supported by {name}.
+> &#123;feature&#125; is not supported by &#123;name&#125;.
 
-See Dialect support for what {dialect} supports; a fragment can write SQL the builder has no method for.
+See Dialect support for what &#123;dialect&#125; supports; a fragment can write SQL the builder has no method for.
 
 ## `query.untypedArithmetic` {#query-untypedarithmetic}
 
-> Arithmetic ({op}()) on values without a type, where nothing gives them one, so the database cannot choose an operator.
+> Arithmetic (&#123;op&#125;()) on values without a type, where nothing gives them one, so the database cannot choose an operator.
 
 Give a value a type: val(value, t.integer()) or val(value, t.float()).
 
 ## `query.untypedValue` {#query-untypedvalue}
 
-> A value without a type is in {where}, where nothing gives it one, so the database would return it as text.
+> A value without a type is in &#123;where&#125;, where nothing gives it one, so the database would return it as text.
 
-It is {typeHint}.
+It is &#123;typeHint&#125;.
 
 ## `query.updateAllArgument` {#query-updateallargument}
 
 > repo.updateAll() takes a query with .set(...)
 
-Pass a query with .set(...): repo.updateAll(from(Post, "p").where(…).set({ published: true })).
+Pass a query with .set(...): repo.updateAll(from(Post, "p").where(…).set(&#123; published: true &#125;)).
 
 ## `query.updateAllNoSet` {#query-updateallnoset}
 
 > repo.updateAll() needs a query with .set(...)
 
-Say what to write with .set(...): repo.updateAll(from(Post, "p").where(…).set({ published: true })).
+Say what to write with .set(...): repo.updateAll(from(Post, "p").where(…).set(&#123; published: true &#125;)).
 
 ## `query.updateAllWithoutSet` {#query-updateallwithoutset}
 
 > updateAll needs set(…) assignments.
 
-Say what to update with set(…): repo.updateAll(from(Post, "p").set({ published: true })).
+Say what to update with set(…): repo.updateAll(from(Post, "p").set(&#123; published: true &#125;)).
 
 ## `query.updateNoKey` {#query-updatenokey}
 
@@ -2482,7 +2482,7 @@ Run it with repo.updateAll(q).
 
 ## `query.upsertUnreadable` {#query-upsertunreadable}
 
-> The upsert into {name} met a row that could not be read back by the key it was given: the conflict was on another unique field, and {dialect} does not report which row it updated.
+> The upsert into &#123;name&#125; met a row that could not be read back by the key it was given: the conflict was on another unique field, and &#123;dialect&#125; does not report which row it updated.
 
 Nothing was written. Upsert by the key, or read the row by the conflicting field and update it.
 
@@ -2494,19 +2494,19 @@ Pass a value, or null.
 
 ## `query.validateApply` {#query-validateapply}
 
-> {fn}(): apply must be true or false.
+> &#123;fn&#125;(): apply must be true or false.
 
 Pass apply: true or false, or leave it out.
 
 ## `query.validateApplyCombined` {#query-validateapplycombined}
 
-> {fn}(): apply cannot be combined with {…}.
+> &#123;fn&#125;(): apply cannot be combined with &#123;…&#125;.
 
 A schema that reports an issue has no output to apply, even when that issue is then left out. Validate with a schema of just the fields to transform instead.
 
 ## `query.validateApplyFunction` {#query-validateapplyfunction}
 
-> {fn}(): apply needs a Standard Schema, whose output is written back.
+> &#123;fn&#125;(): apply needs a Standard Schema, whose output is written back.
 
 A validator function returns issues only; change values with putChange.
 
@@ -2518,33 +2518,33 @@ Pass a function of the field's change, as in validateChange("email", (value) =\>
 
 ## `query.validateChangeResult` {#query-validatechangeresult}
 
-> A validateChange() function must return a message, an error ({ message, meta? }), a list of either, or nothing.
+> A validateChange() function must return a message, an error (&#123; message, meta? &#125;), a list of either, or nothing.
 
-Return a message, an error ({ message, meta? }), a list of either, or nothing from the function.
+Return a message, an error (&#123; message, meta? &#125;), a list of either, or nothing from the function.
 
 ## `query.validateOnly` {#query-validateonly}
 
-> {fn}(): only must be a list of field names.
+> &#123;fn&#125;(): only must be a list of field names.
 
-Pass only as a list of field names, as in { only: \["email"\] }.
+Pass only as a list of field names, as in &#123; only: \["email"\] &#125;.
 
 ## `query.validateOptions` {#query-validateoptions}
 
-> {fn}(): the options must be an object.
+> &#123;fn&#125;(): the options must be an object.
 
-Pass the options as an object, such as { scope: "changed" }.
+Pass the options as an object, such as &#123; scope: "changed" &#125;.
 
 ## `query.validateScope` {#query-validatescope}
 
-> {fn}(): scope must be "all" or "changed".
+> &#123;fn&#125;(): scope must be "all" or "changed".
 
 Pass scope: "all" (the default) or "changed".
 
 ## `query.validateUnknownField` {#query-validateunknownfield}
 
-> {fn}(): "{name}" is not a field.
+> &#123;fn&#125;(): "&#123;name&#125;" is not a field.
 
-The fields are: {fields}.
+The fields are: &#123;fields&#125;.
 
 ## `query.validatorPromise` {#query-validatorpromise}
 
@@ -2554,115 +2554,115 @@ An async validator runs with validateAsync(); validate() is synchronous.
 
 ## `query.validatorValueType` {#query-validatorvaluetype}
 
-> {fn}(): the change of "{field}" is not {expected}, so it cannot be validated this way.
+> &#123;fn&#125;(): the change of "&#123;field&#125;" is not &#123;expected&#125;, so it cannot be validated this way.
 
 Use the validator on a field of the matching type, or validate the value with validateChange().
 
 ## `query.valuesEmpty` {#query-valuesempty}
 
-> The values source "{alias}" has no rows.
+> The values source "&#123;alias&#125;" has no rows.
 
 Give the values source at least one row.
 
 ## `query.valuesRowLength` {#query-valuesrowlength}
 
-> Row {r} of the values source "{alias}" does not have one value per column.
+> Row &#123;r&#125; of the values source "&#123;alias&#125;" does not have one value per column.
 
 Give every row one value per column.
 
 ## `query.windowArgument` {#query-windowargument}
 
-> {method}() takes an expression.
+> &#123;method&#125;() takes an expression.
 
 Pass an expression, such as p.views.
 
 ## `query.windowCallback` {#query-windowcallback}
 
-> windows({ {name} }) takes a callback that receives the bindings and returns the window.
+> windows(&#123; &#123;name&#125; &#125;) takes a callback that receives the bindings and returns the window.
 
-Pass a callback that receives the bindings and returns the window: {name}: ({ p }) =\> ({ partitionBy: \[p.authorId\] }).
+Pass a callback that receives the bindings and returns the window: &#123;name&#125;: (&#123; p &#125;) =\> (&#123; partitionBy: \[p.authorId\] &#125;).
 
 ## `query.windowCount` {#query-windowcount}
 
-> {method}() takes {what} as a whole number of at least 1, or an integer expression; it was given {…}.
+> &#123;method&#125;() takes &#123;what&#125; as a whole number of at least 1, or an integer expression; it was given &#123;…&#125;.
 
-Pass {what} as a whole number of at least 1, or an integer expression.
+Pass &#123;what&#125; as a whole number of at least 1, or an integer expression.
 
 ## `query.windowFrame` {#query-windowframe}
 
-> {where}: frame is a fragment.
+> &#123;where&#125;: frame is a fragment.
 
 Pass a fragment, such as fragment\`rows between unbounded preceding and current row\`.
 
 ## `query.windowFunctionFilter` {#query-windowfunctionfilter}
 
-> {clause}(): {name}() is a window function, which takes no filter().
+> &#123;clause&#125;(): &#123;name&#125;() is a window function, which takes no filter().
 
 filter() is for aggregates such as count() and sum(); remove it from the window function.
 
 ## `query.windowFunctionOver` {#query-windowfunctionover}
 
-> {clause}(): {name}() is a window function and needs a window.
+> &#123;clause&#125;(): &#123;name&#125;() is a window function and needs a window.
 
-Add .over(…), such as {name}().over({ orderBy: \[p.createdAt\] }).
+Add .over(…), such as &#123;name&#125;().over(&#123; orderBy: \[p.createdAt\] &#125;).
 
 ## `query.windowInClause` {#query-windowinclause}
 
-> {clause}(): {what}, which cannot be used in {clause}().
+> &#123;clause&#125;(): &#123;what&#125;, which cannot be used in &#123;clause&#125;().
 
 Window functions are allowed only in select() and orderBy().
 
 ## `query.windowInFilter` {#query-windowinfilter}
 
-> {clause}(): {what}, which cannot be used in {clause}().
+> &#123;clause&#125;(): &#123;what&#125;, which cannot be used in &#123;clause&#125;().
 
 Window functions are computed after the rows are filtered and grouped. Select it, then filter on it from a query over this one: from(subquery(q), "s").where(…).
 
 ## `query.windowMemberArray` {#query-windowmemberarray}
 
-> {where}: {member} is not an array.
+> &#123;where&#125;: &#123;member&#125; is not an array.
 
-Pass an array: {member}: \[p.authorId\].
+Pass an array: &#123;member&#125;: \[p.authorId\].
 
 ## `query.windowName` {#query-windowname}
 
-> windows() was given the name "{name}".
+> windows() was given the name "&#123;name&#125;".
 
 Give each window a name that is an identifier: a letter or underscore, then letters, digits, underscores or $.
 
 ## `query.windowOrder` {#query-windoworder}
 
-> {where}: orderBy holds something that is not an expression or an order item.
+> &#123;where&#125;: orderBy holds something that is not an expression or an order item.
 
 Put expressions or order items in orderBy, as in orderBy: \[p.createdAt.desc()\].
 
 ## `query.windowPartition` {#query-windowpartition}
 
-> {where}: partitionBy holds something that is not an expression.
+> &#123;where&#125;: partitionBy holds something that is not an expression.
 
 Put expressions in partitionBy, as in partitionBy: \[p.authorId\].
 
 ## `query.windowShape` {#query-windowshape}
 
-> {where}: the callback must return a window.
+> &#123;where&#125;: the callback must return a window.
 
-Return a window from the callback: { partitionBy, orderBy, frame }.
+Return a window from the callback: &#123; partitionBy, orderBy, frame &#125;.
 
 ## `query.windowTwice` {#query-windowtwice}
 
-> windows() declares "{name}", which this query already declares.
+> windows() declares "&#123;name&#125;", which this query already declares.
 
 Each window has one name.
 
 ## `query.windowUndeclared` {#query-windowundeclared}
 
-> {clause}(): over("{over}") names a window this query does not declare{…}.
+> &#123;clause&#125;(): over("&#123;over&#125;") names a window this query does not declare&#123;…&#125;.
 
-Declare it first: windows({ {over}: ({ p }) =\> ({ … }) }).
+Declare it first: windows(&#123; &#123;over&#125;: (&#123; p &#125;) =\> (&#123; … &#125;) &#125;).
 
 ## `query.windowUnknownKey` {#query-windowunknownkey}
 
-> {where}: a window has no {join}.
+> &#123;where&#125;: a window has no &#123;join&#125;.
 
 A window takes partitionBy, orderBy and frame.
 
@@ -2676,119 +2676,119 @@ Name at least one.
 
 > windows() takes an object of named windows.
 
-Pass an object of named windows: windows({ w: ({ p }) =\> ({ partitionBy: \[p.authorId\] }) }).
+Pass an object of named windows: windows(&#123; w: (&#123; p &#125;) =\> (&#123; partitionBy: \[p.authorId\] &#125;) &#125;).
 
 ## `query.withCteQuery` {#query-withctequery}
 
-> withCte({…}, query) takes a query as its second argument.
+> withCte(&#123;…&#125;, query) takes a query as its second argument.
 
 Pass a query built with from() as the second argument: withCte("tree", from(Category, "c")).
 
 ## `query.writeEmbedded` {#query-writeembedded}
 
-> {name} is an embedded schema: it has no table to write to.
+> &#123;name&#125; is an embedded schema: it has no table to write to.
 
 Write the parent row, whose column holds the embedded value.
 
 ## `query.writeEmbeddedSchema` {#query-writeembeddedschema}
 
-> {name} is an embedded schema: it is stored inside its parent's row and has no table to write to.
+> &#123;name&#125; is an embedded schema: it is stored inside its parent's row and has no table to write to.
 
 Write the parent row, whose column holds the embedded value.
 
 ## `query.writeJoinKind` {#query-writejoinkind}
 
-> {verb} can join only with join() or crossJoin(); a {type} join has no meaning there.
+> &#123;verb&#125; can join only with join() or crossJoin(); a &#123;type&#125; join has no meaning there.
 
 Join with join() (an inner join) or crossJoin() in an update or a delete.
 
 ## `query.writeNestedNotEmbed` {#query-writenestednotembed}
 
-> repo.{method}(): the changeset of {name} holds a changeset as the change of "{key}", which is not an embed field.
+> repo.&#123;method&#125;(): the changeset of &#123;name&#125; holds a changeset as the change of "&#123;key&#125;", which is not an embed field.
 
 Only embed fields and associations hold nested changesets.
 
 ## `query.writeNewRecord` {#query-writenewrecord}
 
-> repo.{method}() needs a changeset of a loaded row; this one is of a new {name} (made from the class).
+> repo.&#123;method&#125;() needs a changeset of a loaded row; this one is of a new &#123;name&#125; (made from the class).
 
 Insert it with repo.insert(), or use repo.insertOrUpdate().
 
 ## `query.writeNoKeyValue` {#query-writenokeyvalue}
 
-> repo.{method}(): the {name} row has no value for its key field "{name}".
+> repo.&#123;method&#125;(): the &#123;name&#125; row has no value for its key field "&#123;name&#125;".
 
 Pass a changeset of a row read from the database, which has its key.
 
 ## `query.writeNoPrimaryKey` {#query-writenoprimarykey}
 
-> repo.{method}(): {name} has no primary key, so a row of it cannot be found again to {…}.
+> repo.&#123;method&#125;(): &#123;name&#125; has no primary key, so a row of it cannot be found again to &#123;…&#125;.
 
-Use repo.{method}() with a query.
+Use repo.&#123;method&#125;() with a query.
 
 ## `query.writeNotLoaded` {#query-writenotloaded}
 
-> repo.{method}() needs a row read from the database; {…}.
+> repo.&#123;method&#125;() needs a row read from the database; &#123;…&#125;.
 
 Pass a changeset of a row returned by a query or a write that was not deleted.
 
 ## `query.writeNotWholeNumber` {#query-writenotwholenumber}
 
-> The value written to {field} holds a number that is not a whole number where {wholeTypeName} is expected.
+> The value written to &#123;field&#125; holds a number that is not a whole number where &#123;wholeTypeName&#125; is expected.
 
 Give it a whole number, or declare the field t.float() or t.decimal() if it holds fractions.
 
 ## `query.writeOptionField` {#query-writeoptionfield}
 
-> {where}: {…} is not {…} of {name}.
+> &#123;where&#125;: &#123;…&#125; is not &#123;…&#125; of &#123;name&#125;.
 
-Its fields are: {schemaMeta}.
+Its fields are: &#123;schemaMeta&#125;.
 
 ## `query.writeOptionFields` {#query-writeoptionfields}
 
-> {where} must be a non-empty list of field names.
+> &#123;where&#125; must be a non-empty list of field names.
 
 Pass a non-empty list of field names, as in \["email"\].
 
 ## `query.writeSchemaless` {#query-writeschemaless}
 
-> repo.{method}(): this changeset has no schema class (it was cast from { data, types }), so it has no table to write to.
+> repo.&#123;method&#125;(): this changeset has no schema class (it was cast from &#123; data, types &#125;), so it has no table to write to.
 
 Use applyAction() to validate such data.
 
 ## `query.writeUnknownChange` {#query-writeunknownchange}
 
-> repo.{method}(): the changeset holds a change of "{key}", which is neither a field nor an association of {name}.
+> repo.&#123;method&#125;(): the changeset holds a change of "&#123;key&#125;", which is neither a field nor an association of &#123;name&#125;.
 
 Change only the fields and associations the schema declares; a changeset built with cast() or change() never holds others.
 
 ## `query.writeUnknownField` {#query-writeunknownfield}
 
-> {what} holds a field that is not a field of {name}.
+> &#123;what&#125; holds a field that is not a field of &#123;name&#125;.
 
 The write plan is malformed: the repo passes only the schema's own fields.
 
 ## `query.writeVirtualField` {#query-writevirtualfield}
 
-> {what} holds the virtual field {name}.{name}, which has no column.
+> &#123;what&#125; holds the virtual field &#123;name&#125;.&#123;name&#125;, which has no column.
 
 The write plan is malformed: the repo never writes a virtual field.
 
 ## `query.writeWithClause` {#query-writewithclause}
 
-> {verb} cannot run a query with {clause}.
+> &#123;verb&#125; cannot run a query with &#123;clause&#125;.
 
-Remove {clause} from the query before {verb}: exclude() removes a clause.
+Remove &#123;clause&#125; from the query before &#123;verb&#125;: exclude() removes a clause.
 
 ## `query.zodFieldList` {#query-zodfieldlist}
 
-> toZod(): {option} must be a list of field names.
+> toZod(): &#123;option&#125; must be a list of field names.
 
-Pass a list of field names, as in { pick: \["email", "name"\] }.
+Pass a list of field names, as in &#123; pick: \["email", "name"\] &#125;.
 
 ## `query.zodHint` {#query-zodhint}
 
-> toZod(): the zod hint of the type "{name}" is not a Zod schema (or a function returning one).
+> toZod(): the zod hint of the type "&#123;name&#125;" is not a Zod schema (or a function returning one).
 
 Give the type a zod hint that is a Zod schema, or a function of the field that returns one.
 
@@ -2800,8 +2800,8 @@ Pass mode: "row" (the default), "insert" or "update".
 
 ## `query.zodUnknownField` {#query-zodunknownfield}
 
-> toZod(): {option} names {…}.
+> toZod(): &#123;option&#125; names &#123;…&#125;.
 
-Name only fields of the schema: {allowed}.
+Name only fields of the schema: &#123;allowed&#125;.
 
 :::

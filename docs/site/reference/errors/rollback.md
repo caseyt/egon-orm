@@ -10,13 +10,13 @@ states it (`{name}` stands for a value it names), and what to do about it: the t
 
 ## `rollback.batchFailed` {#rollback-batchfailed}
 
-> The batch failed at its step "{step}" and was rolled back; error.reason holds { step, error, completed }.
+> The batch failed at its step "&#123;step&#125;" and was rolled back; error.reason holds &#123; step, error, completed &#125;.
 
 Call repo.transaction(batch) instead of transactionOrThrow() to get it back as a failed Result.
 
 ## `rollback.called` {#rollback-called}
 
-> {…}
+> The transaction was rolled back: tx.rollback(reason) was called, and the reason is error.reason.
 
 Call repo.transaction() instead of transactionOrThrow() to get the reason back as a failed Result.
 

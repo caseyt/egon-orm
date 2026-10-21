@@ -108,7 +108,7 @@ describe("sqlite", () => {
       await adapter.execute("insert into counters values (2, '12a')", []);
       await expect(repo.all(from(Counter, "c"))).rejects.toThrow(CastError);
       await expect(repo.all(from(Counter, "c"))).rejects.toThrow(
-        "Counter.n is declared t.integer(), but the database returned a string for it, not a number:",
+        "cast.integerNotNumber: Counter.n is declared t.integer(), but the database returned a string for it, not a number.",
       );
     } finally {
       await repo.close();

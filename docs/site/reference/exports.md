@@ -426,9 +426,6 @@ Guide: [The package](/guide/).
 
 | Export | Kind | Summary |
 |---|---|---|
-| [`ErrorId`](/api/reference/egon-orm/messages/type-aliases/ErrorId) | type | The identifier of every message Egon throws, such as `"query.aliasTaken"`. |
-| [`ErrorMessages`](/api/reference/egon-orm/messages/type-aliases/ErrorMessages) | type | A catalog of full messages. |
-| [`ErrorParams`](/api/reference/egon-orm/messages/type-aliases/ErrorParams) | type | The values named by `{{name}}` in an identifier's catalog entry. |
 | [`explain`](/api/reference/egon-orm/messages/functions/explain) | function | The full text of one error. |
 | [`messages`](/api/reference/egon-orm/messages/variables/messages) | constant | The full text of every error message, by identifier. |
 

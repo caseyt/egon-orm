@@ -248,7 +248,7 @@ export default defineMigration({
       const failed = await egon(["migrate"]);
       expect(failed.code).toBe(1);
       expect(failed.stderr).toMatch(
-        /^error: Migration 29990101000000_broken failed and was rolled back: The database rejected the statement \(SQLSTATE 22012\)\..*\n {2}in: select 1 \/ 0\n/,
+        /^error: migration\.failed: Migration 29990101000000_broken failed and was rolled back: The database rejected the statement \(SQLSTATE 22012\)\..*\n {2}in: select 1 \/ 0\n/,
       );
       const json = JSON.parse((await egon(["migrate", "--json"])).stdout) as {
         ok: boolean;
@@ -332,7 +332,7 @@ export default defineMigration({
         const refused = await egon(args);
         expect(refused.code).toBe(1);
         expect(refused.stderr).toMatch(
-          /^error: Cannot load the migration file ".*29990101000000_one_way\.ts": defineMigration\(\) was given no down\(\)\. A migration has both up\(m\) and down\(m\); when there is nothing to undo, write down\(\) \{\} with a \/\/ noop comment\.\n$/,
+          /^error: migration\.loadFailed: Cannot load the migration file ".*29990101000000_one_way\.ts": defineMigration\(\) was given no down\(\)\. See https:\/\/\S+\n {2}caused by: migration\.missingSteps: defineMigration\(\) was given no down\(\)\. See https:\/\/\S+\n$/,
         );
       }
       expect(await tables()).not.toContain("one_way");

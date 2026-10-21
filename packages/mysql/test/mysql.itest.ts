@@ -278,7 +278,7 @@ describe.runIf(tier2Enabled())("mysql", () => {
       score: t.integer().dbGenerated(),
     }) {}
     await expect(repo.insert(change(Tally, { label: "first" }))).rejects.toThrow(
-      /^[a-z]+(?:\.\w+)?: Tally\.score is declared t\.integer\(\), but the database returned a string.* The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction\.$/,
+      /^cast\.integerNotNumber: Tally\.score is declared t\.integer\(\), but the database returned a string.* The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction\. /,
     );
     // The row is there: the insert ran before the read-back failed.
     expect(await repo.count(from(Tally, "t"))).toBe(1);
@@ -287,7 +287,7 @@ describe.runIf(tier2Enabled())("mysql", () => {
     await expect(
       repo.insert(change(Tally, { label: "second" }), { onConflict: { update: ["label"] } }),
     ).rejects.toThrow(
-      /^[a-z]+(?:\.\w+)?: Tally\.score is declared t\.integer\(\).* The write was undone: an upsert and its read-back run as one unit\.$/,
+      /^cast\.integerNotNumber: Tally\.score is declared t\.integer\(\).* The write was undone: an upsert and its read-back run as one unit\. /,
     );
     expect(await repo.count(from(Tally, "t"))).toBe(1);
   });

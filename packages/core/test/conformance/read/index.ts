@@ -1586,8 +1586,11 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         await r.all(from(User, "u").where({ id: 1 }));
         await r.all(from(User, "u").where({ id: 2 }));
         const after = r.planCacheStats();
-        expect(after.misses - before.misses).toBe(1);
-        expect(after.hits - before.hits).toBe(1);
+        // Two lookups of one shape: the second is a hit. The cache is shared by every adapter
+        // of this configuration, so an earlier test may have compiled the shape already.
+        expect(after.misses - before.misses + (after.hits - before.hits)).toBe(2);
+        expect(after.misses - before.misses).toBeLessThanOrEqual(1);
+        expect(after.hits - before.hits).toBeGreaterThanOrEqual(1);
         expect(after.collisions).toBe(0);
       });
 

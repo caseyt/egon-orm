@@ -70,6 +70,10 @@ function render(node: ts.Expression | undefined): string {
     return text;
   }
   if (ts.isParenthesizedExpression(node)) return render(node.expression);
+  // `details.message ?? "…"`: the default is what the docs can show.
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
+    return render(node.right);
+  }
   return `{${label(node)}}`;
 }
 
@@ -168,9 +172,16 @@ export function findSites(catalog: ReadonlyMap<string, string>): Site[] {
 const namespaceOf = (id: string): string => (id.includes(".") ? (id.split(".")[0] as string) : "general");
 const anchorOf = (id: string): string => id.replace(".", "-").toLowerCase();
 
-/** Escapes text for a Markdown paragraph inside a `v-pre` block. */
+/**
+ * Escapes text for a Markdown paragraph inside a `v-pre` block. Braces become entities, or
+ * a trailing `{…}` would be read as attributes of the paragraph.
+ */
 function escapeMarkdown(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/([\\`*_[\]<>|#~])/g, "\\$1");
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/([\\`*_[\]<>|#~])/g, "\\$1")
+    .replace(/\{/g, "&#123;")
+    .replace(/\}/g, "&#125;");
 }
 
 /** The pages, by file name. */

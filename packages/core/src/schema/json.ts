@@ -13,6 +13,7 @@ import type { FieldMeta } from "../contracts/schema.js";
 import type { AnyFieldType } from "../contracts/type.js";
 import { elementTypeOf } from "../types/composite.js";
 import { toBase64 } from "../types/embed.js";
+import { MODEL } from "./model.js";
 
 /** Turns one non-`undefined` value into its JSON form. */
 export type JsonConverter = (value: unknown) => unknown;
@@ -24,17 +25,14 @@ export type JsonConverter = (value: unknown) => unknown;
 export interface JsonTable {
   readonly names: readonly string[];
   readonly converters: readonly (JsonConverter | undefined)[];
-  /** How many fields the schema has (in JSON or not): a row's associations come after them. */
-  readonly fieldCount: number;
+  /** The names of all the schema's fields (in JSON or not): a row's other own properties are its associations. */
+  readonly fields: ReadonlySet<string>;
 }
 
 /** What a row's `toJSON` reads from its schema's metadata (`Meta` in `schema.ts`). */
 interface JsonModel {
   jsonTable(): JsonTable;
 }
-
-/** The key under which a schema's prototype holds its metadata (`MODEL` in `schema.ts`). */
-const MODEL: unique symbol = Symbol.for("egon.model");
 
 interface RowLike {
   readonly [MODEL]: JsonModel;
@@ -243,7 +241,8 @@ const converters = new WeakMap<FieldMeta, JsonConverter | null>();
  *
  * @example
  * ```ts
- * fieldConverter(meta(User).fieldsByName.get("createdAt"))?.(new Date(0)); // "1970-01-01T00:00:00.000Z"
+ * const createdAt = meta(User).fieldsByName.get("createdAt");
+ * if (createdAt !== undefined) fieldConverter(createdAt)?.(new Date(0)); // "1970-01-01T00:00:00.000Z"
  * ```
  */
 export function fieldConverter(field: FieldMeta): JsonConverter | undefined {
@@ -274,7 +273,7 @@ export function jsonTableOf(fields: readonly FieldMeta[]): JsonTable {
   return Object.freeze({
     names: Object.freeze(names),
     converters: Object.freeze(table),
-    fieldCount: fields.length,
+    fields: new Set(fields.map((field) => field.name)),
   });
 }
 
@@ -304,7 +303,7 @@ export function fieldValueJson(convert: JsonConverter | undefined, value: unknow
  *
  * @example
  * ```ts
- * user.toJSON(); // { id: 1, email: "ada@example.com", createdAt: "2026-10-21T09:00:00.000Z" }
+ * JSON.stringify(user); // '{"id":1,"email":"ada@example.com","createdAt":"2026-10-21T09:00:00.000Z"}'
  * ```
  */
 export function rowToJSON(this: RowLike): Record<string, unknown> {
@@ -317,14 +316,16 @@ export function rowToJSON(this: RowLike): Record<string, unknown> {
     const value = fieldValueJson(converters[i], this[name]);
     if (value !== undefined) out[name] = value;
   }
-  // A row's own properties are its fields, in declaration order (the row factory assigns
-  // them so), then its preloaded associations: only a row with more properties than
-  // fields has any.
+  // A row's own properties are its fields, then its preloaded associations. A key is
+  // skipped by name, not by position: Object.keys lists integer-like keys first.
+  const fields = table.fields;
   const keys = Object.keys(this);
-  for (let i = table.fieldCount; i < keys.length; i++) {
-    const key = keys[i] as string;
-    const value = jsonOf(this[key], key, false);
-    if (value !== undefined) setOwn(out, key, value);
+  if (keys.length > fields.size) {
+    for (const key of keys) {
+      if (fields.has(key)) continue;
+      const value = jsonOf(this[key], key, false);
+      if (value !== undefined) setOwn(out, key, value);
+    }
   }
   return out;
 }

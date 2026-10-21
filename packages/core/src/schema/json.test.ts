@@ -308,6 +308,18 @@ describe("preloaded associations", () => {
     expect(roundTrip(value)).toStrictEqual(toJSON(value));
   });
 
+  test("an integer-like association name neither hides an association nor leaks a redacted field", () => {
+    class Kid extends Schema("kids", { id: t.integer().primaryKey(), ownerId: t.integer() }) {}
+    class Owner extends Schema("owners", { id: t.integer().primaryKey(), secret: t.string().redact() }) {
+      static "2024" = hasMany(() => Kid, { foreignKey: "ownerId" });
+    }
+    const value = row(Owner, [1, "s3cret"], { "2024": [row(Kid, [5, 1])] });
+    // Object.keys lists "2024" before the fields.
+    expect(Object.keys(value)[0]).toBe("2024");
+    expect(toJSON(value)).toStrictEqual({ id: 1, "2024": [{ id: 5, ownerId: 1 }] });
+    expect(JSON.stringify(value)).not.toContain("s3cret");
+  });
+
   test("an association named __proto__ in JSON data stays an own key", () => {
     const value = author();
     const parsed = JSON.parse('{"__proto__": {"x": 1}}') as Record<string, unknown>;
@@ -347,6 +359,12 @@ describe("the json flag", () => {
     expect(() => t.string().virtual("json" as never)).toThrow(SchemaDefinitionError);
     expect(() => t.string().virtual({ json: "yes" } as never)).toThrow(SchemaDefinitionError);
     expect(() => t.string().virtual(null as never)).toThrow(SchemaDefinitionError);
+    expect(() => t.string().virtual({ jsno: true } as never)).toThrow(SchemaDefinitionError);
+    expect(() => t.string().virtual({ json: true, extra: 1 } as never)).toThrow(SchemaDefinitionError);
+    expect(
+      meta(Schema("v", { id: t.integer().primaryKey(), v: t.string().virtual({}) })).fieldsByName.get("v")
+        ?.json,
+    ).toBe(false);
   });
 });
 

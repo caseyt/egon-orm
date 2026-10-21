@@ -9,7 +9,7 @@
  *
  * @module
  */
-import type { FieldFlagsOf, FieldValueOf } from "../contracts/schema.js";
+import type { PreloadMarker, RowMarker } from "../contracts/schema.js";
 
 type Simplify<T> = { [K in keyof T]: T[K] } & {};
 
@@ -23,41 +23,53 @@ type Dropped = undefined | symbol | ((...args: never[]) => unknown);
  */
 type Mode = "value" | "field";
 
+// The types below keep their nesting shallow: each level of a value is one conditional
+// type (`JsonOf`), and a row reads its fields' flags and values from the builders'
+// `"~field"` member, not by inferring against `FieldBuilder` (whose methods return
+// builders, which TypeScript would compare level by level). Deeper nesting made
+// `JsonReturn` of an ordinary handler hit "Type instantiation is excessively deep"
+// (TS2589), depending on what had been checked before it.
+
 type JsonOf<T, M extends Mode> = unknown extends T
   ? unknown
   : T extends string | number | boolean | null
     ? T
-    : T extends bigint
+    : T extends object
+      ? "~fields" extends keyof T
+        ? JsonRowOf<T>
+        : JsonObjectOf<T, M>
+      : T extends bigint
+        ? M extends "field"
+          ? string
+          : never
+        : undefined;
+
+/** A row: what its own `toJSON` returns, when its class defines one, else its fields and preloads. */
+type JsonRowOf<T> = "toJSON" extends keyof T
+  ? JsonOf<ReturnOf<T[keyof T & "toJSON"]>, "value">
+  : JsonRow<T, RowFieldsOf<T>>;
+
+/** An object that is not a row: a value with `toJSON`, a function, bytes, an array, or a plain object. */
+type JsonObjectOf<T, M extends Mode> = T extends { toJSON(...args: never[]): infer R }
+  ? JsonOf<R, M>
+  : T extends (...args: never[]) => unknown
+    ? undefined
+    : T extends Uint8Array
       ? M extends "field"
         ? string
-        : never
-      : T extends Dropped
-        ? undefined
-        : T extends object
-          ? "~fields" extends keyof T
-            ? T extends { toJSON(...args: never[]): infer R }
-              ? JsonOf<R, "value">
-              : JsonRow<T>
-            : JsonObjectLike<T, M>
-          : never;
+        : Record<string, number>
+      : T extends readonly unknown[]
+        ? { -readonly [K in keyof T]: JsonElement<T[K], M> }
+        : JsonObject<T, M>;
 
-/** An object that is not a row: its `toJSON`'s result, bytes, an array, or its own properties. */
-type JsonObjectLike<T, M extends Mode> = T extends { toJSON(...args: never[]): infer R }
-  ? JsonOf<R, M>
-  : T extends Uint8Array
-    ? M extends "field"
-      ? string
-      : Record<string, number>
-    : T extends readonly unknown[]
-      ? { -readonly [K in keyof T]: JsonElement<T[K], M> }
-      : JsonObject<T, M>;
+type ReturnOf<F> = F extends (...args: never[]) => infer R ? R : never;
 
 /** An array element: what is dropped from an object is `null` in an array. */
 type JsonElement<T, M extends Mode> = T extends Dropped ? null : JsonOf<T, M>;
 
 /** The keys `JSON.stringify` always writes: string keys whose value is never dropped. */
 type AlwaysKeys<T> = {
-  [K in keyof T]-?: K extends symbol
+  [K in keyof T]-?: K extends symbol | "~preloaded"
     ? never
     : [Extract<T[K], Dropped>] extends [never]
       ? object extends Pick<T, K>
@@ -68,7 +80,7 @@ type AlwaysKeys<T> = {
 
 /** The keys `JSON.stringify` writes only sometimes: optional, or with a value it may drop. */
 type SometimesKeys<T> = {
-  [K in keyof T]-?: K extends symbol
+  [K in keyof T]-?: K extends symbol | "~preloaded"
     ? never
     : [Exclude<T[K], Dropped>] extends [never]
       ? never
@@ -85,45 +97,46 @@ type JsonObject<T, M extends Mode> = Simplify<
   }
 >;
 
-type FieldsOfRow<R> = R extends { readonly "~fields"?: infer F } ? NonNullable<F> : never;
+/** What a field builder's type-only `"~field"` member records: its value type and flags. */
+type FieldInfo<B> = B extends { readonly "~field"?: infer I } ? NonNullable<I> : never;
 
-/** Whether a field with flags `G` is in JSON: `"always"` for a persisted one, `"maybe"` for a virtual one, `"no"`. */
-type InJson<G> = G extends { readonly json: true }
-  ? G extends { readonly virtual: true }
-    ? "maybe"
-    : "always"
-  : "no";
+/** Whether a field builder is in JSON: `"always"` for a persisted one, `"maybe"` for a virtual one, `"no"`. */
+type InJson<B> =
+  FieldInfo<B> extends { readonly flags: infer G }
+    ? G extends { readonly json: true }
+      ? G extends { readonly virtual: true }
+        ? "maybe"
+        : "always"
+      : "no"
+    : "no";
 
-/** The fields of `F` that are in JSON, in declaration order; a virtual one is optional, being unset on a loaded row. */
-type JsonFields<F> = {
-  -readonly [K in keyof F as InJson<FieldFlagsOf<F[K]>> extends "always" ? K : never]: JsonOf<
-    FieldValueOf<F[K]>,
-    "field"
-  >;
-} & {
-  -readonly [K in keyof F as InJson<FieldFlagsOf<F[K]>> extends "maybe" ? K : never]?: JsonOf<
-    Exclude<FieldValueOf<F[K]>, undefined>,
-    "field"
-  >;
-};
+type FieldValue<B> = FieldInfo<B> extends { readonly type: infer V } ? V : never;
 
+type RowFieldsOf<R> = R extends RowMarker<infer F> ? F : never;
+
+/** The preloaded associations a row type records; `unknown` (no keys) for none. */
 type PreloadedOf<R> = "~preloaded" extends keyof R
-  ? R extends { readonly "~preloaded"?: infer P }
-    ? NonNullable<P>
-    : never
-  : never;
-
-/** The preloaded associations of row type `R`, as they are in its JSON. */
-type PreloadedJson<R> = [PreloadedOf<R>] extends [never]
-  ? unknown
-  : { -readonly [K in keyof PreloadedOf<R> & keyof R]: JsonOf<R[K], "value"> };
+  ? R extends PreloadMarker<infer P>
+    ? P
+    : unknown
+  : unknown;
 
 /**
- * The JSON of a row of type `R`: what its `toJSON()` returns. The fields whose `json` flag
- * is true, each mapped as a field value; then the associations the row type says were
- * preloaded. Getters and methods are left out.
+ * The JSON of a row of type `R` with fields `F`: what its `toJSON()` returns. The fields
+ * whose `json` flag is true, each mapped as a field value (a virtual one is optional, being
+ * unset on a row that was read); then the associations the row type says were preloaded.
+ * Getters and methods are left out.
  */
-type JsonRow<R> = Simplify<JsonFields<FieldsOfRow<R>> & PreloadedJson<R>>;
+type JsonRow<R, F> = Simplify<
+  {
+    -readonly [K in keyof F as InJson<F[K]> extends "always" ? K : never]: JsonOf<FieldValue<F[K]>, "field">;
+  } & {
+    -readonly [K in keyof F as InJson<F[K]> extends "maybe" ? K : never]?: JsonOf<
+      Exclude<FieldValue<F[K]>, undefined>,
+      "field"
+    >;
+  } & { -readonly [K in keyof PreloadedOf<R> & keyof R]: JsonOf<R[K], "value"> }
+>;
 
 /**
  * The type of `T` once it has been through `JSON.stringify` and `JSON.parse`: what a
@@ -155,9 +168,18 @@ type JsonRow<R> = Simplify<JsonFields<FieldsOfRow<R>> & PreloadedJson<R>>;
 export type Json<T> = JsonOf<T, "value">;
 
 /**
- * The JSON of what function `F` resolves to: `Json<Awaited<ReturnType<F>>>`. Name the
- * type of a route handler's or a server action's response from the function itself, with
- * the preloads it makes.
+ * What a promise of `T` resolves to, one level deep (a promise never resolves to a
+ * promise). It is not the built-in `Awaited`: `Awaited` asks of the resolved value whether
+ * it has a `then` method, and for a loaded row TypeScript can then exceed its
+ * instantiation depth ("Type instantiation is excessively deep", TS2589), depending on
+ * what it checked before.
+ */
+type Resolved<T> = T extends Promise<infer V> ? V : T extends PromiseLike<infer V> ? V : T;
+
+/**
+ * The JSON of what function `F` resolves to: `Json` of its return type, unwrapped from a
+ * promise. Name the type of a route handler's or a server action's response from the
+ * function itself, with the preloads it makes.
  *
  * `null` stays: a function that may find nothing has `| null` in its type. Use the
  * `...OrThrow` reads, or `NonNullable`, in a handler that answers a miss with 404.
@@ -165,9 +187,11 @@ export type Json<T> = JsonOf<T, "value">;
  * @example
  * ```ts
  * async function loadPost(id: number) {
- *   return repo.getOrThrow(from(Post, "p").preload("author"), id);
+ *   return repo.getByOrThrow(from(Post, "p").preload("author"), { id });
  * }
  * type PostResponse = JsonReturn<typeof loadPost>; // { id: number; …; author: { … } }
  * ```
  */
-export type JsonReturn<F extends (...args: never[]) => unknown> = Json<Awaited<ReturnType<F>>>;
+export type JsonReturn<F extends (...args: never[]) => unknown> = F extends (...args: never[]) => infer R
+  ? Json<Resolved<R>>
+  : never;

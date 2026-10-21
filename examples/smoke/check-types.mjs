@@ -6,7 +6,9 @@
 // here would not see what a consumer sees. This script therefore packs the packages, installs
 // the tarballs with their peer dependencies (optional ones included, at the versions the
 // workspace pins; their own dependencies under the workspace's strict minimum release age)
-// into a fresh directory outside the workspace, and runs tsc there on types/consumer.ts with
+// into a fresh directory outside the workspace, and runs tsc there on types/consumer.ts and,
+// in a program of its own (so that nothing checked before it warms TypeScript's caches),
+// on types/json-return.ts, with
 //
 // - `declaration: true`: every type that an exported, inferred declaration mentions must be
 //   reachable from a public entry point (TS2883 otherwise);
@@ -91,6 +93,21 @@ try {
     )}\n`,
   );
   copyFileSync(new URL("types/consumer.ts", import.meta.url), join(project, "src", "consumer.ts"));
+  copyFileSync(new URL("types/json-return.ts", import.meta.url), join(project, "src", "json-return.ts"));
+  // The second program: json-return.ts alone, with the same options.
+  writeFileSync(
+    join(project, "tsconfig.json-return.json"),
+    `${JSON.stringify(
+      {
+        extends: "./tsconfig.json",
+        include: [],
+        files: ["src/json-return.ts"],
+        compilerOptions: { outDir: "out-json-return" },
+      },
+      null,
+      2,
+    )}\n`,
+  );
   // No install scripts: only the declarations are needed (better-sqlite3 would build).
   // The project is outside the workspace, so the workspace's supply-chain policy is given
   // here: the direct dependencies are pinned above, and everything they pull in resolves
@@ -114,6 +131,11 @@ try {
   const version = execFileSync(process.execPath, [tsc, "--version"], { encoding: "utf8" }).trim();
   try {
     execFileSync(process.execPath, [tsc, "-p", project], { cwd: project, encoding: "utf8", stdio: "pipe" });
+    execFileSync(process.execPath, [tsc, "-p", join(project, "tsconfig.json-return.json")], {
+      cwd: project,
+      encoding: "utf8",
+      stdio: "pipe",
+    });
   } catch (error) {
     console.error(
       `types: tsc (${version}) failed in a consumer of the packed packages:\n${error.stdout}${error.stderr}`,

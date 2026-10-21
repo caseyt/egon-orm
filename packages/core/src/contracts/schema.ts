@@ -586,7 +586,12 @@ export type RowOf<F> = { -readonly [K in keyof F]: FieldValueOf<F[K]> };
 /**
  * What every row type has besides its fields and the class's own members: a type-only
  * marker that leads back to the fields' builders, so that `Json<User>` can tell the fields
- * from the getters and methods. It is never set at run time, so no row has the property.
+ * from the getters and methods. It is declared only: nothing exists at run time, and no
+ * row has the member.
+ *
+ * It is an optional method of a declared class, which a spread (`{ ...user }`) and a rest
+ * (`const { email, ...rest } = user`) leave out of their types, as they leave out a
+ * class's methods: a copy is a plain object, and `Json` of it follows `JSON.stringify`.
  *
  * (A row's `toJSON` is on the prototype at run time but is not part of the row type, so
  * that a class can define its own with any return type, and a plain object still fits
@@ -594,18 +599,21 @@ export type RowOf<F> = { -readonly [K in keyof F]: FieldValueOf<F[K]> };
  *
  * @example
  * ```ts
- * type UserFields = NonNullable<User["~fields"]>; // typeof User.fields
+ * type UserFields = ReturnType<NonNullable<User["~fields"]>>; // typeof User.fields
  * ```
  */
-export interface RowMarker<F> {
+export declare abstract class RowMarker<F> {
   /** Type-only; never set at runtime. */
-  readonly "~fields"?: F;
+  "~fields"?(): F;
 }
 
 /**
  * The type-only marker of a {@link Loaded} row type: the preloaded associations as an
  * object type, `{ author: true; comments: true }`, so that a row with more preloads is
- * still assignable where fewer are expected. It is never set at run time.
+ * still assignable where fewer are expected, and two markers on one row merge into one.
+ * It is never set at run time. (A property, not a method like {@link RowMarker}: the
+ * types of two methods would not merge. A copy of a row keeps it in its type, but without
+ * the `RowMarker` the copy is a plain object to `Json`, which ignores this key.)
  *
  * @example
  * ```ts

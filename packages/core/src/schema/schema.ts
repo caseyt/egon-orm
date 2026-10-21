@@ -28,6 +28,7 @@ import { fieldState } from "./field.js";
 import { definedOnPrototype, describe, isRow } from "./guards.js";
 import type { JsonTable } from "./json.js";
 import { jsonTableOf, rowToJSON } from "./json.js";
+import { MODEL } from "./model.js";
 
 /**
  * How field names become column names (or, in an embedded schema, JSON keys):
@@ -79,8 +80,6 @@ export interface EmbeddedSchemaOptions {
   readonly codegen?: boolean | undefined;
 }
 
-/** The key under which a schema's prototype holds its metadata, so that a row leads to it. */
-const MODEL: unique symbol = Symbol.for("egon.model");
 /** Node's `util.inspect.custom`, which Deno and Bun honour too. Looked up by name: no import of `node:util`. */
 const INSPECT: unique symbol = Symbol.for("nodejs.util.inspect.custom");
 

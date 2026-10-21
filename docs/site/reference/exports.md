@@ -67,7 +67,7 @@ Guide: [Schemas and associations](/guide/schemas).
 | [`primaryKeyOf`](/api/reference/egon-orm/functions/primaryKeyOf) | function | The value that identifies a row. |
 | [`PrimaryKeyOf`](/api/reference/egon-orm/type-aliases/PrimaryKeyOf) | type | The value that identifies one row of schema `S`. |
 | [`Row`](/api/reference/egon-orm/type-aliases/Row) | type | The type of a row of schema `S`. |
-| [`RowMarker`](/api/reference/egon-orm/interfaces/RowMarker) | interface | What every row type has besides its fields and the class's own members. |
+| [`RowMarker`](/api/reference/egon-orm/interfaces/RowMarker) | class, as a type | What every row type has besides its fields and the class's own members. |
 | [`RowMeta`](/api/reference/egon-orm/interfaces/RowMeta) | interface | Per-row metadata, stored under `ROW`. |
 | [`RowState`](/api/reference/egon-orm/type-aliases/RowState) | type | Where a row stands relative to the database. |
 | [`Schema`](/api/reference/egon-orm/functions/Schema) | function | Defines the schema of a table. |

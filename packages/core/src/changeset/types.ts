@@ -195,11 +195,13 @@ type IsMutable<R, K extends keyof R> =
 
 /** The keys of a row type that are fields: writable and not functions (getters without a setter are read-only). */
 type RowFieldKeys<R> = {
-  [K in keyof R]-?: R[K] extends (...args: never[]) => unknown
-    ? never
-    : IsMutable<R, K> extends true
-      ? K
-      : never;
+  [K in keyof R]-?: K extends `~${string}`
+    ? never // a type-only marker (`RowMarker`), not a field
+    : R[K] extends (...args: never[]) => unknown
+      ? never
+      : IsMutable<R, K> extends true
+        ? K
+        : never;
 }[keyof R] &
   string;
 

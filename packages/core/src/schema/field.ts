@@ -176,7 +176,8 @@ class Builder<T, F extends FieldFlags> implements FieldBuilder<T, F> {
     const json: unknown =
       typeof given === "object" && given !== null ? (given as { readonly json?: unknown }).json : undefined;
     if (
-      (given !== undefined && (typeof given !== "object" || given === null)) ||
+      (given !== undefined &&
+        (typeof given !== "object" || given === null || Object.keys(given).some((key) => key !== "json"))) ||
       (json !== undefined && typeof json !== "boolean")
     ) {
       throw new SchemaDefinitionError(

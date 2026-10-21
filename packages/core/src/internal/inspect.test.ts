@@ -1,7 +1,7 @@
 import fc from "fast-check";
 import { describe, expect, test } from "vitest";
 import { META, ROW } from "../contracts/schema.js";
-import { formatStruct, formatValue, omitRedacted, REDACTED, redactFields } from "./inspect.js";
+import { formatStruct, formatValue, REDACTED, redactFields } from "./inspect.js";
 
 const SECRET = "s3cr3t-value";
 
@@ -58,19 +58,10 @@ describe("an own __proto__ key (as JSON.parse produces)", () => {
     expect(JSON.stringify(out)).toBe('{"id":1,"__proto__":{"isAdmin":true},"token":"**redacted**"}');
   });
 
-  test("omitRedacted keeps it as an own key and leaves the copy's prototype alone", () => {
-    const out = omitRedacted(parsed(), new Set(["token"]));
-    expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
-    expect((out as { isAdmin?: unknown }).isAdmin).toBeUndefined();
-    expect(Object.keys(out)).toEqual(["id", "__proto__"]);
-    expect(JSON.stringify(out)).toBe('{"id":1,"__proto__":{"isAdmin":true}}');
-  });
-
-  test("it can itself be redacted or omitted", () => {
+  test("it can itself be redacted", () => {
     const redacted = redactFields(parsed(), new Set(["__proto__"]));
     expect(Object.getOwnPropertyDescriptor(redacted, "__proto__")?.value).toBe(REDACTED);
     expect(Object.getPrototypeOf(redacted)).toBe(Object.prototype);
-    expect(Object.keys(omitRedacted(parsed(), new Set(["__proto__"])))).toEqual(["id", "token"]);
   });
 
   test("the formatters print it as an ordinary key", () => {
@@ -78,22 +69,6 @@ describe("an own __proto__ key (as JSON.parse produces)", () => {
     expect(formatStruct("Row", parsed(), new Set(["token"]))).toBe(
       "Row { id: 1, __proto__: { isAdmin: true }, token: **redacted** }",
     );
-  });
-});
-
-describe("omitRedacted", () => {
-  test("drops the redacted keys entirely", () => {
-    const out = omitRedacted({ id: 1, passwordHash: SECRET, email: "a@b.c" }, new Set(["passwordHash"]));
-    expect(out).toEqual({ id: 1, email: "a@b.c" });
-    expect(Object.hasOwn(out, "passwordHash")).toBe(false);
-    expect(JSON.stringify(out)).not.toContain(SECRET);
-  });
-
-  test("with nothing redacted it is a shallow copy", () => {
-    const row = { id: 1 };
-    const out = omitRedacted(row, new Set());
-    expect(out).toEqual(row);
-    expect(out).not.toBe(row);
   });
 });
 

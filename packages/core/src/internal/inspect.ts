@@ -51,25 +51,6 @@ export function redactFields(values: object, redacted: ReadonlySet<string>): Rec
   return out;
 }
 
-/**
- * Copies the own enumerable string-keyed properties of `values`, leaving out every key in
- * `redacted`. This is what `toJSON` uses: a redacted value must not be serialised at all.
- * The copy is shallow; a nested row is serialised by its own `toJSON`.
- *
- * @example
- * ```ts
- * omitRedacted({ email: "a@b.c", passwordHash: "$2b$…" }, new Set(["passwordHash"]));
- * // { email: "a@b.c" }
- * ```
- */
-export function omitRedacted(values: object, redacted: ReadonlySet<string>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const key of Object.keys(values)) {
-    if (!redacted.has(key)) setOwn(out, key, (values as Record<string, unknown>)[key]);
-  }
-  return out;
-}
-
 /** Strings longer than this are cut in {@link formatValue}. */
 const MAX_STRING = 100;
 /** Arrays and objects show at most this many entries in {@link formatValue}. */

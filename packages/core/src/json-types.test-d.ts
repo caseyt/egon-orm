@@ -231,6 +231,36 @@ describe("Json of a loaded row", () => {
   });
 });
 
+describe("Json of a copy of a row", () => {
+  // A copy has no toJSON: JSON.stringify writes every own property, secrets included.
+  test("a spread copy is a plain object: its JSON has every field", () => {
+    const copy = { ...({} as User) };
+    type CopyJson = Json<typeof copy>;
+    expectTypeOf<CopyJson["passwordHash"]>().toEqualTypeOf<string | null>();
+    expectTypeOf<CopyJson["password"]>().toEqualTypeOf<string>();
+    expectTypeOf<CopyJson["createdAt"]>().toEqualTypeOf<string>();
+    // @ts-expect-error the marker is not on a copy
+    type _Marker = (typeof copy)["~fields"];
+  });
+
+  test("a rest copy is a plain object too", () => {
+    const { email: _email, ...rest } = {} as User;
+    expectTypeOf<Json<typeof rest>["password"]>().toEqualTypeOf<string>();
+    // @ts-expect-error email was taken out
+    type _Email = Json<typeof rest>["email"];
+  });
+
+  test("a bigint field of a copy is never: JSON.stringify throws on it", () => {
+    const copy = { ...({} as Every) };
+    expectTypeOf<Json<typeof copy>["big"]>().toEqualTypeOf<never>();
+  });
+
+  test("Omit of a row type keeps the marker, so Json still describes the row (send rows, not mapped types)", () => {
+    type WithoutEmail = Omit<User, "email">;
+    expectTypeOf<Json<WithoutEmail>>().toEqualTypeOf<Json<User>>();
+  });
+});
+
 describe("Json of other values follows JSON.stringify", () => {
   test("primitives, dates and values with toJSON", () => {
     expectTypeOf<Json<string>>().toEqualTypeOf<string>();

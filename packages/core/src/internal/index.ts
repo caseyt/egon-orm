@@ -17,7 +17,7 @@ export * as expressions from "../query/functions.js";
 export * as types from "../types/index.js";
 export { deepEqual } from "./deep-equal.js";
 export { HASH_SEED, hashInt, hashString } from "./hash.js";
-export { formatStruct, formatValue, omitRedacted, REDACTED, redactFields } from "./inspect.js";
+export { formatStruct, formatValue, REDACTED, redactFields } from "./inspect.js";
 export { LruCache } from "./lru.js";
 export { camelToSnake, snakeToCamel } from "./naming.js";
 export { isPlainObject } from "./plain-object.js";

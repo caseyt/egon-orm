@@ -55,10 +55,16 @@ export function errorResponse(error: unknown): Response {
 // #endregion map
 
 // #region handlers
-/** POST /users: 201 with the user, or 422 with the messages of an invalid changeset. */
+/** POST /users: 201 with the user, 400 for a body that is not JSON, 422 for an invalid changeset. */
 export async function signUp(request: Request): Promise<Response> {
+  let params: unknown;
   try {
-    const result = await repo.insert(User.changeset(User, await request.json()));
+    params = await request.json();
+  } catch {
+    return Response.json({ error: "Bad Request" }, { status: 400 });
+  }
+  try {
+    const result = await repo.insert(User.changeset(User, params));
     if (!result.success) {
       return Response.json({ errors: result.error.errorMessages() }, { status: 422 });
     }

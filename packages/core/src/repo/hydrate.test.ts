@@ -14,11 +14,9 @@ import { bigintType, integerType, stringType } from "../types/index.js";
 import {
   buildDecoder,
   type CodecSource,
-  canGenerate,
   decodeRows,
   decoderFor,
   generateDecoder,
-  generationAllowed,
   interpretDecoder,
 } from "./hydrate.js";
 
@@ -363,19 +361,8 @@ describe("building and caching", () => {
     expect(() => decoderFor(plan, codecs, true)).toThrow(TypeError);
   });
 
-  test("code generation is detected, and its absence too", () => {
-    expect(canGenerate((body) => new Function(body) as () => unknown)).toBe(true);
-    expect(
-      canGenerate(() => {
-        throw new EvalError("Code generation from strings disallowed for this context");
-      }),
-    ).toBe(false);
-    expect(canGenerate(() => () => false)).toBe(false);
-  });
-
-  test("buildDecoder generates code only when asked to and allowed", () => {
+  test("buildDecoder generates code only when asked to", () => {
     const plan: OutputPlan = { kind: "value", alias: "c0", type: undefined };
-    expect(generationAllowed()).toBe(true);
     expect(buildDecoder(plan, codecs, true).name).toBe("decode");
     expect(buildDecoder(plan, codecs, false).name).not.toBe("decode");
   });
@@ -397,13 +384,15 @@ describe("building and caching", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  test("code generation is probed only when a decoder is generated, and once", async () => {
+  test("code generation is attempted when a decoder is generated, and given up after a refusal", async () => {
     vi.resetModules();
     const original = globalThis.Function;
     const constructed = vi.fn();
+    let refuse = false;
     globalThis.Function = new Proxy(original, {
       construct(target, args) {
-        constructed(args[args.length - 1]);
+        constructed();
+        if (refuse) throw new EvalError("Code generation from strings disallowed for this context");
         return Reflect.construct(target, args);
       },
     });
@@ -411,13 +400,30 @@ describe("building and caching", () => {
       const fresh = await import("./hydrate.js");
       fresh.buildDecoder(rowLeaf(USER, 0), codecs, false);
       expect(constructed).not.toHaveBeenCalled();
-      fresh.buildDecoder(rowLeaf(USER, 0), codecs, true);
-      // The probe, then the decoder.
-      expect(constructed.mock.calls.map(([body]) => body === "return true")).toEqual([true, false]);
-      fresh.buildDecoder(rowLeaf(USER, 0), codecs, true);
-      expect(constructed).toHaveBeenCalledTimes(3);
+      // No probe: the decoder itself is the only function made.
+      expect(fresh.buildDecoder(rowLeaf(USER, 0), codecs, true).name).toBe("decode");
+      expect(constructed).toHaveBeenCalledTimes(1);
+      // A success is not remembered: a runtime that refuses later is asked again, once.
+      refuse = true;
+      const plan: OutputPlan = {
+        kind: "object",
+        keys: ["id", "name"],
+        values: [
+          { kind: "value", alias: "c0", type: integerType() as AnyFieldType },
+          { kind: "value", alias: "c1", type: undefined },
+        ],
+      };
+      const row = { c0: 1, c1: "a" };
+      const fallback = fresh.buildDecoder(plan, codecs, true);
+      expect(fallback.name).not.toBe("decode");
+      expect(constructed).toHaveBeenCalledTimes(2);
+      // The refusal is remembered: no more attempts.
+      fresh.buildDecoder(plan, codecs, true);
+      expect(constructed).toHaveBeenCalledTimes(2);
+      expect(fallback(row, [])).toStrictEqual({ id: 1, name: "a" });
     } finally {
       globalThis.Function = original;
+      vi.resetModules();
     }
   });
 

@@ -29,6 +29,7 @@ import type { Adapter, CompiledQuery, OutputPlan, RowDecoder } from "../contract
 import type { RowMeta, SchemaMeta } from "../contracts/schema.js";
 import { type AnyFieldType, IDENTITY } from "../contracts/type.js";
 import { CastError } from "../errors.js";
+import { generateFunction } from "../internal/codegen.js";
 import { floatType, integerType, resolveCodec } from "../types/index.js";
 
 /** Converts one non-null driver value to the application value. */
@@ -103,41 +104,6 @@ const SELECTED = "The selected value";
 /** Where the decoder gets each type's driver conversion from: the adapter that ran the plan. */
 export type CodecSource = Pick<Adapter, "typeOverrides">;
 
-/**
- * Whether `compile` can turn source text into a working function: false where a Content
- * Security Policy without `unsafe-eval` makes `new Function` throw.
- *
- * @example
- * ```ts
- * canGenerate((body) => new Function(body) as () => unknown); // true in Node
- * ```
- */
-export function canGenerate(compile: (body: string) => () => unknown): boolean {
-  try {
-    return compile("return true")() === true;
-  } catch {
-    return false;
-  }
-}
-
-/** The answer of {@link generationAllowed}, once asked. */
-let generation: boolean | undefined;
-
-/**
- * Whether this runtime lets code be generated. Asked the first time a repo with
- * `codegen` on builds a decoder, never before: a repo with `codegen: false` never calls
- * `new Function`, so a Content Security Policy never sees (or reports) an attempt.
- *
- * @example
- * ```ts
- * const decode = generationAllowed() ? generateDecoder(plan, adapter) : interpretDecoder(plan, adapter);
- * ```
- */
-export function generationAllowed(): boolean {
-  if (generation === undefined) generation = canGenerate((body) => new Function(body) as () => unknown);
-  return generation;
-}
-
 /** The conversion of a type for this adapter; `undefined` when there is none to apply. */
 function converter(type: AnyFieldType | undefined, codecs: CodecSource): FromDb | undefined {
   if (type === undefined) return undefined;
@@ -201,7 +167,8 @@ export function decoderFor(
 
 /**
  * Builds a decoder for an output plan: generated when `codegen` is true and the runtime
- * allows it, interpreted otherwise.
+ * allows it at this moment, interpreted otherwise. A repo with `codegen: false` never
+ * calls `new Function`, so a Content Security Policy never sees (or reports) an attempt.
  *
  * @example
  * ```ts
@@ -214,9 +181,7 @@ export function buildDecoder(
   codegen: boolean,
   label?: string,
 ): RowDecoder {
-  return codegen && generationAllowed()
-    ? generateDecoder(output, codecs, label)
-    : interpretDecoder(output, codecs, label);
+  return codegen ? generateDecoder(output, codecs, label) : interpretDecoder(output, codecs, label);
 }
 
 // ---------------------------------------------------------------------------
@@ -363,7 +328,9 @@ function generateRow(
 /**
  * Generates a decoder for `output` with `new Function`: straight-line code that reads each
  * column once into a local, converts it where its type needs it, and builds the selected
- * value with object and array literals and the row factories.
+ * value with object and array literals and the row factories. Where the runtime refuses to
+ * generate code (a Content Security Policy, a Cloudflare Worker handling a request), it
+ * returns the interpreted decoder instead, which gives the same results.
  *
  * @example
  * ```ts
@@ -389,12 +356,15 @@ export function generateDecoder(output: OutputPlan, codecs: CodecSource, label?:
   for (let i = 0; i < b.factories.length; i++) prelude.push(`const c${i} = c[${i}];`);
   for (let i = 0; i < b.rowMetas.length; i++) prelude.push(`const m${i} = m[${i}];`);
   const source = `"use strict";\n${prelude.join("\n")}\nreturn function decode(r, k) {\n${b.lines.join("\n")}\nreturn ${result};\n};`;
-  const make = new Function("f", "n", "c", "m", source) as (
-    f: readonly FromDb[],
-    n: readonly NumberCheck[],
-    c: Bindings["factories"],
-    m: readonly RowMeta[],
-  ) => RowDecoder;
+  const make = generateFunction(["f", "n", "c", "m"], source) as
+    | ((
+        f: readonly FromDb[],
+        n: readonly NumberCheck[],
+        c: Bindings["factories"],
+        m: readonly RowMeta[],
+      ) => RowDecoder)
+    | undefined;
+  if (make === undefined) return interpretDecoder(output, codecs, label);
   return make(b.fromDb, b.checks, b.factories, b.rowMetas);
 }
 

@@ -4,6 +4,8 @@
  *
  * @module
  */
+
+import { generatedBuilders } from "../changeset/validators/generated.js";
 import type {
   AnySchema,
   EmbedMeta,
@@ -19,6 +21,7 @@ import type {
 } from "../contracts/schema.js";
 import { META, ROW } from "../contracts/schema.js";
 import { SchemaDefinitionError } from "../errors.js";
+import { generateFunction } from "../internal/codegen.js";
 import { formatStruct, REDACTED } from "../internal/inspect.js";
 import { camelToSnake } from "../internal/naming.js";
 import type { ResolvedAssoc } from "./assoc.js";
@@ -57,7 +60,8 @@ export interface SchemaOptions {
   readonly primaryKey?: false | undefined;
   /**
    * `false` builds rows with a loop instead of a generated function. That is what happens
-   * by itself where generating code is not allowed (a strict Content Security Policy).
+   * by itself where generating code is not allowed (a strict Content Security Policy, or a
+   * Cloudflare Worker handling a request).
    */
   readonly codegen?: boolean | undefined;
 }
@@ -97,8 +101,10 @@ interface Meta extends SchemaMeta {
   readonly redacted: ReadonlySet<string>;
   /** The field names in declaration order. */
   readonly fieldNames: readonly string[];
-  /** Whether row factories are generated functions. */
+  /** Whether row factories are generated functions (unless the runtime refuses to generate code). */
   readonly codegen: boolean;
+  /** The maker of the plain row constructor, generated in `Schema()`; `undefined` for loops. */
+  readonly maker: ConstructorMaker | undefined;
 }
 
 interface RowLike {
@@ -261,73 +267,83 @@ function tablesOf(
 // Row factories
 // ---------------------------------------------------------------------------
 
-/**
- * Whether this runtime lets code be generated. A Content Security Policy without
- * `unsafe-eval` does not. Asked once.
- */
-const CAN_GENERATE: boolean = (() => {
-  try {
-    return new Function("return true")() === true;
-  } catch {
-    return false;
-  }
-})();
+/** Constructs a row: the fields' values, the loaded associations' values, the row's metadata. */
+type RowConstructor = new (values: readonly unknown[], loaded: readonly unknown[], row: RowMeta) => object;
 
 /**
- * Builds the function that makes rows: every field in declaration order, then the loaded
- * associations, then the `ROW` marker, always in that order, so that every row it makes
- * has the same hidden class.
+ * Makes a new row constructor each time it is called: a new function object (so that its
+ * `prototype` can be set to a class's), whose code was generated once.
+ */
+type ConstructorMaker = () => RowConstructor;
+
+/** For each value slot of the fields (by the shared `fieldNames` array): where it is in `values`, -1 for a virtual field. */
+function positionsOf(tables: Tables): number[] {
+  const positions: number[] = [];
+  let next = 0;
+  for (const field of tables.fields) positions.push(field.virtual ? -1 : next++);
+  return positions;
+}
+
+/**
+ * Generates the maker of a row constructor for these fields and associations: every field
+ * in declaration order, then the loaded associations, then the `ROW` marker, always in that
+ * order, so that every row it makes has the same hidden class. `undefined` when the runtime
+ * refuses to generate code; the caller then uses {@link loopConstructor}.
  *
- * The function is used as a constructor whose `prototype` is the schema class's. The row
- * is therefore an instance of the class without the class's own constructor ever running.
+ * Generated once per schema in `Schema()` (where code generation is allowed even on
+ * runtimes that refuse it while handling a request), and used for every class that extends
+ * the schema.
+ */
+function generateMaker(tables: Tables, assocs: readonly string[]): ConstructorMaker | undefined {
+  const positions = positionsOf(tables);
+  // Names go in as string literals, so nothing a schema declares can become code.
+  const lines = tables.fieldNames.map((name, i) => {
+    const position = positions[i] as number;
+    return `this[${JSON.stringify(name)}] = ${position < 0 ? "undefined" : `values[${position}]`};`;
+  });
+  assocs.forEach((name, i) => {
+    lines.push(`this[${JSON.stringify(name)}] = loaded[${i}];`);
+  });
+  lines.push("this[ROW] = row;");
+  // Strict, as the loop is: an assignment that cannot be made throws instead of being lost.
+  const outer = generateFunction(
+    ["ROW"],
+    `"use strict";\nreturn function make() {\nreturn function Row(values, loaded, row) {\n${lines.join("\n")}\n};\n};`,
+  ) as ((row: typeof ROW) => ConstructorMaker) | undefined;
+  return outer?.(ROW);
+}
+
+/** The row constructor as a loop, for runtimes that refuse code generation and for `codegen: false`. */
+function loopConstructor(tables: Tables, assocs: readonly string[]): RowConstructor {
+  const positions = positionsOf(tables);
+  const names = tables.fieldNames;
+  return function Row(
+    this: Record<string | symbol, unknown>,
+    values: readonly unknown[],
+    loaded: readonly unknown[],
+    row: RowMeta,
+  ): void {
+    for (let i = 0; i < names.length; i++) {
+      const position = positions[i] as number;
+      this[names[i] as string] = position < 0 ? undefined : values[position];
+    }
+    for (let i = 0; i < assocs.length; i++) this[assocs[i] as string] = loaded[i];
+    this[ROW] = row;
+  } as unknown as RowConstructor;
+}
+
+/**
+ * Builds the function that makes rows. It is used as a constructor whose `prototype` is
+ * the schema class's: the row is an instance of the class without the class's own
+ * constructor ever running.
  */
 function compileFactory(
   tables: Tables,
   prototype: object,
   assocs: readonly string[],
-  codegen: boolean,
-): new (
-  values: readonly unknown[],
-  loaded: readonly unknown[],
-  row: RowMeta,
-) => object {
-  // For each field, where its value is in `values`; -1 for a virtual field.
-  const positions: number[] = [];
-  let next = 0;
-  for (const field of tables.fields) positions.push(field.virtual ? -1 : next++);
-  const names = tables.fieldNames;
-
-  let construct: new (values: readonly unknown[], loaded: readonly unknown[], row: RowMeta) => object;
-  if (codegen) {
-    // Names go in as string literals, so nothing a schema declares can become code.
-    const lines = names.map((name, i) => {
-      const position = positions[i] as number;
-      return `this[${JSON.stringify(name)}] = ${position < 0 ? "undefined" : `values[${position}]`};`;
-    });
-    assocs.forEach((name, i) => {
-      lines.push(`this[${JSON.stringify(name)}] = loaded[${i}];`);
-    });
-    lines.push("this[ROW] = row;");
-    // Strict, as the loop is: an assignment that cannot be made throws instead of being lost.
-    construct = new Function(
-      "ROW",
-      `"use strict";\nreturn function Row(values, loaded, row) {\n${lines.join("\n")}\n};`,
-    )(ROW);
-  } else {
-    construct = function Row(
-      this: Record<string | symbol, unknown>,
-      values: readonly unknown[],
-      loaded: readonly unknown[],
-      row: RowMeta,
-    ): void {
-      for (let i = 0; i < names.length; i++) {
-        const position = positions[i] as number;
-        this[names[i] as string] = position < 0 ? undefined : values[position];
-      }
-      for (let i = 0; i < assocs.length; i++) this[assocs[i] as string] = loaded[i];
-      this[ROW] = row;
-    } as unknown as typeof construct;
-  }
+  maker: ConstructorMaker | undefined,
+): RowConstructor {
+  const construct = maker === undefined ? loopConstructor(tables, assocs) : maker();
   construct.prototype = prototype;
   return construct;
 }
@@ -363,6 +379,7 @@ interface Shared extends Tables {
   readonly source: string | null;
   readonly schema: string | undefined;
   readonly codegen: boolean;
+  readonly maker: ConstructorMaker | undefined;
   readonly rowMeta: (state: RowState, schema: string | undefined) => RowMeta;
 }
 
@@ -375,7 +392,7 @@ function makeMeta(shared: Shared, model: AnySchema, name: string): Meta {
       );
     }
   }
-  const Plain = compileFactory(shared, prototype, [], shared.codegen);
+  const Plain = compileFactory(shared, prototype, [], shared.maker);
   const factories = new Map<string, LoadedFactory>();
   let resolved: ReadonlyMap<string, ResolvedAssoc> | undefined;
   let resolving: ReadonlyMap<string, ResolvedAssoc> | undefined;
@@ -420,7 +437,9 @@ function makeMeta(shared: Shared, model: AnySchema, name: string): Meta {
           }
           seen.add(assoc);
         }
-        const Loaded = compileFactory(shared, prototype, [...assocs], shared.codegen);
+        // Generated now if the runtime allows it (Workers do not while handling a request).
+        const maker = shared.codegen ? generateMaker(shared, assocs) : undefined;
+        const Loaded = compileFactory(shared, prototype, [...assocs], maker);
         factory = (values, loaded, row) => new Loaded(values, loaded, row);
         factories.set(key, factory);
       }
@@ -430,6 +449,7 @@ function makeMeta(shared: Shared, model: AnySchema, name: string): Meta {
     redacted: shared.redacted,
     fieldNames: shared.fieldNames,
     codegen: shared.codegen,
+    maker: shared.maker,
   });
   return self;
 }
@@ -446,6 +466,7 @@ function sharedOf(inherited: Meta): Shared {
     redacted: inherited.redacted,
     fieldNames: inherited.fieldNames,
     codegen: inherited.codegen,
+    maker: inherited.maker,
     rowMeta: inherited.rowMeta,
   };
 }
@@ -581,12 +602,18 @@ function defineSchema(
     }
   }
   const base = Base as unknown as AnySchema;
+  const codegen = options?.codegen !== false;
+  // The builders `changeset.validate()` uses, for the same reason as the row factory.
+  if (codegen) generatedBuilders(tables.fieldsByName);
   const own = makeMeta(
     {
       ...tables,
       source,
       schema,
-      codegen: CAN_GENERATE && options?.codegen !== false,
+      codegen,
+      // Eagerly, while the schema is defined: a schema is usually defined when the
+      // application starts, which is when every runtime allows code generation.
+      maker: codegen ? generateMaker(tables, []) : undefined,
       rowMeta: rowMetaCache(source),
     },
     base,

@@ -17,6 +17,7 @@ import { nestedValid } from "../nested/change.js";
 import { isNestedValue } from "../nested/embed.js";
 import { leaves, type Relation, relationOf } from "../nested/relation.js";
 import type { ChangesetSource } from "../types.js";
+import { generatedBuilders } from "./generated.js";
 import type { FieldValidatorFn, ValidateOptions } from "./types.js";
 import { BASE } from "./types.js";
 
@@ -67,27 +68,18 @@ function tableOf(fields: ReadonlyMap<string, FieldMeta>): Table {
   let table = tables.get(fields);
   if (table === undefined) {
     const list = Object.freeze([...fields.values()]);
-    table = CAN_GENERATE
-      ? { list, build: compileBuilder(list), before: compileBefore(list) }
-      : { list, build: genericBuilder(list), before: genericBefore(list) };
+    // Generated when the schema was defined, or now; loops where the runtime refuses.
+    const builders = generatedBuilders(fields);
+    table =
+      builders === undefined
+        ? { list, build: genericBuilder(list), before: genericBefore(list) }
+        : { list, build: builders.build, before: builders.before<AnyChangeset>(valueBefore) };
     tables.set(fields, table);
   }
   lastFields = fields;
   lastTable = table;
   return table;
 }
-
-/**
- * Whether this runtime lets code be generated (a Content Security Policy without
- * `unsafe-eval` does not). Asked once.
- */
-const CAN_GENERATE: boolean = (() => {
-  try {
-    return new Function("return true")() === true;
-  } catch {
-    return false;
-  }
-})();
 
 /** The value of a field: its change (an own property), else its value before the changes. */
 function fieldValue(changes: Values, base: Values, name: string): unknown {
@@ -115,38 +107,6 @@ function genericBefore(list: readonly FieldMeta[]): BeforeBuilder {
     }
     return out;
   };
-}
-
-/**
- * The builders as generated code: one store per field with the name as a literal, which
- * is several times faster than storing under computed names. A change is never
- * `undefined`, so `hasOwn` is asked only for a field that reads as changed. Names go in
- * as string literals, so nothing a schema declares can become code.
- */
-function compileBuilder(list: readonly FieldMeta[]): ValuesBuilder {
-  const lines = list.map((field) => {
-    const key = JSON.stringify(field.name);
-    return [
-      `v = changes[${key}];`,
-      `if (v === undefined || !hasOwn(changes, ${key})) v = base[${key}];`,
-      `if (v !== undefined) out[${key}] = v;`,
-    ].join("\n");
-  });
-  return new Function(
-    "hasOwn",
-    `"use strict";\nreturn function values(changes, base) {\nconst out = {};\nlet v;\n${lines.join("\n")}\nreturn out;\n};`,
-  )(hasOwn) as ValuesBuilder;
-}
-
-function compileBefore(list: readonly FieldMeta[]): BeforeBuilder {
-  const lines = list.map((field) => {
-    const key = JSON.stringify(field.name);
-    return `out[${key}] = before(changeset, ${key});`;
-  });
-  return new Function(
-    "before",
-    `"use strict";\nreturn function valuesBefore(changeset) {\nconst out = {};\n${lines.join("\n")}\nreturn out;\n};`,
-  )(valueBefore) as BeforeBuilder;
 }
 
 // ---------------------------------------------------------------------------

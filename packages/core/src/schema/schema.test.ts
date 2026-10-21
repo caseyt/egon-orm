@@ -641,13 +641,14 @@ describe("the row factory", () => {
     });
     try {
       const restricted = await import("./index.js");
-      vi.unstubAllGlobals();
       class Thing extends restricted.Schema("things", {
         id: restricted.t.integer().primaryKey(),
         name: restricted.t.string(),
       }) {}
       const m = restricted.meta(Thing);
-      expect((m as unknown as { codegen: boolean }).codegen).toBe(false);
+      // Asked for a generated function and refused: the loop is used.
+      expect((m as unknown as { codegen: boolean }).codegen).toBe(true);
+      expect((m as unknown as { maker: unknown }).maker).toBeUndefined();
       const row = m.create([1, "a"], m.rowMeta("loaded", undefined)) as Thing;
       expect(row).toBeInstanceOf(Thing);
       expect({ ...row }).toMatchObject({ id: 1, name: "a" });

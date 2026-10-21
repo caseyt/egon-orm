@@ -16,7 +16,16 @@ import type {
   RowOf,
   SchemaStatic,
 } from "../contracts/schema.js";
-import type { AssocChange, AssocChanges, FieldChange } from "./nested/types.js";
+import type { Changeset } from "./changeset.js";
+import type {
+  AssocChange,
+  AssocChanges,
+  AssocKindOf,
+  AssocTarget,
+  EmbedMany,
+  EmbedTarget,
+  FieldChange,
+} from "./nested/types.js";
 
 /**
  * A changeset without a schema class: the data it starts from and the type of each
@@ -415,6 +424,100 @@ export type ValidationEntry = readonly [field: string, descriptor: Readonly<Reco
 export interface ErrorTree<T> {
   readonly [key: string]: readonly T[] | ErrorTree<T> | readonly ErrorTree<T>[];
 }
+
+/**
+ * The error keys a schema's own `changeset` function adds beyond its fields: the
+ * `<field>Confirmation` of `validateConfirmation`, a key given to `addError` or
+ * `validateAcceptance`. Read from the type of the static `changeset` method, so that the
+ * changeset a write gives back (typed by its schema alone) still has them.
+ *
+ * @example
+ * ```ts
+ * class User extends Schema("users", { id: t.integer().primaryKey(), password: t.string().virtual() }) {
+ *   static changeset(user: User | typeof User, params: unknown) {
+ *     return cast(user, params, ["password"]).validateConfirmation("password");
+ *   }
+ * }
+ * type Keys = ExtraErrorKeys<typeof User>; // "passwordConfirmation"
+ * ```
+ */
+export type ExtraErrorKeys<S> = S extends { changeset(...args: never[]): infer C }
+  ? C extends Changeset<ChangesetSource, boolean, infer E>
+    ? E
+    : never
+  : never;
+
+/** The keys a changeset of `S` with the extra keys `E` may have errors under. */
+type ErrorKeys<S, E extends string> =
+  | FieldName<S>
+  | (string extends AssocName<S> ? never : AssocName<S>)
+  | E
+  | ExtraErrorKeys<S>
+  | "$base";
+
+/** The errors of a nested changeset (or list of them) under one key, with the key's own errors. */
+type NestedErrors<C, Many, T> = Many extends true
+  ? T[] | TypedErrorTree<C, never, T>[] | { $errors: T[]; $items: TypedErrorTree<C, never, T>[] }
+  : T[] | (TypedErrorTree<C, never, T> & { $errors?: T[] });
+
+/** What the tree holds under key `K` of `S`: messages, or for an embed or association the nested tree. */
+type ErrorNode<S, K, T> = [EmbedTarget<S, K>] extends [never]
+  ? [AssocTarget<S, K>] extends [never]
+    ? T[]
+    : NestedErrors<AssocTarget<S, K>, AssocKindOf<S, K> extends "hasMany" | "manyToMany" ? true : false, T>
+  : NestedErrors<EmbedTarget<S, K>, EmbedMany<S, K>, T>;
+
+/** The mark of a changeset typed from a row alone, whose associations the types do not know. */
+type FromRowMark = { readonly "~fromRow": true };
+
+/**
+ * The errors of a changeset of `S` with the extra error keys `E`, as `traverseErrors`
+ * returns them: one optional key per field, association and extra key (and `$base`), each
+ * holding the values the callback made; an embed or association holds the nested
+ * changeset's tree (a list of trees for a list), with the key's own errors under `$errors`
+ * when it has both (and the list under `$items`). Without a known schema it is
+ * {@link ErrorTree}.
+ *
+ * @example
+ * ```ts
+ * type Tree = TypedErrorTree<typeof Post, never, string>;
+ * const tree: Tree = { title: ["can't be blank"], comments: [{}, { body: ["can't be blank"] }] };
+ * ```
+ */
+export type TypedErrorTree<S, E extends string, T> =
+  string extends FieldName<S>
+    ? ErrorTree<T>
+    : { [K in ErrorKeys<S, E>]?: ErrorNode<S, K, T> } & (S extends FromRowMark ? ErrorTree<T> : unknown);
+
+/**
+ * The type of `errorMessages()`: the error messages of a changeset, typed by its schema.
+ * Give it the changeset's type, or the schema class (whose own `changeset` function's
+ * extra keys are included). `JsonReturn` of a server action that returns
+ * `errorMessages()` is the same type, so a client can use either.
+ *
+ * @example
+ * ```ts
+ * type SignUpErrors = ErrorMessages<typeof User>; // { email?: string[]; passwordConfirmation?: string[]; … }
+ * const errors: SignUpErrors = { email: ["has already been taken"] };
+ * ```
+ */
+export type ErrorMessages<C> = C extends AnySchema
+  ? TypedErrorTree<C, never, string>
+  : ErrorTreeOf<C, string>;
+
+/**
+ * What `traverseErrors(changeset, fn)` returns, for a changeset of type `C` and a callback
+ * returning `T`: {@link TypedErrorTree} for a changeset, {@link ErrorTree} for any other
+ * {@link ChangesetLike}.
+ *
+ * @example
+ * ```ts
+ * declare const cs: Changeset<typeof Post, boolean>;
+ * const tree: ErrorTreeOf<typeof cs, number> = traverseErrors(cs, () => 1);
+ * ```
+ */
+export type ErrorTreeOf<C, T> =
+  C extends Changeset<infer S, boolean, infer E> ? TypedErrorTree<S, E, T> : ErrorTree<T>;
 
 /**
  * The callback of `traverseErrors`: turns one error into what the tree holds.

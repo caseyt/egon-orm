@@ -6,7 +6,14 @@ import type { Action, ChangesetError, ChangesetLike, Constraint } from "../contr
 import type { AnySchema, Row } from "../contracts/schema.js";
 import { t } from "../schema/index.js";
 import { applyAction, type Changeset, cast, change, traverseErrors } from "./changeset.js";
-import type { ChangesetModel, ErrorTree, FieldName, RowSchema, SchemalessTarget } from "./types.js";
+import type {
+  ChangesetModel,
+  ErrorTree,
+  FieldName,
+  RowSchema,
+  SchemalessTarget,
+  TypedErrorTree,
+} from "./types.js";
 
 declare const params: unknown;
 declare const user: User;
@@ -279,8 +286,11 @@ describe("applyChanges and applyAction", () => {
 describe("errors", () => {
   test("traverseErrors returns a tree of what the callback makes", () => {
     const cs = cast(User, params, ["email"]);
-    expectTypeOf(traverseErrors(cs, (error) => error.message.length)).toEqualTypeOf<ErrorTree<number>>();
-    expectTypeOf(cs.errorMessages()).toEqualTypeOf<ErrorTree<string>>();
+    expectTypeOf(traverseErrors(cs, (error) => error.message.length)).toEqualTypeOf<
+      TypedErrorTree<typeof User, never, number>
+    >();
+    expectTypeOf(cs.errorMessages()).toEqualTypeOf<TypedErrorTree<typeof User, never, string>>();
+    expectTypeOf(cs.errorMessages()).toMatchTypeOf<ErrorTree<string>>();
     cs.addError("email", "is taken", { count: 1 });
     cs.addError("$base", "is invalid");
   });

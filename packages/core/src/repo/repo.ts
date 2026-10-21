@@ -17,6 +17,7 @@ import type {
   FieldNames,
   LoadedAs,
   LoadedUnchecked,
+  PreloadMarker,
   PrimaryKeyOf,
   Row,
   ValidPreload,
@@ -209,11 +210,21 @@ type NoNamedParams<Q extends QueryLike> = [keyof QueryParams<Q>] extends [never]
       readonly "~error": "repo.preload runs its callback at once: give the query values, not named parameters";
     };
 
-/** What a preload adds to a row of `S`: the properties of `L` that are not fields. */
-type PreloadedProps<S extends AnySchema, L> = Omit<L, keyof Row<S>>;
+/** The preloaded associations a `Loaded` type records (its type-only marker). */
+type PreloadedOf<L> = L extends PreloadMarker<infer P> ? NonNullable<P> : never;
 
-/** `R` with the properties of `N`, which replace any of the same name. */
-type With<R, N> = [keyof N & keyof R] extends [never] ? R & N : Omit<R, keyof N> & N;
+/**
+ * What a preload adds to a row of `S`: the properties of `L` that are not fields, and the
+ * marker that records them (kept as the named marker type, which the row's own marker,
+ * if it has one, is merged with).
+ */
+type PreloadedProps<S extends AnySchema, L> = Omit<L, keyof Row<S> | "~preloaded"> &
+  PreloadMarker<PreloadedOf<L>>;
+
+/** `R` with the properties of `N`, which replace any of the same name; the preload markers of both are kept. */
+type With<R, N> = [Exclude<keyof N & keyof R, "~preloaded">] extends [never]
+  ? R & N
+  : Omit<R, Exclude<keyof N, "~preloaded">> & N;
 
 /** What `repo.preload` returns for `I`: rows with `N`, an array of them, or `null`. */
 type RowsWith<I, N> = I extends null ? null : I extends readonly (infer E)[] ? With<E, N>[] : With<I, N>;

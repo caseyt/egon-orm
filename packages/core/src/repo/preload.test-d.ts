@@ -47,7 +47,7 @@ describe("reads with preloads", () => {
 describe("repo.preload", () => {
   test("every spec form types the loaded rows", async () => {
     const posts = await repo.preload(User, users, "posts");
-    expectTypeOf(posts).toEqualTypeOf<(User & { posts: Post[] })[]>();
+    expectTypeOf(posts).toEqualTypeOf<Loaded<typeof User, "posts">[]>();
     const several = await repo.preload(User, users, ["posts", "profile"]);
     expectTypeOf(several[0]?.profile).toEqualTypeOf<Profile | null | undefined>();
     const nested = await repo.preload(User, users, { posts: ["comments", "tags"] });
@@ -61,7 +61,7 @@ describe("repo.preload", () => {
     expectTypeOf(one.profile).toEqualTypeOf<Profile | null>();
     const maybe: User | null = null as User | null;
     const either = await repo.preload(User, maybe, "posts");
-    expectTypeOf(either).toEqualTypeOf<(User & { posts: Post[] }) | null>();
+    expectTypeOf(either).toEqualTypeOf<Loaded<typeof User, "posts"> | null>();
   });
 
   test("the callback form: whole rows, or the selected shape", async () => {

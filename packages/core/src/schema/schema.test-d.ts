@@ -265,6 +265,7 @@ describe("field builder flags", () => {
       readonly defaulted: true;
       readonly virtual: true;
       readonly primaryKey: true;
+      readonly json: false;
     }>();
     expectTypeOf<FieldValueOf<typeof chained>>().toEqualTypeOf<string | null>();
 
@@ -749,7 +750,7 @@ describe("InsertShape, by modifier", () => {
     expectTypeOf<Every["virtual"]>().toEqualTypeOf<string>();
     expectTypeOf<Every["virtualNullable"]>().toEqualTypeOf<string | null>();
     expectTypeOf<Every["defaultedByFunction"]>().toEqualTypeOf<string[]>();
-    expectTypeOf<keyof Every>().toEqualTypeOf<FieldNames<typeof Every>>();
+    expectTypeOf<Exclude<keyof Every, "~fields">>().toEqualTypeOf<FieldNames<typeof Every>>();
   });
 });
 

@@ -97,6 +97,7 @@ function specOfTypes(types: unknown): Spec {
         primaryKey: state.primaryKey,
         virtual: state.virtual,
         redact: state.redact,
+        json: state.json,
         writable: state.writable,
         dbGenerated: state.dbGenerated,
         default: state.default,

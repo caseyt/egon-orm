@@ -208,6 +208,7 @@ export default defineConfig({
           items: [
             page("Showing form errors (React)", "/recipes/form-errors"),
             page("Translating error messages", "/recipes/translating-errors"),
+            page("Errors as HTTP responses", "/recipes/error-responses"),
           ],
         },
       ],

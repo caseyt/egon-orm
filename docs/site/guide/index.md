@@ -62,7 +62,7 @@ What it costs, honestly:
   listed. Where another ORM guesses, Egon asks.
 - **Migrations are yours to write.** Nothing is diffed from your schema classes, and
   keeping the classes and the database in step is your job
-  (once the CLI is out, `egon migrate create <name>` will write an empty one to fill in).
+  (`egon migrate create <name>` writes an empty one to fill in).
 - **Results to check.** `insert` returns a result you must look at, or use
   `insertOrThrow`.
 - **No identity map.** The same record loaded twice is two objects.

@@ -3,19 +3,20 @@
 `egon`, from `@egon-orm/cli`, runs and writes [migrations](/guide/migrations) and manages
 the development database.
 
-::: warning Not published yet
-`@egon-orm/cli` is not on npm yet: whether and when it is published is decided with the
-release. Until then it is used from the Egon repository, where `pnpm build` writes the
-executable to `packages/cli/dist/bin.js`:
+Install it as a development dependency of your project, beside `egon-orm` and an adapter:
 
 ```sh
-pnpm build
-node packages/cli/dist/bin.js --help
+npm install -D @egon-orm/cli
 ```
 
-A project in the same pnpm workspace can depend on it with `"@egon-orm/cli": "workspace:*"`
-and run `pnpm exec egon`.
-:::
+Then run it with `npx egon` (or `pnpm exec egon`, `yarn egon`, or an npm script such as
+`"migrate": "egon migrate"`):
+
+```sh
+npx egon --help
+npx egon migrate create create_users
+npx egon migrate
+```
 
 ## Configuration
 
@@ -32,9 +33,14 @@ as `config`):
 | `database` | For `egon db` only: `name`, and `admin`, an adapter connected to another database of the same server, through which `CREATE DATABASE` and `DROP DATABASE` run. |
 
 A TypeScript config file (and TypeScript migrations) need a TypeScript loader: Node 22.18 or
-later strips types by itself; on 22.12 to 22.17 pass `--experimental-strip-types`;
-otherwise run `egon` through tsx (`node --import tsx node_modules/@egon-orm/cli/dist/bin.js …`)
-or Bun. Without one, `egon` says so and exits with 1.
+later strips types by itself; on 22.12 to 22.17 turn it on with
+`NODE_OPTIONS=--experimental-strip-types npx egon …`. Node's type stripping does not map
+`./db.js` to `./db.ts`, so a TypeScript config or migration that imports your own files the
+way TypeScript writes them (`from "./db.js"`) needs tsx instead
+(`NODE_OPTIONS="--import tsx" npx egon …`), or Bun. Without a loader, `egon` says so and
+exits with 1. With `NODE_OPTIONS=--experimental-strip-types`, Node's ExperimentalWarning is
+printed twice per command, because both `npx` and `egon` are Node processes that get the
+flag.
 
 ## Commands
 
@@ -54,9 +60,10 @@ argument other than the subcommand `create` (below).
 
 Writes a new, empty migration file, `<version>_<name>.ts`, in the migrations directory, and
 prints its path. The version is the current UTC time, `YYYYMMDDHHMMSS`; the name is
-lower-case letters, digits and underscores, at most 100 characters. The file's default
-export is `defineMigration({ up(m) { … }, down() { … } })` with both bodies empty but for
-a comment: fill `up` with the change, and `down` with what undoes it, adding the `m`
+lower-case letters, digits and underscores, at most 100 characters. The file exports
+`migration`, `export const migration = defineMigration({ up(m) { … }, down() { … } })`, with
+both bodies empty but for a comment (the runner also accepts a default export, for a file
+you write yourself): fill `up` with the change, and `down` with what undoes it, adding the `m`
 parameter (`down(m)`); or leave a `// noop` comment in `down` when there is nothing to undo
 ([Up and down](/guide/migrations#up-and-down)). `down` has no parameter until you need one,
 so an untouched `down` compiles under `noUnusedParameters`. Both functions are required.

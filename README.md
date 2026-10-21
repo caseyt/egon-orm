@@ -87,9 +87,9 @@ const stats = await repo.all(
 
 ## Documentation
 
-The documentation site is not published yet. Its pages are Markdown in
-[`docs/site`](docs/site), readable here on GitHub, and `pnpm docs:dev` serves the site,
-API reference included, locally.
+The documentation site is [egon-orm.github.io/egon-orm](https://egon-orm.github.io/egon-orm/).
+Its pages are Markdown in [`docs/site`](docs/site), readable here on GitHub too, and
+`pnpm docs:dev` serves the site, API reference included, locally.
 
 - [Getting started](docs/site/guide/getting-started.md): a first query in five minutes.
 - [Tutorial](docs/site/guide/tutorial.md): a blog, step by step ([source](examples/blog)).
@@ -104,7 +104,7 @@ API reference included, locally.
 | `@egon-orm/postgres` | The Postgres adapter (every feature) |
 | `@egon-orm/sqlite`, `@egon-orm/mysql` | The SQLite and MySQL adapters ([documented gaps](docs/site/reference/dialect-support.md)) |
 | `@egon-orm/zod` | Zod schemas derived from schema classes |
-| `@egon-orm/cli` | The `egon` command: migrations and development databases (not published yet) |
+| `@egon-orm/cli` | The `egon` command: migrations and development databases |
 
 ## Development
 

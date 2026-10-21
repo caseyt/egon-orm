@@ -255,7 +255,7 @@ Drizzle: `db.delete(posts).where(eq(posts.id, id))`, or with any condition.
 
 | Drizzle | In Egon |
 |---|---|
-| `drizzle-kit generate` / `push` (migrations from schema changes) | Not supported. Migrations are written by hand, as in [The tables](#the-tables) above. (`egon migrate create <name>`, which writes an empty one, comes with the CLI in the first release.) See [Migrations](/guide/migrations). |
+| `drizzle-kit generate` / `push` (migrations from schema changes) | Not supported. Migrations are written by hand, as in [The tables](#the-tables) above. `egon migrate create <name>` writes the empty file ([CLI](/reference/cli)). See [Migrations](/guide/migrations). |
 | `drizzle-zod` (`drizzle-orm/zod` in 1.0) | [`@egon-orm/zod`](/guide/validation#deriving-zod-schemas-from-a-schema-class) derives Zod schemas from schema classes. |
 | `sql.raw(…)` | Not supported on purpose. Build dynamic identifiers with `fragment.ident()`. |
 | Lateral joins | Planned; see the [Roadmap](/reference/roadmap). |

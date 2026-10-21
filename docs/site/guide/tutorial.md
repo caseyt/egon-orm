@@ -11,8 +11,10 @@ repository, and its test suite runs in CI. Every block starts with the name of i
 You can read the page from top to bottom, or clone the repository and run it (see the
 end).
 
-It takes about thirty minutes. You need Node.js 22.12 or later and a Postgres server, 14 or
-later.
+It takes about thirty minutes. You need Node.js 22.18 or later and a Postgres server, 14 or
+later. (The `egon` command loads your TypeScript configuration and migrations with Node's own
+type stripping, which 22.18 turns on by itself; on 22.12 to 22.17, see the
+[CLI](/reference/cli#configuration).)
 
 ## 1. Set up the project
 
@@ -21,18 +23,14 @@ mkdir blog && cd blog
 npm init -y
 npm pkg set type=module
 npm install egon-orm @egon-orm/postgres pg zod
-npm install -D typescript tsx vitest @types/node @types/pg
+npm install -D @egon-orm/cli typescript vitest @types/node @types/pg
 mkdir -p src/migrations test
 ```
 
 Egon is published as ES modules only, hence `"type": "module"`.
 
-**The `egon` command is not available yet.** `@egon-orm/cli`, which writes migration files
-and creates databases, comes with the first release; it is not on npm today, so do not
-install it. The tutorial does everything without it: you write the migration file by hand
-(step 3) and create the test database with `createdb` (step 10). Once it is published,
-install it on its own line, `npm install -D @egon-orm/cli`, so that it cannot stop the other
-installs.
+`@egon-orm/cli` is the `egon` command: it writes migration files, applies them, and creates
+databases. It is a development dependency, run with `npx egon`.
 
 Add a `tsconfig.json`:
 
@@ -45,11 +43,11 @@ Add a `tsconfig.json`:
     "strict": true,
     "noEmit": true
   },
-  "include": ["src", "test", "vitest.config.ts"]
+  "include": ["src", "test", "egon.config.ts", "vitest.config.ts"]
 }
 ```
 
-`tsx` and Vitest run the TypeScript; `npx tsc` checks its types (`@types/pg` is for `tsc`:
+Node.js and Vitest run the TypeScript; `npx tsc` checks its types (`@types/pg` is for `tsc`:
 the adapter's types refer to `pg`'s). The imports between your own files end in `.js`, as
 Node.js expects.
 
@@ -62,7 +60,8 @@ export DATABASE_URL=postgres://postgres:blog@localhost:5432/blog
 
 `POSTGRES_DB=blog` creates the blog's own database, so its tables do not land in the server's
 default `postgres` database. Without Docker, any Postgres 14 or later works (a local install
-or a hosted one): create an empty database there, `blog`, and point `DATABASE_URL` at it.
+or a hosted one): point `DATABASE_URL` at a database named `blog` there, and create it with
+`npx egon db create` once the configuration of step 3 exists.
 
 ## 2. Connect
 
@@ -76,36 +75,43 @@ it.
 
 ## 3. Create the tables
 
-A migration describes a change to the database. Write it by hand: create the file
-`src/migrations/20261020090000_create_blog.ts`, whose name starts with its version (a UTC
-timestamp, `YYYYMMDDHHMMSS`) and then its name. (Once the CLI is out,
-`npx egon migrate create create_blog --dir src/migrations` writes the empty file for you.)
+A migration describes a change to the database. `egon` reads where the migrations are, and
+which database they run on, from `egon.config.ts` at the root of the project:
+
+<<< ../../../examples/blog/egon.config.ts#config
+
+`DATABASE_URL` (step 1) names the database. `database` is for `egon db` (step 10): the name
+of the database to create, and an adapter connected to the same server's `postgres`
+database, through which `CREATE DATABASE` runs.
+
+Then let `egon` write the migration file:
+
+```sh
+npx egon migrate create create_blog
+```
+
+It prints the path of a new file in `src/migrations`, such as
+`src/migrations/20261020090000_create_blog.ts`: its name starts with its version (the
+current UTC time, `YYYYMMDDHHMMSS`) and then its name. The file has an empty `up` and
+`down`. Fill them in:
 
 <<< ../../../examples/blog/src/migrations/20261020090000_create_blog.ts#migration
 
-`up` makes the change and `down` undoes it, so the migration can be rolled back. The file
-exports its migration either as the default export (as the file that `egon migrate create`
-will write, once the CLI is out) or under the name `migration`, as here: the runner accepts
-both.
+`up` makes the change and `down` undoes it, so the migration can be rolled back.
 `table.references` adds a foreign key, and `.unique()` a unique index named
 `users_email_key`; the changesets below refer to these names. The table builder is named
 `table` because `t` is the field builder of the schema classes, imported from `egon-orm`.
 
-A small function runs the pending migrations, and a script calls it:
-
-<<< ../../../examples/blog/src/migrate.ts#migrate
-
-<<< ../../../examples/blog/src/run-migrations.ts#run
-
-Run it once now:
+Apply it:
 
 ```sh
-npx tsx src/run-migrations.ts
+npx egon migrate
 ```
 
-The [Migrations](/guide/migrations) guide covers rollbacks and deployments. Once the CLI is
-out, it will run the same migrations from a configuration file (`egon migrate`; see the
-[CLI](/reference/cli)).
+`egon migrate` applies every pending migration, each in its own transaction, and prints one
+line per migration; `npx egon migrations` lists them with their state. The
+[Migrations](/guide/migrations) guide covers rollbacks (`npx egon rollback`) and deployments,
+and the [CLI](/reference/cli) page lists every command.
 
 ## 4. Describe the tables
 
@@ -268,19 +274,22 @@ it (see below).
 
 ## 10. Test it
 
-Tests need a database of their own. With the Docker container of step 1, create one with:
+Tests need a database of their own. Create it with `egon db create`, with `DATABASE_URL`
+naming it for that one command:
 
 ```sh
-docker exec blog-db createdb -U postgres blog_test
+DATABASE_URL=postgres://postgres:blog@localhost:5432/blog_test npx egon db create
 ```
 
-(With another Postgres, use `createdb blog_test` or `create database blog_test;` in `psql`.
-Once the CLI is out, `npx egon db create` will do the same, with an `egon.config.ts` whose
-`database` entry names `blog_test`; see the [CLI](/reference/cli#configuration).)
+`egon.config.ts` (step 3) takes the name of the database to create, `blog_test`, from
+`DATABASE_URL`.
 
 A Vitest setup file brings its tables up to date before the tests run:
 
 <<< ../../../examples/blog/test/setup.ts#setup
+
+It calls `createMigrator`, the runner behind `egon migrate`, rather than the command, so the
+tests always run against the current tables and `npx vitest run` needs nothing before it.
 
 The Vitest configuration names the test files and the setup file:
 
@@ -338,7 +347,7 @@ pnpm --filter @egon-orm/example-blog test
 | Part | What it did here | Guide |
 |---|---|---|
 | Schema | `User`, `Post`, `Comment`: fields, associations, a getter, changeset functions | [Schemas](/guide/schemas) |
-| Migration | the tables, keys and constraint names | [Migrations](/guide/migrations) |
+| Migration | the tables, keys and constraint names, written with `egon migrate create` and applied with `egon migrate` | [Migrations](/guide/migrations), [CLI](/reference/cli) |
 | Changeset | sign-up and post forms: permitted fields, Zod, unique email | [Changesets](/guide/changesets), [Validation](/guide/validation) |
 | Query | the feed, the post page, statistics | [Queries](/guide/queries) |
 | Preload | authors and comments, without N+1 | [Associations](/guide/associations) |

@@ -10,6 +10,7 @@ const { postgres, VERSION: postgresVersion } = require("@egon-orm/postgres");
 const { VERSION: zodVersion } = require("@egon-orm/zod");
 const { VERSION: sqliteVersion } = require("@egon-orm/sqlite");
 const { VERSION: mysqlVersion } = require("@egon-orm/mysql");
+const { VERSION: cliVersion, defineConfig } = require("@egon-orm/cli");
 const { VERSION, QueryError, EgonError, createRepo, isEgonError, success } = require("egon-orm");
 const { MigrationError } = require("egon-orm/migration");
 const { createSandbox } = require("egon-orm/testing");
@@ -19,6 +20,8 @@ assert.equal(postgresVersion, VERSION);
 assert.equal(zodVersion, VERSION);
 assert.equal(sqliteVersion, VERSION);
 assert.equal(mysqlVersion, VERSION);
+assert.equal(cliVersion, VERSION);
+assert.equal(typeof defineConfig, "function");
 
 // The subpath `egon-orm/migration` loads the same way and shares the main entry's classes.
 assert.ok(new MigrationError("x") instanceof EgonError);

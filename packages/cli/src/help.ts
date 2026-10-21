@@ -107,5 +107,8 @@ Configuration (egon.config.ts):
   });
 
 TypeScript config and migration files need a TypeScript loader: Node 22.18 or later
-strips types by itself; otherwise run egon with tsx (node --import tsx) or Bun.
+strips types by itself. On 22.12 to 22.17:
+  NODE_OPTIONS=--experimental-strip-types npx egon …
+With tsx (or use Bun):
+  NODE_OPTIONS="--import tsx" npx egon …
 `;

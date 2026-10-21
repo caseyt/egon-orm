@@ -17,7 +17,8 @@ migrations are kept in step by you, not inferred from each other.
 
 ## Running migrations
 
-From the command line, with the configuration in [`egon.config.ts`](/reference/cli#configuration):
+From the command line, with `@egon-orm/cli` installed (`npm install -D @egon-orm/cli`, then
+`npx egon …`) and the configuration in [`egon.config.ts`](/reference/cli#configuration):
 
 ```sh
 egon migrate create add_age  # write migrations/<version>_add_age.ts
@@ -217,10 +218,14 @@ object instead. Several instances may run it at once; the lock serialises them.
 ## Loading migration files
 
 Migration files are loaded with `import()`. TypeScript files need a process that can load
-TypeScript: Node 22.18 or later strips types by itself (22.12 to 22.17 with
-`--experimental-strip-types`), or run under tsx (`node --import tsx`) or Bun. Without one,
-the error says what to install. A file exports its migration as the default export (or as
-`migration`).
+TypeScript: Node 22.18 or later strips types by itself; on 22.12 to 22.17 turn it on with
+`NODE_OPTIONS=--experimental-strip-types npx egon …` (or `node --experimental-strip-types`
+for a script of your own). Node's type stripping does not map `./db.js` to `./db.ts`, so a
+migration that imports your own files the way TypeScript writes them needs tsx instead
+(`NODE_OPTIONS="--import tsx" npx egon …`, or `node --import tsx`), or Bun. Without a
+loader, the error says what to install. A file exports its migration as `migration`
+(`export const migration = defineMigration(…)`, as the file that `egon migrate create`
+writes does); the default export works too, and a file that exports both runs `migration`.
 
 For bundlers and deployments without a file system, pass the migrations as a list:
 

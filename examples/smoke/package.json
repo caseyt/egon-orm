@@ -8,6 +8,7 @@
     "smoke": "node esm.mjs && node require-esm.cjs && node check-types.mjs"
   },
   "dependencies": {
+    "@egon-orm/cli": "workspace:*",
     "@egon-orm/mysql": "workspace:*",
     "@egon-orm/postgres": "workspace:*",
     "@egon-orm/sqlite": "workspace:*",

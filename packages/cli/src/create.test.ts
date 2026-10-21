@@ -18,7 +18,7 @@ describe("versions and the template", () => {
     expect(migrationTemplate()).toMatchInlineSnapshot(`
       "import { defineMigration } from "egon-orm/migration";
 
-      export default defineMigration({
+      export const migration = defineMigration({
         up(m) {
           // the change
         },

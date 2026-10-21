@@ -57,7 +57,7 @@ export function versionAt(now: Date): string {
 export function migrationTemplate(): string {
   return `import { defineMigration } from "egon-orm/migration";
 
-export default defineMigration({
+export const migration = defineMigration({
   up(m) {
     // the change
   },

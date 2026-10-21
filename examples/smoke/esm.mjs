@@ -1,5 +1,10 @@
 // ESM consumer of the built packages. Run `pnpm build` first, then `pnpm smoke`.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { VERSION as cliVersion, defineConfig, run } from "@egon-orm/cli";
 import { mysql, VERSION as mysqlVersion } from "@egon-orm/mysql";
 import { postgres, VERSION as postgresVersion } from "@egon-orm/postgres";
 import { sqlite, VERSION as sqliteVersion } from "@egon-orm/sqlite";
@@ -13,6 +18,24 @@ assert.equal(postgresVersion, VERSION);
 assert.equal(zodVersion, VERSION);
 assert.equal(sqliteVersion, VERSION);
 assert.equal(mysqlVersion, VERSION);
+assert.equal(cliVersion, VERSION);
+
+// @egon-orm/cli: its library entry, and the `egon` binary its package.json declares, run as
+// an installed binary is (`egon --version` needs no config file and no database).
+assert.equal(typeof defineConfig, "function");
+let printed = "";
+const io = {
+  stdout: (text) => (printed += text),
+  stderr: (text) => (printed += text),
+  cwd: process.cwd(),
+  env: {},
+  now: () => new Date(),
+};
+assert.equal(await run(["--version"], io), 0);
+assert.equal(printed, `${VERSION}\n`);
+const cliManifest = createRequire(import.meta.url).resolve("@egon-orm/cli/package.json");
+const bin = join(dirname(cliManifest), JSON.parse(readFileSync(cliManifest, "utf8")).bin.egon);
+assert.equal(execFileSync(process.execPath, [bin, "--version"], { encoding: "utf8" }), `${VERSION}\n`);
 
 // SQLite runs in-process: an in-memory database answers a query through the built adapter.
 const memory = sqlite({ filename: ":memory:" });
@@ -33,3 +56,4 @@ assert.equal(defineMigration({ up() {}, down() {} }).transaction, true);
 
 console.log(`esm: egon-orm ${VERSION} (resolved to ${import.meta.resolve("egon-orm")})`);
 console.log(`esm: egon-orm/testing (resolved to ${import.meta.resolve("egon-orm/testing")})`);
+console.log(`esm: @egon-orm/cli ${cliVersion}, and its egon binary (${bin})`);

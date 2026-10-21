@@ -39,7 +39,9 @@ packages/core/src        "egon-orm": contracts/ types/ schema/ changeset/ query/
 packages/core/test/support   test helpers: import from "@egon-orm/test-support"
 packages/postgres        "@egon-orm/postgres"
 packages/zod             "@egon-orm/zod"
-packages/{sqlite,mysql,cli}  private placeholders (steps 17, 18)
+packages/sqlite          "@egon-orm/sqlite"
+packages/mysql           "@egon-orm/mysql"
+packages/cli             "@egon-orm/cli": the egon command
 benchmarks/micro         <area>.bench.ts, one per feature area; harness in benchmarks/src
 docs/plan                plan and step specs. Do not edit, except to add status/NN.md
 docs/adr                 architecture decision records

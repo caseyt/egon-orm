@@ -1,7 +1,7 @@
 # 0007 — Error identifiers, short messages, and full text by explicit opt-in
 
-- **Status:** proposed (awaiting the owner's decision; part 4's opt-in mechanism is not
-  built until this is accepted)
+- **Status:** accepted (by the owner on 2026-10-21, as proposed; `explain(error)` is not
+  part of the decision)
 - **Date:** 2026-10-21
 - **Step:** 21a (edge readiness, part 4)
 - **Affects:** `EgonError` and every subclass (`packages/core/src/errors.ts`); every site
@@ -129,7 +129,7 @@ also what the docs pages are generated from. How does an application turn it on?
      failure or a framework's error page still shows only the short form. Useful as an
      addition to option 1, not as a replacement for it.
 
-## Decision (recommended; not yet accepted)
+## Decision
 
 - **Identifiers:** option A1, descriptive and namespaced by class (`query.aliasTaken`),
   exposed as `error.id` and typed as a union (`ErrorId`), so a `switch` on it is checked.
@@ -137,9 +137,9 @@ also what the docs pages are generated from. How does an application turn it on?
 - **Default message:** as in B.
 - **Opt-in:** option C1, `useFullErrorMessages(messages)`, with `messages` from
   `egon-orm/messages`. It is the only option that is explicit, covers errors thrown
-  outside a repo, and needs nothing from the runtime. Option C4 (`explain(error)`) may be
-  added beside it if the owner wants a stateless form as well; it is cheap, since it reads
-  the same catalog.
+  outside a repo, and needs nothing from the runtime. Option C4 (`explain(error)`) is not
+  part of this decision; it remains a possible later addition beside C1, and would be
+  cheap, since it reads the same catalog.
 - **`error.toJSON()`** returns `{ name, code, id }` in every mode (owner decision,
   2026-10-21): the message, the cause and any SQL stay on the server.
 

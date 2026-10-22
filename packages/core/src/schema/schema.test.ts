@@ -113,6 +113,7 @@ describe("metadata", () => {
       primaryKey: false,
       virtual: false,
       redact: false,
+      json: true,
       writable: "always",
       dbGenerated: false,
       default: undefined,
@@ -741,24 +742,11 @@ describe("createWith", () => {
 });
 
 describe("toJSON", () => {
-  test("is a plain object of the fields, without the redacted ones", () => {
+  test("is a plain object of the fields in JSON, without redacted and virtual ones", () => {
     const user = loadedUser();
     const json = toJSON(user) as Record<string, unknown>;
     expect(Object.getPrototypeOf(json)).toBe(Object.prototype);
-    expect(json).toEqual({
-      id: 1,
-      email: "ada@example.com",
-      name: null,
-      role: "member",
-      loginCount: 3,
-      password: undefined,
-      settings: { theme: "dark" },
-      lockVersion: 1,
-      createdAt: NOW,
-      updatedAt: NOW,
-    });
-    expect("passwordHash" in json).toBe(false);
-    expect(JSON.parse(JSON.stringify(user))).toEqual({
+    expect(json).toStrictEqual({
       id: 1,
       email: "ada@example.com",
       name: null,
@@ -769,6 +757,9 @@ describe("toJSON", () => {
       createdAt: NOW.toISOString(),
       updatedAt: NOW.toISOString(),
     });
+    expect(Object.keys(json)).not.toContain("password");
+    expect(Object.keys(json)).not.toContain("passwordHash");
+    expect(JSON.parse(JSON.stringify(user))).toStrictEqual(json);
   });
 
   test("lives on the prototype, not on each row", () => {
@@ -807,19 +798,20 @@ describe("toJSON", () => {
     expect(text).not.toContain("s3cret");
     expect(text).not.toContain("$2b$hash");
     expect(JSON.parse(text).posts[0].author.email).toBe("ada@example.com");
+    expect(JSON.parse(text)).toStrictEqual(json);
   });
 
-  test("leaves values that are not rows as they are", () => {
+  test("copies JSON values instead of sharing them with the row", () => {
     const user = loadedUser();
     const json = toJSON(user) as Record<string, unknown>;
-    expect(json.settings).toBe(user.settings);
-    expect(json.createdAt).toBe(NOW);
+    expect(json.settings).toEqual(user.settings);
+    expect(json.settings).not.toBe(user.settings);
   });
 
   test("a class may define its own toJSON, which nested serialisation honours", () => {
     class Custom extends Schema("custom", { id: t.integer().primaryKey(), secret: t.string().redact() }) {
       toJSON(): Record<string, unknown> {
-        return { custom: this.id };
+        return { custom: this.id, at: new Date(0) };
       }
     }
     class Holder extends Schema("holders", { id: t.integer().primaryKey(), customId: t.integer() }) {
@@ -831,7 +823,11 @@ describe("toJSON", () => {
       [custom],
       meta(Holder).rowMeta("loaded", undefined),
     );
-    expect(JSON.stringify(holder)).toBe('{"id":1,"customId":5,"custom":{"custom":5}}');
+    expect(JSON.stringify(holder)).toBe(
+      '{"id":1,"customId":5,"custom":{"custom":5,"at":"1970-01-01T00:00:00.000Z"}}',
+    );
+    // What the override returns is mapped as JSON.stringify maps it.
+    expect(toJSON(holder)).toStrictEqual(JSON.parse(JSON.stringify(holder)));
     const broken = meta(Holder).createWith(["custom"])(
       [1, 5],
       [

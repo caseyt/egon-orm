@@ -88,6 +88,7 @@ describe("t", () => {
       primaryKey: false,
       virtual: false,
       redact: false,
+      json: true,
       writable: "always",
       dbGenerated: false,
       default: undefined,

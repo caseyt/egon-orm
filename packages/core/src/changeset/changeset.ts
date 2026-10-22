@@ -16,8 +16,9 @@ import type { AnyFieldBuilder, AnySchema, AssocMeta, FieldMeta, Row, RowMeta } f
 import { ROW } from "../contracts/schema.js";
 import { QueryError } from "../errors.js";
 import { deepEqual } from "../internal/deep-equal.js";
-import { formatStruct, formatValue, omitRedacted, redactFields } from "../internal/inspect.js";
+import { formatStruct, formatValue, redactFields } from "../internal/inspect.js";
 import { meta } from "../schema/index.js";
+import { fieldConverter, fieldValueJson, jsonValue, safeJsonValue } from "../schema/json.js";
 import { booleanType } from "../types/index.js";
 import { codepoints, graphemes, utf8Bytes } from "./measure.js";
 import { castRelation, putRelation } from "./nested/change.js";
@@ -46,7 +47,9 @@ import type {
   ConfirmationOptions,
   ConstraintOptions,
   ErrorFormatter,
+  ErrorMessagesOf,
   ErrorTree,
+  ErrorTreeOf,
   FieldName,
   FieldOfType,
   FieldValues,
@@ -71,6 +74,10 @@ import {
 // ---------------------------------------------------------------------------
 // Internal state
 // ---------------------------------------------------------------------------
+
+/** Changeset `C` with `K` added to the error keys it records. */
+type WithErrorKey<C, K extends string> =
+  C extends Changeset<infer S, infer N, infer E> ? Changeset<S, N, E | K> : C;
 
 /** Proves that a constructor call comes from this module. */
 const TOKEN: unique symbol = /* @__PURE__ */ Symbol("changeset");
@@ -288,7 +295,10 @@ function checkMessage(message: unknown, fn: string): void {
  *
  * `S` is the schema class (or, for a changeset without one, `{ data, types }`). `New` is
  * `true` for a new record, `false` for a changeset of a loaded row, and `boolean` when
- * either is possible (a changeset function that takes `User | typeof User`).
+ * either is possible (a changeset function that takes `User | typeof User`). `E` collects
+ * the error keys that are not fields, as validations add them (`validateConfirmation`'s
+ * `passwordConfirmation`, a key given to `addError`), so that `errorMessages()` is typed
+ * with them.
  *
  * @example
  * ```ts
@@ -304,9 +314,18 @@ function checkMessage(message: unknown, fn: string): void {
  * cs.errorMessages(); // { email: ["can't be blank"] }
  * ```
  */
-export class Changeset<S extends ChangesetSource = AnySchema, New extends boolean = boolean>
-  implements ChangesetLike<DataMember<S, New>>
+export class Changeset<
+  S extends ChangesetSource = AnySchema,
+  New extends boolean = boolean,
+  E extends string = never,
+> implements ChangesetLike<DataMember<S, New>>
 {
+  /**
+   * Type-only; never set at runtime. Records `E`, the error keys validations added. Typed
+   * as a method's parameter, which is compared both ways, so that a changeset with extra
+   * keys still fits wherever a changeset of its schema is expected.
+   */
+  declare readonly "~errorKeys"?: { check(keys: E): void }["check"];
   /** The schema class; `null` for a changeset without one. */
   readonly model: ChangesetModel<S>;
   /** The loaded row (or, without a schema class, the data object); `null` for a new record. */
@@ -1136,7 +1155,10 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
    *
    * @throws QueryError when `field` is not a field.
    */
-  validateConfirmation(field: FieldName<S>, options?: ConfirmationOptions): this {
+  validateConfirmation<const K extends FieldName<S>>(
+    field: K,
+    options?: ConfirmationOptions,
+  ): WithErrorKey<this, `${K}Confirmation`> {
     const meta = fieldOf(this.#spec, field, "validateConfirmation");
     checkMessage(options?.message, "validateConfirmation");
     const key = `${field}Confirmation`;
@@ -1157,7 +1179,7 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
         error = errorOf(messageOf(options.message, BLANK, EMPTY), "required", EMPTY);
       }
     }
-    return this.#check(field, "confirmation", options, key, error);
+    return this.#check(field, "confirmation", options, key, error) as WithErrorKey<this, `${K}Confirmation`>;
   }
 
   /**
@@ -1170,7 +1192,10 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
    * cast(User, params, ["email"]).validateAcceptance("termsOfService");
    * ```
    */
-  validateAcceptance(key: FieldName<S> | (string & {}), options?: MessageOptions): this {
+  validateAcceptance<const K extends string = never>(
+    key: K | FieldName<S>,
+    options?: MessageOptions,
+  ): WithErrorKey<this, Exclude<K, FieldName<S>>> {
     checkErrorKey(key, "validateAcceptance");
     checkMessage(options?.message, "validateAcceptance");
     const params = this.params;
@@ -1181,7 +1206,10 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
         error = errorOf(messageOf(options?.message, "must be accepted", EMPTY), "acceptance", EMPTY);
       }
     }
-    return this.#check(key, "acceptance", options, key, error);
+    return this.#check(key, "acceptance", options, key, error) as WithErrorKey<
+      this,
+      Exclude<K, FieldName<S>>
+    >;
   }
 
   /**
@@ -1417,29 +1445,39 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
    *
    * @throws QueryError when the key is empty or `"__proto__"`.
    */
-  addError(
-    key: FieldName<S> | (string & {}),
+  addError<const K extends string = never>(
+    key: K | FieldName<S>,
     message: string,
     meta?: Readonly<Record<string, unknown>>,
-  ): this {
+  ): WithErrorKey<this, Exclude<K, FieldName<S>>> {
     checkErrorKey(key, "addError");
     if (typeof message !== "string")
       throw new QueryError("query.addErrorMessage", "addError() takes the message as a string.");
     const error: ChangesetError = { message, meta: meta === undefined ? EMPTY : { ...meta } };
-    return this.#with(this.changes, appendErrors(this.errors, key, [error], false), false);
+    return this.#with(this.changes, appendErrors(this.errors, key, [error], false), false) as WithErrorKey<
+      this,
+      Exclude<K, FieldName<S>>
+    >;
   }
 
   /**
    * The errors as messages, with `{placeholders}` filled in from each error's metadata,
-   * including those of nested changesets.
+   * including those of nested changesets. The tree is typed by the schema: its fields,
+   * associations and embeds (nested trees), the keys validations added
+   * (`passwordConfirmation`, carried in the changeset's type), and `$base`.
+   * Name its type with `ErrorMessagesOf`: of the changeset's type, or of what the schema's
+   * `changeset` function returns.
    *
    * @example
    * ```ts
    * cast(User, {}, ["email"]).validateRequired(["email"]).errorMessages(); // { email: ["can't be blank"] }
+   *
+   * // For a client: the errors of User.changeset, keys added by its validations included.
+   * type SignUpErrors = ErrorMessagesOf<ReturnType<typeof User.changeset>>;
    * ```
    */
-  errorMessages(): ErrorTree<string> {
-    return traverseErrors(this, interpolate);
+  errorMessages<C extends ChangesetLike>(this: C): ErrorMessagesOf<C> {
+    return traverseErrors(this as ChangesetLike, interpolate) as ErrorMessagesOf<C>;
   }
 
   // -------------------------------------------------------------------------
@@ -1807,8 +1845,11 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
   }
 
   /**
-   * A plain object of the action, the changes (without redacted fields), the errors and
-   * `valid`: what `JSON.stringify` writes.
+   * A JSON-ready plain object of the action, the changes, the errors and `valid`: what
+   * `JSON.stringify` writes. `changes` leaves out every field that is not in JSON (a
+   * redacted field, a virtual one not declared `{ json: true }`), and maps the values as a
+   * row's `toJSON` does (a `Date` to its ISO string, a `bigint` to a decimal string, bytes
+   * to base64); nested changesets are written the same way.
    *
    * @example
    * ```ts
@@ -1818,8 +1859,8 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
   toJSON(): { action: Action | null; changes: Record<string, unknown>; errors: Errors; valid: boolean } {
     return {
       action: this.action,
-      changes: omitRedacted(this.changes, this.#spec.redacted),
-      errors: this.errors,
+      changes: changesJson(this.changes, this.#spec),
+      errors: safeJsonValue(this.errors) as Errors,
       valid: this.valid,
     };
   }
@@ -1828,6 +1869,23 @@ export class Changeset<S extends ChangesetSource = AnySchema, New extends boolea
   [INSPECT](): string {
     return describeChangeset(this);
   }
+}
+
+/**
+ * The changes as JSON: a field that is not in JSON is left out, a field's value is mapped
+ * as a row's `toJSON` maps it, and an association's nested changesets are written as JSON.
+ */
+function changesJson(changes: object, spec: Spec): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const values = changes as Readonly<Record<string, unknown>>;
+  for (const key of Object.keys(changes)) {
+    const field = spec.fields.get(key);
+    if (field !== undefined && !field.json) continue;
+    const value =
+      field === undefined ? jsonValue(values[key]) : fieldValueJson(fieldConverter(field), values[key]);
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -2066,6 +2124,10 @@ function interpolate(error: ChangesetError): string {
  * // { name: ["should be at least 2 character(s)"] }
  * ```
  */
+export function traverseErrors<C extends ChangesetLike, T>(
+  changeset: C,
+  fn: ErrorFormatter<T>,
+): ErrorTreeOf<C, T>;
 export function traverseErrors<T>(changeset: ChangesetLike, fn: ErrorFormatter<T>): ErrorTree<T> {
   const out: Record<string, readonly T[] | ErrorTree<T> | readonly ErrorTree<T>[]> = {};
   for (const key of Object.keys(changeset.errors)) {

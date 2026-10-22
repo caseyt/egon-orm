@@ -273,6 +273,7 @@ describe("field builder flags", () => {
       readonly defaulted: true;
       readonly virtual: true;
       readonly primaryKey: true;
+      readonly json: false;
     }>();
     expectTypeOf<FieldValueOf<typeof chained>>().toEqualTypeOf<string | null>();
 

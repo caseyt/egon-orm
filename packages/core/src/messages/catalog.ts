@@ -929,7 +929,12 @@ export const messages = {
   "schema.typeUnknownKind":
     'Use one of the listed kinds; { kind: "array", of } for an array, or { kind: "custom", sql } for any other SQL type.',
   "schema.uniqueOption": "Pass unique: true or unique: false, or leave it out.",
+  "schema.virtualJsonOption":
+    "Pass { json: true } to keep the field in the row's JSON, or leave the options out: a virtual field is left out by default.",
+  "schema.virtualOptions":
+    "Pass { json: true } to keep the field in the row's JSON, or leave the options out.",
   "schema.virtualStored": "Remove .virtual() or the other modifier.",
+  "schema.virtualUnknownOption": "Remove the option, or check its spelling: the one option is json.",
   "schema.writableOption":
     'Pass "always" (the default), "insert" for a field set only when the row is inserted, or "never" for a field only the database writes.',
 

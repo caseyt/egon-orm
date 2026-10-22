@@ -10,6 +10,7 @@ import {
   type InsertShape,
   isRow,
   isSchema,
+  type Json,
   meta,
   primaryKeyOf,
   type Row,
@@ -99,6 +100,23 @@ type NewUser = InsertShape<typeof User>; //    what an insert needs
 // { email: string; id?: number; name?: string | null; role?: "admin" | "member"; ... }
 // #endregion derived-types
 
+// #region json
+type UserJson = Json<User>; // what JSON.stringify(user) writes, and what a client receives
+// { id: number; email: string; name: string | null; role: "admin" | "member"; loginCount: number;
+//   settings: { theme: string } | null; createdAt: string; updatedAt: string }
+// No password (virtual), no passwordHash (redacted), no displayName (a getter).
+
+class Member extends Schema("members", {
+  id: t.integer().primaryKey().dbGenerated(),
+  joinedAt: t.date({ as: "date" }), //            "2026-10-22" in JSON
+  points: t.bigint(), //                         "9007199254740993" in JSON
+  avatar: t.binary().nullable(), //              base64 in JSON
+  badge: t.string().virtual({ json: true }), //  set in code, and sent when it is set
+}) {}
+type MemberJson = Json<Member>;
+// { id: number; joinedAt: string; points: string; avatar: string | null; badge?: string }
+// #endregion json
+
 // #region associations
 class Author extends Schema("authors", { id: t.integer().primaryKey().dbGenerated(), name: t.string() }) {
   static books = hasMany(() => Book, { foreignKey: "authorId" });
@@ -139,4 +157,4 @@ export function reflect(user: User): void {
   // #endregion reflection
 }
 
-export type { Customer, Invoice, NewUser, Shop, UserRow };
+export type { Customer, Invoice, MemberJson, NewUser, Shop, UserJson, UserRow };

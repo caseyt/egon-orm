@@ -4,7 +4,7 @@
 // (A package of its own, so that the React types stay out of the docs site's dependencies.)
 // #region setup
 import { postgres } from "@egon-orm/postgres";
-import { cast, createRepo, type ErrorTree, Schema, t } from "egon-orm";
+import { cast, createRepo, type ErrorMessagesOf, Schema, t } from "egon-orm";
 import { useActionState } from "react";
 
 const repo = createRepo({ adapter: postgres({ connectionString: process.env.DATABASE_URL }) });
@@ -27,9 +27,12 @@ class User extends Schema("users", {
 // actions.ts
 // "use server";
 // Runs on the server. The state it returns is plain data, so it crosses to the client as it is.
+// The errors of User.changeset, typed by field: { email?: string[]; name?: string[]; … }.
+export type SignUpErrors = ErrorMessagesOf<ReturnType<typeof User.changeset>>;
+
 export type SignUpState = {
   values: Record<string, string>;
-  errors: ErrorTree<string>;
+  errors: SignUpErrors;
   saved: boolean;
 };
 
@@ -64,12 +67,15 @@ export function SignUpForm() {
 }
 
 // The messages of one field. (A nested form, with castAssoc, has a tree under its key instead.)
-function messagesOf(errors: ErrorTree<string>, field: string): readonly string[] {
+function messagesOf(errors: SignUpErrors, field: FieldName): readonly string[] {
   const entry = errors[field];
   return Array.isArray(entry) ? entry.filter((e): e is string => typeof e === "string") : [];
 }
 
-function Field({ name, label, state }: { name: string; label: string; state: SignUpState }) {
+/** The fields the form shows; a misspelt name is a compile error. */
+type FieldName = ("email" | "name") & keyof SignUpErrors;
+
+function Field({ name, label, state }: { name: FieldName; label: string; state: SignUpState }) {
   const errors = messagesOf(state.errors, name);
   const errorId = `${name}-errors`;
   return (

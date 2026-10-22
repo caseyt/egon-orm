@@ -14,6 +14,7 @@ import type {
   FieldMeta,
   Row,
   WithFlag,
+  WithoutJson,
   Writable,
 } from "../contracts/schema.js";
 import { META } from "../contracts/schema.js";
@@ -86,7 +87,7 @@ export interface EmbedFieldBuilder<
   nullable(): EmbedFieldBuilder<E, M, T | null, WithFlag<F, "nullable">>;
   default(value: T | (() => T)): EmbedFieldBuilder<E, M, T, WithFlag<F, "defaulted">>;
   column(name: string): EmbedFieldBuilder<E, M, T, F>;
-  redact(): EmbedFieldBuilder<E, M, T, F>;
+  redact(): EmbedFieldBuilder<E, M, T, WithoutJson<F>>;
   writable(mode: Writable): EmbedFieldBuilder<E, M, T, F>;
 }
 
@@ -107,6 +108,8 @@ export interface FieldState {
   readonly primaryKey: boolean;
   readonly virtual: boolean;
   readonly redact: boolean;
+  /** In a row's JSON: false once `.redact()` or `.virtual()` (without `{ json: true }`) was called. */
+  readonly json: boolean;
   readonly writable: Writable;
   readonly dbGenerated: boolean;
   readonly default: FieldMeta["default"];
@@ -168,8 +171,29 @@ class Builder<T, F extends FieldFlags> implements FieldBuilder<T, F> {
     });
   }
 
-  virtual(): FieldBuilder<T, WithFlag<F, "virtual">> {
-    return new Builder({ ...this[FIELD], virtual: true });
+  virtual(options?: { readonly json?: false }): FieldBuilder<T, WithoutJson<WithFlag<F, "virtual">>>;
+  virtual(options: { readonly json: true }): FieldBuilder<T, WithFlag<F, "virtual">>;
+  virtual(options?: { readonly json?: boolean }): FieldBuilder<T, FieldFlags> {
+    const given: unknown = options;
+    if (given !== undefined && (typeof given !== "object" || given === null)) {
+      throw new SchemaDefinitionError(
+        "schema.virtualOptions",
+        "virtual() takes no options, or { json: true }.",
+      );
+    }
+    const unknownKey = given === undefined ? undefined : Object.keys(given).find((key) => key !== "json");
+    if (unknownKey !== undefined) {
+      throw new SchemaDefinitionError(
+        "schema.virtualUnknownOption",
+        `virtual() has no option "${unknownKey}". It takes json.`,
+      );
+    }
+    const json: unknown = given === undefined ? undefined : (given as { readonly json?: unknown }).json;
+    if (json !== undefined && typeof json !== "boolean") {
+      throw new SchemaDefinitionError("schema.virtualJsonOption", "virtual(): json must be true or false.");
+    }
+    // { json: true } keeps the flag as it is: a redacted field stays out of JSON.
+    return new Builder({ ...this[FIELD], virtual: true, json: json === true ? this[FIELD].json : false });
   }
 
   column(name: string): FieldBuilder<T, F> {
@@ -182,8 +206,8 @@ class Builder<T, F extends FieldFlags> implements FieldBuilder<T, F> {
     return new Builder({ ...this[FIELD], column: name });
   }
 
-  redact(): FieldBuilder<T, F> {
-    return new Builder({ ...this[FIELD], redact: true });
+  redact(): FieldBuilder<T, WithoutJson<F>> {
+    return new Builder({ ...this[FIELD], redact: true, json: false });
   }
 
   dbGenerated(): FieldBuilder<T, WithFlag<F, "defaulted">> {
@@ -233,6 +257,7 @@ function pristine(type: AnyFieldType): FieldState {
     primaryKey: false,
     virtual: false,
     redact: false,
+    json: true,
     writable: "always",
     dbGenerated: false,
     default: undefined,

@@ -44,9 +44,10 @@ describe("a Zod schema is a Standard Schema", () => {
 });
 
 describe("toZod: row mode", () => {
-  test("infers Row<S> for a schema class without getters or methods", () => {
+  test("infers the fields of Row<S> for a schema class without getters or methods", () => {
     type Inferred = z.infer<ReturnType<typeof toZod<typeof Account>>>;
-    expectTypeOf<Inferred>().toEqualTypeOf<Row<typeof Account>>();
+    // Row<S> also carries a type-only marker ("~fields"), which a parsed object does not have.
+    expectTypeOf<Inferred>().toEqualTypeOf<Omit<Row<typeof Account>, "~fields">>();
     expectTypeOf<Inferred>().toEqualTypeOf<FieldValues<typeof Account>>();
     expectTypeOf<Inferred>().not.toBeAny();
   });

@@ -40,7 +40,9 @@ export type {
   ConfirmationOptions,
   ConstraintOptions,
   ErrorFormatter,
+  ErrorMessagesOf,
   ErrorTree,
+  ErrorTreeOf,
   FieldName,
   FieldOfType,
   FieldValues,
@@ -51,6 +53,7 @@ export type {
   RequiredOptions,
   RowSchema,
   SchemalessTarget,
+  TypedErrorTree,
   UniqueAsyncOptions,
   ValidationEntry,
 } from "./types.js";

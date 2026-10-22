@@ -3,12 +3,18 @@
 // compile. Type-checked against Express 5, Fastify 5 and Hono 4; not run.
 import { postgres } from "@egon-orm/postgres";
 import {
+  belongsTo,
   cast,
   createRepo,
   DatabaseError,
+  type ErrorMessagesOf,
   from,
   InvalidChangesetError,
+  type Json,
+  type JsonReturn,
+  type Loaded,
   NoResultsError,
+  type PreloadSpec,
   type Repo,
   Schema,
   t,
@@ -24,6 +30,21 @@ class Post extends Schema("posts", {
   static changeset(post: Post | typeof Post, params: unknown) {
     return cast(post, params, ["title"]).validateRequired(["title"]);
   }
+}
+
+class Writer extends Schema("writers", {
+  id: t.integer().primaryKey().dbGenerated(),
+  name: t.string(),
+  passwordHash: t.string().redact(),
+}) {}
+
+class Article extends Schema("articles", {
+  id: t.integer().primaryKey().dbGenerated(),
+  writerId: t.integer(),
+  title: t.string(),
+  publishedAt: t.timestamp().nullable(),
+}) {
+  static writer = belongsTo(() => Writer);
 }
 
 // #region repo
@@ -163,6 +184,32 @@ export async function createPost(_state: unknown, form: FormData) {
   return { id: result.data.id };
 }
 // #endregion nextjs-action
+
+// #region typing-from-function
+// The response type comes from the function that makes it, preloads included.
+export async function loadArticle(id: number) {
+  return db.getByOrThrow(from(Article, "a").preload("writer"), { id });
+}
+export type ArticleResponse = JsonReturn<typeof loadArticle>;
+// { id: number; writerId: number; title: string; publishedAt: string | null;
+//   writer: { id: number; name: string } }
+// #endregion typing-from-function
+
+// #region typing-from-schema
+// Named from the schema: the row type with its preloads...
+export type ArticleWithWriter = Json<Loaded<typeof Article, "writer">>;
+
+// ...or one spec, used by the query and by the type, so that the two cannot drift apart.
+const listPreloads = { writer: true } as const satisfies PreloadSpec<typeof Article>;
+export type ArticleListItem = Json<Loaded<typeof Article, typeof listPreloads>>;
+export const listArticles = () => db.all(from(Article, "a").preload(listPreloads));
+// #endregion typing-from-schema
+
+// #region typing-errors
+// What createPost returns, on the client: the errors are typed by field.
+export type CreatePostState = JsonReturn<typeof createPost>;
+export type PostErrors = ErrorMessagesOf<ReturnType<typeof Post.changeset>>;
+// #endregion typing-errors
 
 // #region serverless
 // A function handler: the repo lives outside it, so warm invocations reuse the connection.

@@ -39,7 +39,9 @@ export type {
   ConfirmationOptions,
   ConstraintOptions,
   ErrorFormatter,
+  ErrorMessagesOf,
   ErrorTree,
+  ErrorTreeOf,
   FieldName,
   FieldOfType,
   FieldValues,
@@ -51,6 +53,7 @@ export type {
   RequiredOptions,
   RowSchema,
   SchemalessTarget,
+  TypedErrorTree,
   UniqueAsyncOptions,
   ValidationEntry,
 } from "./changeset/index.js";
@@ -135,14 +138,18 @@ export type {
   LoadedAs,
   LoadedUnchecked,
   OnReplace,
+  PreloadMarker,
   PreloadSpec,
   PrimaryKeyOf,
   Row,
+  RowMarker,
   RowMeta,
   RowState,
   SchemaClass,
   SchemaMeta,
+  VirtualOptions,
   WithFlag,
+  WithoutJson,
   Writable,
 } from "./contracts/schema.js";
 export type {
@@ -323,5 +330,7 @@ export {
   t,
   timestamps,
 } from "./schema/index.js";
+// Step 21b: the types of JSON responses. Type-only.
+export type { Json, JsonReturn } from "./schema/json-types.js";
 export type { TypeDefinition } from "./types/define.js";
 export { defineType, parameterized } from "./types/define.js";

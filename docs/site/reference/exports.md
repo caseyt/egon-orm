@@ -50,6 +50,8 @@ Guide: [Schemas and associations](/guide/schemas).
 | [`JoinKeyMeta`](/api/reference/egon-orm/interfaces/JoinKeyMeta) | interface | One side of a `manyToMany` join. |
 | [`JoinKeys`](/api/reference/egon-orm/interfaces/JoinKeys) | interface | The two sides of a join table. |
 | [`JoinThroughMeta`](/api/reference/egon-orm/interfaces/JoinThroughMeta) | interface | The join table of a `manyToMany` association. |
+| [`Json`](/api/reference/egon-orm/type-aliases/Json) | type | The type of `T` once it has been through `JSON.stringify` and `JSON.parse`. |
+| [`JsonReturn`](/api/reference/egon-orm/type-aliases/JsonReturn) | type | The JSON of what function `F` resolves to. |
 | [`KeyFields`](/api/reference/egon-orm/type-aliases/KeyFields) | type | A field name, or several for a composite key. |
 | [`Loaded`](/api/reference/egon-orm/type-aliases/Loaded) | type | A row of schema `S` with the associations in `P` loaded. |
 | [`LoadedAs`](/api/reference/egon-orm/type-aliases/LoadedAs) | type | A row of schema `S` with association `K` loaded as elements of type `E`, whatever `E` is. |
@@ -60,10 +62,12 @@ Guide: [Schemas and associations](/guide/schemas).
 | [`meta`](/api/reference/egon-orm/functions/meta) | function | The metadata of a schema class. |
 | [`Naming`](/api/reference/egon-orm/type-aliases/Naming) | type | How field names become column names (or, in an embedded schema, JSON keys). |
 | [`OnReplace`](/api/reference/egon-orm/type-aliases/OnReplace) | type | What happens to associated rows that a parent changeset no longer mentions. |
+| [`PreloadMarker`](/api/reference/egon-orm/interfaces/PreloadMarker) | interface | The type-only marker of a `Loaded` row type. |
 | [`PreloadSpec`](/api/reference/egon-orm/type-aliases/PreloadSpec) | type | Which associations of schema `S` are loaded, to any depth. |
 | [`primaryKeyOf`](/api/reference/egon-orm/functions/primaryKeyOf) | function | The value that identifies a row. |
 | [`PrimaryKeyOf`](/api/reference/egon-orm/type-aliases/PrimaryKeyOf) | type | The value that identifies one row of schema `S`. |
 | [`Row`](/api/reference/egon-orm/type-aliases/Row) | type | The type of a row of schema `S`. |
+| [`RowMarker`](/api/reference/egon-orm/interfaces/RowMarker) | class, as a type | What every row type has besides its fields and the class's own members. |
 | [`RowMeta`](/api/reference/egon-orm/interfaces/RowMeta) | interface | Per-row metadata, stored under `ROW`. |
 | [`RowState`](/api/reference/egon-orm/type-aliases/RowState) | type | Where a row stands relative to the database. |
 | [`Schema`](/api/reference/egon-orm/functions/Schema) | function | Defines the schema of a table. |
@@ -76,7 +80,9 @@ Guide: [Schemas and associations](/guide/schemas).
 | [`TimestampFields`](/api/reference/egon-orm/type-aliases/TimestampFields) | type | The fields `timestamps` returns. |
 | [`timestamps`](/api/reference/egon-orm/functions/timestamps) | function | The two bookkeeping fields, to spread into a schema's fields. |
 | [`TimestampsOptions`](/api/reference/egon-orm/interfaces/TimestampsOptions) | interface | Options of `timestamps`. |
+| [`VirtualOptions`](/api/reference/egon-orm/interfaces/VirtualOptions) | interface | Options of `.virtual()`. |
 | [`WithFlag`](/api/reference/egon-orm/type-aliases/WithFlag) | type | `F` with the flag `K` set to `true`. |
+| [`WithoutJson`](/api/reference/egon-orm/type-aliases/WithoutJson) | type | `F` with the flag `json` set to `false`. |
 | [`Writable`](/api/reference/egon-orm/type-aliases/Writable) | type | When a field may be written. |
 
 ### Types
@@ -134,7 +140,9 @@ Guide: [Changesets and validation](/guide/changesets).
 | [`EmbedName`](/api/reference/egon-orm/type-aliases/EmbedName) | type | The names `castEmbed` and `putEmbed` take. |
 | [`EmbedTarget`](/api/reference/egon-orm/type-aliases/EmbedTarget) | type | The embedded schema class of embed field `K` of `S`, or `never` when the types do not know it. |
 | [`ErrorFormatter`](/api/reference/egon-orm/type-aliases/ErrorFormatter) | type | The callback of `traverseErrors`. |
+| [`ErrorMessagesOf`](/api/reference/egon-orm/type-aliases/ErrorMessagesOf) | type | The type of `errorMessages()`. |
 | [`ErrorTree`](/api/reference/egon-orm/interfaces/ErrorTree) | interface | The errors of a changeset as `traverseErrors` returns them. |
+| [`ErrorTreeOf`](/api/reference/egon-orm/type-aliases/ErrorTreeOf) | type | What `traverseErrors(changeset, fn)` returns, for a changeset of type `C` and a callback returning `T`. |
 | [`FieldChange`](/api/reference/egon-orm/type-aliases/FieldChange) | type | The change of field `K` of `S` in `changeset.changes`. |
 | [`FieldName`](/api/reference/egon-orm/type-aliases/FieldName) | type | The field names of `S`. |
 | [`FieldOfType`](/api/reference/egon-orm/type-aliases/FieldOfType) | type | The fields of `S` whose value (without `null`) is a `T`. |
@@ -159,6 +167,7 @@ Guide: [Changesets and validation](/guide/changesets).
 | [`StandardSchemaV1PathSegment`](/api/reference/egon-orm/interfaces/StandardSchemaV1PathSegment) | interface | A path segment in object form. |
 | [`StandardSchemaV1Result`](/api/reference/egon-orm/type-aliases/StandardSchemaV1Result) | type | What `validate` returns. |
 | [`traverseErrors`](/api/reference/egon-orm/functions/traverseErrors) | function | Turns every error of a changeset, and of the changesets nested in its changes, into a value with `fn`. |
+| [`TypedErrorTree`](/api/reference/egon-orm/type-aliases/TypedErrorTree) | type | The errors of a changeset of `S` with the extra error keys `E`, as `traverseErrors` returns them. |
 | [`UniqueAsyncOptions`](/api/reference/egon-orm/interfaces/UniqueAsyncOptions) | interface | Options of `validateUniqueAsync`. |
 | [`ValidateOptions`](/api/reference/egon-orm/interfaces/ValidateOptions) | interface | Options of `validate` and `validateAsync`. |
 | [`ValidationEntry`](/api/reference/egon-orm/type-aliases/ValidationEntry) | type | One entry of `cs.validations`. |

@@ -136,8 +136,19 @@ export type AssocTarget<S, K> =
       : never
     : never;
 
-/** The kind of association `K` of `S`. */
-type AssocKindOf<S, K> = K extends keyof S ? (S[K] extends Assoc<infer Kind, unknown> ? Kind : never) : never;
+/**
+ * The kind of association `K` of `S`.
+ *
+ * @example
+ * ```ts
+ * type Kind = AssocKindOf<typeof Post, "comments">; // "hasMany"
+ * ```
+ */
+export type AssocKindOf<S, K> = K extends keyof S
+  ? S[K] extends Assoc<infer Kind, unknown>
+    ? Kind
+    : never
+  : never;
 
 /**
  * The names `castEmbed` and `putEmbed` take: the embed fields of `S`; any field name when
@@ -175,7 +186,17 @@ type SchemaOfInfo<I> = [I] extends [never]
     ? E
     : never;
 
-type EmbedMany<S, K> = K extends keyof SourceFields<S> ? ManyOfInfo<EmbedInfo<SourceFields<S>[K]>> : false;
+/**
+ * Whether embed field `K` of `S` holds a list (`t.embedMany`).
+ *
+ * @example
+ * ```ts
+ * type Many = EmbedMany<typeof User, "phones">; // true
+ * ```
+ */
+export type EmbedMany<S, K> = K extends keyof SourceFields<S>
+  ? ManyOfInfo<EmbedInfo<SourceFields<S>[K]>>
+  : false;
 
 type ManyOfInfo<I> = [I] extends [never] ? false : I extends { readonly cardinality: "many" } ? true : false;
 

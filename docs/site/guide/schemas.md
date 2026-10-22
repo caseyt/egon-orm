@@ -24,9 +24,10 @@ for the full list of types and what each accepts.
 | `.primaryKey()` | Part of the primary key. See [Primary keys](#primary-keys). |
 | `.autogenerate(fn?)` | A value generated in your process on insert when none is given (UUIDs, timestamps). |
 | `.dbGenerated()` | The database produces the value; it is read back after insert and update. A serial key is `.primaryKey().dbGenerated()`. |
-| `.virtual()` | Exists on the row and in changesets, but is never stored or selected. |
+| `.virtual()` | Exists on the row and in changesets, but is never stored or selected, and is left out of the row's JSON. |
+| `.virtual({ json: true })` | A virtual field that the row's JSON includes when it is set. |
 | `.column("name")` | The column name, when it is not the snake_case form of the field name. |
-| `.redact()` | Hidden from `toJSON`, `console.log`, logs and error messages. |
+| `.redact()` | Hidden from `console.log`, logs and error messages, and never in JSON, whatever other modifiers say. |
 | `.writable("always" \| "insert" \| "never")` | Restricts when the field may be written. The default is `"always"`. |
 
 Every modifier returns a new field, so a field can be declared once and shared by several
@@ -161,11 +162,41 @@ Embedded rows are instances of their class. See [Embeds](/guide/embeds).
 
 ## Serialisation
 
-- `JSON.stringify(user)` gives a plain object of the fields. Redacted fields are omitted.
+`JSON.stringify(user)` (and so `res.json(user)`, `Response.json(user)`) writes the row's
+JSON: its fields, then its preloaded associations, with each value made JSON-ready.
+`Json<User>` is that shape as a type, for the client:
+
+<<< @/examples/schemas.ts#json
+
+| Field type | In JSON |
+|---|---|
+| `t.timestamp()`, `t.localTimestamp()` | An ISO string, `"2026-10-22T09:30:00.000Z"`. |
+| `t.date({ as: "date" })` | The calendar date, `"2026-10-22"`. |
+| `t.date()`, `t.time()`, `t.decimal()`, `t.uuid()`, `t.string()`, `t.enum()` | Unchanged (strings). |
+| `t.bigint()` | A decimal string, so no precision is lost (`JSON.stringify` of a plain `bigint` throws). |
+| `t.bigint({ mode: "number" })`, `t.integer()`, `t.float()` | A number; `NaN` and `±Infinity` become `null`. |
+| `t.binary()` | A base64 string. |
+| `t.boolean()` | A boolean. |
+| `t.json<T>()`, `t.array(…)`, embeds | Mapped element by element, field by field. |
+| A custom type | Its value's own `toJSON()` when it has one; otherwise mapped by its value. |
+
+- Redacted fields are never in JSON. Virtual fields are left out too, unless declared
+  `.virtual({ json: true })`; such a field is written when it has a value, so it is
+  optional in `Json<…>`.
+- Preloaded associations and embeds are mapped the same way at every level; an
+  association that was not preloaded is absent. Getters and methods are not written.
 - `console.log(user)` shows redacted fields as `**redacted**`.
-- Preloaded associations and embeds are included in both, with their own redacted fields
-  hidden at every level.
-- `toJSON` lives on the class's prototype. A schema class may define its own.
+- `toJSON` lives on the class's prototype, and is not part of the row's type: call
+  `JSON.stringify`, or type an API's response with `JsonReturn` (see
+  [Typing responses](/guide/frameworks#typing-responses)). A schema class may define its
+  own `toJSON`; it is used at every level, and `Json` of the row is then what it returns.
+
+::: tip Good to know
+Send rows, not copies of them. A copy (`{ ...user }`, `const { email, ...rest } = user`)
+is a plain object, which `JSON.stringify` writes in full, redacted and virtual fields
+included, and `Json` of it says so. `Json` of a mapped type such as `Omit<User, "email">`
+still describes the row.
+:::
 
 ## Reflection
 

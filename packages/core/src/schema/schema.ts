@@ -29,6 +29,9 @@ import { reservedName, resolveAssocs } from "./assoc.js";
 import type { FieldState } from "./field.js";
 import { fieldState } from "./field.js";
 import { definedOnPrototype, describe, isRow } from "./guards.js";
+import type { JsonTable } from "./json.js";
+import { jsonTableOf, rowToJSON } from "./json.js";
+import { MODEL } from "./model.js";
 
 /**
  * How field names become column names (or, in an embedded schema, JSON keys):
@@ -83,8 +86,6 @@ export interface EmbeddedSchemaOptions {
   readonly codegen?: boolean | undefined;
 }
 
-/** The key under which a schema's prototype holds its metadata, so that a row leads to it. */
-const MODEL: unique symbol = /* @__PURE__ */ Symbol.for("egon.model");
 /** Node's `util.inspect.custom`, which Deno and Bun honour too. Looked up by name: no import of `node:util`. */
 const INSPECT: unique symbol = /* @__PURE__ */ Symbol.for("nodejs.util.inspect.custom");
 
@@ -105,6 +106,8 @@ interface Meta extends SchemaMeta {
   readonly fieldNames: readonly string[];
   /** Whether row factories are generated functions (unless the runtime refuses to generate code). */
   readonly codegen: boolean;
+  /** The fields that are in JSON and how each is converted: built on the first `toJSON`, then cached. */
+  jsonTable(): JsonTable;
   /** The maker of the plain row constructor, generated in `Schema()`; `undefined` for loops. */
   readonly maker: ConstructorMaker | undefined;
 }
@@ -184,6 +187,7 @@ function fieldMeta(
     primaryKey: state.primaryKey,
     virtual: state.virtual,
     redact: state.redact,
+    json: state.json,
     writable: state.writable,
     dbGenerated: state.dbGenerated,
     default: state.default,
@@ -407,6 +411,7 @@ function makeMeta(shared: Shared, model: AnySchema, name: string): Meta {
   const factories = new Map<string, LoadedFactory>();
   let resolved: ReadonlyMap<string, ResolvedAssoc> | undefined;
   let resolving: ReadonlyMap<string, ResolvedAssoc> | undefined;
+  let json: JsonTable | undefined;
 
   const self: Meta = Object.freeze({
     name,
@@ -464,6 +469,10 @@ function makeMeta(shared: Shared, model: AnySchema, name: string): Meta {
     redacted: shared.redacted,
     fieldNames: shared.fieldNames,
     codegen: shared.codegen,
+    jsonTable(): JsonTable {
+      if (json === undefined) json = jsonTableOf(shared.fields);
+      return json;
+    },
     maker: shared.maker,
   });
   return self;
@@ -528,26 +537,6 @@ export function meta(schema: AnySchema): SchemaMeta {
 // ---------------------------------------------------------------------------
 // What every row inherits
 // ---------------------------------------------------------------------------
-
-function plain(value: unknown): unknown {
-  if (typeof value !== "object" || value === null) return value;
-  if (Array.isArray(value)) return value.map(plain);
-  if (isRow(value)) {
-    const toJSON = (value as { readonly toJSON?: unknown }).toJSON;
-    return typeof toJSON === "function" ? toJSON.call(value) : value;
-  }
-  return value;
-}
-
-/** A row as a plain object: its fields and loaded associations, without the redacted fields, at every level. */
-function rowToJSON(this: RowLike): Record<string, unknown> {
-  const redacted = this[MODEL].redacted;
-  const out: Record<string, unknown> = {};
-  for (const key of Object.keys(this)) {
-    if (!redacted.has(key)) out[key] = plain(this[key]);
-  }
-  return out;
-}
 
 /** Prints as the bare text, where a string would be printed in quotes. */
 const REDACTED_VALUE: object = /* @__PURE__ */ Object.freeze({ [INSPECT]: () => REDACTED });

@@ -3,6 +3,8 @@ node_modules/
 
 # Build output
 dist/
+# wrangler's local state (examples/edge-worker)
+.wrangler/
 .tsbuild/
 *.tsbuildinfo
 

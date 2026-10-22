@@ -142,7 +142,7 @@ is added for you. If it is missing, the query does not compile, and if the types
 tell, it throws when it is built:
 
 ```
-QueryError: preload "posts" selects without its key. Add `authorId: posts.authorId` to the select.
+QueryError: query.preloadSelectKey: preload "posts" selects without its key. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-preloadselectkey
 ```
 
 Many-to-many and has-through are the exceptions: their key is in another table, so the

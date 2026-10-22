@@ -27,7 +27,7 @@ export interface CteOptions {
   readonly materialized?: boolean;
 }
 
-const CTE_SEED = hashString(HASH_SEED, "cte");
+const CTE_SEED = /* @__PURE__ */ hashString(HASH_SEED, "cte");
 
 /**
  * The CTE node for `withCte(name, query, options)`, its arguments checked.
@@ -48,44 +48,44 @@ export function withCteNode(
   existing: readonly CteNode[],
 ): CteNode {
   if (typeof name !== "string" || name === "") {
-    throw new QueryError('withCte() takes a name first, a non-empty string: withCte("tree", query).');
+    throw new QueryError("query.cteName", "withCte() takes a name first, a non-empty string.");
   }
   if (existing.some((node) => node.name === name)) {
     throw new QueryError(
-      `withCte("${name}", …): this query already has a CTE named "${name}". Give each its own name.`,
+      "query.cteTwice",
+      `withCte("${name}", …): this query already has a CTE named "${name}".`,
     );
   }
   if (query.preloads.length > 0) {
     throw new QueryError(
-      `withCte("${name}", …): the query has preloads, which a CTE cannot run. Preload in the query that reads the CTE.`,
+      "query.cteWithPreloads",
+      `withCte("${name}", …): the query has preloads, which a CTE cannot run.`,
     );
   }
   if (query.updates.length > 0) {
-    throw new QueryError(
-      `withCte("${name}", …): the query has set(…) assignments. A CTE that writes rows is not supported; run the update on its own.`,
-    );
+    throw new QueryError("query.cteWithUpdate", `withCte("${name}", …): the query has set(…) assignments.`);
   }
   let recursive = false;
   let materialized: boolean | undefined;
   if (options !== undefined) {
     if (typeof options !== "object" || options === null || !isPlainObject(options)) {
       throw new QueryError(
-        `withCte("${name}", query, options) takes its options as an object: { recursive: true }.`,
+        "query.cteOptions",
+        `withCte("${name}", query, options) takes its options as an object.`,
       );
     }
     for (const key of Object.keys(options)) {
       if (key !== "recursive" && key !== "materialized") {
-        throw new QueryError(
-          `withCte("${name}", …) has no option "${key}": it takes recursive and materialized.`,
-        );
+        throw new QueryError("query.cteUnknownOption", `withCte("${name}", …) has no option "${key}".`);
       }
     }
     const given = options as { readonly recursive?: unknown; readonly materialized?: unknown };
     if (given.recursive !== undefined && typeof given.recursive !== "boolean") {
-      throw new QueryError(`withCte("${name}", …): recursive is true or false.`);
+      throw new QueryError("query.cteRecursive", `withCte("${name}", …): recursive is true or false.`);
     }
     if (given.materialized !== undefined && typeof given.materialized !== "boolean") {
       throw new QueryError(
+        "query.cteMaterialized",
         `withCte("${name}", …): materialized is true or false, or left out to let the database decide.`,
       );
     }

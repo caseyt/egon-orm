@@ -17,6 +17,7 @@
     { "path": "./docs/site" },
     { "path": "./examples/blog" },
     { "path": "./examples/react-form" },
+    { "path": "./examples/edge-worker" },
     { "path": "./docs/plan/spikes/kysely-bridge" }
   ]
 }

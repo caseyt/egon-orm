@@ -55,7 +55,7 @@ export interface OpenSettings {
   readonly attach: readonly (readonly [string, string])[];
 }
 
-const OPTION_KEYS: ReadonlySet<string> = new Set([
+const OPTION_KEYS: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "filename",
   "pragmas",
   "readonly",

@@ -48,6 +48,10 @@
     {
       "includes": ["**/*.config.ts", "docs/site/.vitepress/**"],
       "linter": { "rules": { "style": { "noDefaultExport": "off" } } }
+    },
+    {
+      "includes": ["examples/edge-worker/src/worker.ts", "docs/site/examples/edge.ts"],
+      "linter": { "rules": { "style": { "noDefaultExport": "off" } } }
     }
   ]
 }

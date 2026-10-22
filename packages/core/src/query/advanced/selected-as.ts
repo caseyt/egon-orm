@@ -9,14 +9,14 @@ import { HASH_SEED, hashString } from "../../internal/hash.js";
 import { optionalShape, selectedAsNode } from "../ast.js";
 import { Expr, isExpr, NONE, type NoParams, type ParamsOf, type SomeParams, type ValueOf } from "../expr.js";
 
-const SELECTED_AS_SEED = hashString(HASH_SEED, "selectedAs");
+const SELECTED_AS_SEED = /* @__PURE__ */ hashString(HASH_SEED, "selectedAs");
 
 /** The type-only marks of an expression that a named copy of it keeps (no type, a named window). */
 type Marks<X> = Pick<X, Extract<keyof X, "~untyped" | "~noType" | "~window" | "~needsWindow">>;
 
 function checkName(name: unknown): string {
   if (typeof name !== "string" || name === "") {
-    throw new QueryError('selectedAs() takes a name, a non-empty string: selectedAs(sum(p.views), "total").');
+    throw new QueryError("query.selectedAsName", "selectedAs() takes a name, a non-empty string.");
   }
   return name;
 }
@@ -57,7 +57,8 @@ export function selectedAs(...args: readonly unknown[]): Expr<unknown, SomeParam
   const name = checkName(given);
   if (!isExpr(expr)) {
     throw new QueryError(
-      `selectedAs(expr, "${name}") takes an expression to name first, such as sum(p.views).`,
+      "query.selectedAsExpression",
+      `selectedAs(expr, "${name}") takes an expression to name first.`,
     );
   }
   return new Expr(

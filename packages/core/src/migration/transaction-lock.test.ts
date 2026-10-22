@@ -54,10 +54,14 @@ function scripted(script: Script = {}) {
       }
       if (sql === "begin immediate" && busy > 0) {
         busy--;
-        throw new DatabaseError("The database is locked by another connection (SQLITE_BUSY).", {
-          code: "database",
-          retryable: true,
-        });
+        throw new DatabaseError(
+          "database.rejected",
+          "The database is locked by another connection (SQLITE_BUSY).",
+          {
+            code: "database",
+            retryable: true,
+          },
+        );
       }
       return EMPTY;
     },

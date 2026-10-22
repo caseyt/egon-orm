@@ -101,7 +101,9 @@ describe("a subquery in FROM or a join reads only the queries around it", () => 
       .where(({ p }) => p.authorId.eq(outerRef("u", User).id))
       .select(({ p }) => ({ id: p.id }));
     const q = from(User, "u").join(subquery(inner), "s", ({ u, s }) => s.id.eq(u.id));
-    expect(() => compiled(q)).toThrow(/needs a lateral join, which is not supported yet/);
+    expect(() => compiled(q)).toThrow(
+      'query.lateralReference: The column u.id is read by a subquery in FROM or a join from a binding of the same query, "u", which needs a lateral join.',
+    );
   });
 
   test("it may read a query around the one it is a source of, and that query's CTEs", () => {
@@ -196,7 +198,7 @@ describe("window functions where they cannot be", () => {
   test("in where, orWhere, having, groupBy, a join's on, set and returning", () => {
     const posts = from(Post, "p");
     expect(() => posts.where(() => windowed().gt(1))).toThrow(
-      /where\(\): rowNumber\(\) over a window, which cannot be used in where\(\): window functions are computed after the rows are filtered and grouped\. Select it, then filter/,
+      "query.windowInFilter: where(): rowNumber() over a window, which cannot be used in where().",
     );
     expect(() => posts.orWhere(() => windowed().gt(1))).toThrow(/orWhere\(\): rowNumber\(\)/);
     expect(() => posts.groupBy(({ p }) => p.id).having(() => count().over().gt(1))).toThrow(
@@ -367,13 +369,13 @@ describe("review round 2", () => {
 
   test("window functions outside filtering clauses get the plain message", () => {
     expect(() => from(Post, "p").returning(() => ({ n: rowNumber() }) as never)).toThrow(
-      /returning\(\): rowNumber\(\) is a window function, which cannot be used in returning\(\): window functions are allowed only in select\(\) and orderBy\(\)\./,
+      "query.windowInClause: returning(): rowNumber() is a window function, which cannot be used in returning().",
     );
     expect(() => from(Post, "p").groupBy(() => rowNumber().over())).toThrow(
-      /groupBy\(\): rowNumber\(\) over a window, which cannot be used in groupBy\(\): window functions are allowed only in select\(\) and orderBy\(\)\./,
+      "query.windowInClause: groupBy(): rowNumber() over a window, which cannot be used in groupBy().",
     );
     expect(() => from(Post, "p").set(({ p }) => ({ views: p.views.add(count().over() as never) }))).toThrow(
-      /set\(\): count\(\) over a window, which cannot be used in set\(\): window functions are allowed only/,
+      "query.windowInClause: set(): count() over a window, which cannot be used in set(). Window functions are allowed only",
     );
   });
 

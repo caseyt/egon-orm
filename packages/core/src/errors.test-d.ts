@@ -1,26 +1,31 @@
 import { describe, expectTypeOf, test } from "vitest";
 import type { ChangesetLike } from "./contracts/changeset.js";
 import {
+  CastError,
   ConstraintError,
   type ConstraintViolationType,
   DatabaseError,
   type DatabaseErrorCode,
   type EgonError,
   type ErrorCode,
+  type ErrorId,
+  type ErrorMessages,
   InvalidChangesetError,
   isEgonError,
   MultipleResultsError,
   NoResultsError,
   NotLoadedError,
   QueryError,
+  SchemaDefinitionError,
   StaleEntryError,
+  useFullErrorMessages,
 } from "./errors.js";
 
 describe("error codes", () => {
   test("each class has its literal code", () => {
     expectTypeOf(new NoResultsError().code).toEqualTypeOf<"noResults">();
-    expectTypeOf(new QueryError("x").code).toEqualTypeOf<"query">();
-    expectTypeOf(new DatabaseError("x").code).toEqualTypeOf<DatabaseErrorCode>();
+    expectTypeOf(new QueryError("query.unsupportedFeature", "x").code).toEqualTypeOf<"query">();
+    expectTypeOf(new DatabaseError("database.rejected", "x").code).toEqualTypeOf<DatabaseErrorCode>();
     expectTypeOf<EgonError["code"]>().toEqualTypeOf<ErrorCode>();
     expectTypeOf<DatabaseErrorCode>().toExtend<ErrorCode>();
   });
@@ -77,9 +82,9 @@ describe("constructors", () => {
     // @ts-expect-error noAssoc is a changeset declaration, not a database violation
     new ConstraintError({ type: "noAssoc", ...unreported });
     // @ts-expect-error not an adapter code
-    new DatabaseError("x", { code: "query" });
-    expectTypeOf(new DatabaseError("x").retryable).toEqualTypeOf<boolean>();
-    expectTypeOf(new DatabaseError("x").sql).toEqualTypeOf<string | undefined>();
+    new DatabaseError("database.rejected", "x", { code: "query" });
+    expectTypeOf(new DatabaseError("database.rejected", "x").retryable).toEqualTypeOf<boolean>();
+    expectTypeOf(new DatabaseError("database.rejected", "x").sql).toEqualTypeOf<string | undefined>();
   });
 
   test("the detail fields of every error are typed, never any", () => {
@@ -121,5 +126,47 @@ describe("constructors", () => {
     expectTypeOf({} as EgonError)
       .toHaveProperty("cause")
       .toBeUnknown();
+  });
+});
+
+describe("identifiers and full messages", () => {
+  test("error.id is the union of identifiers, a string union and never any", () => {
+    expectTypeOf<EgonError["id"]>().toEqualTypeOf<ErrorId>();
+    expectTypeOf<ErrorId>().not.toBeAny();
+    expectTypeOf<ErrorId>().toExtend<string>();
+    expectTypeOf<"query.aliasTaken">().toExtend<ErrorId>();
+    expectTypeOf<"noResults">().toExtend<ErrorId>();
+    expectTypeOf<"query.noSuchThing">().not.toExtend<ErrorId>();
+  });
+
+  test("a class takes only the identifiers of its own namespace", () => {
+    new QueryError("query.aliasTaken", "x");
+    new SchemaDefinitionError("schema.noPrimaryKey", "x");
+    new DatabaseError("database.rejected", "x", { code: "deadlock" });
+    // @ts-expect-error an identifier of another namespace
+    new QueryError("schema.noPrimaryKey", "x");
+    // @ts-expect-error not an identifier
+    new CastError("bad cast", "x");
+    // @ts-expect-error the short sentence is required
+    new SchemaDefinitionError("schema.noPrimaryKey");
+  });
+
+  test("toJSON gives the name, the code and the identifier", () => {
+    expectTypeOf(new NoResultsError().toJSON()).toEqualTypeOf<{
+      readonly name: string;
+      readonly code: ErrorCode;
+      readonly id: ErrorId;
+    }>();
+  });
+
+  test("useFullErrorMessages takes a catalog of identifiers, or null", () => {
+    useFullErrorMessages(null);
+    useFullErrorMessages({ noResults: "Check the id." });
+    const catalog: ErrorMessages = { "query.aliasTaken": "Rename it." };
+    useFullErrorMessages(catalog);
+    // @ts-expect-error not an identifier
+    useFullErrorMessages({ nope: "x" });
+    // @ts-expect-error advice is text
+    useFullErrorMessages({ noResults: 1 });
   });
 });

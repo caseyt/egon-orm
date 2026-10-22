@@ -49,7 +49,7 @@ function describe(value: unknown): string {
   return value === null ? "null" : Array.isArray(value) ? "an array" : typeof value;
 }
 
-const SIMPLE_KINDS: ReadonlySet<string> = new Set([
+const SIMPLE_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "integer",
   "bigint",
   "float",
@@ -76,6 +76,7 @@ function checkedDbType(typeName: string, db: unknown, path: string): DbType {
   const kind: unknown = typeof db === "object" && db !== null ? (db as { kind?: unknown }).kind : undefined;
   if (typeof kind !== "string") {
     throw new SchemaDefinitionError(
+      "schema.typeDbKind",
       `Type "${typeName}": ${path} must be a column type such as { kind: "text" }, but it is ${describe(db)}.`,
     );
   }
@@ -88,14 +89,16 @@ function checkedDbType(typeName: string, db: unknown, path: string): DbType {
     const sql: unknown = (db as { sql?: unknown }).sql;
     if (typeof sql !== "string" || !CUSTOM_SQL_TYPE.test(sql)) {
       throw new SchemaDefinitionError(
-        `Type "${typeName}": ${path}.sql must be a plain SQL type name such as "citext", "numeric(10, 2)" or "public.mood[]". It is written into the SQL text, so it must be a constant and can never come from user data.`,
+        "schema.typeCustomSql",
+        `Type "${typeName}": ${path}.sql must be a plain SQL type name such as "citext", "numeric(10, 2)" or "public.mood[]".`,
       );
     }
     return Object.freeze({ kind, sql });
   }
   if (!SIMPLE_KINDS.has(kind)) {
     throw new SchemaDefinitionError(
-      `Type "${typeName}": ${path}.kind is ${JSON.stringify(kind)}, which is not a column kind. Use one of ${[...SIMPLE_KINDS].join(", ")}, { kind: "array", of }, or { kind: "custom", sql } for any other SQL type.`,
+      "schema.typeUnknownKind",
+      `Type "${typeName}": ${path}.kind is ${JSON.stringify(kind)}, which is not a column kind. The kinds are ${[...SIMPLE_KINDS].join(", ")}, "array" and "custom".`,
     );
   }
   return Object.freeze({ kind }) as DbType;
@@ -136,12 +139,14 @@ export function defineType<TApp, TDb = TApp>(definition: TypeDefinition<TApp, TD
   };
   if (typeof name !== "string" || name === "") {
     throw new SchemaDefinitionError(
+      "schema.typeName",
       `defineType needs a non-empty name (it appears in error messages), but got ${describe(name)}.`,
     );
   }
   const checkedDb = checkedDbType(name, db, "db");
   if (typeof cast !== "function") {
     throw new SchemaDefinitionError(
+      "schema.typeCast",
       `Type "${name}": cast must be a function that returns { success: true, data } or { success: false }, but it is ${describe(cast)}.`,
     );
   }
@@ -152,6 +157,7 @@ export function defineType<TApp, TDb = TApp>(definition: TypeDefinition<TApp, TD
   ] as const) {
     if (fn !== undefined && typeof fn !== "function") {
       throw new SchemaDefinitionError(
+        "schema.typeMember",
         `Type "${name}": ${member} must be a function or be left out, but it is ${describe(fn)}.`,
       );
     }
@@ -171,7 +177,7 @@ export function defineType<TApp, TDb = TApp>(definition: TypeDefinition<TApp, TD
 }
 
 /** Every type made by {@link defineType}: in the options of a parameterized type, it is compared by identity. */
-const definedTypes = new WeakSet<object>();
+const definedTypes = /* @__PURE__ */ new WeakSet<object>();
 
 /**
  * One of a type's functions, safe to call on its own.
@@ -198,8 +204,8 @@ export function detached<K extends "cast" | "fromDb" | "toDb" | "equal">(
   return fn.bind(type) as AnyFieldType[K];
 }
 
-const identities = new Map<symbol, number>();
-const objectIdentities = new WeakMap<object, number>();
+const identities = /* @__PURE__ */ new Map<symbol, number>();
+const objectIdentities = /* @__PURE__ */ new WeakMap<object, number>();
 let nextIdentity = 1;
 
 function identityKey(value: object | symbol): string {
@@ -243,7 +249,8 @@ function optionsKey(value: unknown, depth: number): string {
   if (value === null) return "null";
   if (depth > MAX_OPTIONS_DEPTH) {
     throw new SchemaDefinitionError(
-      `The options of a parameterized type are nested more than ${MAX_OPTIONS_DEPTH} levels deep. They probably contain themselves; options must be plain data.`,
+      "schema.typeOptionsDepth",
+      `The options of a parameterized type are nested more than ${MAX_OPTIONS_DEPTH} levels deep.`,
     );
   }
   const object = value as object;

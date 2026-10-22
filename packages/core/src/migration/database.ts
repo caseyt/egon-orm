@@ -16,6 +16,7 @@ function quotedDatabase(where: string, adapter: Adapter, name: unknown): string 
   const syntax = sqlDialectOf(adapter.dialect);
   if (syntax === undefined) {
     throw new MigrationError(
+      "migration.featureUnsupported",
       `${where} is not supported on ${String(adapter.dialect)} by this build of egon-orm.`,
     );
   }

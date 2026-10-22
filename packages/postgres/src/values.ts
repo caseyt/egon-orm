@@ -132,7 +132,10 @@ function pad(value: number, width: number): string {
 export function formatTimestamp(value: Date, withZone: boolean): string {
   const time = value.getTime();
   if (Number.isNaN(time)) {
-    throw new CastError("An invalid Date cannot be written to a timestamp column.");
+    throw new CastError(
+      "cast.timestampInvalidDate",
+      "An invalid Date cannot be written to a timestamp column.",
+    );
   }
   const year = value.getUTCFullYear();
   const bc = year < 1;
@@ -168,7 +171,7 @@ const zonedTimestampArray = (text: string): unknown => parseArrayLiteral(text, z
 
 type TextParser = (text: string) => unknown;
 
-const TEXT_PARSERS: ReadonlyMap<number, TextParser> = new Map<number, TextParser>([
+const TEXT_PARSERS: ReadonlyMap<number, TextParser> = /* @__PURE__ */ new Map<number, TextParser>([
   [OID.int8, keepText],
   [OID.int8Array, textArray],
   [OID.numeric, keepText],
@@ -203,7 +206,8 @@ function readBigint(value: unknown): unknown {
     return BigInt(value);
   } catch {
     throw new CastError(
-      "A bigint column received a value from the database that is not a whole number. Read a fractional numeric column with t.decimal().",
+      "cast.bigintFraction",
+      "A bigint column received a value from the database that is not a whole number.",
     );
   }
 }
@@ -226,11 +230,11 @@ const writeTimestamptz = (value: unknown): unknown =>
 /**
  * Where `pg`'s values (with {@link PG_TYPES}) differ from the canonical driver values.
  */
-export const PG_DRIVER_CODECS: DriverCodecs = Object.freeze({
-  bigint: Object.freeze({ fromDb: readBigint }),
-  binary: Object.freeze({ fromDb: readBytes }),
-  json: Object.freeze({ toDb: writeJson }),
-  jsonb: Object.freeze({ toDb: writeJson }),
-  timestamp: Object.freeze({ toDb: writeTimestamp }),
-  timestamptz: Object.freeze({ toDb: writeTimestamptz }),
+export const PG_DRIVER_CODECS: DriverCodecs = /* @__PURE__ */ Object.freeze({
+  bigint: /* @__PURE__ */ Object.freeze({ fromDb: readBigint }),
+  binary: /* @__PURE__ */ Object.freeze({ fromDb: readBytes }),
+  json: /* @__PURE__ */ Object.freeze({ toDb: writeJson }),
+  jsonb: /* @__PURE__ */ Object.freeze({ toDb: writeJson }),
+  timestamp: /* @__PURE__ */ Object.freeze({ toDb: writeTimestamp }),
+  timestamptz: /* @__PURE__ */ Object.freeze({ toDb: writeTimestamptz }),
 });

@@ -21,7 +21,7 @@ import { castNode, shapeOfCast } from "../ast.js";
 import { type AnyExpr, Expr, isExpr, isNullOperand, toOperand } from "../expr.js";
 import { checkNoWindows } from "./windows.js";
 
-const UPDATE_SEED = hashString(HASH_SEED, "update");
+const UPDATE_SEED = /* @__PURE__ */ hashString(HASH_SEED, "update");
 
 /**
  * The select nodes made by `.returning(…)`. A query whose select is one of them may be
@@ -33,7 +33,7 @@ const UPDATE_SEED = hashString(HASH_SEED, "update");
  * RETURNING_SELECTS.has(query.ast.select); // true after returning(…)
  * ```
  */
-export const RETURNING_SELECTS: WeakSet<SelectNode> = new WeakSet();
+export const RETURNING_SELECTS: WeakSet<SelectNode> = /* @__PURE__ */ new WeakSet();
 
 /**
  * The shape of an assignment, from the shape its value already carries (as `shapeOf`
@@ -144,11 +144,12 @@ export function assignments(
 ): BuiltAssignments {
   if (typeof values !== "object" || values === null || !isPlainObject(values) || isExpr(values)) {
     throw new QueryError(
-      "set() takes an object of field values, or a callback that returns one: set({ published: true }), set(({ p }) => ({ views: p.views.add(1) })).",
+      "query.setArgument",
+      "set() takes an object of field values, or a callback that returns one.",
     );
   }
   const keys = Object.keys(values);
-  if (keys.length === 0) throw new QueryError("set() was given no field. Set at least one.");
+  if (keys.length === 0) throw new QueryError("query.setEmpty", "set() was given no field.");
   const nodes = existing.slice();
   const shapes = existingShapes.slice();
   let replaced = false;
@@ -157,17 +158,19 @@ export function assignments(
     if (field === undefined || field.virtual) {
       const columns = meta.persisted.map((f) => f.name);
       throw new QueryError(
+        "query.setUnknownField",
         `set({ ${key} }): ${meta.name} has no ${field === undefined ? "field" : "column for the virtual field"} "${key}". Its columns are: ${columns.join(", ")}.`,
       );
     }
     const value = (values as Record<string, unknown>)[key];
     if (value === undefined) {
-      throw new QueryError(
-        `set({ ${key}: undefined }): undefined is not a value. Leave the key out, or pass null to store NULL.`,
-      );
+      throw new QueryError("query.setUndefined", `set({ ${key}: undefined }): undefined is not a value.`);
     }
     if (!field.nullable && (value === null || (isExpr(value) && isNullOperand(value)))) {
-      throw new QueryError(`set({ ${key}: null }): ${meta.name}.${key} is not nullable.`);
+      throw new QueryError(
+        "query.setNullNotNullable",
+        `set({ ${key}: null }): ${meta.name}.${key} is not nullable.`,
+      );
     }
     const operand = typedForField(toOperand(value, field.type, field.redact, "set", false, true), field.type);
     checkNoWindows("set", operand.node);

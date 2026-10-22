@@ -31,6 +31,7 @@ function typeHint(value: unknown): string {
  */
 export function untypedValue(where: string, value: unknown): QueryError {
   return new QueryError(
+    "query.untypedValue",
     `A value without a type is in ${where}, where nothing gives it one, so the database would return it as text. It is ${typeHint(value)}.`,
   );
 }
@@ -47,12 +48,13 @@ export function untypedValue(where: string, value: unknown): QueryError {
  */
 export function untypedArithmetic(op: string): QueryError {
   return new QueryError(
-    `Arithmetic (${op}()) on values without a type, where nothing gives them one, so the database cannot choose an operator. Give a value a type: val(value, t.integer()) or val(value, t.float()).`,
+    "query.untypedArithmetic",
+    `Arithmetic (${op}()) on values without a type, where nothing gives them one, so the database cannot choose an operator.`,
   );
 }
 
 /** One checking conversion per place, shared by every plan that needs it. */
-const checkers = new Map<string, (value: unknown) => unknown>();
+const checkers = /* @__PURE__ */ new Map<string, (value: unknown) => unknown>();
 
 /**
  * The `toDb` of a slot that only text may fill: it passes a string through and refuses

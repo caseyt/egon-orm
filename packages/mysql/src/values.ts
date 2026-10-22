@@ -27,7 +27,8 @@ function readInteger(value: unknown): unknown {
     const number = Number(value);
     if (!Number.isSafeInteger(number)) {
       throw new CastError(
-        "A number column received an integer from the database beyond Number.MAX_SAFE_INTEGER. Read it with t.bigint().",
+        "cast.unsafeInteger",
+        "A number column received an integer from the database beyond Number.MAX_SAFE_INTEGER.",
       );
     }
     return number;
@@ -43,7 +44,10 @@ function readFloat(value: unknown): unknown {
 /** MySQL has no NaN or infinities: one is refused rather than sent. */
 function writeFloat(value: unknown): unknown {
   if (typeof value === "number" && !Number.isFinite(value)) {
-    throw new CastError("MySQL cannot store NaN, Infinity or -Infinity in a float column.");
+    throw new CastError(
+      "cast.floatNotFinite",
+      "MySQL cannot store NaN, Infinity or -Infinity in a float column.",
+    );
   }
   return value;
 }
@@ -108,10 +112,17 @@ function pad(value: number, width: number): string {
  */
 export function formatDatetime(value: Date): string {
   const time = value.getTime();
-  if (Number.isNaN(time)) throw new CastError("An invalid Date cannot be written to a timestamp column.");
+  if (Number.isNaN(time))
+    throw new CastError(
+      "cast.timestampInvalidDate",
+      "An invalid Date cannot be written to a timestamp column.",
+    );
   const year = value.getUTCFullYear();
   if (year < 0 || year > 9999)
-    throw new CastError("MySQL stores datetimes with a four-digit year: 0000 to 9999.");
+    throw new CastError(
+      "cast.timestampYearRange",
+      "MySQL stores datetimes with a four-digit year: 0000 to 9999.",
+    );
   return `${pad(year, 4)}-${pad(value.getUTCMonth() + 1, 2)}-${pad(value.getUTCDate(), 2)} ${pad(
     value.getUTCHours(),
     2,
@@ -171,18 +182,18 @@ function writeBytes(value: unknown): unknown {
 const writeUuid = (value: unknown): unknown => (typeof value === "string" ? value.toLowerCase() : value);
 
 /** Where `mysql2`'s values (with the adapter's connection settings) differ from the canonical driver values. */
-export const MYSQL_DRIVER_CODECS: DriverCodecs = Object.freeze({
-  integer: Object.freeze({ fromDb: readInteger }),
-  float: Object.freeze({ fromDb: readFloat, toDb: writeFloat }),
-  bigint: Object.freeze({ fromDb: readBigint }),
-  decimal: Object.freeze({ fromDb: readDecimal }),
-  uuid: Object.freeze({ toDb: writeUuid }),
-  boolean: Object.freeze({ fromDb: readBoolean, toDb: writeBoolean }),
-  binary: Object.freeze({ fromDb: readBytes, toDb: writeBytes }),
-  time: Object.freeze({ fromDb: readTime }),
-  timestamp: Object.freeze({ fromDb: readDatetime, toDb: writeDatetime }),
-  timestamptz: Object.freeze({ fromDb: readDatetime, toDb: writeDatetime }),
-  json: Object.freeze({ toDb: writeJson }),
-  jsonb: Object.freeze({ toDb: writeJson }),
-  array: Object.freeze({ toDb: writeJson }),
+export const MYSQL_DRIVER_CODECS: DriverCodecs = /* @__PURE__ */ Object.freeze({
+  integer: /* @__PURE__ */ Object.freeze({ fromDb: readInteger }),
+  float: /* @__PURE__ */ Object.freeze({ fromDb: readFloat, toDb: writeFloat }),
+  bigint: /* @__PURE__ */ Object.freeze({ fromDb: readBigint }),
+  decimal: /* @__PURE__ */ Object.freeze({ fromDb: readDecimal }),
+  uuid: /* @__PURE__ */ Object.freeze({ toDb: writeUuid }),
+  boolean: /* @__PURE__ */ Object.freeze({ fromDb: readBoolean, toDb: writeBoolean }),
+  binary: /* @__PURE__ */ Object.freeze({ fromDb: readBytes, toDb: writeBytes }),
+  time: /* @__PURE__ */ Object.freeze({ fromDb: readTime }),
+  timestamp: /* @__PURE__ */ Object.freeze({ fromDb: readDatetime, toDb: writeDatetime }),
+  timestamptz: /* @__PURE__ */ Object.freeze({ fromDb: readDatetime, toDb: writeDatetime }),
+  json: /* @__PURE__ */ Object.freeze({ toDb: writeJson }),
+  jsonb: /* @__PURE__ */ Object.freeze({ toDb: writeJson }),
+  array: /* @__PURE__ */ Object.freeze({ toDb: writeJson }),
 });

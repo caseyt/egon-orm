@@ -46,4 +46,4 @@ export type SourceColumns =
  * SOURCE_COLUMNS.get(query.ast.from)?.kind; // "object" for from(subquery(counts), "c")
  * ```
  */
-export const SOURCE_COLUMNS: WeakMap<SourceNode, SourceColumns> = new WeakMap();
+export const SOURCE_COLUMNS: WeakMap<SourceNode, SourceColumns> = /* @__PURE__ */ new WeakMap();

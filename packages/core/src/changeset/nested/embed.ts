@@ -98,10 +98,10 @@ function generated(field: FieldMeta, stamp: unknown): unknown {
   return stamp instanceof Date && value instanceof Date ? stamp : value;
 }
 
-const BLANK: ChangesetError = Object.freeze({
+const BLANK: ChangesetError = /* @__PURE__ */ Object.freeze({
   message: "can't be blank",
   validation: "required",
-  meta: Object.freeze({}),
+  meta: /* @__PURE__ */ Object.freeze({}),
 });
 
 /**

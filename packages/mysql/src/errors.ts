@@ -16,7 +16,7 @@ interface MysqlErrorFields {
 }
 
 /** Error numbers of constraint violations, by the kind they report. */
-const CONSTRAINT_ERRORS: ReadonlyMap<number, ConstraintViolationType> = new Map<
+const CONSTRAINT_ERRORS: ReadonlyMap<number, ConstraintViolationType> = /* @__PURE__ */ new Map<
   number,
   ConstraintViolationType
 >([
@@ -32,7 +32,10 @@ const CONSTRAINT_ERRORS: ReadonlyMap<number, ConstraintViolationType> = new Map<
 ]);
 
 /** Error numbers with a code of their own. */
-const DATABASE_ERRORS: ReadonlyMap<number, DatabaseErrorCode> = new Map<number, DatabaseErrorCode>([
+const DATABASE_ERRORS: ReadonlyMap<number, DatabaseErrorCode> = /* @__PURE__ */ new Map<
+  number,
+  DatabaseErrorCode
+>([
   [1213, "deadlock"], // ER_LOCK_DEADLOCK
   [3024, "timeout"], // ER_QUERY_TIMEOUT (max_execution_time)
   [1040, "connection"], // ER_CON_COUNT_ERROR
@@ -43,14 +46,14 @@ const DATABASE_ERRORS: ReadonlyMap<number, DatabaseErrorCode> = new Map<number, 
 ]);
 
 /** Error numbers whose transaction may succeed when run again. */
-const RETRYABLE: ReadonlySet<number> = new Set([1205]); // ER_LOCK_WAIT_TIMEOUT
+const RETRYABLE: ReadonlySet<number> = /* @__PURE__ */ new Set([1205]); // ER_LOCK_WAIT_TIMEOUT
 
 /**
  * Error numbers whose messages name only SQL objects, never values: their message is
  * repeated in ours. Others (a duplicate entry, a value out of range) may quote a value, so
  * for them the message says where to look instead (`error.cause`).
  */
-const SAFE_MESSAGES: ReadonlySet<number> = new Set([
+const SAFE_MESSAGES: ReadonlySet<number> = /* @__PURE__ */ new Set([
   1044, // ER_DBACCESS_DENIED_ERROR
   1049, // ER_BAD_DB_ERROR
   1050, // ER_TABLE_EXISTS_ERROR
@@ -73,7 +76,7 @@ const SAFE_MESSAGES: ReadonlySet<number> = new Set([
 ]);
 
 /** Node.js and driver error codes that mean the database could not be reached or the connection failed. */
-const CONNECTION_CODES: ReadonlySet<string> = new Set([
+const CONNECTION_CODES: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "ECONNREFUSED",
   "ECONNRESET",
   "ECONNABORTED",
@@ -174,7 +177,8 @@ export function normalizeMysqlError(error: unknown, sql: string | undefined): un
     CONNECTION_MESSAGES.some((p) => p.test(error.message))
   ) {
     return new DatabaseError(
-      `Could not reach the database, or lost the connection to it (${code ?? error.message}). Check that it is running and that the connection settings are right.`,
+      "database.unreachable",
+      `Could not reach the database, or lost the connection to it (${code ?? error.message}).`,
       withSql({ code: "connection" as const, cause: error }),
     );
   }
@@ -189,12 +193,14 @@ export function normalizeMysqlError(error: unknown, sql: string | undefined): un
       ? `: ${error.message}`
       : ". The database's message is on error.cause; it is left out here because it may quote a value";
     return new DatabaseError(
+      "database.rejected",
       `The database rejected the statement (MySQL error ${errno}, ${code ?? "unknown"})${said}.`,
       withSql({ code: egonCode, ...(RETRYABLE.has(errno) ? { retryable: true } : {}), cause: error }),
     );
   }
   if (fields.fatal === true) {
     return new DatabaseError(
+      "database.connectionFailed",
       `Lost the connection to the database, or could not open one: ${error.message}.`,
       withSql({ code: "connection" as const, cause: error }),
     );

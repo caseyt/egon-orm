@@ -21,7 +21,7 @@ import { defineType, parameterized } from "./define.js";
  *   typeof input === "string" ? { success: true, data: input } : INVALID;
  * ```
  */
-export const INVALID: CastResult<never> = Object.freeze({ success: false });
+export const INVALID: CastResult<never> = /* @__PURE__ */ Object.freeze({ success: false });
 
 /** Longer strings are rejected before any parsing: no integer or float needs this many characters. */
 const MAX_NUMBER_TEXT = 400;
@@ -32,14 +32,14 @@ const FLOAT_TEXT = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
 const DECIMAL_TEXT = /^([+-]?)(\d*)(?:\.(\d*))?$/;
 const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const MIN_SAFE = BigInt(Number.MIN_SAFE_INTEGER);
-const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
+const MIN_SAFE = /* @__PURE__ */ BigInt(Number.MIN_SAFE_INTEGER);
+const MAX_SAFE = /* @__PURE__ */ BigInt(Number.MAX_SAFE_INTEGER);
 const INT64_MIN = -(2n ** 63n);
 const INT64_MAX = 2n ** 63n - 1n;
 
 // --- string ------------------------------------------------------------------
 
-const STRING = defineType<string>({
+const STRING = /* @__PURE__ */ defineType<string>({
   name: "string",
   db: { kind: "text" },
   cast: (input) => (typeof input === "string" ? { success: true, data: input } : INVALID),
@@ -76,7 +76,11 @@ function castInteger(input: unknown): CastResult<number> {
   return INVALID;
 }
 
-const INTEGER = defineType<number>({ name: "integer", db: { kind: "integer" }, cast: castInteger });
+const INTEGER = /* @__PURE__ */ defineType<number>({
+  name: "integer",
+  db: { kind: "integer" },
+  cast: castInteger,
+});
 
 /**
  * A whole number. Accepts a safe integer, a string of digits such as `"42"` or `"-7"`,
@@ -112,7 +116,11 @@ function castBigint(input: unknown): CastResult<bigint> {
   return value >= INT64_MIN && value <= INT64_MAX ? { success: true, data: value } : INVALID;
 }
 
-const BIGINT = defineType<bigint>({ name: "bigint", db: { kind: "bigint" }, cast: castBigint });
+const BIGINT = /* @__PURE__ */ defineType<bigint>({
+  name: "bigint",
+  db: { kind: "bigint" },
+  cast: castBigint,
+});
 
 /**
  * Reads the digits a driver sends for a 64-bit integer. Written as a loop over character
@@ -144,6 +152,7 @@ function bigintColumnToNumber(value: number | bigint | string): number {
     number = integerTextToNumber(value);
     if (Number.isNaN(number)) {
       throw new CastError(
+        "cast.bigintNumberString",
         'A bigint column read with { mode: "number" } received a string from the driver that is not a whole number.',
       );
     }
@@ -153,13 +162,14 @@ function bigintColumnToNumber(value: number | bigint | string): number {
   if (!Number.isSafeInteger(number)) {
     // The value itself is left out: the field may be redacted.
     throw new CastError(
-      'A bigint column read with { mode: "number" } holds a value outside the safe integer range of a JavaScript number (±9007199254740991). Declare the field as t.bigint() to read it as a bigint.',
+      "cast.bigintNumberRange",
+      'A bigint column read with { mode: "number" } holds a value outside the safe integer range of a JavaScript number (±9007199254740991).',
     );
   }
   return number;
 }
 
-const BIGINT_AS_NUMBER = defineType<number, number | bigint | string>({
+const BIGINT_AS_NUMBER = /* @__PURE__ */ defineType<number, number | bigint | string>({
   name: "bigint(number)",
   db: { kind: "bigint" },
   cast: castInteger,
@@ -205,6 +215,7 @@ export function bigintType(
   if (mode === "bigint") return BIGINT;
   if (mode === "number") return BIGINT_AS_NUMBER;
   throw new SchemaDefinitionError(
+    "schema.bigintMode",
     `t.bigint: mode must be "bigint" or "number", but got ${JSON.stringify(mode)}.`,
   );
 }
@@ -221,7 +232,7 @@ function castFloat(input: unknown): CastResult<number> {
   return INVALID;
 }
 
-const FLOAT = defineType<number>({ name: "float", db: { kind: "float" }, cast: castFloat });
+const FLOAT = /* @__PURE__ */ defineType<number>({ name: "float", db: { kind: "float" }, cast: castFloat });
 
 /**
  * A double-precision number. Accepts a finite number or a numeric string such as
@@ -347,10 +358,10 @@ function decimalCast(precision: number | undefined, scale: number): (input: unkn
   };
 }
 
-const DECIMAL = defineType<string>({
+const DECIMAL = /* @__PURE__ */ defineType<string>({
   name: "decimal",
   db: { kind: "decimal" },
-  cast: decimalCast(undefined, 0),
+  cast: /* @__PURE__ */ decimalCast(undefined, 0),
   equal: decimalEqual,
 });
 
@@ -369,13 +380,14 @@ export interface DecimalOptions {
   readonly scale?: number;
 }
 
-const decimalWith = parameterized((options: { readonly precision: number; readonly scale: number }) =>
-  defineType<string>({
-    name: `decimal(${options.precision},${options.scale})`,
-    db: { kind: "decimal" },
-    cast: decimalCast(options.precision, options.scale),
-    equal: decimalEqual,
-  }),
+const decimalWith = /* @__PURE__ */ parameterized(
+  (options: { readonly precision: number; readonly scale: number }) =>
+    defineType<string>({
+      name: `decimal(${options.precision},${options.scale})`,
+      db: { kind: "decimal" },
+      cast: decimalCast(options.precision, options.scale),
+      equal: decimalEqual,
+    }),
 );
 
 /**
@@ -402,11 +414,13 @@ export function decimalType(options?: DecimalOptions): FieldType<string, string>
   const { precision, scale = 0 } = options;
   if (!Number.isInteger(precision) || precision < 1 || precision > 1000) {
     throw new SchemaDefinitionError(
+      "schema.decimalPrecision",
       `t.decimal: precision must be a whole number from 1 to 1000, but got ${String(precision)}.`,
     );
   }
   if (!Number.isInteger(scale) || scale < 0 || scale > precision) {
     throw new SchemaDefinitionError(
+      "schema.decimalScale",
       `t.decimal: scale must be a whole number from 0 to the precision (${precision}), but got ${String(scale)}.`,
     );
   }
@@ -415,10 +429,10 @@ export function decimalType(options?: DecimalOptions): FieldType<string, string>
 
 // --- boolean -----------------------------------------------------------------
 
-const TRUE: CastResult<boolean> = Object.freeze({ success: true, data: true });
-const FALSE: CastResult<boolean> = Object.freeze({ success: true, data: false });
+const TRUE: CastResult<boolean> = /* @__PURE__ */ Object.freeze({ success: true, data: true });
+const FALSE: CastResult<boolean> = /* @__PURE__ */ Object.freeze({ success: true, data: false });
 
-const BOOLEAN = defineType<boolean>({
+const BOOLEAN = /* @__PURE__ */ defineType<boolean>({
   name: "boolean",
   db: { kind: "boolean" },
   cast: (input) => {
@@ -444,7 +458,7 @@ export function booleanType(): FieldType<boolean, boolean> {
 
 // --- uuid --------------------------------------------------------------------
 
-const UUID = defineType<string>({
+const UUID = /* @__PURE__ */ defineType<string>({
   name: "uuid",
   db: { kind: "uuid" },
   cast: (input) =>
@@ -478,12 +492,12 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 /** The getter that names the kind of a typed array from its internal slot, and gives `undefined` for anything else. */
-const typedArrayTag = Object.getOwnPropertyDescriptor(
-  Object.getPrototypeOf(Uint8Array.prototype),
+const typedArrayTag = /* @__PURE__ */ Object.getOwnPropertyDescriptor(
+  /* @__PURE__ */ Object.getPrototypeOf(Uint8Array.prototype),
   Symbol.toStringTag,
 )?.get as (this: unknown) => string | undefined;
 
-const BINARY = defineType<Uint8Array>({
+const BINARY = /* @__PURE__ */ defineType<Uint8Array>({
   name: "binary",
   db: { kind: "binary" },
   // The getter reads the internal slot and runs no code of the value: it cannot throw, an

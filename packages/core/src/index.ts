@@ -163,7 +163,15 @@ export type {
   DbTypeOf,
   FieldType,
 } from "./contracts/type.js";
-export type { ConstraintViolationType, DatabaseErrorCode, ErrorCode } from "./errors.js";
+export type {
+  ConstraintViolationType,
+  DatabaseErrorCode,
+  ErrorCode,
+  ErrorDetails,
+  ErrorId,
+  ErrorMessages,
+  ErrorParams,
+} from "./errors.js";
 export {
   CastError,
   ConstraintError,
@@ -178,6 +186,7 @@ export {
   RollbackError,
   SchemaDefinitionError,
   StaleEntryError,
+  useFullErrorMessages,
 } from "./errors.js";
 export { cte } from "./query/advanced/cte.js";
 // Step 09: advanced queries. The classes are public as types only: they are made by these

@@ -46,20 +46,25 @@ export function cte<Q extends QueryLike>(
 ): Source<SourceBindingOf<Q>, SourceRowOf<Q>, NoParams>;
 export function cte(name: string, shape: unknown): Source<unknown, unknown, NoParams> {
   if (typeof name !== "string" || name === "") {
-    throw new QueryError('cte() takes the name of a CTE first, a non-empty string: cte("tree", Category).');
+    throw new QueryError("query.cteSourceName", "cte() takes the name of a CTE first, a non-empty string.");
   }
   let columns: SourceColumns;
   if (isSchema(shape)) {
     const schemaMeta = meta(shape);
     if (schemaMeta.source === null) {
-      throw new QueryError(`cte("${name}", ${schemaMeta.name}): an embedded schema has no rows of its own.`);
+      throw new QueryError(
+        "query.cteSourceEmbedded",
+        `cte("${name}", ${schemaMeta.name}): an embedded schema has no rows of its own.`,
+      );
     }
     columns = { kind: "row", meta: schemaMeta, schema: shape };
   } else if (shape instanceof Query) {
     columns = sourceColumns(shape, "cte");
   } else {
     throw new QueryError(
-      `cte("${name}", shape) takes the schema class of its rows, cte("${name}", Category), or the CTE's query.`,
+      "query.cteSourceShape",
+      `cte("${name}", shape) takes the schema class of its rows.`,
+      { params: { name } },
     );
   }
   const rows = columns.kind === "row" ? columns.meta : undefined;

@@ -18,7 +18,7 @@
  */
 import { shortenedName } from "../repo/constraints.js";
 
-const encoder = new TextEncoder();
+const encoder = /* @__PURE__ */ new TextEncoder();
 
 /**
  * `<table>_<columns>_<label>`, shortened to `maxBytes` when it is longer.

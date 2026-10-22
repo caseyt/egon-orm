@@ -9,7 +9,14 @@ import { sqlDialectOf } from "../adapter/compiler.js";
 import { redactParams } from "../adapter/telemetry.js";
 import { quoteIdentifier, type SqlDialect } from "../compiler/dialect.js";
 import type { Adapter, Connection, ParamSlot } from "../contracts/adapter.js";
-import { DatabaseError, isEgonError, MigrationError } from "../errors.js";
+import { DatabaseError, isEgonError, MigrationError, shortMessageOf } from "../errors.js";
+
+/** The text of an error a migration failed with: an Egon error's short sentence (its identifier is on `cause`). */
+function causeText(error: unknown): string {
+  if (isEgonError(error)) return shortMessageOf(error);
+  return error instanceof Error ? error.message : String(error);
+}
+
 import { MigrationBuilder } from "./builder.js";
 import { type DdlContext, emitOperation, type MigrationStatement, table as tableSql } from "./ddl.js";
 import { type MigrationDialect, migrationDialectOf } from "./dialect.js";
@@ -291,6 +298,7 @@ export function createMigrator(options: MigratorOptions): Migrator {
   const syntax = sqlDialectOf(adapter.dialect);
   if (syntax === undefined) {
     throw new MigrationError(
+      "migration.dialectUnsupported",
       `Migrations are not supported on ${String(adapter.dialect)} by this build of egon-orm.`,
     );
   }
@@ -336,8 +344,8 @@ interface Planned {
   readonly direction: "up" | "down";
 }
 
-const VERSION_SLOT: readonly ParamSlot[] = Object.freeze([
-  Object.freeze({ kind: "inline", index: 0, toDb: undefined, redact: false } as const),
+const VERSION_SLOT: readonly ParamSlot[] = /* @__PURE__ */ Object.freeze([
+  /* @__PURE__ */ Object.freeze({ kind: "inline", index: 0, toDb: undefined, redact: false } as const),
 ]);
 
 class DatabaseMigrator implements Migrator {
@@ -408,7 +416,8 @@ class DatabaseMigrator implements Migrator {
         const source = byVersion.get(version);
         if (source === undefined) {
           throw new MigrationError(
-            `Cannot roll back past version ${version}: it is recorded as applied, but there is no migration with that version. Restore its file, or remove the version from the tracking table if it is really gone.`,
+            "migration.rollbackMissingFile",
+            `Cannot roll back past version ${version}: it is recorded as applied, but there is no migration with that version.`,
             { version },
           );
         }
@@ -513,6 +522,7 @@ class DatabaseMigrator implements Migrator {
     } catch (cause) {
       if (cause instanceof DatabaseError && cause.code === "timeout") {
         throw new MigrationError(
+          "migration.lockTimeout",
           `Gave up waiting for the migration lock after ${lockTimeoutMs} ms: another runner is migrating the same database (tracking table "${this.#settings.table.name}").`,
           { cause },
         );
@@ -570,12 +580,10 @@ class DatabaseMigrator implements Migrator {
           cause = error;
         }
         if (deadline !== undefined && performance.now() >= deadline) {
-          const stale = claimSeen
-            ? ` If no runner is running, one stopped while it ran a migration without a transaction: check what that migration did, then delete the row with version ${CLAIM} from "${this.#settings.table.name}".`
-            : "";
           throw new MigrationError(
-            `Gave up waiting for the migration lock after ${lockTimeoutMs} ms: another runner is migrating the same database (tracking table "${this.#settings.table.name}").${stale}`,
-            cause === undefined ? {} : { cause },
+            claimSeen ? "migration.lockTimeoutClaimed" : "migration.lockTimeout",
+            `Gave up waiting for the migration lock after ${lockTimeoutMs} ms: another runner is migrating the same database (tracking table "${this.#settings.table.name}").`,
+            { params: { claim: CLAIM, table: this.#settings.table.name }, cause },
           );
         }
         await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_MS));
@@ -692,7 +700,8 @@ class DatabaseMigrator implements Migrator {
       );
       if (column.rowCount === 0) {
         throw new MigrationError(
-          `The tracking table "${table.name}" has no column "${timestampColumn}". If it was created by another tool, pass its timestamp column: createMigrator({ timestampColumn: "inserted_at" }) (or whatever it is called).`,
+          "migration.timestampColumn",
+          `The tracking table "${table.name}" has no column "${timestampColumn}".`,
         );
       }
     }
@@ -706,6 +715,7 @@ class DatabaseMigrator implements Migrator {
       const version = Number(row.version);
       if (!Number.isSafeInteger(version)) {
         throw new MigrationError(
+          "migration.trackingVersion",
           `The tracking table "${table.name}" holds a version that is not a safe whole number: ${String(row.version)}.`,
         );
       }
@@ -730,11 +740,14 @@ class DatabaseMigrator implements Migrator {
       return { operations, statements };
     } catch (error) {
       if (isEgonError(error, "migration") && (error as MigrationError).version !== undefined) throw error;
-      const message = error instanceof Error ? error.message : String(error);
-      throw new MigrationError(`Migration ${source.version}_${source.name}: ${message}`, {
-        ...context,
-        cause: error,
-      });
+      throw new MigrationError(
+        "migration.buildFailed",
+        `Migration ${source.version}_${source.name}: ${causeText(error)}`,
+        {
+          ...context,
+          cause: error,
+        },
+      );
     }
   }
 
@@ -751,7 +764,8 @@ class DatabaseMigrator implements Migrator {
         healthy: true,
         durationMs: 0,
         error: new MigrationError(
-          `Migration ${source.version}_${source.name} builds or drops an index concurrently, which cannot run inside a transaction. Add transaction: false to its defineMigration().`,
+          "migration.concurrentIndexInTransaction",
+          `Migration ${source.version}_${source.name} builds or drops an index concurrently, which cannot run inside a transaction.`,
           context,
         ),
       };
@@ -795,7 +809,10 @@ class DatabaseMigrator implements Migrator {
         // A transaction the migration opened and never ended is a failure: it is rolled back.
         if (connection.inTransaction()) {
           leftOpen = true;
-          throw new MigrationError("it opened a transaction and did not end it (a begin without a commit).");
+          throw new MigrationError(
+            "migration.transactionLeftOpen",
+            "it opened a transaction and did not end it (a begin without a commit).",
+          );
         }
         await this.#endOutside(connection, foreignKeys);
         claimed = false;
@@ -821,7 +838,7 @@ class DatabaseMigrator implements Migrator {
           unclaimFailure = error;
         }
       }
-      const message = cause instanceof Error ? cause.message : String(cause);
+      const message = causeText(cause);
       const outcome = transaction
         ? "failed and was rolled back"
         : rolledBackOwn || leftOpen
@@ -836,6 +853,7 @@ class DatabaseMigrator implements Migrator {
         healthy,
         durationMs: 0,
         error: new MigrationError(
+          "migration.failed",
           `Migration ${source.version}_${source.name} ${outcome}: ${message}${stuck}`,
           {
             ...context,

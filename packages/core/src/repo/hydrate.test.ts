@@ -14,11 +14,9 @@ import { bigintType, integerType, stringType } from "../types/index.js";
 import {
   buildDecoder,
   type CodecSource,
-  canGenerate,
   decodeRows,
   decoderFor,
   generateDecoder,
-  generationAllowed,
   interpretDecoder,
 } from "./hydrate.js";
 
@@ -363,19 +361,8 @@ describe("building and caching", () => {
     expect(() => decoderFor(plan, codecs, true)).toThrow(TypeError);
   });
 
-  test("code generation is detected, and its absence too", () => {
-    expect(canGenerate((body) => new Function(body) as () => unknown)).toBe(true);
-    expect(
-      canGenerate(() => {
-        throw new EvalError("Code generation from strings disallowed for this context");
-      }),
-    ).toBe(false);
-    expect(canGenerate(() => () => false)).toBe(false);
-  });
-
-  test("buildDecoder generates code only when asked to and allowed", () => {
+  test("buildDecoder generates code only when asked to", () => {
     const plan: OutputPlan = { kind: "value", alias: "c0", type: undefined };
-    expect(generationAllowed()).toBe(true);
     expect(buildDecoder(plan, codecs, true).name).toBe("decode");
     expect(buildDecoder(plan, codecs, false).name).not.toBe("decode");
   });
@@ -397,13 +384,15 @@ describe("building and caching", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  test("code generation is probed only when a decoder is generated, and once", async () => {
+  test("code generation is attempted when a decoder is generated, and given up after a refusal", async () => {
     vi.resetModules();
     const original = globalThis.Function;
     const constructed = vi.fn();
+    let refuse = false;
     globalThis.Function = new Proxy(original, {
       construct(target, args) {
-        constructed(args[args.length - 1]);
+        constructed();
+        if (refuse) throw new EvalError("Code generation from strings disallowed for this context");
         return Reflect.construct(target, args);
       },
     });
@@ -411,13 +400,30 @@ describe("building and caching", () => {
       const fresh = await import("./hydrate.js");
       fresh.buildDecoder(rowLeaf(USER, 0), codecs, false);
       expect(constructed).not.toHaveBeenCalled();
-      fresh.buildDecoder(rowLeaf(USER, 0), codecs, true);
-      // The probe, then the decoder.
-      expect(constructed.mock.calls.map(([body]) => body === "return true")).toEqual([true, false]);
-      fresh.buildDecoder(rowLeaf(USER, 0), codecs, true);
-      expect(constructed).toHaveBeenCalledTimes(3);
+      // No probe: the decoder itself is the only function made.
+      expect(fresh.buildDecoder(rowLeaf(USER, 0), codecs, true).name).toBe("decode");
+      expect(constructed).toHaveBeenCalledTimes(1);
+      // A success is not remembered: a runtime that refuses later is asked again, once.
+      refuse = true;
+      const plan: OutputPlan = {
+        kind: "object",
+        keys: ["id", "name"],
+        values: [
+          { kind: "value", alias: "c0", type: integerType() as AnyFieldType },
+          { kind: "value", alias: "c1", type: undefined },
+        ],
+      };
+      const row = { c0: 1, c1: "a" };
+      const fallback = fresh.buildDecoder(plan, codecs, true);
+      expect(fallback.name).not.toBe("decode");
+      expect(constructed).toHaveBeenCalledTimes(2);
+      // The refusal is remembered: no more attempts.
+      fresh.buildDecoder(plan, codecs, true);
+      expect(constructed).toHaveBeenCalledTimes(2);
+      expect(fallback(row, [])).toStrictEqual({ id: 1, name: "a" });
     } finally {
       globalThis.Function = original;
+      vi.resetModules();
     }
   });
 
@@ -452,7 +458,7 @@ describe("integer and float values must be numbers", () => {
     const read = () => decode(rawRow(GAUGE, 0, { id: "12", label: "a", total: 1 }), []);
     expect(read).toThrow(CastError);
     expect(read).toThrow(
-      "Gauge.id is declared t.integer(), but the database returned a string for it, not a number: the column or expression is not of an integer type (Postgres reads bigint, bigserial and numeric columns as text; MySQL's / returns a decimal). Declare the field t.bigint({ mode: \"number\" }) for a 64-bit integer column, or t.decimal() for a decimal, or change the column's type.",
+      "cast.integerNotNumber: Gauge.id is declared t.integer(), but the database returned a string for it, not a number. The column or expression is not of an integer type (Postgres reads bigint, bigserial and numeric columns as text; MySQL's / returns a decimal). Declare the field t.bigint({ mode: \"number\" }) for a 64-bit integer column, or t.decimal() for a decimal, or change the column's type. See https://egon-orm.github.io/egon-orm/reference/errors/cast#cast-integernotnumber",
     );
   });
 
@@ -460,7 +466,7 @@ describe("integer and float values must be numbers", () => {
     // pg reads a numeric column as text.
     const decode = decoderOf(kind, rowLeaf(GAUGE, 0));
     expect(() => decode(rawRow(GAUGE, 0, { id: 1, level: "1.5", label: "a", total: 1 }), [])).toThrow(
-      "Gauge.level is declared t.float(), but the database returned a string for it, not a number: the column or expression is not of a floating-point type (Postgres reads numeric columns as text). Declare the field t.decimal() for a decimal column, or change the column's type.",
+      "cast.floatNotNumber: Gauge.level is declared t.float(), but the database returned a string for it, not a number.",
     );
   });
 
@@ -558,10 +564,12 @@ describe("integer and float values must be numbers", () => {
           ? generateDecoder(returned, codecs, "Gauge")
           : interpretDecoder(returned, codecs, "Gauge");
       expect(() => decode({ c0: "12" }, [])).toThrow(
-        /^Gauge\.id is declared t\.integer\(\).* The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction\.$/,
+        "cast.integerNotNumber: Gauge.id is declared t.integer(), but the database returned a string for it, not a number. The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction.",
       );
       // A read says nothing about writes.
-      expect(() => decoderOf(kind, returned)({ c0: "12" }, [])).toThrow(/change the column's type\.$/);
+      expect(() => decoderOf(kind, returned)({ c0: "12" }, [])).toThrow(
+        'cast.integerNotNumber: "id" is declared t.integer(), but the database returned a string for it, not a number.',
+      );
       expect(decode({ c0: 12 }, [])).toEqual({ id: 12 });
     },
   );
@@ -571,7 +579,9 @@ describe("integer and float values must be numbers", () => {
       output: { kind: "object", keys: ["id"], values: [{ kind: "value", alias: "c0", type: integerType() }] },
       decoder: undefined,
     } as unknown as CompiledQuery;
-    expect(() => decoderFor(plan, codecs, false, "Gauge")({ c0: "1" }, [])).toThrow(/^Gauge\.id is declared/);
+    expect(() => decoderFor(plan, codecs, false, "Gauge")({ c0: "1" }, [])).toThrow(
+      "cast.integerNotNumber: Gauge.id is declared t.integer(), but the database returned a string for it, not a number. The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction.",
+    );
   });
 
   test("the generated decoder tests a value that needs no conversion inline", () => {

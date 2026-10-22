@@ -67,7 +67,7 @@ export interface PoolSettings {
   readonly waitTimeoutMs: number;
 }
 
-const OPTION_KEYS: ReadonlySet<string> = new Set([
+const OPTION_KEYS: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "connectionString",
   "host",
   "port",
@@ -79,7 +79,11 @@ const OPTION_KEYS: ReadonlySet<string> = new Set([
   "planCacheSize",
 ]);
 
-const POOL_KEYS: ReadonlySet<string> = new Set(["max", "idleTimeoutMs", "connectionTimeoutMs"]);
+const POOL_KEYS: ReadonlySet<string> = /* @__PURE__ */ new Set([
+  "max",
+  "idleTimeoutMs",
+  "connectionTimeoutMs",
+]);
 
 const MAX_MS = 2_147_483_647;
 

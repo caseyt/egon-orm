@@ -49,7 +49,7 @@ import type {
   Target,
 } from "../contracts/schema.js";
 import type { AnyFieldType } from "../contracts/type.js";
-import { QueryError } from "../errors.js";
+import { QueryError, rewrap, shortMessageOf } from "../errors.js";
 import { HASH_SEED, hashInt, hashString } from "../internal/hash.js";
 import { isPlainObject } from "../internal/plain-object.js";
 import { isSchema } from "../schema/guards.js";
@@ -136,7 +136,7 @@ import { type BuiltSelect, buildSelect, mergeSelects, type Sel } from "./select.
  * }
  * ```
  */
-export const AS_SOURCE: unique symbol = Symbol.for("egon.asSource");
+export const AS_SOURCE: unique symbol = /* @__PURE__ */ Symbol.for("egon.asSource");
 
 /**
  * What a source wrapper gives the builder for one binding: the source node, the binding
@@ -731,7 +731,7 @@ const PROPERTIES = 18;
  * limit and offset of the combined rows, more set operations, its CTEs and its database
  * schema. Anything else would apply to the left side only.
  */
-const AFTER_SET_OPERATION: ReadonlySet<number> = new Set([
+const AFTER_SET_OPERATION: ReadonlySet<number> = /* @__PURE__ */ new Set([
   ORDER_BYS,
   LIMIT,
   OFFSET,
@@ -743,12 +743,12 @@ const AFTER_SET_OPERATION: ReadonlySet<number> = new Set([
 // The seeds of the clause kinds whose shapes the builder computes from the shapes its
 // expressions already carry, as `shapeOf` in ast.ts defines them (the tests check
 // `ast.shape === shapeOf(ast)` on built queries).
-const BOOL_SEED = hashString(HASH_SEED, "bool");
-const JOIN_SEED = hashString(HASH_SEED, "join");
-const DISTINCT_SEED = hashString(HASH_SEED, "distinct");
-const LOCK_SEED = hashString(HASH_SEED, "lock");
-const BOOL_AND = hashString(BOOL_SEED, "and");
-const BOOL_OR = hashString(BOOL_SEED, "or");
+const BOOL_SEED = /* @__PURE__ */ hashString(HASH_SEED, "bool");
+const JOIN_SEED = /* @__PURE__ */ hashString(HASH_SEED, "join");
+const DISTINCT_SEED = /* @__PURE__ */ hashString(HASH_SEED, "distinct");
+const LOCK_SEED = /* @__PURE__ */ hashString(HASH_SEED, "lock");
+const BOOL_AND = /* @__PURE__ */ hashString(BOOL_SEED, "and");
+const BOOL_OR = /* @__PURE__ */ hashString(BOOL_SEED, "or");
 
 function boolShape(op: "and" | "or", exprShape: number): number {
   return hashInt(op === "and" ? BOOL_AND : BOOL_OR, exprShape);
@@ -775,7 +775,7 @@ function presentShape(shape: number): number {
   return optionalShape(HASH_SEED, shape);
 }
 
-const ABSENT_SHAPE = optionalShape(HASH_SEED, undefined);
+const ABSENT_SHAPE = /* @__PURE__ */ optionalShape(HASH_SEED, undefined);
 
 function schemaShape(schema: string | undefined): number {
   return schema === undefined ? hashInt(HASH_SEED, 0) : hashString(hashInt(HASH_SEED, 1), schema);
@@ -912,20 +912,19 @@ function findEntry(scope: Scope, alias: string): Entry | undefined {
 
 function checkAlias(scope: Scope | undefined, alias: unknown, clause: string): string {
   if (typeof alias !== "string" || alias === "") {
-    throw new QueryError(
-      `${clause}() needs an alias for the binding, a non-empty string: ${clause}(User, "u").`,
-    );
+    throw new QueryError("query.aliasMissing", `${clause}() needs an alias for the binding.`, {
+      params: { clause },
+    });
   }
   if (alias.startsWith("$")) {
-    throw new QueryError(
-      `${clause}() was given the alias "${alias}". Aliases that start with "$" are reserved for the bindings the builder adds itself; choose another.`,
-    );
+    throw new QueryError("query.aliasReserved", `${clause}() was given the alias "${alias}".`);
   }
   if (scope !== undefined) {
     const taken = findEntry(scope, alias);
     if (taken !== undefined) {
       throw new QueryError(
-        `${clause}() was given the alias "${alias}", which this query already uses${taken.meta === undefined ? "" : ` for ${taken.meta.name}`}. Each binding needs its own alias; for a self-join, give the second one another name.`,
+        "query.aliasTaken",
+        `${clause}() was given the alias "${alias}", which this query already uses${taken.meta === undefined ? "" : ` for ${taken.meta.name}`}.`,
       );
     }
   }
@@ -950,6 +949,7 @@ function sourceParts(
     const schemaMeta = meta(source);
     if (schemaMeta.source === null) {
       throw new QueryError(
+        "query.sourceEmbedded",
         `${clause}() was given ${schemaMeta.name}, an embedded schema: it is stored inside its parent's row and has no table to query.`,
       );
     }
@@ -964,9 +964,9 @@ function sourceParts(
     };
   }
   if (source instanceof Query) {
-    throw new QueryError(
-      `${clause}() does not take a query. To continue a query, call more methods on it; to use it as a source, wrap it: ${clause}(subquery(q), "${alias}").`,
-    );
+    throw new QueryError("query.sourceIsQuery", `${clause}() does not take a query.`, {
+      params: { clause, alias },
+    });
   }
   if (
     typeof source === "object" &&
@@ -985,7 +985,9 @@ function sourceParts(
     };
   }
   throw new QueryError(
+    "query.sourceInvalid",
     `${clause}() takes a schema class (${clause}(User, "${alias}")) or a source such as subquery(q) or cte(name, Schema).`,
+    { params: { clause, alias } },
   );
 }
 
@@ -1022,13 +1024,17 @@ function preloadNode(
 /** Runs a clause callback, naming the clause in any `QueryError` it throws. */
 function run<V>(clause: string, fn: unknown, arg: unknown): V {
   if (typeof fn !== "function") {
-    throw new QueryError(`${clause}() takes a callback that receives the bindings: ${clause}(({ u }) => …).`);
+    throw new QueryError(
+      "query.callbackExpected",
+      `${clause}() takes a callback that receives the bindings.`,
+      { params: { clause } },
+    );
   }
   try {
     return (fn as (bindings: unknown) => V)(arg);
   } catch (error) {
     // A clause inside the callback (a subquery's) has already named itself.
-    if (error instanceof QueryError && error.message.startsWith(`${clause}(`)) throw error;
+    if (error instanceof QueryError && shortMessageOf(error).startsWith(`${clause}(`)) throw error;
     return rethrow(error, `${clause}(): `);
   }
 }
@@ -1045,14 +1051,17 @@ function describeValue(value: unknown): string {
 function condition(value: unknown, clause: string): AnyExpr {
   if (!isExpr(value)) {
     throw new QueryError(
-      `${clause}() needs its callback to return a condition, such as ({ u }) => u.age.gte(18); it returned ${describeValue(value)}.`,
+      "query.conditionExpected",
+      `${clause}() needs its callback to return a condition; it returned ${describeValue(value)}.`,
     );
   }
   const type = value.type;
   if (type !== undefined && type.db.kind !== "boolean") {
     const column = value.node.kind === "column" ? ` ${value.node.binding}.${value.node.field}` : "";
     throw new QueryError(
-      `${clause}() needs a condition, and its callback returned the ${type.name} expression${column}. Compare it: ${clause}(({ u }) => u.age.gte(18)).`,
+      "query.conditionNotBoolean",
+      `${clause}() needs a condition, and its callback returned the ${type.name} expression${column}.`,
+      { params: { clause } },
     );
   }
   return value;
@@ -1064,6 +1073,7 @@ function expressions(value: unknown, clause: string): readonly AnyExpr[] {
   for (const item of items) {
     if (!isExpr(item)) {
       throw new QueryError(
+        "query.expressionExpected",
         `${clause}() needs its callback to return an expression or an array of them, such as ({ u }) => [u.id]; it returned ${describeValue(item)}${Array.isArray(value) ? " in its array" : ""}.`,
       );
     }
@@ -1080,6 +1090,7 @@ function orderItems(value: unknown, clause: string): readonly OrderExpr<SomePara
     else if (isExpr(item)) out.push(item.asc());
     else {
       throw new QueryError(
+        "query.orderExpected",
         `${clause}() needs its callback to return an expression, an order item (u.createdAt.desc()) or an array of them; it returned ${describeValue(item)}${Array.isArray(value) ? " in its array" : ""}.`,
       );
     }
@@ -1106,11 +1117,11 @@ function conditionOf(column: AnyExpr, value: unknown, prefix: string): AnyExpr {
 }
 
 /** The column kinds whose values are compared whole by the object form of `where`, arrays included. */
-const WHOLE_VALUE_KINDS: ReadonlySet<string> = new Set(["array", "json", "jsonb"]);
+const WHOLE_VALUE_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set(["array", "json", "jsonb"]);
 
 /** Rethrows `error`, with `prefix` before its message when it is a `QueryError`. */
 function rethrow(error: unknown, prefix: string): never {
-  if (error instanceof QueryError) throw new QueryError(`${prefix}${error.message}`, error);
+  if (error instanceof QueryError) throw rewrap(error, (short) => `${prefix}${short}`);
   throw error;
 }
 
@@ -1151,25 +1162,25 @@ const LOCK_CLAUSES: Readonly<Record<LockMode, string>> = {
 function lockClause(mode: unknown, options: unknown): string {
   if (typeof mode !== "string" || !Object.hasOwn(LOCK_CLAUSES, mode)) {
     throw new QueryError(
+      "query.lockMode",
       'lock() takes "update", "share", "noKeyUpdate" or "keyShare", optionally with { skipLocked } or { noWait }, or a fragment for any other lock clause.',
     );
   }
   const base = LOCK_CLAUSES[mode as LockMode];
   if (options === undefined) return base;
   if (typeof options !== "object" || options === null || !isPlainObject(options)) {
-    throw new QueryError("lock() takes its options as an object: { skipLocked: true } or { noWait: true }.");
+    throw new QueryError("query.lockOptions", "lock() takes its options as an object.");
   }
   const { skipLocked, noWait, ...rest } = options as LockOptions & Record<string, unknown>;
   const unknownKeys = Object.keys(rest);
   if (unknownKeys.length > 0) {
     throw new QueryError(
-      `lock() has no option ${unknownKeys.map((k) => `"${k}"`).join(", ")}: it takes skipLocked and noWait.`,
+      "query.lockUnknownOption",
+      `lock() has no option ${unknownKeys.map((k) => `"${k}"`).join(", ")}.`,
     );
   }
   if (skipLocked === true && noWait === true) {
-    throw new QueryError(
-      "lock() takes skipLocked or noWait, not both: a lock either skips locked rows or fails on them.",
-    );
+    throw new QueryError("query.lockSkipAndNoWait", "lock() takes skipLocked or noWait, not both.");
   }
   if (skipLocked === true) return `${base} SKIP LOCKED`;
   if (noWait === true) return `${base} NOWAIT`;
@@ -1180,12 +1191,12 @@ function lockClause(mode: unknown, options: unknown): string {
 // Query
 // ---------------------------------------------------------------------------
 
-const INTEGER: AnyFieldType = integerType();
+const INTEGER: AnyFieldType = /* @__PURE__ */ integerType();
 /** Node's `util.inspect.custom`, looked up by name: no import of `node:util`. */
-const INSPECT: unique symbol = Symbol.for("nodejs.util.inspect.custom");
+const INSPECT: unique symbol = /* @__PURE__ */ Symbol.for("nodejs.util.inspect.custom");
 
 /** The internal constructor token: a `Query` is made by `from` and by its own methods. */
-const TOKEN: unique symbol = Symbol("egon.query");
+const TOKEN: unique symbol = /* @__PURE__ */ Symbol("egon.query");
 
 /**
  * A query: an immutable description of what to read. `B` is its bindings (alias to
@@ -1249,7 +1260,8 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     preloadNamed: readonly NamedParamNode[],
     scope: Scope,
   ) {
-    if (token !== TOKEN) throw new QueryError('A query is made with from(): from(User, "u").');
+    if (token !== TOKEN)
+      throw new QueryError("query.notFromFrom", 'A query is made with from(): from(User, "u").');
     this.ast = ast;
     this.#counts = counts;
     this.#lists = lists;
@@ -1350,7 +1362,8 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     const ast = this.ast;
     if (ast.combinations.length > 0 && !AFTER_SET_OPERATION.has(prop)) {
       throw new QueryError(
-        'This query is combined with union(), intersect() or except(), and only orderBy(), limit(), offset(), more set operations, withCte() and schema() apply to the combined rows. Add any other clause to a side before combining, or wrap the combined query: from(subquery(q), "s").',
+        "query.combinedClause",
+        "This query is combined with union(), intersect() or except(), and only orderBy(), limit(), offset(), more set operations, withCte() and schema() apply to the combined rows.",
       );
     }
     const counts = this.#counts;
@@ -1391,7 +1404,8 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     for (const name of before) {
       if (!kept.has(name)) {
         throw new QueryError(
-          `${clause} would remove the named parameter "${name}", which the query's type still requires. Build the query without that clause instead.`,
+          "query.removesNamedParam",
+          `${clause} would remove the named parameter "${name}", which the query's type still requires.`,
         );
       }
     }
@@ -1432,7 +1446,9 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
   #whereObject(filter: unknown, clause: string): AnyExpr {
     if (typeof filter !== "object" || filter === null || !isPlainObject(filter)) {
       throw new QueryError(
-        `${clause}() takes a callback or an object of field values: ${clause}({ role: "admin" }).`,
+        "query.filterArgument",
+        `${clause}() takes a callback or an object of field values.`,
+        { params: { clause } },
       );
     }
     const root = this.#scope.root;
@@ -1446,12 +1462,15 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
       if (!isExpr(column)) {
         const names = Object.keys(binding).filter((name) => isExpr(binding[name]));
         throw new QueryError(
+          "query.filterUnknownField",
           `${clause}({ ${key} }) names a field that ${label} does not have as a column. Its columns are: ${names.join(", ")}.`,
         );
       }
       if (value === undefined) {
         throw new QueryError(
-          `${clause}({ ${key}: undefined }) on ${label}: undefined is not a value, and a filter that silently disappears matches every row. Leave the key out, or add the clause only when there is a value: if (value !== undefined) q = q.where({ ${key}: value }).`,
+          "query.filterUndefined",
+          `${clause}({ ${key}: undefined }) on ${label}: undefined is not a value, and a filter that silently disappears matches every row.`,
+          { params: { key } },
         );
       }
       parts.push(conditionOf(column, value, `${clause}({ ${key} }) on ${label}: `));
@@ -1470,7 +1489,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
       return this.#addBool(prop, op, condition(run(clause, input, this.#scope.arg), clause), clause);
     }
     if (prop === HAVINGS) {
-      throw new QueryError(`${clause}() takes a callback: ${clause}(({ p }) => count(p.id).gt(3)).`);
+      throw new QueryError("query.havingCallback", `${clause}() takes a callback.`, { params: { clause } });
     }
     return this.#addBool(prop, op, this.#whereObject(input, clause), clause);
   }
@@ -1487,7 +1506,9 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
       (this.ast.select !== undefined || this.ast.preloads.length > 0)
     ) {
       throw new QueryError(
-        `${clause}() makes the rows of the bindings before it optional, and this query already has ${this.ast.select !== undefined ? "a select" : "preloads"} that take them as they are. Add the ${clause}() before ${this.ast.select !== undefined ? "select()" : "preload()"}.`,
+        "query.outerJoinAfterSelect",
+        `${clause}() makes the rows of the bindings before it optional, and this query already has ${this.ast.select !== undefined ? "a select" : "preloads"} that take them as they are.`,
+        { params: { clause, this: this.ast.select !== undefined ? "select()" : "preload()" } },
       );
     }
     const name = checkAlias(this.#scope, alias, clause);
@@ -1541,20 +1562,23 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     const scope0 = this.#scope;
     if (typeof fromAlias !== "string") {
       throw new QueryError(
-        `${clause}() takes the alias of the binding to start from first: ${clause}("u", "posts", "p").`,
+        "query.assocJoinStart",
+        `${clause}() takes the alias of the binding to start from first.`,
+        { params: { clause } },
       );
     }
     const start = findEntry(scope0, fromAlias);
     if (start === undefined || start.internal) {
       throw new QueryError(
+        "query.assocJoinUnknownStart",
         `${clause}("${fromAlias}", …) starts from a binding this query does not have. Its bindings are: ${visibleAliases(scope0).join(", ")}.`,
       );
     }
     const name = checkAlias(scope0, alias, clause);
     if (typeof assocName !== "string") {
-      throw new QueryError(
-        `${clause}() takes the name of an association second: ${clause}("${fromAlias}", "posts", "${name}").`,
-      );
+      throw new QueryError("query.assocJoinName", `${clause}() takes the name of an association second.`, {
+        params: { clause, from: fromAlias, name },
+      });
     }
     const built = assocJoins(scope0, start, assocName, name, type, clause);
     const scope = addEntries(scope0, built.entries);
@@ -1845,7 +1869,8 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
   having<X extends Condition>(fn: (bindings: B) => X): AddParams<this, ParamsOf<X>> {
     if (this.ast.groupBys.length === 0) {
       throw new QueryError(
-        "having() filters groups, and this query has no groupBy() yet: add groupBy(…) before having(…), or use where() to filter rows.",
+        "query.havingWithoutGroupBy",
+        "having() filters groups, and this query has no groupBy() yet.",
       );
     }
     return this.#bool(HAVINGS, "and", "having", fn) as never;
@@ -1876,12 +1901,14 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
   #select(fn: unknown): unknown {
     if (this.ast.updates.length > 0) {
       throw new QueryError(
-        "select() was called on a query with set(…) assignments, an update. Declare what the update returns with returning(): returning(({ p }) => p.id).",
+        "query.selectOnUpdate",
+        "select() was called on a query with set(…) assignments, an update.",
       );
     }
     if (this.ast.select !== undefined) {
       throw new QueryError(
-        `select() was called on a query that already has a ${RETURNING_SELECTS.has(this.ast.select) ? "returning()" : "select"}. A query has one: use selectMerge() to add keys, or exclude("select") first.`,
+        "query.selectTwice",
+        `select() was called on a query that already has a ${RETURNING_SELECTS.has(this.ast.select) ? "returning()" : "select"}.`,
       );
     }
     const built = buildSelect(run("select", fn, this.#scope.arg), "select");
@@ -1911,12 +1938,14 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     const current = this.ast.select;
     if (current === undefined || current.shape.kind !== "object") {
       throw new QueryError(
-        `selectMerge() adds keys to an object select, and this query ${current === undefined ? "has no select" : `selects ${describeShape(current.shape)}`}. Select an object first: select(({ u }) => ({ id: u.id })).`,
+        "query.selectMergeShape",
+        `selectMerge() adds keys to an object select, and this query ${current === undefined ? "has no select" : `selects ${describeShape(current.shape)}`}.`,
       );
     }
     const extra = buildSelect(run("selectMerge", fn, this.#scope.arg), "selectMerge");
     if (extra.node.shape.kind !== "object") {
       throw new QueryError(
+        "query.selectMergeResult",
         `selectMerge() needs its callback to return an object of keys to add; it returned ${describeShape(extra.node.shape)}.`,
       );
     }
@@ -1948,7 +1977,9 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
   #checkPreloadSelect(select: SelectNode | undefined, clause: string): void {
     if (this.ast.preloads.length === 0 || selectsRoot(select, this.#scope.root.alias)) return;
     throw new QueryError(
-      `${clause}() was given a select that is not the whole root binding "${this.#scope.root.alias}", and the query preloads ${this.ast.preloads.map((p) => `"${p.assoc}"`).join(", ")}. Preloaded associations are attached to whole rows: select ({ ${this.#scope.root.alias} }) => ${this.#scope.root.alias}, or preload in a separate query.`,
+      "query.selectWithPreloads",
+      `${clause}() was given a select that is not the whole root binding "${this.#scope.root.alias}", and the query preloads ${this.ast.preloads.map((p) => `"${p.assoc}"`).join(", ")}.`,
+      { params: { this: this.#scope.root.alias } },
     );
   }
 
@@ -1967,7 +1998,10 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
   distinct<X extends ExprList>(fn: (bindings: B) => X): AddParams<this, ParamsOfList<X>>;
   distinct(fn?: unknown): unknown {
     if (this.ast.distinct !== undefined) {
-      throw new QueryError("distinct() was called on a query that already has a distinct. A query has one.");
+      throw new QueryError(
+        "query.distinctTwice",
+        "distinct() was called on a query that already has a distinct.",
+      );
     }
     if (fn === undefined) {
       return this.#next(
@@ -2083,7 +2117,8 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
       const key = root.meta?.primaryKey ?? [];
       if (key.length === 0) {
         throw new QueryError(
-          `reverseOrder() reverses the query's orderBy, and this query has none; its root "${root.alias}" has no primary key to order by either. Add an orderBy() first.`,
+          "query.reverseOrderNone",
+          `reverseOrder() reverses the query's orderBy, and this query has none; its root "${root.alias}" has no primary key to order by either.`,
         );
       }
       const nodes: OrderNode[] = [];
@@ -2133,7 +2168,9 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
       );
     } else {
       throw new QueryError(
+        "query.limitValue",
         `${clause}() takes a non-negative whole number or a named parameter, ${clause}(param("${clause}", t.integer())); it was given ${typeof value === "number" ? String(value) : describeValue(value)}.`,
+        { params: { clause } },
       );
     }
     const next = this.#next(
@@ -2209,6 +2246,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     if (isExpr(mode)) {
       if (mode.node.kind !== "fragment" || options !== undefined) {
         throw new QueryError(
+          "query.lockArgument",
           'lock() takes a mode ("update", "share", "noKeyUpdate", "keyShare") or a fragment of SQL for any other lock clause.',
         );
       }
@@ -2250,7 +2288,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
    */
   schema(name: string): this {
     if (typeof name !== "string" || name === "") {
-      throw new QueryError('schema() takes the name of a database schema: schema("tenant_1").');
+      throw new QueryError("query.schemaName", "schema() takes the name of a database schema.");
     }
     return this.#next(SCHEMA, name, true, NONE, NONE, schemaShape(name), this.#named) as never;
   }
@@ -2263,7 +2301,9 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
 
   #combine(method: string, op: SetOperation, all: boolean, other: unknown): unknown {
     if (!(other instanceof Query)) {
-      throw new QueryError(`${method}() takes another query: q.${method}(from(Post, "p").select(…)).`);
+      throw new QueryError("query.setOperationArgument", `${method}() takes another query.`, {
+        params: { method },
+      });
     }
     const right = other.ast;
     checkCombination(method, this.ast, right);
@@ -2419,6 +2459,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
   #withCte(name: unknown, query: unknown, options: unknown): unknown {
     if (!(query instanceof Query)) {
       throw new QueryError(
+        "query.withCteQuery",
         `withCte(${typeof name === "string" ? `"${name}"` : "name"}, query) takes a query as its second argument.`,
       );
     }
@@ -2521,19 +2562,16 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     const root = this.#scope.root;
     if (root.meta === undefined || this.ast.from.kind !== "table") {
       throw new QueryError(
+        "query.setNotTable",
         `set() updates the rows of a table, and the root binding "${root.alias}" is not a schema's table.`,
       );
     }
     if (this.ast.preloads.length > 0) {
-      throw new QueryError(
-        'set() was called on a query with preloads; an update cannot preload. exclude("preload") first.',
-      );
+      throw new QueryError("query.setWithPreloads", "set() was called on a query with preloads.");
     }
     const select = this.ast.select;
     if (select !== undefined && !RETURNING_SELECTS.has(select)) {
-      throw new QueryError(
-        'set() was called on a query with a select. An update says what it returns with returning(), not select(): exclude("select"), then returning(({ p }) => p.id).',
-      );
+      throw new QueryError("query.setWithSelect", "set() was called on a query with a select.");
     }
     const values = typeof input === "function" ? run("set", input, this.#scope.arg) : input;
     const built = assignments(values, root.meta, this.ast.updates, this.#updateShapes());
@@ -2590,13 +2628,12 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
   #returning(fn: unknown): unknown {
     if (this.ast.select !== undefined) {
       throw new QueryError(
-        `returning() was called on a query that already has a ${RETURNING_SELECTS.has(this.ast.select) ? "returning()" : "select"}. A query returns one shape: exclude("select") first.`,
+        "query.returningTwice",
+        `returning() was called on a query that already has a ${RETURNING_SELECTS.has(this.ast.select) ? "returning()" : "select"}.`,
       );
     }
     if (this.ast.preloads.length > 0) {
-      throw new QueryError(
-        "returning() was called on a query with preloads; an update or delete cannot preload.",
-      );
+      throw new QueryError("query.returningWithPreloads", "returning() was called on a query with preloads.");
     }
     const built = buildSelect(run("returning", fn, this.#scope.arg), "returning");
     for (const node of selectExpressions(built.node.shape)) checkNoWindows("returning", node);
@@ -2636,7 +2673,8 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
       !["orderBy", "limit", "offset", "withCte", "setOperations"].includes(clause)
     ) {
       throw new QueryError(
-        `exclude("${clause}") on a query combined with union(), intersect() or except() would change its left side only. Exclude it from that side before combining, or exclude("setOperations") first.`,
+        "query.excludeCombined",
+        `exclude("${clause}") on a query combined with union(), intersect() or except() would change its left side only.`,
       );
     }
     let next: Query<B, R, P, A, W>;
@@ -2653,7 +2691,8 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
       case "groupBy":
         if (this.ast.havings.length > 0) {
           throw new QueryError(
-            'exclude("groupBy") would leave a having() without its groupBy(). Exclude "having" first: q.exclude("having").exclude("groupBy").',
+            "query.excludeGroupByHaving",
+            'exclude("groupBy") would leave a having() without its groupBy().',
           );
         }
         next = this.#next(GROUP_BYS, NONE, true, NONE, NONE, HASH_SEED, this.#named);
@@ -2695,7 +2734,8 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
         break;
       default:
         throw new QueryError(
-          `exclude() removes one of: where, select, distinct, groupBy, having, orderBy, limit, offset, lock, preload, set, windows, withCte, setOperations. It was given ${typeof clause === "string" ? `"${clause}"` : describeValue(clause)}.`,
+          "query.excludeUnknown",
+          `exclude() was given ${typeof clause === "string" ? `"${clause}"` : describeValue(clause)}, which is not a clause it removes.`,
         );
     }
     return this.#dropping(next as never, `exclude("${clause}")`) as never;
@@ -2712,7 +2752,7 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
    */
   pipe<T>(fn: (query: this) => T): T {
     if (typeof fn !== "function")
-      throw new QueryError("pipe() takes a function from query to query: q.pipe(published).");
+      throw new QueryError("query.pipeFunction", "pipe() takes a function from query to query.");
     return fn(this);
   }
 
@@ -2752,17 +2792,21 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     const rootMeta = root.meta;
     if (rootMeta === undefined || root.schema === undefined) {
       throw new QueryError(
+        "query.preloadNoAssociations",
         `preload() loads associations of a schema, and the root binding "${root.alias}" has none.`,
       );
     }
     if (hasOptionalRoot(this.ast)) {
       throw new QueryError(
-        `preload() attaches associations to the rows of the root binding "${root.alias}", which a right or full join makes optional. Preload in a query without that join.`,
+        "query.preloadOptionalRoot",
+        `preload() attaches associations to the rows of the root binding "${root.alias}", which a right or full join makes optional.`,
       );
     }
     if (!selectsRoot(this.ast.select, root.alias)) {
       throw new QueryError(
-        `preload() attaches associations to whole rows, and this query selects ${describeShape((this.ast.select as SelectNode).shape)}. Preload before selecting a shape, or select the root binding: select(({ ${root.alias} }) => ${root.alias}).`,
+        "query.preloadSelectedShape",
+        `preload() attaches associations to whole rows, and this query selects ${describeShape((this.ast.select as SelectNode).shape)}.`,
+        { params: { alias: root.alias } },
       );
     }
     let nodes: readonly PreloadNode[];
@@ -2812,13 +2856,12 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
   [AS_SUBQUERY](): Expr<R, P> {
     const ast = this.ast;
     if (ast.preloads.length > 0) {
-      throw new QueryError(
-        'A query with preloads was used as a subquery. A subquery returns values to its enclosing query, and cannot run preloads: exclude("preload") first.',
-      );
+      throw new QueryError("query.subqueryWithPreloads", "A query with preloads was used as a subquery.");
     }
     if (ast.updates.length > 0) {
       throw new QueryError(
-        "A query with set(…) assignments, an update, was used as a subquery. Only a query that reads can be one.",
+        "query.subqueryIsUpdate",
+        "A query with set(…) assignments, an update, was used as a subquery.",
       );
     }
     const select = ast.select;
@@ -3004,7 +3047,7 @@ export function from<Src extends Source, const A extends string>(
  * The query `from(Schema, alias)` returns, per schema and alias. A query is immutable, so
  * one value serves every caller; starting a query is then a lookup.
  */
-const roots = new WeakMap<SchemaMeta, Map<string, Query<never, unknown, never, string>>>();
+const roots = /* @__PURE__ */ new WeakMap<SchemaMeta, Map<string, Query<never, unknown, never, string>>>();
 
 /**
  * Whether `query` has a binding named `alias`, and with a schema class, whether that
@@ -3081,6 +3124,7 @@ function assocJoins(
   const startMeta = start.meta;
   if (startMeta === undefined) {
     throw new QueryError(
+      "query.assocJoinNoSchema",
       `${clause}("${start.alias}", "${assocName}", …): the binding "${start.alias}" has no schema, so it has no associations.`,
     );
   }
@@ -3088,6 +3132,7 @@ function assocJoins(
   if (assoc === undefined) {
     const known = [...startMeta.assocs().keys()];
     throw new QueryError(
+      "query.assocJoinUnknown",
       `${clause}("${start.alias}", "${assocName}", …): ${startMeta.name} has no association "${assocName}". Its associations are: ${known.length === 0 ? "none" : known.join(", ")}.`,
     );
   }
@@ -3197,6 +3242,7 @@ function assocOf(schemaMeta: SchemaMeta, name: string, path: string): AssocMeta 
   if (assoc === undefined) {
     const known = [...schemaMeta.assocs().keys()];
     throw new QueryError(
+      "query.preloadUnknown",
       `preload(${path === "" ? `"${name}"` : `{ ${path}${name} }`}): ${schemaMeta.name} has no association "${name}". Its associations are: ${known.length === 0 ? "none" : known.join(", ")}.`,
     );
   }
@@ -3235,6 +3281,7 @@ function parseSpec(
   }
   if (typeof spec !== "object" || spec === null || !isPlainObject(spec)) {
     throw new QueryError(
+      "query.preloadSpec",
       `preload() takes an association name, an array, an object of nested preloads, or a name and a callback; ${path === "" ? "it was" : `at ${path.replace(/[:{ ]+$/, "")} it was`} given ${describeValue(spec)}.`,
     );
   }
@@ -3258,7 +3305,9 @@ function parseSpec(
       const source = (value as { readonly $from?: unknown }).$from;
       if (typeof source !== "string" || !joinedThrough(scope, source, parent, key)) {
         throw new QueryError(
-          `preload({ ${here}{ $from: ${typeof source === "string" ? `"${source}"` : describeValue(source)} } }): $from names the binding to fill "${key}" from, which must be joined through that association: joinAssoc("${parent ?? "…"}", "${key}", "${typeof source === "string" ? source : "alias"}").`,
+          "query.preloadFrom",
+          `preload({ ${here}{ $from: ${typeof source === "string" ? `"${source}"` : describeValue(source)} } }): $from names the binding to fill "${key}" from, which must be joined through that association.`,
+          { params: { parent: parent ?? "…", key, source: typeof source === "string" ? source : "alias" } },
         );
       }
       out.push(preloadNode(key, source, undefined, parseSpec(scope, targetMeta, value, source, `${here}{ `)));
@@ -3267,7 +3316,9 @@ function parseSpec(
         const binding = findEntry(scope, value);
         if (binding !== undefined && !binding.internal) {
           throw new QueryError(
-            `preload({ ${here}"${value}" }): "${value}" is a binding of this query, but it was not joined through the association "${key}"${parent === undefined ? " from the rows this level is loaded from" : ` from "${parent}"`}, so it cannot fill it. Join it with joinAssoc("${parent ?? "…"}", "${key}", "${value}"), or name a nested association of ${targetMeta.name}.`,
+            "query.preloadBindingNotJoined",
+            `preload({ ${here}"${value}" }): "${value}" is a binding of this query, but it was not joined through the association "${key}"${parent === undefined ? " from the rows this level is loaded from" : ` from "${parent}"`}, so it cannot fill it.`,
+            { params: { parent: parent ?? "…", key, value1: value, name: targetMeta.name } },
           );
         }
       }
@@ -3284,13 +3335,12 @@ function mergePreload(list: readonly PreloadNode[], node: PreloadNode): readonly
   const existing = list[at] as PreloadNode;
   if (existing.from !== node.from) {
     throw new QueryError(
-      `preload "${node.assoc}" is declared twice, once from ${existing.from === undefined ? "a separate query" : `the binding "${existing.from}"`} and once from ${node.from === undefined ? "a separate query" : `the binding "${node.from}"`}. Load it one way.`,
+      "query.preloadTwice",
+      `preload "${node.assoc}" is declared twice, once from ${existing.from === undefined ? "a separate query" : `the binding "${existing.from}"`} and once from ${node.from === undefined ? "a separate query" : `the binding "${node.from}"`}.`,
     );
   }
   if (existing.query !== undefined && node.query !== undefined) {
-    throw new QueryError(
-      `preload "${node.assoc}" is given a callback twice. Put everything in one callback.`,
-    );
+    throw new QueryError("query.preloadCallbackTwice", `preload "${node.assoc}" is given a callback twice.`);
   }
   let nested = existing.nested;
   for (const child of node.nested) nested = mergePreload(nested, child);
@@ -3331,13 +3381,16 @@ function callbackPreload(
 ): { readonly node: PreloadNode; readonly query: Query<unknown, unknown, never, string> } {
   if (typeof name !== "string") {
     throw new QueryError(
-      'preload() with a callback takes one association name first: preload("posts", (q) => q.limit(3)).',
+      "query.preloadCallbackName",
+      "preload() with a callback takes one association name first.",
     );
   }
   const assoc = assocOf(rootMeta, name, "");
   if (typeof fn !== "function") {
     throw new QueryError(
+      "query.preloadCallbackArgument",
       `preload("${name}", …) takes a function from query to query as its second argument.`,
+      { params: { name } },
     );
   }
   const target = assoc.target();
@@ -3345,18 +3398,21 @@ function callbackPreload(
   const result: unknown = run("preload", fn, base);
   if (!(result instanceof Query)) {
     throw new QueryError(
+      "query.preloadCallbackResult",
       `preload("${name}", callback): the callback must return a query, the one it receives with clauses added; it returned ${describeValue(result)}.`,
     );
   }
   const ast = result.ast;
   if (ast.from.alias !== name || result.schemaOf(name) !== target) {
     throw new QueryError(
+      "query.preloadCallbackOtherQuery",
       `preload("${name}", callback): the callback must return the query it receives (rooted at ${meta(target).name} as "${name}"), with clauses added.`,
     );
   }
   if (hasOptionalRoot(ast)) {
     throw new QueryError(
-      `preload("${name}", callback): the callback's query has a right or full join, which makes the rows of "${name}" optional, and a preloaded association needs rows that exist. Use an inner or left join.`,
+      "query.preloadOptionalRows",
+      `preload("${name}", callback): the callback's query has a right or full join, which makes the rows of "${name}" optional, and a preloaded association needs rows that exist.`,
     );
   }
   if (
@@ -3365,7 +3421,9 @@ function callbackPreload(
     assoc.orderBy.length === 0
   ) {
     throw new QueryError(
-      `limit in preload "${name}" needs an orderBy: the limit and offset of a preload apply per parent, and pick rows by order. Add orderBy(({ ${name} }) => …) to the callback, or an orderBy option to the association.`,
+      "query.preloadLimitOrder",
+      `limit in preload "${name}" needs an orderBy: the limit and offset of a preload apply per parent, and pick rows by order.`,
+      { params: { name } },
     );
   }
   const select = ast.select;
@@ -3379,9 +3437,9 @@ function callbackPreload(
     // hasMany, the referenced key of a belongsTo.
     for (const key of assoc.relatedKey) {
       if (!selectsKey(select.shape, name, key)) {
-        throw new QueryError(
-          `preload "${name}" selects without its key. Add \`${key}: ${name}.${key}\` to the select.`,
-        );
+        throw new QueryError("query.preloadSelectKey", `preload "${name}" selects without its key.`, {
+          params: { key, name },
+        });
       }
     }
   }

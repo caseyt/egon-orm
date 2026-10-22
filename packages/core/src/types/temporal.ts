@@ -87,8 +87,8 @@ function datesEqual(a: Date, b: Date): boolean {
 // --- date --------------------------------------------------------------------
 
 const DAY = 86_400_000;
-const FIRST_DAY = utcMillis(1, 1, 1, 0, 0, 0, 0);
-const LAST_DAY = utcMillis(9999, 12, 31, 0, 0, 0, 0);
+const FIRST_DAY = /* @__PURE__ */ utcMillis(1, 1, 1, 0, 0, 0, 0);
+const LAST_DAY = /* @__PURE__ */ utcMillis(9999, 12, 31, 0, 0, 0, 0);
 
 /** The two-digit number at `at`, or a negative number when either character is not a digit. */
 function twoDigits(text: string, at: number): number {
@@ -149,7 +149,7 @@ function formatUtcDate(value: Date): string {
   return `${String(value.getUTCFullYear()).padStart(4, "0")}-${pad2(value.getUTCMonth() + 1)}-${pad2(value.getUTCDate())}`;
 }
 
-const DATE = defineType<string>({
+const DATE = /* @__PURE__ */ defineType<string>({
   name: "date",
   db: { kind: "date" },
   cast: (input) => {
@@ -164,7 +164,8 @@ function dateTextToDate(stored: string): Date {
   const time = dateTextToMillis(stored);
   if (Number.isNaN(time)) {
     throw new CastError(
-      'A date column read with { as: "date" } holds a value that is not a "YYYY-MM-DD" date (for example "infinity", or a date before year 1). Declare the field as t.date() to read it as a string.',
+      "cast.dateRead",
+      'A date column read with { as: "date" } holds a value that is not a "YYYY-MM-DD" date (for example "infinity", or a date before year 1).',
     );
   }
   return new Date(time);
@@ -173,18 +174,19 @@ function dateTextToDate(stored: string): Date {
 function dateToDateText(value: Date): string {
   const time = value.getTime();
   if (Number.isNaN(time)) {
-    throw new CastError("An invalid Date cannot be written to a date column.");
+    throw new CastError("cast.dateInvalidWrite", "An invalid Date cannot be written to a date column.");
   }
   // The same range that cast and fromDb accept: a date written here can be read back.
   if (time < FIRST_DAY || time >= LAST_DAY + DAY) {
     throw new CastError(
+      "cast.dateRange",
       'A Date outside the years 1 to 9999 cannot be written to a date column read with { as: "date" }.',
     );
   }
   return formatUtcDate(value);
 }
 
-const DATE_AS_DATE = defineType<Date, string>({
+const DATE_AS_DATE = /* @__PURE__ */ defineType<Date, string>({
   name: "date(date)",
   db: { kind: "date" },
   cast: (input) => {
@@ -235,7 +237,10 @@ export function dateType(options?: DateOptions): FieldType<string, string> | Fie
   const as = options?.as ?? "string";
   if (as === "string") return DATE;
   if (as === "date") return DATE_AS_DATE;
-  throw new SchemaDefinitionError(`t.date: as must be "string" or "date", but got ${JSON.stringify(as)}.`);
+  throw new SchemaDefinitionError(
+    "schema.dateAsOption",
+    `t.date: as must be "string" or "date", but got ${JSON.stringify(as)}.`,
+  );
 }
 
 // --- time --------------------------------------------------------------------
@@ -254,7 +259,7 @@ function castTime(input: unknown): CastResult<string> {
   return { success: true, data: `${match[1]}:${match[2]}:${second}${fraction === "" ? "" : `.${fraction}`}` };
 }
 
-const TIME = defineType<string>({ name: "time", db: { kind: "time" }, cast: castTime });
+const TIME = /* @__PURE__ */ defineType<string>({ name: "time", db: { kind: "time" }, cast: castTime });
 
 /**
  * A time of day with no date and no time zone, as a string. Accepts `"HH:MM"`,
@@ -380,12 +385,13 @@ function pickPrecision(
   const precision = options?.precision ?? "ms";
   if (precision === "s" || precision === "ms" || precision === "us") return types[precision];
   throw new SchemaDefinitionError(
+    "schema.precisionOption",
     `${builder}: precision must be "s", "ms" or "us", but got ${JSON.stringify(precision)}.`,
   );
 }
 
-const TIMESTAMP = timestampTypes("timestamp", "timestamptz", true);
-const LOCAL_TIMESTAMP = timestampTypes("localTimestamp", "timestamp", false);
+const TIMESTAMP = /* @__PURE__ */ timestampTypes("timestamp", "timestamptz", true);
+const LOCAL_TIMESTAMP = /* @__PURE__ */ timestampTypes("localTimestamp", "timestamp", false);
 
 /**
  * A moment in time, stored with a time zone. The value is a `Date`.

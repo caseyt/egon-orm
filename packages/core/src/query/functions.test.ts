@@ -249,12 +249,14 @@ describe("caseWhen", () => {
 
   test("a condition must be an expression and a value cannot be undefined", () => {
     expect(() => caseWhen(true as never, "x")).toThrow(/caseWhen\(\) takes a boolean expression/);
-    expect(() => caseWhen(u.age.lt(1), undefined as never)).toThrow(/^caseWhen\(\) was given undefined/);
+    expect(() => caseWhen(u.age.lt(1), undefined as never)).toThrow(
+      "query.undefinedOperandNullable: caseWhen() was given undefined, which is not a value.",
+    );
     expect(() => caseWhen(u.age.lt(1), 1).when(u.age.lt(2), undefined as never)).toThrow(
-      /^when\(\) was given undefined/,
+      "query.undefinedOperandNullable: when() was given undefined, which is not a value.",
     );
     expect(() => caseWhen(u.age.lt(1), 1).when(true as never, 2)).toThrow(
-      /^when\(\) takes a boolean expression/,
+      /^[a-z]+(?:\.\w+)?: when\(\) takes a boolean expression/,
     );
     expect(() => caseWhen(u.age.lt(1), 1).else(undefined as never)).toThrow(QueryError);
   });
@@ -385,7 +387,7 @@ describe("fragment", () => {
 
   test("an undefined interpolation is refused", () => {
     expect(() => fragment`x = ${undefined as never}`).toThrow(
-      /^fragment\(\) was given undefined, which is not a value\. Pass null for SQL NULL\.$/,
+      "query.undefinedOperandNullable: fragment() was given undefined, which is not a value.",
     );
   });
 

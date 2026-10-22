@@ -284,7 +284,7 @@ describe("resolution is lazy", () => {
     // Asked before Late exists: the error says why, and nothing is cached.
     const error = problem(Early) as SchemaDefinitionError;
     expect(error.message).toMatchInlineSnapshot(
-      `"Early.lates: the function for the target threw (Cannot access 'Late' before initialization). It is called when associations are first used, by which time every schema module must have been loaded."`,
+      `"schema.assocTargetThrew: Early.lates: the function for the target threw (Cannot access 'Late' before initialization). It is called when associations are first used, by which time every schema module must have been loaded. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assoctargetthrew"`,
     );
     expect(error.cause).toBeInstanceOf(ReferenceError);
 
@@ -393,11 +393,11 @@ describe("definition errors name the schema, the association and the fix", () =>
 
   test("the target", () => {
     expect(message(hasMany(User as never, { foreignKey: "managerId" }))).toMatchInlineSnapshot(
-      `"Owner.x: the target must be given as a function that returns the class, so that classes can refer to each other: hasMany(() => Post)."`,
+      `"schema.assocTargetThunk: Owner.x: the target must be given as a function that returns the class. Pass a function that returns the class, so that classes can refer to each other: hasMany(() => Post). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assoctargetthunk"`,
     );
     expect(message(belongsTo("User" as never))).toMatch(/the target must be given as a function/);
     expect(message(belongsTo((() => 42) as never))).toMatchInlineSnapshot(
-      `"Owner.x: the function for the target returned a number, not a schema class."`,
+      `"schema.assocTargetNotSchema: Owner.x: the function for the target returned a number, not a schema class. The function must return a class declared with Schema(...), such as () => Post. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assoctargetnotschema"`,
     );
     expect(
       message(
@@ -408,16 +408,16 @@ describe("definition errors name the schema, the association and the fix", () =>
     ).toMatch(/threw \(a string\)/);
     class Address extends EmbeddedSchema({ city: t.string() }) {}
     expect(message(hasOne(() => Address, { foreignKey: "city" as never }))).toMatchInlineSnapshot(
-      `"Owner.x: Address is an embedded schema and has no table, so it cannot be the target of an association. Declare it as a field: t.embedOne(() => Address)."`,
+      `"schema.assocTargetEmbedded: Owner.x: Address is an embedded schema and has no table, so it cannot be the target of an association. Declare it as a field: t.embedOne(() => Address). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assoctargetembedded"`,
     );
   });
 
   test("the options", () => {
     expect(message(belongsTo(() => User, "userId" as never))).toMatchInlineSnapshot(
-      `"Owner.x: the options of belongsTo must be an object, but got a string."`,
+      `"schema.assocOptionsNotObject: Owner.x: the options of belongsTo must be an object, but got a string. Pass the options as an object, as in hasMany(() => Post, { foreignKey: "authorId" }). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocoptionsnotobject"`,
     );
     expect(message(belongsTo(() => User, { optional: true } as never))).toMatchInlineSnapshot(
-      `"Owner.x: belongsTo has no option "optional". It takes foreignKey, references, onReplace."`,
+      `"schema.assocUnknownOption: Owner.x: belongsTo has no option "optional". It takes foreignKey, references, onReplace. Remove the option, or check its spelling against the ones listed. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocunknownoption"`,
     );
     expect(message(hasMany(() => Post, { foreignKey: "authorId", onDelete: "cascade" } as never))).toMatch(
       /hasMany has no option "onDelete"/,
@@ -438,17 +438,17 @@ describe("definition errors name the schema, the association and the fix", () =>
 
   test("a foreign key that does not exist, or is virtual", () => {
     expect(message(belongsTo(() => User))).toMatchInlineSnapshot(
-      `"Owner.x: belongsTo expects the foreign key field "xId" on Owner, but Owner has no such field. Declare it (xId: t.integer()) or pass { foreignKey }."`,
+      `"schema.belongsToKeyMissing: Owner.x: belongsTo expects the foreign key field "xId" on Owner, but Owner has no such field. Declare the field (as in authorId: t.integer()), or pass { foreignKey } with the field that holds the key. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-belongstokeymissing"`,
     );
     expect(message(belongsTo(() => User, { foreignKey: "ownerId" }))).toMatch(/"ownerId" on Owner/);
     expect(message(hasMany(() => Post, { foreignKey: "ownerId" as never }))).toMatchInlineSnapshot(
-      `"Owner.x: hasMany expects the foreign key field "ownerId" on Post, but Post has no such field. Declare it on Post (ownerId: t.integer()) or correct { foreignKey }."`,
+      `"schema.hasKeyMissing: Owner.x: hasMany expects the foreign key field "ownerId" on Post, but Post has no such field. Declare the field on Post (as in authorId: t.integer()), or correct { foreignKey }. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-haskeymissing"`,
     );
     class Virtual extends Schema("virtuals", { id: t.integer().primaryKey(), xId: t.integer().virtual() }) {
       static x = belongsTo(() => User);
     }
     expect((problem(Virtual) as Error).message).toMatchInlineSnapshot(
-      `"Virtual.x: the foreign key field "xId" of Virtual is virtual, so it is not stored and cannot be part of an association."`,
+      `"schema.assocFieldVirtual: Virtual.x: the foreign key field "xId" of Virtual is virtual, so it is not stored and cannot be part of an association. Point the association at a stored field: remove .virtual() from it, or use another field. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocfieldvirtual"`,
     );
   });
 
@@ -459,7 +459,7 @@ describe("definition errors name the schema, the association and the fix", () =>
         { xId: t.integer() },
       ),
     ).toMatchInlineSnapshot(
-      `"Owner.x: foreignKey must be a field name, or an array of field names for a composite key."`,
+      `"schema.assocKeyOption: Owner.x: foreignKey must be a field name, or an array of field names for a composite key. Pass a field name, as in { foreignKey: "authorId" }, or an array of them for a composite key. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assockeyoption"`,
     );
     expect(
       message(
@@ -480,7 +480,7 @@ describe("definition errors name the schema, the association and the fix", () =>
 
   test("hasOne and hasMany need a foreign key", () => {
     expect(message(hasMany(() => Post, {} as never))).toMatchInlineSnapshot(
-      `"Owner.x: hasMany needs { foreignKey }: the field on Post that points at Owner, as in hasMany(() => Post, { foreignKey: "authorId" })."`,
+      `"schema.foreignKeyRequired: Owner.x: hasMany needs { foreignKey }: the field on Post that points at Owner. Pass the field, as in hasMany(() => Post, { foreignKey: "authorId" }). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-foreignkeyrequired"`,
     );
     expect(message(hasOne(() => Profile, { where: {} } as never))).toMatch(/hasOne needs \{ foreignKey \}/);
   });
@@ -497,7 +497,7 @@ describe("definition errors name the schema, the association and the fix", () =>
         { xId: t.integer() },
       ),
     ).toMatchInlineSnapshot(
-      `"Owner.x: Keyless has no primary key, so the field the key points at cannot be guessed. Pass { references }."`,
+      `"schema.assocNoPrimaryKey: Owner.x: Keyless has no primary key, so the field the key points at cannot be guessed. Pass { references }. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocnoprimarykey"`,
     );
     expect(
       message(
@@ -505,7 +505,7 @@ describe("definition errors name the schema, the association and the fix", () =>
         { xId: t.integer() },
       ),
     ).toMatchInlineSnapshot(
-      `"Owner.x: belongsTo expects the referenced field "nope" on User, but User has no such field. Pass { references } with the field the key points at."`,
+      `"schema.referencedFieldMissing: Owner.x: belongsTo expects the referenced field "nope" on User, but User has no such field. Pass { references } with the field the key points at. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-referencedfieldmissing"`,
     );
     class KeylessOwner extends Schema("keyless_owners", { name: t.string() }, { primaryKey: false }) {
       static posts = hasMany(() => Post, { foreignKey: "authorId" });
@@ -520,7 +520,7 @@ describe("definition errors name the schema, the association and the fix", () =>
         { xId: t.integer() },
       ),
     ).toMatchInlineSnapshot(
-      `"Owner.x: the foreign key Owner.xId is of type integer, but Org.id, which it points at, is of type uuid. Declare both with the same type."`,
+      `"schema.assocKeyType: Owner.x: the foreign key Owner.xId is of type integer, but Org.id, which it points at, is of type uuid. Declare both with the same type. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assockeytype"`,
     );
     const big = t.bigint() as unknown as ReturnType<typeof t.integer>;
     expect(
@@ -596,7 +596,7 @@ describe("definition errors name the schema, the association and the fix", () =>
         { orgId: t.uuid() as never },
       ),
     ).toMatchInlineSnapshot(
-      `"Owner.x: the foreign key has 1 field(s) ("orgId") but it points at 2 ("orgId", "userId" on Membership). Give one foreign-key field per referenced field, in the same order."`,
+      `"schema.assocKeyCount: Owner.x: the foreign key has 1 field(s) ("orgId") but it points at 2 ("orgId", "userId" on Membership). Give one foreign-key field per referenced field, in the same order. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assockeycount"`,
     );
   });
 
@@ -604,7 +604,7 @@ describe("definition errors name the schema, the association and the fix", () =>
     expect(
       message(hasMany(() => Post, { foreignKey: "authorId", onReplace: "update" as never })),
     ).toMatchInlineSnapshot(
-      `"Owner.x: onReplace must be one of "error", "invalid", "setNull", "delete", "deleteIfExists" for hasMany."`,
+      `"schema.assocOnReplace: Owner.x: onReplace must be one of "error", "invalid", "setNull", "delete", "deleteIfExists" for hasMany. Pick one of the listed modes; "error" (the default) refuses to replace existing associated rows. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assoconreplace"`,
     );
     expect(
       message(
@@ -618,17 +618,17 @@ describe("definition errors name the schema, the association and the fix", () =>
     expect(
       message(hasMany(() => Post, { foreignKey: "authorId", where: "published" as never })),
     ).toMatchInlineSnapshot(
-      `"Owner.x: where must be an object from name to value, such as { published: true }."`,
+      `"schema.assocWhereOption: Owner.x: where must be an object from name to value. Pass an object from field name to value, such as { published: true }. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocwhereoption"`,
     );
     expect(
       message(hasMany(() => Post, { foreignKey: "authorId", where: { nope: 1 } as never })),
     ).toMatchInlineSnapshot(
-      `"Owner.x: hasMany expects the where field "nope" on Post, but Post has no such field. A where condition is written with the target's field names."`,
+      `"schema.assocWhereFieldMissing: Owner.x: hasMany expects the where field "nope" on Post, but Post has no such field. A where condition is written with the target's field names. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocwherefieldmissing"`,
     );
     expect(
       message(hasMany(() => Post, { foreignKey: "authorId", where: { title: undefined } })),
     ).toMatchInlineSnapshot(
-      `"Owner.x: where.title is undefined. Use null to match NULL, or leave the key out."`,
+      `"schema.assocWhereUndefined: Owner.x: where.title is undefined. Use null to match NULL, or leave the key out. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocwhereundefined"`,
     );
     expect(message(hasMany(() => Post, { foreignKey: "authorId", where: new Date() as never }))).toMatch(
       /where must be an object/,
@@ -639,7 +639,7 @@ describe("definition errors name the schema, the association and the fix", () =>
     expect(
       message(hasMany(() => Post, { foreignKey: "authorId", orderBy: "title" as never })),
     ).toMatchInlineSnapshot(
-      `"Owner.x: orderBy must be an array of field names or { field: "asc" | "desc" } objects, such as ["createdAt"] or [{ createdAt: "desc" }]."`,
+      `"schema.assocOrderBy: Owner.x: orderBy must be an array of field names or { field: "asc" | "desc" } objects. Pass field names, as in ["createdAt"], or objects of a field and a direction, as in [{ createdAt: "desc" }]. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocorderby"`,
     );
     expect(
       message(hasMany(() => Post, { foreignKey: "authorId", orderBy: [{ title: "up" }] as never })),
@@ -650,16 +650,16 @@ describe("definition errors name the schema, the association and the fix", () =>
     expect(
       message(hasMany(() => Post, { foreignKey: "authorId", orderBy: ["nope"] as never })),
     ).toMatchInlineSnapshot(
-      `"Owner.x: hasMany expects the orderBy field "nope" on Post, but Post has no such field. An order is written with the target's field names."`,
+      `"schema.assocOrderByFieldMissing: Owner.x: hasMany expects the orderBy field "nope" on Post, but Post has no such field. An order is written with the target's field names. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocorderbyfieldmissing"`,
     );
   });
 
   test("manyToMany through a table", () => {
     expect(message(manyToMany(() => Tag, { joinThrough: "users_tags" } as never))).toMatchInlineSnapshot(
-      `"Owner.x: manyToMany through the table "users_tags" needs joinKeys with that table's column names, as in { joinThrough: "users_tags", joinKeys: { owner: "post_id", target: "tag_id" } }: owner is the column that points at Owner, target the one that points at Tag."`,
+      `"schema.joinKeysRequired: Owner.x: manyToMany through the table "users_tags" needs joinKeys with that table's column names. Pass joinKeys, as in { joinThrough: "users_tags", joinKeys: { owner: "post_id", target: "tag_id" } }: owner is the column that points at Owner, target the one that points at Tag. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-joinkeysrequired"`,
     );
     expect(message(manyToMany(() => Tag, {} as never))).toMatchInlineSnapshot(
-      `"Owner.x: manyToMany needs { joinThrough }: the name of the join table (with joinKeys), or a function returning its schema class."`,
+      `"schema.joinThroughRequired: Owner.x: manyToMany needs { joinThrough }: the name of the join table (with joinKeys), or a function returning its schema class. Pass { joinThrough: "posts_tags", joinKeys: { owner, target } } with the join table's name, or { joinThrough: () => PostTag } with its schema class. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-jointhroughrequired"`,
     );
     expect(
       message(manyToMany(() => Tag, { joinThrough: "", joinKeys: { owner: "a", target: "b" } })),
@@ -667,7 +667,7 @@ describe("definition errors name the schema, the association and the fix", () =>
     expect(
       message(manyToMany(() => Tag, { joinThrough: "t", joinKeys: { owner: "a" } as never })),
     ).toMatchInlineSnapshot(
-      `"Owner.x: joinKeys must be { owner, target }, each the name of a column of the join table."`,
+      `"schema.joinKeysOption: Owner.x: joinKeys must be { owner, target }, each the name of a column of the join table. Pass joinKeys: { owner: "...", target: "..." }, each naming a column of the join table. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-joinkeysoption"`,
     );
     expect(message(manyToMany(() => Tag, { joinThrough: "t", joinKeys: null as never }))).toMatch(
       /joinKeys must be/,
@@ -681,7 +681,7 @@ describe("definition errors name the schema, the association and the fix", () =>
     expect(
       message(manyToMany(() => Tag, { joinThrough: "t", joinKeys: { owner: "tag_id", target: "tag_id" } })),
     ).toMatchInlineSnapshot(
-      `"Owner.x: joinKeys.owner and joinKeys.target are both "tag_id". They are two different columns."`,
+      `"schema.joinKeysSame: Owner.x: joinKeys.owner and joinKeys.target are both "tag_id". They are two different columns. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-joinkeyssame"`,
     );
     expect(
       message(
@@ -691,7 +691,9 @@ describe("definition errors name the schema, the association and the fix", () =>
           unique: "yes" as never,
         }),
       ),
-    ).toMatchInlineSnapshot(`"Owner.x: unique must be true or false."`);
+    ).toMatchInlineSnapshot(
+      `"schema.uniqueOption: Owner.x: unique must be true or false. Pass unique: true or unique: false, or leave it out. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-uniqueoption"`,
+    );
     expect(
       message(
         manyToMany(() => Tag, {
@@ -707,7 +709,7 @@ describe("definition errors name the schema, the association and the fix", () =>
     expect(
       message(manyToMany(() => Membership, { joinThrough: "t", joinKeys: { owner: "a", target: "b" } })),
     ).toMatchInlineSnapshot(
-      `"Owner.x: manyToMany needs Membership to have a primary key of exactly one field, because a join table holds one column for each side. Membership has 2."`,
+      `"schema.manyToManyCompositeKey: Owner.x: manyToMany needs Membership to have a primary key of exactly one field, because a join table holds one column for each side. Membership has 2. Give the schema a single-field key, or declare the join as a schema class with belongsTo associations and use hasMany with through. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-manytomanycompositekey"`,
     );
   });
 
@@ -717,7 +719,7 @@ describe("definition errors name the schema, the association and the fix", () =>
       tagId: t.integer().primaryKey(),
     }) {}
     expect(message(manyToMany(() => Tag, { joinThrough: () => Loose }))).toMatchInlineSnapshot(
-      `"Owner.x: the join keys cannot be worked out: Loose declares 0 belongsTo association(s) to Owner and exactly one, with a single foreign key, is needed. Pass { joinKeys: { owner, target } } with the fields of Loose."`,
+      `"schema.joinKeysAmbiguous: Owner.x: the join keys cannot be worked out: Loose declares 0 belongsTo association(s) to Owner and exactly one, with a single foreign key, is needed. Pass { joinKeys: { owner, target } } with the fields of Loose. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-joinkeysambiguous"`,
     );
     class Twice extends Schema("twice", {
       id: t.integer().primaryKey(),
@@ -739,7 +741,7 @@ describe("definition errors name the schema, the association and the fix", () =>
       static friends = manyToMany(() => Friend, { joinThrough: () => Membership });
     }
     expect((problem(Friend) as Error).message).toMatchInlineSnapshot(
-      `"Friend.friends: Friend is on both sides of this manyToMany, so the join keys cannot be told apart. Pass { joinKeys: { owner, target } } with the fields of Membership."`,
+      `"schema.joinKeysSelf: Friend.friends: Friend is on both sides of this manyToMany, so the join keys cannot be told apart. Pass { joinKeys: { owner, target } } with the fields of Membership. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-joinkeysself"`,
     );
     expect(
       message(
@@ -749,7 +751,7 @@ describe("definition errors name the schema, the association and the fix", () =>
         }),
       ),
     ).toMatchInlineSnapshot(
-      `"Owner.x: manyToMany expects the join key field "nope" on Membership, but Membership has no such field. Pass { joinKeys } with fields of Membership."`,
+      `"schema.joinKeyFieldMissing: Owner.x: manyToMany expects the join key field "nope" on Membership, but Membership has no such field. Pass { joinKeys } with fields of Membership. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-joinkeyfieldmissing"`,
     );
     expect(
       message(
@@ -759,7 +761,7 @@ describe("definition errors name the schema, the association and the fix", () =>
         }),
       ),
     ).toMatchInlineSnapshot(
-      `"Owner.x: the join key Membership.orgId is of type uuid, but Owner.id, which it points at, is of type integer. Declare both with the same type."`,
+      `"schema.joinKeyType: Owner.x: the join key Membership.orgId is of type uuid, but Owner.id, which it points at, is of type integer. Declare both with the same type. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-joinkeytype"`,
     );
     expect(
       message(
@@ -788,7 +790,7 @@ describe("definition errors name the schema, the association and the fix", () =>
 
   test("has-through", () => {
     expect(message(hasMany(() => Comment, { through: ["posts"] } as never))).toMatchInlineSnapshot(
-      `"Owner.x: through must be an array of at least two association names to follow, as in hasMany(() => Comment, { through: ["posts", "comments"] })."`,
+      `"schema.throughPath: Owner.x: through must be an array of at least two association names to follow. Pass the names of the associations to follow, as in hasMany(() => Comment, { through: ["posts", "comments"] }). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-throughpath"`,
     );
     expect(message(hasMany(() => Comment, { through: "posts.comments" } as never))).toMatch(
       /through must be an array/,
@@ -799,13 +801,13 @@ describe("definition errors name the schema, the association and the fix", () =>
     expect(
       message(hasMany(() => Comment, { through: ["posts", "comments"], foreignKey: "postId" } as never)),
     ).toMatchInlineSnapshot(
-      `"Owner.x: through cannot be combined with foreignKey: the associations it follows already say how the rows are found."`,
+      `"schema.throughCombined: Owner.x: through cannot be combined with foreignKey. Remove the other options: the associations through follows already say how the rows are found. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-throughcombined"`,
     );
     expect(message(hasMany(() => Comment, { through: ["posts", "comments"] }))).toMatchInlineSnapshot(
-      `"Owner.x: through follows "posts" on Owner, but Owner has no such association. It has: none."`,
+      `"schema.throughUnknownStep: Owner.x: through follows "posts" on Owner, but Owner has no such association. It has: none. Follow associations the schema declares, in the order the path takes them. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-throughunknownstep"`,
     );
     expect(message(hasMany(() => Comment, { through: ["x", "comments"] }))).toMatchInlineSnapshot(
-      `"Owner.x: through follows "x" on Owner, but Owner has no such association. It has: none."`,
+      `"schema.throughUnknownStep: Owner.x: through follows "x" on Owner, but Owner has no such association. It has: none. Follow associations the schema declares, in the order the path takes them. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-throughunknownstep"`,
     );
     class Hop extends Schema("hops", { id: t.integer().primaryKey(), userId: t.integer() }) {
       static user = belongsTo(() => User);
@@ -813,7 +815,7 @@ describe("definition errors name the schema, the association and the fix", () =>
       static deadEnd = hasMany(() => Tag, { through: ["user", "posts", "comments", "nowhere"] });
     }
     expect((problem(Hop) as Error).message).toMatchInlineSnapshot(
-      `"Hop.wrongEnd: through ["user", "posts"] ends at Post, but the association is declared with Tag as its target."`,
+      `"schema.throughWrongTarget: Hop.wrongEnd: through ["user", "posts"] ends at Post, but the association is declared with Tag as its target. Make the last association of the path point at the declared target, or change the target to the class the path ends at. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-throughwrongtarget"`,
     );
     Hop.wrongEnd = hasMany(() => Post, { through: ["user", "posts"] }) as never;
     expect((problem(Hop) as Error).message).toMatch(/It has: post\./);
@@ -829,7 +831,7 @@ describe("definition errors name the schema, the association and the fix", () =>
     expect((problem(Bare) as Error).message).toMatch(/It has: none\./);
     // A path is followed through declarations, so Bare's own mistake does not stop it.
     expect((problem(Plain) as Error).message).toMatch(
-      /^Plain\.lost: .*Bare has no such association\. It has: a\./,
+      /^schema\.throughUnknownStep: Plain\.lost: .*Bare has no such association\. It has: a\./,
     );
   });
 
@@ -838,13 +840,13 @@ describe("definition errors name the schema, the association and the fix", () =>
       static author = belongsTo(() => User);
     }
     expect((problem(Clash) as Error).message).toMatchInlineSnapshot(
-      `"Clash.author: Clash has a field and an association that are both named "author". A preloaded association is a property of the row, so rename one of them (the foreign-key field is usually "authorId")."`,
+      `"schema.assocFieldClash: Clash.author: Clash has a field and an association that are both named "author". A preloaded association is a property of the row, so rename one of them (the foreign-key field is usually "authorId"). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocfieldclash"`,
     );
     class Reserved extends Schema("reserved", { id: t.integer().primaryKey(), toJSONId: t.integer() }) {
       static toJSON = belongsTo(() => User);
     }
     expect((problem(Reserved) as Error).message).toMatchInlineSnapshot(
-      `"Reserved.toJSON: "toJSON" cannot be the name of an association: "constructor", "__proto__", "toJSON", "fields" and names that start with "$" are reserved. Rename the static member."`,
+      `"schema.assocReservedName: Reserved.toJSON: "toJSON" cannot be the name of an association: "constructor", "__proto__", "toJSON", "fields" and names that start with "$" are reserved. Rename the static member. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocreservedname"`,
     );
     class Dollar extends Schema("dollars", { id: t.integer().primaryKey(), fromId: t.integer() }) {
       static $from = belongsTo(() => User, { foreignKey: "fromId" });
@@ -860,7 +862,7 @@ describe("definition errors name the schema, the association and the fix", () =>
       static owner = belongsTo(() => User);
     }
     expect((problem(Address) as Error).message).toMatchInlineSnapshot(
-      `"Address.owner: Address is an embedded schema: it is stored inside its parent's row and has no table to associate. Move the association to the parent schema."`,
+      `"schema.assocOnEmbedded: Address.owner: Address is an embedded schema: it is stored inside its parent's row and has no table to associate. Move the association to the parent schema. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assoconembedded"`,
     );
     expect(meta(EmbeddedSchema({ city: t.string() })).assocs().size).toBe(0);
   });
@@ -871,7 +873,7 @@ describe("definition errors name the schema, the association and the fix", () =>
     }
     Object.defineProperty(Shadow.prototype, "author", { get: () => "a getter" });
     expect((problem(Shadow) as Error).message).toMatchInlineSnapshot(
-      `"Shadow.author: Shadow defines "author" as a getter, method or property of the class, and "author" is also an association. A preloaded association is a property of the row, so the class member would hide it or make it impossible to set. Rename one of them."`,
+      `"schema.assocShadowedByMember: Shadow.author: Shadow defines "author" as a getter, method or property of the class, and "author" is also an association. A preloaded association is a property of the row, so the class member would hide it or make it impossible to set. Rename one of them. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-assocshadowedbymember"`,
     );
   });
 

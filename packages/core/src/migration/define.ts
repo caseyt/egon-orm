@@ -7,7 +7,7 @@ import { MigrationError } from "../errors.js";
 import type { MigrationBuilder } from "./builder.js";
 
 /** Marks a value made by {@link defineMigration} (`Symbol.for`, so two copies of the package agree). */
-const MIGRATION: unique symbol = Symbol.for("egon.migration");
+const MIGRATION: unique symbol = /* @__PURE__ */ Symbol.for("egon.migration");
 
 /**
  * What a migration is written as: `up` makes the change, `down` undoes it. Both are
@@ -55,9 +55,6 @@ export interface Migration {
 
 const KEYS = ["up", "down", "transaction"];
 
-/** The hint for a definition written with `change`, which migrations no longer take. */
-const CHANGE_HINT = "change() is not supported: write the change in up(m) and what undoes it in down(m).";
-
 /**
  * Which of `up` and `down` `value` does not have as functions, for the refusals of
  * {@link defineMigration} and the loader.
@@ -76,24 +73,27 @@ export function missingSteps(value: object): ("up" | "down")[] {
 }
 
 /**
- * The sentence that says which functions a migration lacks.
+ * The error that says which functions a migration lacks. A definition written with
+ * `change`, which migrations do not take, gets its own identifier.
  *
  * @example
  * ```ts
- * missingStepsMessage("defineMigration() was given", ["down"], false);
- * // 'defineMigration() was given no down(). A migration has both up(m) and down(m); …'
+ * missingStepsError("defineMigration() was given", ["down"], false).message;
+ * // 'migration.missingSteps: defineMigration() was given no down(). See …'
  * ```
  */
-export function missingStepsMessage(
+export function missingStepsError(
   subject: string,
   missing: readonly ("up" | "down")[],
   hasChange: boolean,
-): string {
+  details?: { readonly version: number; readonly migration: string },
+): MigrationError {
   const what = missing.map((key) => `no ${key}()`).join(" and ");
-  const fix = hasChange
-    ? CHANGE_HINT
-    : "A migration has both up(m) and down(m); when there is nothing to undo, write down() {} with a // noop comment.";
-  return `${subject} ${what}. ${fix}`;
+  return new MigrationError(
+    hasChange ? "migration.changeNotSupported" : "migration.missingSteps",
+    `${subject} ${what}.`,
+    details,
+  );
 }
 
 /**
@@ -146,12 +146,12 @@ export function defineMigration(definition: MigrationDefinition): Migration {
   const hasChange = "change" in definition;
   const missing = missingSteps(definition);
   if (missing.length > 0) {
-    throw new MigrationError(missingStepsMessage("defineMigration() was given", missing, hasChange));
+    throw missingStepsError("defineMigration() was given", missing, hasChange);
   }
   for (const key of Object.keys(definition)) {
     if (!KEYS.includes(key)) {
       throw new TypeError(
-        `defineMigration(): unknown key "${key}". The keys are up, down and transaction.${hasChange ? ` ${CHANGE_HINT}` : ""}`,
+        `defineMigration(): unknown key "${key}". The keys are up, down and transaction.${hasChange ? " change() is not supported: write the change in up(m) and what undoes it in down(m)." : ""}`,
       );
     }
   }

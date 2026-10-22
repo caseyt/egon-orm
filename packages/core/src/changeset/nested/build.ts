@@ -37,22 +37,28 @@ export function buildAssoc<S extends AnySchema, const K extends AssocKeys<S>>(
   values?: Partial<FieldValues<Target<S, K>>>,
 ): Changeset<Target<S, K>, true> {
   if (!isSchema(schema)) {
-    throw new QueryError(
-      'buildAssoc() takes the schema class first: buildAssoc(User, user, "posts", { … }).',
-    );
+    throw new QueryError("query.buildAssocSchema", "buildAssoc() takes the schema class first.");
   }
   const ownerMeta = meta(schema);
   const assoc = ownerMeta.assocs().get(name);
   if (assoc === undefined) {
-    throw new QueryError(`buildAssoc(): ${ownerMeta.name} has no association "${String(name)}".`);
+    throw new QueryError(
+      "query.buildAssocUnknown",
+      `buildAssoc(): ${ownerMeta.name} has no association "${String(name)}".`,
+    );
   }
   if ((assoc.kind !== "hasOne" && assoc.kind !== "hasMany") || assoc.through !== undefined) {
     throw new QueryError(
-      `buildAssoc(): "${name}" is ${assoc.through !== undefined ? "a has-through" : `a ${assoc.kind}`} association. buildAssoc makes a child of a hasOne or hasMany; for the others, insert the row and use putAssoc.`,
+      "query.buildAssocKind",
+      `buildAssoc(): "${name}" is ${assoc.through !== undefined ? "a has-through" : `a ${assoc.kind}`} association.`,
     );
   }
   if (!isRow(parent) || Object.getPrototypeOf(parent) !== schema.prototype) {
-    throw new QueryError(`buildAssoc(): the parent must be a ${ownerMeta.name} row.`);
+    throw new QueryError(
+      "query.buildAssocParent",
+      `buildAssoc(): the parent must be a ${ownerMeta.name} row.`,
+      { params: { owner: ownerMeta.name } },
+    );
   }
   const target = assoc.target();
   const row = parent as unknown as Readonly<Record<string, unknown>>;
@@ -61,6 +67,7 @@ export function buildAssoc<S extends AnySchema, const K extends AssocKeys<S>>(
     const value = row[assoc.ownerKey[i] as string];
     if (value === null || value === undefined) {
       throw new QueryError(
+        "query.buildAssocParentKey",
         `buildAssoc(): the ${ownerMeta.name} row has no value for ${(ownerMeta.fieldsByName.get(assoc.ownerKey[i] as string) as FieldMeta).name}, the key the child points at.`,
       );
     }
@@ -70,7 +77,8 @@ export function buildAssoc<S extends AnySchema, const K extends AssocKeys<S>>(
   for (const field of assoc.relatedKey) {
     if (given !== undefined && Object.hasOwn(given, field) && given[field] !== keys[field]) {
       throw new QueryError(
-        `buildAssoc(): values sets ${field}, the key that points at the ${ownerMeta.name} row, to another value. Leave it out: buildAssoc sets it.`,
+        "query.buildAssocKeyValue",
+        `buildAssoc(): values sets ${field}, the key that points at the ${ownerMeta.name} row, to another value.`,
       );
     }
   }

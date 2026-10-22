@@ -53,7 +53,7 @@ const isDigit = (code: number): boolean => code >= 48 && code <= 57;
  * camelToSnake("already_snake"); // "already_snake"
  * ```
  */
-export const camelToSnake: (name: string) => string = memoizeBounded((name) => {
+export const camelToSnake: (name: string) => string = /* @__PURE__ */ memoizeBounded((name) => {
   let out = "";
   for (let i = 0; i < name.length; i++) {
     const code = name.charCodeAt(i);
@@ -92,7 +92,7 @@ export const camelToSnake: (name: string) => string = memoizeBounded((name) => {
  * snakeToCamel("alreadyCamel"); // "alreadyCamel"
  * ```
  */
-export const snakeToCamel: (name: string) => string = memoizeBounded((name) => {
+export const snakeToCamel: (name: string) => string = /* @__PURE__ */ memoizeBounded((name) => {
   let start = 0;
   while (start < name.length && name.charCodeAt(start) === 95) start++;
   let end = name.length;

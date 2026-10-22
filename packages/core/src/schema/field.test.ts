@@ -103,21 +103,21 @@ describe("t", () => {
 
   test("what is not a type is refused, with the fix", () => {
     expect(() => t.array("string" as never)).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: t.array() takes a field type with no modifiers, such as t.array(t.string()). Put the modifiers on the array: t.array(t.string()).nullable().]`,
+      `[SchemaDefinitionError: schema.arrayElement: t.array() takes a field type with no modifiers, such as t.array(t.string()). Put the modifiers on the array: t.array(t.string()).nullable(). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-arrayelement]`,
     );
     expect(() => t.array(t.string().nullable() as never)).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: t.array() takes a field type with no modifiers, such as t.array(t.string()). Put the modifiers on the array: t.array(t.string()).nullable().]`,
+      `[SchemaDefinitionError: schema.arrayElement: t.array() takes a field type with no modifiers, such as t.array(t.string()). Put the modifiers on the array: t.array(t.string()).nullable(). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-arrayelement]`,
     );
     expect(() => t.array(t.embedOne(() => EmbeddedSchema({ a: t.string() })) as never)).toThrow(
       SchemaDefinitionError,
     );
     expect(() => t.type("money" as never)).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: t.type() takes a type made with defineType(): t.type(MoneyType). For a built-in type use its own function, such as t.string().]`,
+      `[SchemaDefinitionError: schema.typeNotDefined: t.type() takes a type made with defineType(): t.type(MoneyType). For a built-in type use its own function, such as t.string(). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-typenotdefined]`,
     );
     expect(() => t.type(null as never)).toThrow(SchemaDefinitionError);
     expect(() => t.type({ name: "x" } as never)).toThrow(SchemaDefinitionError);
     expect(() => fieldTypeOf("integer")).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Expected a field type such as t.integer() or t.string().]`,
+      `[SchemaDefinitionError: schema.notFieldTypeValue: Expected a field type such as t.integer() or t.string(). Use a field type from t, such as t.integer() or t.string(), or a type made with defineType() and wrapped as t.type(MyType). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-notfieldtypevalue]`,
     );
     expect(() => fieldTypeOf(null)).toThrow(SchemaDefinitionError);
     expect(() => fieldTypeOf({})).toThrow(SchemaDefinitionError);
@@ -172,7 +172,7 @@ describe("modifiers", () => {
     expect(state(t.json<string[]>().default(fn)).default).toEqual({ kind: "fn", fn });
     expect(Object.isFrozen(state(t.integer().default(0)).default)).toBe(true);
     expect(() => t.integer().default(undefined as never)).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: default() needs a value, or a function that returns one. To allow a missing value, use nullable().]`,
+      `[SchemaDefinitionError: schema.defaultValue: default() needs a value, or a function that returns one. To allow a missing value, use nullable(). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-defaultvalue]`,
     );
   });
 
@@ -188,7 +188,7 @@ describe("modifiers", () => {
     const fn = (): string => "generated";
     expect(state(t.string().autogenerate(fn)).autogenerate).toEqual({ on: "insert", fn });
     expect(() => t.string().autogenerate("x" as never)).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: autogenerate() takes a function that returns the value, such as autogenerate(() => crypto.randomUUID()).]`,
+      `[SchemaDefinitionError: schema.autogenerateFunction: autogenerate() takes a function that returns the value. Pass a function that makes the value, such as autogenerate(() => crypto.randomUUID()). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-autogeneratefunction]`,
     );
   });
 
@@ -227,7 +227,7 @@ describe("modifiers", () => {
 
   test("autogenerate without a function is refused for a type with no obvious value", () => {
     expect(() => t.integer().autogenerate()).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: autogenerate() without a function works for t.uuid() (a UUID v7) and for timestamps (the current time). The type integer has no such value, so pass the function: autogenerate(() => value).]`,
+      `[SchemaDefinitionError: schema.autogenerateType: autogenerate() without a function has no value to make for the type integer. autogenerate() without a function works for t.uuid() (a UUID v7) and for timestamps (the current time). For other types, pass the function: autogenerate(() => value). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-autogeneratetype]`,
     );
     expect(() => t.string().autogenerate()).toThrow(SchemaDefinitionError);
     // A column of kind timestamp whose type does not take a Date has no "now" either.
@@ -239,17 +239,17 @@ describe("modifiers", () => {
       toDb: (ms) => new Date(ms),
     });
     expect(() => t.type(epoch).autogenerate()).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: autogenerate() without a function works for t.uuid() (a UUID v7) and for timestamps (the current time). The type epoch has no such value, so pass the function: autogenerate(() => value).]`,
+      `[SchemaDefinitionError: schema.autogenerateType: autogenerate() without a function has no value to make for the type epoch. autogenerate() without a function works for t.uuid() (a UUID v7) and for timestamps (the current time). For other types, pass the function: autogenerate(() => value). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-autogeneratetype]`,
     );
   });
 
   test("a wrong argument is refused when the modifier is called", () => {
     expect(() => t.string().column("")).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: column() needs the column name as a non-empty string: column("pw_hash").]`,
+      `[SchemaDefinitionError: schema.columnName: column() needs the column name as a non-empty string. Pass the column name, as in column("pw_hash"). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-columnname]`,
     );
     expect(() => t.string().column(1 as never)).toThrow(SchemaDefinitionError);
     expect(() => t.string().writable("sometimes" as never)).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: writable() takes "always", "insert" or "never".]`,
+      `[SchemaDefinitionError: schema.writableOption: writable() takes "always", "insert" or "never". Pass "always" (the default), "insert" for a field set only when the row is inserted, or "never" for a field only the database writes. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-writableoption]`,
     );
   });
 });
@@ -281,18 +281,18 @@ describe("embeds", () => {
 
   test("the schema is given as a function, and onReplace is one of the embed modes", () => {
     expect(() => t.embedOne(Address as never)).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: t.embedOne() takes a function that returns the embedded schema class: t.embedOne(() => Address).]`,
+      `[SchemaDefinitionError: schema.embedSchemaThunk: t.embedOne() takes a function that returns the embedded schema class. Pass a function that returns the class, as in t.embedOne(() => Address) or t.embedMany(() => Address), so that the class may be declared after the field. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-embedschemathunk]`,
     );
     expect(() => t.embedMany("Address" as never)).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: t.embedMany() takes a function that returns the embedded schema class: t.embedMany(() => Address).]`,
+      `[SchemaDefinitionError: schema.embedSchemaThunk: t.embedMany() takes a function that returns the embedded schema class. Pass a function that returns the class, as in t.embedOne(() => Address) or t.embedMany(() => Address), so that the class may be declared after the field. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-embedschemathunk]`,
     );
     expect(() =>
       t.embedOne(() => Address, { onReplace: "setNull" as never }),
     ).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: t.embedOne(): onReplace must be one of "error", "invalid", "update", "delete".]`,
+      `[SchemaDefinitionError: schema.onReplaceOption: t.embedOne(): onReplace must be one of "error", "invalid", "update", "delete". Pick one of the listed modes; "error" (the default) refuses to replace an existing embed. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-onreplaceoption]`,
     );
     expect(() => t.embedMany(() => Address, { onReplace: "update" })).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: t.embedMany(): onReplace must be one of "error", "invalid", "delete".]`,
+      `[SchemaDefinitionError: schema.onReplaceOption: t.embedMany(): onReplace must be one of "error", "invalid", "delete". Pick one of the listed modes; "error" (the default) refuses to replace an existing embed. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-onreplaceoption]`,
     );
   });
 });
@@ -334,16 +334,16 @@ describe("timestamps", () => {
 
   test("wrong options are refused, with the fix", () => {
     expect(() => timestamps({ createdAt: "" })).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: timestamps(): createdAt must be a field name, or false to leave the field out.]`,
+      `[SchemaDefinitionError: schema.timestampsField: timestamps(): createdAt must be a field name, or false to leave the field out. Pass the field name as a string, as in timestamps({ createdAt: "insertedAt" }), or false to leave that field out. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-timestampsfield]`,
     );
     expect(() => timestamps({ updatedAt: true as never })).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: timestamps(): updatedAt must be a field name, or false to leave the field out.]`,
+      `[SchemaDefinitionError: schema.timestampsField: timestamps(): updatedAt must be a field name, or false to leave the field out. Pass the field name as a string, as in timestamps({ createdAt: "insertedAt" }), or false to leave that field out. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-timestampsfield]`,
     );
     expect(() => timestamps({ createdAt: "at", updatedAt: "at" })).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: timestamps(): createdAt and updatedAt are both named "at". Give them different names, or pass false for one.]`,
+      `[SchemaDefinitionError: schema.timestampsSameName: timestamps(): createdAt and updatedAt are both named "at". Give them different names, or pass false for one. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-timestampssamename]`,
     );
     expect(() => timestamps({ type: t.string() as never })).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: timestamps(): type must be a timestamp type with no modifiers, such as t.timestamp() or t.localTimestamp().]`,
+      `[SchemaDefinitionError: schema.timestampsType: timestamps(): type must be a timestamp type with no modifiers, such as t.timestamp() or t.localTimestamp(). Pass a timestamp type such as t.timestamp() or t.localTimestamp(), without modifiers: timestamps() adds its own. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-timestampstype]`,
     );
     expect(() => timestamps({ type: t.timestamp().nullable() as never })).toThrow(SchemaDefinitionError);
     expect(() => timestamps({ type: "timestamp" as never })).toThrow(SchemaDefinitionError);

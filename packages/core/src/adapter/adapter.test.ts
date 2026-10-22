@@ -167,6 +167,7 @@ function normalizeError(error: unknown, sql: string | undefined): unknown {
   if (!(error instanceof Error)) return error;
   if (error.message.startsWith("fatal")) {
     return new DatabaseError(
+      "database.rejected",
       "lost",
       sql === undefined ? { code: "connection", cause: error } : { code: "connection", sql, cause: error },
     );
@@ -281,6 +282,58 @@ describe("createAdapter", () => {
     expect(adapter.planCacheStats()).toEqual({ hits: 1, misses: 1, collisions: 0, size: 1 });
   });
 
+  test("adapters with the same configuration share their plans, so a per-request adapter reuses them", () => {
+    const capabilities = { ...POSTGRES_CAPABILITIES };
+    const driverCodecs = { bigint: { fromDb: (value: unknown) => BigInt(value as string) } };
+    const first = setup({ capabilities, driverCodecs }).adapter;
+    const ast = from(User, "u").where(({ u }) => u.id.eq(1)).ast;
+    const plan = first.compile(ast, "all", undefined);
+    // A later "request": a new adapter, a query built again with another value.
+    const second = setup({ capabilities, driverCodecs }).adapter;
+    const again = from(User, "u").where(({ u }) => u.id.eq(2)).ast;
+    expect(second.compile(again, "all", undefined)).toBe(plan);
+    expect(second.planCacheStats()).toEqual({ hits: 1, misses: 1, collisions: 0, size: 1 });
+    expect(second.typeOverrides).toBe(first.typeOverrides);
+  });
+
+  test("adapters with other codecs, capabilities or cache size do not share plans", () => {
+    const capabilities = { ...POSTGRES_CAPABILITIES };
+    const driverCodecs = {};
+    const ast = from(User, "u").ast;
+    const plan = setup({ capabilities, driverCodecs }).adapter.compile(ast, "all", undefined);
+    const otherCodecs = setup({ capabilities, driverCodecs: {} }).adapter;
+    const otherCapabilities = setup({ capabilities: { ...POSTGRES_CAPABILITIES }, driverCodecs }).adapter;
+    const otherSize = setup({ capabilities, driverCodecs, planCacheSize: 5 }).adapter;
+    for (const adapter of [otherCodecs, otherCapabilities, otherSize]) {
+      expect(adapter.compile(ast, "all", undefined)).not.toBe(plan);
+      expect(adapter.planCacheStats()).toEqual({ hits: 0, misses: 1, collisions: 0, size: 1 });
+    }
+  });
+
+  test("a shared plan cache stays within planCacheSize under many distinct queries", () => {
+    const capabilities = { ...POSTGRES_CAPABILITIES };
+    const driverCodecs = {};
+    for (let i = 0; i < 40; i++) {
+      // A new adapter per "request", each compiling a query of a shape not seen before.
+      const { adapter } = setup({ capabilities, driverCodecs, planCacheSize: 8 });
+      let query = from(User, "u");
+      for (let j = 0; j <= i; j++) query = query.where(({ u }) => u.id.gt(j));
+      adapter.compile(query.ast, "all", undefined);
+      expect(adapter.planCacheStats().size).toBeLessThanOrEqual(8);
+    }
+    const { adapter } = setup({ capabilities, driverCodecs, planCacheSize: 8 });
+    expect(adapter.planCacheStats()).toMatchObject({ misses: 40, size: 8 });
+  });
+
+  test("a shared compiler still checks each definition against the SQL table", () => {
+    const capabilities = { ...POSTGRES_CAPABILITIES };
+    const driverCodecs = {};
+    setup({ capabilities, driverCodecs });
+    expect(() => setup({ capabilities, driverCodecs, quoteIdentifier: (name) => `[${name}]` })).toThrow(
+      TypeError,
+    );
+  });
+
   test("creates the driver on first use only, and once", async () => {
     const { adapter, driver, factory } = setup();
     expect(factory).not.toHaveBeenCalled();
@@ -317,7 +370,7 @@ describe("createAdapter", () => {
     const fatal = adapter.normalizeError(new Error("fatal: socket"));
     expect(fatal).toBeInstanceOf(DatabaseError);
     expect((fatal as DatabaseError).sql).toBeUndefined();
-    const own = new QueryError("mine");
+    const own = new QueryError("query.unsupportedFeature", "mine");
     expect(adapter.normalizeError(own)).toBe(own);
     expect(adapter.normalizeError("not an error")).toBe("not an error");
   });
@@ -600,9 +653,58 @@ describe("cancellation", () => {
     controller.abort();
     await tick();
     statement.resolve(EMPTY);
-    await expect(running).rejects.toMatchObject({ code: "aborted" });
+    const error = await running.catch((e: unknown) => e);
+    // The caller learns that cancelling failed, and why: the cancel's error is the cause.
+    expect(error).toMatchObject({ code: "aborted", id: "database.abortedNotCancelled" });
+    expect(((error as Error).cause as Error).message).toBe("could not connect to cancel");
     // The request may still arrive late and cancel the next statement: never reuse it.
     expect(driver.released).toEqual([{ id: 1, destroy: true }]);
+  });
+
+  test("a statement that fails by itself after a failed cancel: the cause keeps both errors", async () => {
+    const { adapter, driver } = setup();
+    const statement = deferred<RawResult>();
+    const cancelError = new Error("could not connect to cancel");
+    driver.connectionSetup = (connection) => {
+      connection.respond = () => statement.promise;
+      connection.cancelResult = async () => {
+        throw cancelError;
+      };
+    };
+    const running = adapter.execute("select 1", [], { timeoutMs: 5 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const own = new Error("the statement failed on its own");
+    statement.reject(own);
+    const error = await running.catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: "timeout", id: "database.timeoutNotCancelled" });
+    const cause = (error as Error).cause;
+    expect(cause).toBeInstanceOf(AggregateError);
+    expect((cause as AggregateError).errors).toHaveLength(2);
+    expect((cause as AggregateError).errors[0]).toBe(cancelError);
+    expect(((cause as AggregateError).errors[1] as Error).message).toContain(
+      "the statement failed on its own",
+    );
+  });
+
+  test("where cancelling is unsupported, a timeout says so and keeps the reason", async () => {
+    const { adapter, driver } = setup();
+    const statement = deferred<RawResult>();
+    const unsupported = new Error(
+      "Cancelling a statement needs node:net and node:tls, which this runtime does not provide.",
+    );
+    driver.connectionSetup = (connection) => {
+      connection.respond = () => statement.promise;
+      connection.cancelResult = async () => {
+        throw unsupported;
+      };
+    };
+    const running = adapter.execute("select 1", [], { timeoutMs: 5 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    statement.resolve(EMPTY);
+    const error = await running.catch((e: unknown) => e);
+    expect(error).toMatchObject({ code: "timeout", id: "database.timeoutNotCancelled" });
+    expect((error as Error).cause).toBe(unsupported);
+    expect((error as Error).message).toContain("cancelling it failed, so it ran to its end");
   });
 
   test("a delivered cancel request leaves the connection reusable", async () => {
@@ -1027,7 +1129,9 @@ describe("dedicated connections", () => {
     const { adapter } = setup();
     const released = await adapter.acquire();
     await released.release();
-    await expect(released.execute("select 1", [])).rejects.toThrow(/was released; acquire a new one/);
+    await expect(released.execute("select 1", [])).rejects.toThrow(
+      "database.connectionReleased: This connection was released.",
+    );
     await expect(released.stream("select 1", [])[Symbol.asyncIterator]().next()).rejects.toThrow(
       /was released/,
     );

@@ -16,3 +16,5 @@ allowBuilds:
   # better-sqlite3 12 fetches (or builds) its native module in an install script.
   better-sqlite3: true
   esbuild: true
+  # workerd (Cloudflare Workers runtime, for examples/edge-worker) installs its binary in one.
+  workerd: true

@@ -76,11 +76,13 @@ export default defineConfig({
   base,
   cleanUrls: true,
   lastUpdated: true,
-  // Generated pages have no source to edit: the API reference (TypeDoc) and the index of
-  // exports (scripts/api-index.ts). They get no edit link.
+  // Generated pages have no source to edit: the API reference (TypeDoc), the index of
+  // exports (scripts/api-index.ts) and the error identifiers (scripts/error-docs.ts). They
+  // get no edit link.
   transformPageData(pageData) {
     if (
       pageData.relativePath.startsWith("api/reference/") ||
+      pageData.relativePath.startsWith("reference/errors/") ||
       pageData.relativePath === "reference/exports.md"
     ) {
       pageData.frontmatter.editLink = false;
@@ -169,6 +171,7 @@ export default defineConfig({
           text: "In an application",
           items: [
             page("Framework integration", "/guide/frameworks"),
+            page("Edge runtimes", "/guide/edge"),
             page("FAQ and troubleshooting", "/guide/faq"),
             { text: "Recipes", link: "/recipes/" },
           ],
@@ -215,7 +218,20 @@ export default defineConfig({
         {
           text: "Reference",
           items: [
-            page("Errors", "/reference/errors"),
+            {
+              ...page("Errors", "/reference/errors"),
+              collapsed: true,
+              items: [
+                { text: "General", link: "/reference/errors/general" },
+                { text: "Query", link: "/reference/errors/query" },
+                { text: "Cast", link: "/reference/errors/cast" },
+                { text: "Schema definition", link: "/reference/errors/schema" },
+                { text: "Constraint", link: "/reference/errors/constraint" },
+                { text: "Database", link: "/reference/errors/database" },
+                { text: "Rollback", link: "/reference/errors/rollback" },
+                { text: "Migration", link: "/reference/errors/migration" },
+              ],
+            },
             page("Configuration", "/reference/configuration"),
             page("CLI", "/reference/cli"),
             page("Dialect support", "/reference/dialect-support"),

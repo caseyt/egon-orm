@@ -10,7 +10,7 @@
  * @module
  */
 import type { NamedParamNode, SelectNode, SelectShape } from "../contracts/query.js";
-import { QueryError } from "../errors.js";
+import { QueryError, rewrap } from "../errors.js";
 import { isPlainObject } from "../internal/plain-object.js";
 import { Tuple } from "./advanced/tuple.js";
 import { collectParams } from "./ast.js";
@@ -116,7 +116,7 @@ function shapeOfValue(value: unknown, out: Collector, clause: string, path: stri
       out.named = joinNamed(out.named, value.named);
     } catch (error) {
       // One name with two types among the select's own expressions: name the clause.
-      if (error instanceof QueryError) throw new QueryError(`${clause}(): ${error.message}`, error);
+      if (error instanceof QueryError) throw rewrap(error, (short) => `${clause}(): ${short}`);
       throw error;
     }
     return { kind: "expr", expr: value.node, type: value.type };
@@ -126,25 +126,23 @@ function shapeOfValue(value: unknown, out: Collector, clause: string, path: stri
     if (info !== undefined) {
       if (info.meta === undefined) {
         throw new QueryError(
-          `${clause}() was given the whole binding "${info.alias}"${where(path)}, which has no schema to read rows of. Select its columns one by one.`,
+          "query.selectBinding",
+          `${clause}() was given the whole binding "${info.alias}"${where(path)}, which has no schema to read rows of.`,
         );
       }
       return { kind: "binding", binding: info.alias, meta: info.meta };
     }
     if (value instanceof OrderExpr) {
       throw new QueryError(
-        `${clause}() was given an order item (asc() or desc())${where(path)}. Order items belong in orderBy(); select the expression itself.`,
+        "query.selectOrderItem",
+        `${clause}() was given an order item (asc() or desc())${where(path)}.`,
       );
     }
     if (value instanceof Tuple) {
-      throw new QueryError(
-        `${clause}() was given a row value (tuple)${where(path)}. A row value is compared, not selected: select its items.`,
-      );
+      throw new QueryError("query.selectTuple", `${clause}() was given a row value (tuple)${where(path)}.`);
     }
     if (isSubqueryOperand(value)) {
-      throw new QueryError(
-        `${clause}() was given a query${where(path)}. A query is not a value: select an expression, or use a subquery expression.`,
-      );
+      throw new QueryError("query.selectQuery", `${clause}() was given a query${where(path)}.`);
     }
     if (Array.isArray(value)) {
       const items: SelectShape[] = [];
@@ -172,7 +170,8 @@ function shapeOfValue(value: unknown, out: Collector, clause: string, path: stri
   }
   if (typeof value === "function" || typeof value === "symbol") {
     throw new QueryError(
-      `${clause}() was given a ${typeof value}${where(path)}, which is not a value. Select expressions, bindings and plain values.`,
+      "query.selectValue",
+      `${clause}() was given a ${typeof value}${where(path)}, which is not a value.`,
     );
   }
   out.constants.push(value);

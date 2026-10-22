@@ -31,8 +31,8 @@ import type { FieldMeta, SchemaMeta } from "../contracts/schema.js";
 import type { AnyFieldType, Codec } from "../contracts/type.js";
 import { DatabaseError, isEgonError, QueryError } from "../errors.js";
 import { isPlainObject } from "../internal/plain-object.js";
-import { type DriverCodecs, typeOverridesFrom } from "./codecs.js";
-import { createStatementCompiler, type StatementCompiler } from "./compiler.js";
+import type { DriverCodecs } from "./codecs.js";
+import { type StatementCompiler, sharedStatementCompiler } from "./compiler.js";
 import type { DriverConnection, DriverHooks, DriverWrapper } from "./driver.js";
 import { type QueryListenerOptions, Telemetry } from "./telemetry.js";
 
@@ -79,7 +79,9 @@ export interface DatabaseAdapter extends Adapter {
   /**
    * The counters of this adapter's plan cache: lookups answered from it (`hits`), plans
    * compiled (`misses`), lookups whose key matched another shape (`collisions`, also
-   * misses; it should stay 0) and plans held (`size`).
+   * misses; it should stay 0) and plans held (`size`). The cache is shared by every
+   * adapter created with the same dialect, capabilities, driver codecs and
+   * `planCacheSize`, so the counters include their lookups too.
    */
   planCacheStats(): PlanCacheStats;
   /**
@@ -120,12 +122,15 @@ export interface AdapterDefinition {
    * recognise unchanged.
    */
   readonly normalizeError: (error: unknown, sql: string | undefined) => unknown;
-  /** The size of the plan cache. Default 1000. */
+  /**
+   * The size of the plan cache: how many query shapes it keeps. Default 1000. Adapters
+   * created with the same dialect, capabilities, driver codecs and size share one cache.
+   */
   readonly planCacheSize?: number;
 }
 
 /** Postgres-style transaction modes, by option. The dialect's `capabilities.isolationLevels` says which levels exist. */
-const ISOLATION_SQL: ReadonlyMap<IsolationLevel, string> = new Map<IsolationLevel, string>([
+const ISOLATION_SQL: ReadonlyMap<IsolationLevel, string> = /* @__PURE__ */ new Map<IsolationLevel, string>([
   ["read committed", "isolation level read committed"],
   ["repeatable read", "isolation level repeatable read"],
   ["serializable", "isolation level serializable"],
@@ -138,7 +143,7 @@ interface CheckedBegin {
   readonly deferrable: boolean | undefined;
 }
 
-const NO_BEGIN_OPTIONS: CheckedBegin = Object.freeze({
+const NO_BEGIN_OPTIONS: CheckedBegin = /* @__PURE__ */ Object.freeze({
   isolation: undefined,
   readOnly: undefined,
   deferrable: undefined,
@@ -166,14 +171,22 @@ function checkBegin(
       );
     }
     if (!capabilities.isolationLevels.includes(isolation)) {
-      throw new QueryError(`The isolation level "${isolation}" is not supported by ${dialect}.`);
+      throw new QueryError(
+        "query.isolationUnsupported",
+        `The isolation level "${isolation}" is not supported by ${dialect}.`,
+        { params: { dialect } },
+      );
     }
   }
   if (readOnly !== undefined) {
     if (typeof readOnly !== "boolean")
       throw new TypeError("connection.begin({ readOnly }): readOnly must be a boolean.");
     if (readOnly && !capabilities.readOnlyTransactions) {
-      throw new QueryError(`A read-only transaction (readOnly: true) is not supported by ${dialect}.`);
+      throw new QueryError(
+        "query.readOnlyUnsupported",
+        `A read-only transaction (readOnly: true) is not supported by ${dialect}.`,
+        { params: { dialect } },
+      );
     }
   }
   if (deferrable !== undefined) {
@@ -181,7 +194,11 @@ function checkBegin(
       throw new TypeError("connection.begin({ deferrable }): deferrable must be a boolean.");
     }
     if (deferrable && !capabilities.deferrableTransactions) {
-      throw new QueryError(`A deferrable transaction (deferrable: true) is not supported by ${dialect}.`);
+      throw new QueryError(
+        "query.deferrableUnsupported",
+        `A deferrable transaction (deferrable: true) is not supported by ${dialect}.`,
+        { params: { dialect } },
+      );
     }
   }
   return { isolation, readOnly, deferrable };
@@ -242,7 +259,7 @@ function checkSavepointName(method: string, name: unknown): string {
 }
 
 /** The parameters of a transaction statement: there are none. */
-const NO_PARAMS: readonly unknown[] = Object.freeze([]);
+const NO_PARAMS: readonly unknown[] = /* @__PURE__ */ Object.freeze([]);
 
 /**
  * Checks the execution options of a transaction statement. They are those of `execute`,
@@ -291,15 +308,61 @@ function interruption(
   timeoutMs: number | undefined,
   cause: unknown,
   waiting = false,
+  cancelFailure?: unknown,
 ): DatabaseError {
-  const message = waiting
-    ? kind === "aborted"
-      ? "The statement was not run: its AbortSignal fired while it waited for a free connection."
-      : `The statement was not run: it waited longer than its timeoutMs (${timeoutMs} ms) for a free connection.`
-    : kind === "aborted"
-      ? "The statement was cancelled because its AbortSignal fired."
-      : `The statement was cancelled because it ran longer than its timeoutMs (${timeoutMs} ms).`;
-  return new DatabaseError(message, { code: kind, sql, cause });
+  const details = { code: kind, sql, cause };
+  if (cancelFailure !== undefined) {
+    // The cancel request failed (or cancelling is not possible here, e.g. no node:net):
+    // the statement ran to its end. The cause is the cancel's error; when the statement
+    // then failed by itself as well (a constraint, a lost connection), it is an
+    // AggregateError of both, the cancel's error first, so the caller learns of each.
+    const failed = {
+      code: kind,
+      sql,
+      cause:
+        cause === undefined
+          ? cancelFailure
+          : new AggregateError(
+              [cancelFailure, cause],
+              "Cancelling the statement failed, and the statement then failed by itself.",
+            ),
+    };
+    return kind === "aborted"
+      ? new DatabaseError(
+          "database.abortedNotCancelled",
+          "The call was aborted by its AbortSignal, but cancelling the statement failed, so it ran to its end.",
+          failed,
+        )
+      : new DatabaseError(
+          "database.timeoutNotCancelled",
+          `The statement ran longer than its timeoutMs (${timeoutMs} ms), but cancelling it failed, so it ran to its end.`,
+          failed,
+        );
+  }
+  if (waiting) {
+    return kind === "aborted"
+      ? new DatabaseError(
+          "database.abortedWaiting",
+          "The statement was not run: its AbortSignal fired while it waited for a free connection.",
+          details,
+        )
+      : new DatabaseError(
+          "database.timeoutWaiting",
+          `The statement was not run: it waited longer than its timeoutMs (${timeoutMs} ms) for a free connection.`,
+          details,
+        );
+  }
+  return kind === "aborted"
+    ? new DatabaseError(
+        "database.aborted",
+        "The statement was cancelled because its AbortSignal fired.",
+        details,
+      )
+    : new DatabaseError(
+        "database.timeout",
+        `The statement was cancelled because it ran longer than its timeoutMs (${timeoutMs} ms).`,
+        details,
+      );
 }
 
 /**
@@ -310,6 +373,7 @@ function interruption(
  */
 function spent(sql: string, timeoutMs: number | undefined): DatabaseError {
   return new DatabaseError(
+    "database.timeoutSpent",
     `The statement was not run: its timeoutMs (${timeoutMs} ms) was spent before it could start.`,
     { code: "timeout", sql },
   );
@@ -317,7 +381,8 @@ function spent(sql: string, timeoutMs: number | undefined): DatabaseError {
 
 function closedError(sql: string | undefined): DatabaseError {
   return new DatabaseError(
-    "This adapter is closed: adapter.close() was called. Create a new adapter to keep using the database.",
+    "database.adapterClosed",
+    "This adapter is closed: adapter.close() was called.",
     sql === undefined ? { code: "connection" } : { code: "connection", sql },
   );
 }
@@ -337,7 +402,7 @@ const ignoreError = (): undefined => undefined;
  * anyway, late, so it could still cancel whatever runs next on that connection: such a
  * connection is closed when it is returned, never reused.
  */
-const cancelFailed = new WeakSet<DriverConnection>();
+const cancelFailed = /* @__PURE__ */ new WeakSet<DriverConnection>();
 
 /** For streams on a pooled connection, which the stream itself holds until it ends. */
 const alwaysOpen = (): boolean => true;
@@ -365,13 +430,15 @@ function interruptible<T>(
   return new Promise<T>((resolve, reject) => {
     let reason: "aborted" | "timeout" | undefined;
     let cancelled: Promise<unknown> = Promise.resolve();
+    let cancelFailure: unknown;
     const interrupt = (kind: "aborted" | "timeout"): void => {
       if (reason !== undefined) return;
       reason = kind;
       // A failed cancel request leaves the statement running to its end; the call still
       // rejects, and the connection is not reused (`cancelFailed`).
-      cancelled = connection.cancel().catch(() => {
+      cancelled = connection.cancel().catch((error: unknown) => {
         cancelFailed.add(connection);
+        cancelFailure = error ?? new Error("The cancel request failed.");
       });
     };
     const onAbort = (): void => interrupt("aborted");
@@ -386,7 +453,9 @@ function interruptible<T>(
         else resolve(value as T);
         return;
       }
-      void cancelled.then(() => reject(interruption(kind, sql, timeoutMs, failed ? error : undefined)));
+      void cancelled.then(() =>
+        reject(interruption(kind, sql, timeoutMs, failed ? error : undefined, false, cancelFailure)),
+      );
     };
     work().then(
       (value) => settle(false, value, undefined),
@@ -425,7 +494,8 @@ async function* cursorRows(
       // would never be answered.
       if (!open()) {
         throw new DatabaseError(
-          "The connection of this stream was released or destroyed while the stream was open; the stream cannot go on.",
+          "database.streamConnectionGone",
+          "The connection of this stream was released or destroyed while the stream was open.",
           { code: "connection", sql },
         );
       }
@@ -497,14 +567,16 @@ class SharedAdapter implements DatabaseAdapter {
     this.definition = definition;
     this.dialect = definition.dialect;
     this.capabilities = definition.capabilities;
-    this.typeOverrides = typeOverridesFrom(definition.driverCodecs);
-    this.compiler = createStatementCompiler({
+    // Shared with every adapter of the same configuration (see ./compiler.ts).
+    const shared = sharedStatementCompiler({
       dialect: definition.dialect,
       capabilities: definition.capabilities,
       quoteIdentifier: definition.quoteIdentifier,
       planCacheSize,
-      codecs: this,
+      driverCodecs: definition.driverCodecs,
     });
+    this.typeOverrides = shared.typeOverrides;
+    this.compiler = shared.compiler;
   }
 
   // --- compiling ---------------------------------------------------------------------
@@ -993,22 +1065,22 @@ class SharedConnection implements Connection {
   private usable(sql: string): void {
     if (this.state !== "open") {
       throw new DatabaseError(
-        `This connection was ${this.state === "released" ? "released" : "destroyed"}; acquire a new one.`,
+        "database.connectionReleased",
+        `This connection was ${this.state === "released" ? "released" : "destroyed"}.`,
         { code: "connection", sql },
       );
     }
     if (cancelFailed.has(this.connection)) {
       throw new DatabaseError(
-        "A cancel request for this connection failed, and it may still reach the server and cancel whatever runs next. The connection takes no more statements; release it (it is closed, not pooled) and acquire a new one.",
+        "database.cancelFailed",
+        "A cancel request for this connection failed, and it may still reach the server and cancel whatever runs next.",
         { code: "connection", sql },
       );
     }
     // A statement sent now would queue behind the open cursor and wait for the stream to
     // end, which may never happen (the loop that reads it may be the one waiting).
     if (this.openStreams > 0) {
-      throw new QueryError(
-        "A stream is still open on this connection. Finish it, or leave its for-await loop (break or return), before running another statement or stream on the same connection.",
-      );
+      throw new QueryError("query.streamOpen", "A stream is still open on this connection.");
     }
   }
 

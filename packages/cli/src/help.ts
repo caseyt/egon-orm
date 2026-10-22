@@ -12,7 +12,7 @@
  * process.stdout.write(COMMAND_HELP.migrate ?? "");
  * ```
  */
-export const COMMAND_HELP: Readonly<Record<string, string>> = Object.freeze({
+export const COMMAND_HELP: Readonly<Record<string, string>> = /* @__PURE__ */ Object.freeze({
   migrate: `Usage: egon migrate [options]
        egon migrate create <name> [options]
 

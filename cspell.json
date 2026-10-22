@@ -12,5 +12,11 @@
     "/<<<.*$/gm",
     "/\\]\\([^)]*\\)/g",
     "/https?:\\/\\/\\S+/g"
+  ],
+  "overrides": [
+    {
+      "filename": "docs/site/reference/errors/*.md",
+      "ignoreRegExpList": ["/\\{#[\\w-]+\\}/g"]
+    }
   ]
 }

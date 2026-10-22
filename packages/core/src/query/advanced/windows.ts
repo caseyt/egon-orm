@@ -53,9 +53,9 @@ import {
 import { Aggregate, type WindowSpec } from "../functions.js";
 
 /** `row_number`, `rank` and `dense_rank` return a 64-bit integer: read as a `number`. */
-const BIG_COUNT: AnyFieldType = bigintType({ mode: "number" });
-const FLOAT: AnyFieldType = floatType();
-const INTEGER: AnyFieldType = integerType();
+const BIG_COUNT: AnyFieldType = /* @__PURE__ */ bigintType({ mode: "number" });
+const FLOAT: AnyFieldType = /* @__PURE__ */ floatType();
+const INTEGER: AnyFieldType = /* @__PURE__ */ integerType();
 
 /**
  * The names a window function puts in its aggregate node: keys of the compiler's
@@ -81,7 +81,7 @@ export const WINDOW_FUNCTION_NAMES = [
   "nthValue",
 ] as const;
 
-const WINDOW_ONLY: ReadonlySet<string> = new Set(WINDOW_FUNCTION_NAMES);
+const WINDOW_ONLY: ReadonlySet<string> = /* @__PURE__ */ new Set(WINDOW_FUNCTION_NAMES);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -226,7 +226,7 @@ function windowFunction(
 
 function expressionArgument(value: unknown, method: string): AnyExpr {
   if (isExpr(value)) return value;
-  throw new QueryError(`${method}() takes an expression, such as p.views.`);
+  throw new QueryError("query.windowArgument", `${method}() takes an expression.`);
 }
 
 /** A whole-number argument (`ntile(4)`, the offset of `lag`): a value bound as an integer, or an integer expression. */
@@ -236,7 +236,9 @@ function countArgument(value: unknown, method: string, what: string): AnyExpr {
     return toOperand(value, INTEGER, false, method, false);
   }
   throw new QueryError(
+    "query.windowCount",
     `${method}() takes ${what} as a whole number of at least 1, or an integer expression; it was given ${typeof value === "number" ? String(value) : typeof value}.`,
+    { params: { what } },
   );
 }
 
@@ -477,7 +479,7 @@ export function nthValue<
 // Named windows
 // ---------------------------------------------------------------------------
 
-const WINDOW_DEF_SEED = hashString(HASH_SEED, "windowDef");
+const WINDOW_DEF_SEED = /* @__PURE__ */ hashString(HASH_SEED, "windowDef");
 
 /** What `.windows({ … })` adds to a query: the definitions and their parameters in canonical order. */
 export interface BuiltWindows {
@@ -503,26 +505,25 @@ export interface BuiltWindows {
  */
 export function windowNames(defs: unknown, existing: readonly WindowDefNode[]): readonly string[] {
   if (typeof defs !== "object" || defs === null || !isPlainObject(defs)) {
-    throw new QueryError(
-      "windows() takes an object of named windows: windows({ w: ({ p }) => ({ partitionBy: [p.authorId] }) }).",
-    );
+    throw new QueryError("query.windowsObject", "windows() takes an object of named windows.");
   }
   const names = Object.keys(defs);
-  if (names.length === 0) throw new QueryError("windows() was given no window. Name at least one.");
+  if (names.length === 0) throw new QueryError("query.windowsEmpty", "windows() was given no window.");
   for (const name of names) {
     if (!IDENTIFIER.test(name)) {
-      throw new QueryError(
-        `windows() was given the name "${name}", which is not an identifier (a letter or underscore, then letters, digits, underscores or $).`,
-      );
+      throw new QueryError("query.windowName", `windows() was given the name "${name}".`);
     }
     if (existing.some((node) => node.name === name)) {
       throw new QueryError(
-        `windows() declares "${name}", which this query already declares. Each window has one name.`,
+        "query.windowTwice",
+        `windows() declares "${name}", which this query already declares.`,
       );
     }
     if (typeof (defs as Record<string, unknown>)[name] !== "function") {
       throw new QueryError(
-        `windows({ ${name} }) takes a callback that receives the bindings and returns the window: ${name}: ({ p }) => ({ partitionBy: [p.authorId] }).`,
+        "query.windowCallback",
+        `windows({ ${name} }) takes a callback that receives the bindings and returns the window.`,
+        { params: { name } },
       );
     }
   }
@@ -544,21 +545,25 @@ export function windowNames(defs: unknown, existing: readonly WindowDefNode[]): 
 export function windowDef(name: string, spec: unknown): WindowDefNode {
   const where = `windows({ ${name} })`;
   if (typeof spec !== "object" || spec === null || !isPlainObject(spec)) {
-    throw new QueryError(`${where}: the callback must return a window, { partitionBy, orderBy, frame }.`);
+    throw new QueryError("query.windowShape", `${where}: the callback must return a window.`);
   }
   const extra = Object.keys(spec).filter(
     (key) => key !== "partitionBy" && key !== "orderBy" && key !== "frame",
   );
   if (extra.length > 0) {
     throw new QueryError(
-      `${where}: a window has no ${extra.map((key) => `"${key}"`).join(", ")}; it takes partitionBy, orderBy and frame.`,
+      "query.windowUnknownKey",
+      `${where}: a window has no ${extra.map((key) => `"${key}"`).join(", ")}.`,
     );
   }
   const { partitionBy, orderBy, frame } = spec as Record<string, unknown>;
   const partition: ExprNode[] = [];
   for (const item of listOf(partitionBy, where, "partitionBy")) {
     if (!isExpr(item))
-      throw new QueryError(`${where}: partitionBy holds something that is not an expression.`);
+      throw new QueryError(
+        "query.windowPartition",
+        `${where}: partitionBy holds something that is not an expression.`,
+      );
     partition.push(item.node);
   }
   const order: OrderNode[] = [];
@@ -566,14 +571,15 @@ export function windowDef(name: string, spec: unknown): WindowDefNode {
     if (item instanceof OrderExpr) order.push(item.node);
     else if (isExpr(item)) order.push(orderNode(item.node, "asc", undefined));
     else
-      throw new QueryError(`${where}: orderBy holds something that is not an expression or an order item.`);
+      throw new QueryError(
+        "query.windowOrder",
+        `${where}: orderBy holds something that is not an expression or an order item.`,
+      );
   }
   let frameNode: ExprNode | undefined;
   if (frame !== undefined) {
     if (!isExpr(frame) || frame.node.kind !== "fragment") {
-      throw new QueryError(
-        `${where}: frame is a fragment, such as fragment\`rows between unbounded preceding and current row\`.`,
-      );
+      throw new QueryError("query.windowFrame", `${where}: frame is a fragment.`);
     }
     frameNode = frame.node;
   }
@@ -587,7 +593,9 @@ export function windowDef(name: string, spec: unknown): WindowDefNode {
 function listOf(value: unknown, where: string, member: string): readonly unknown[] {
   if (value === undefined) return NONE;
   if (!Array.isArray(value))
-    throw new QueryError(`${where}: ${member} is an array: ${member}: [p.authorId].`);
+    throw new QueryError("query.windowMemberArray", `${where}: ${member} is not an array.`, {
+      params: { member },
+    });
   return value;
 }
 
@@ -699,7 +707,7 @@ interface NoWindows {
 }
 
 /** The clauses that filter rows: a window function there is best filtered from a query over this one. */
-const FILTERING: ReadonlySet<string> = new Set([
+const FILTERING: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "where",
   "orWhere",
   "having",
@@ -739,10 +747,15 @@ function visit(clause: string, node: ExprNode, windows: Windows): void {
         if (node.over !== undefined || WINDOW_ONLY.has(node.name)) {
           const what =
             node.over === undefined ? `${node.name}() is a window function` : `${node.name}() over a window`;
-          const advice = (windows as NoWindows).filters
-            ? `window functions are computed after the rows are filtered and grouped. Select it, then filter on it from a query over this one: from(subquery(q), "s").where(…).`
-            : "window functions are allowed only in select() and orderBy().";
-          throw new QueryError(`${clause}(): ${what}, which cannot be used in ${clause}(): ${advice}`);
+          throw (windows as NoWindows).filters
+            ? new QueryError(
+                "query.windowInFilter",
+                `${clause}(): ${what}, which cannot be used in ${clause}().`,
+              )
+            : new QueryError(
+                "query.windowInClause",
+                `${clause}(): ${what}, which cannot be used in ${clause}().`,
+              );
         }
         visitAll(clause, node.args, windows);
         if (node.filter !== undefined) visit(clause, node.filter, windows);
@@ -751,12 +764,15 @@ function visit(clause: string, node: ExprNode, windows: Windows): void {
       if (WINDOW_ONLY.has(node.name)) {
         if (node.over === undefined) {
           throw new QueryError(
-            `${clause}(): ${node.name}() is a window function and needs a window: add .over(…), such as ${node.name}().over({ orderBy: [p.createdAt] }).`,
+            "query.windowFunctionOver",
+            `${clause}(): ${node.name}() is a window function and needs a window.`,
+            { params: { name: node.name } },
           );
         }
         if (node.filter !== undefined) {
           throw new QueryError(
-            `${clause}(): ${node.name}() is a window function, which takes no filter(); filter() is for aggregates such as count() and sum().`,
+            "query.windowFunctionFilter",
+            `${clause}(): ${node.name}() is a window function, which takes no filter().`,
           );
         }
       }
@@ -765,7 +781,9 @@ function visit(clause: string, node: ExprNode, windows: Windows): void {
         if (!windows.some((def) => def.name === over)) {
           const declared = windows.map((def) => def.name);
           throw new QueryError(
-            `${clause}(): over("${over}") names a window this query does not declare${declared.length === 0 ? "" : ` (it declares ${declared.join(", ")})`}. Declare it first: windows({ ${over}: ({ p }) => ({ … }) }).`,
+            "query.windowUndeclared",
+            `${clause}(): over("${over}") names a window this query does not declare${declared.length === 0 ? "" : ` (it declares ${declared.join(", ")})`}.`,
+            { params: { over } },
           );
         }
       } else if (over !== undefined) {
@@ -813,7 +831,8 @@ function visit(clause: string, node: ExprNode, windows: Windows): void {
       if (node.expr !== undefined) visit(clause, node.expr, windows);
       else if (!Array.isArray(windows) && !(windows as NoWindows).references) {
         throw new QueryError(
-          `${clause}(): selectedAs("${node.name}") refers to a selected value by its name, which ${clause}() cannot read: the database names selected values after this clause is computed. Use the expression itself; names are for orderBy() and groupBy().`,
+          "query.selectedAsInClause",
+          `${clause}(): selectedAs("${node.name}") refers to a selected value by its name, which ${clause}() cannot read: the database names selected values after this clause is computed.`,
         );
       }
       return;

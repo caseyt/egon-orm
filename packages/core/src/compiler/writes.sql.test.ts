@@ -300,7 +300,7 @@ describe("row-level write errors", () => {
       );
     expect(() => upsert("sometimes")).toThrow('onConflict is "nothing" or { target, update }.');
     expect(() => upsert({ target: undefined, update: "all" })).toThrow(
-      "onConflict with update needs a target on postgres: the conflicting fields, { constraint } or a fragment.",
+      "query.onConflictTarget: onConflict with update needs a target on postgres. Name the target: the conflicting fields, { constraint } or a fragment. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-onconflicttarget",
     );
     expect(() => upsert({ target: [], update: "all" })).toThrow("onConflict's target lists no field.");
     expect(() => upsert({ target: { constraint: "" }, update: "all" })).toThrow(
@@ -310,7 +310,7 @@ describe("row-level write errors", () => {
       'onConflict\'s update is "all", a list of fields or { except }.',
     );
     expect(() => upsert({ target: [email], update: { except: [email, name] } })).toThrow(
-      'onConflict\'s update leaves no column to update; use onConflict: "nothing" instead.',
+      'query.onConflictNoUpdate: onConflict\'s update leaves no column to update. Use onConflict: "nothing" instead.',
     );
     expect(() => upsert({ target: [field(meta(Post), "title")], update: "all" })).toThrow(
       "onConflict's target holds a field that is not a field of User.",
@@ -419,13 +419,13 @@ describe("bulk update and delete errors", () => {
   test("a query with assignments cannot run as a select", () => {
     expect(() =>
       createCompiler(postgresDialect).compile(rebuild(posts.ast, { updates: set }), "all", undefined),
-    ).toThrow("The query has set(…) assignments; run it with updateAll.");
+    ).toThrow("query.updateWithAll: The query has set(…) assignments.");
   });
 
   test("a bulk write joins only with inner and cross joins", () => {
     const ast = rebuild(posts.leftJoin(User, "u", ({ p, u }) => u.id.eq(p.authorId)).ast, { updates: set });
     expect(() => compile(ast, "updateAll")).toThrow(
-      "updateAll can join only with join() or crossJoin(); a left join has no meaning there.",
+      "query.writeJoinKind: updateAll can join only with join() or crossJoin(); a left join has no meaning there. Join with join() (an inner join) or crossJoin() in an update or a delete. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-writejoinkind",
     );
   });
 
@@ -506,7 +506,7 @@ describe("fragments as statements", () => {
 
   test("only a fragment is accepted", () => {
     expect(() => createCompiler(postgresDialect).compileFragment(selectOne(literalNode(1)) as never)).toThrow(
-      "compileFragment() takes a fragment: fragment`select …`.",
+      "query.compileFragmentArgument: compileFragment() takes a fragment.",
     );
   });
 });

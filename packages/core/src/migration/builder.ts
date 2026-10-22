@@ -33,7 +33,7 @@ import type {
 // Checks
 // ---------------------------------------------------------------------------
 
-const KINDS: ReadonlySet<string> = new Set<ColumnKind>([
+const KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set<ColumnKind>([
   "integer",
   "bigint",
   "float",
@@ -50,9 +50,9 @@ const KINDS: ReadonlySet<string> = new Set<ColumnKind>([
   "jsonb",
 ]);
 
-const PRECISION_KINDS: ReadonlySet<string> = new Set(["time", "timestamp", "timestamptz"]);
+const PRECISION_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set(["time", "timestamp", "timestamptz"]);
 
-const ACTIONS: ReadonlySet<string> = new Set<ReferenceAction>([
+const ACTIONS: ReadonlySet<string> = /* @__PURE__ */ new Set<ReferenceAction>([
   "cascade",
   "restrict",
   "setNull",

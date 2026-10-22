@@ -61,7 +61,8 @@ class RepoSandbox implements Sandbox {
   async begin(): Promise<Repo> {
     if (this.#open !== undefined || this.#opening || this.#root.sandbox !== undefined) {
       throw new QueryError(
-        "sandbox.begin() was called while a sandbox is already open on this repo. Call sandbox.rollback() after each test (afterEach) before the next begin().",
+        "query.sandboxOpen",
+        "sandbox.begin() was called while a sandbox is already open on this repo.",
       );
     }
     this.#opening = true;

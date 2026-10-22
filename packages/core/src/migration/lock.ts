@@ -8,7 +8,7 @@
  * @module
  */
 
-const encoder = new TextEncoder();
+const encoder = /* @__PURE__ */ new TextEncoder();
 
 /**
  * 32-bit FNV-1a over the UTF-8 bytes of `text`, as a signed 32-bit integer (what

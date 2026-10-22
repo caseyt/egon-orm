@@ -1,0 +1,9 @@
+# The reference app as a Worker. Built with `wrangler deploy --dry-run` and run in workerd
+# by run.mjs; never deployed, and wrangler never logs in here.
+name = "egon-edge-worker"
+main = "src/worker.ts"
+compatibility_date = "2026-07-01"
+# pg needs Node's APIs (net, tls, crypto, events, buffer): Workers provide them with this flag.
+compatibility_flags = ["nodejs_compat"]
+# No telemetry (WRANGLER_SEND_METRICS=false is set as well, by the build script and CI).
+send_metrics = false

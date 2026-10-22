@@ -14,7 +14,7 @@ import type {
 } from "../contracts/query.js";
 import type { SchemaMeta } from "../contracts/schema.js";
 import type { AnyFieldType } from "../contracts/type.js";
-import { QueryError } from "../errors.js";
+import { QueryError, shortMessageOf } from "../errors.js";
 import { collectParams, columnNode, fragmentNode, paramNode, shapeOf } from "../query/ast.js";
 import { typeArgument } from "../query/expr.js";
 import { meta, Schema, t } from "../schema/index.js";
@@ -167,7 +167,7 @@ export function run(compiler: Compiler, sqlCase: SqlCase): Expected {
   try {
     plan = sqlCase.compile(compiler);
   } catch (error) {
-    if (error instanceof QueryError) return { error: error.message };
+    if (error instanceof QueryError) return { error: shortMessageOf(error) };
     throw error;
   }
   return { sql: plan.sql, params: bindParams(plan.slots, sqlCase.params, sqlCase.named) };

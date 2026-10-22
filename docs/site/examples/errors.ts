@@ -10,7 +10,9 @@ import {
   type Repo,
   type Schema,
   type t,
+  useFullErrorMessages,
 } from "egon-orm";
+import { explain, messages } from "egon-orm/messages";
 
 declare const repo: Repo;
 declare class User extends Schema("users", { id: t.integer().primaryKey(), email: t.string() }) {}
@@ -37,6 +39,48 @@ export function byCode(error: unknown) {
   if (isEgonError(error) && error.code === "timeout") return 503;
   // #endregion by-code
   return 500;
+}
+
+export function byId(error: unknown) {
+  // #region by-id
+  if (isEgonError(error) && error.id === "query.aliasTaken") return "pick another alias";
+  // #endregion by-id
+  return undefined;
+}
+
+export function toClient(error: unknown): Response {
+  // #region to-json
+  // { "name": "NoResultsError", "code": "noResults", "id": "noResults" }: no message, cause or SQL.
+  if (isEgonError(error)) return new Response(JSON.stringify(error), { status: 400 });
+  // #endregion to-json
+  throw error;
+}
+
+export function fullMessages(development: boolean) {
+  // #region full-messages
+  // In the first module the application imports, before any schema is defined:
+  if (development) useFullErrorMessages(messages);
+  // #endregion full-messages
+}
+
+export async function explained() {
+  // #region explain
+  try {
+    await repo.insertOrThrow(cs);
+  } catch (error) {
+    console.error(explain(error)); // the full text of this one error, whenever it was made
+    throw error;
+  }
+  // #endregion explain
+}
+
+export function translated() {
+  // #region translated
+  useFullErrorMessages({
+    noResults: "Es wurde keine Zeile gefunden.",
+    "query.aliasTaken": "Jede Bindung braucht einen eigenen Alias.",
+  });
+  // #endregion translated
 }
 
 export async function result() {

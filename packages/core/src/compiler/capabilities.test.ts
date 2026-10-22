@@ -31,7 +31,7 @@ function matrixCase(area: string, name: string): Probe {
   if (found === undefined) throw new Error(`No case "${name}" in the ${area} matrix.`);
   return (dialect) => {
     const result = run(createCompiler(dialect), found);
-    if ("error" in result) throw new QueryError(result.error);
+    if ("error" in result) throw new QueryError("query.unsupportedFeature", result.error);
   };
 }
 

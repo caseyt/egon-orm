@@ -42,7 +42,6 @@ export type {
   ErrorMessages,
   ErrorTree,
   ErrorTreeOf,
-  ExtraErrorKeys,
   FieldName,
   FieldOfType,
   FieldValues,

@@ -427,34 +427,11 @@ export interface ErrorTree<T> {
   readonly [key: string]: readonly T[] | ErrorTree<T> | readonly ErrorTree<T>[];
 }
 
-/**
- * The error keys a schema's own `changeset` function adds beyond its fields: the
- * `<field>Confirmation` of `validateConfirmation`, a key given to `addError` or
- * `validateAcceptance`. Read from the type of the static `changeset` method, so that the
- * changeset a write gives back (typed by its schema alone) still has them.
- *
- * @example
- * ```ts
- * class User extends Schema("users", { id: t.integer().primaryKey(), password: t.string().virtual() }) {
- *   static changeset(user: User | typeof User, params: unknown) {
- *     return cast(user, params, ["password"]).validateConfirmation("password");
- *   }
- * }
- * type Keys = ExtraErrorKeys<typeof User>; // "passwordConfirmation"
- * ```
- */
-export type ExtraErrorKeys<S> = S extends { changeset(...args: never[]): infer C }
-  ? C extends Changeset<ChangesetSource, boolean, infer E>
-    ? E
-    : never
-  : never;
-
 /** The keys a changeset of `S` with the extra keys `E` may have errors under. */
 type ErrorKeys<S, E extends string> =
   | FieldName<S>
   | (string extends AssocName<S> ? never : AssocName<S>)
   | E
-  | ExtraErrorKeys<S>
   | "$base";
 
 /** The errors of a nested changeset (or list of them) under one key, with the key's own errors. */
@@ -493,13 +470,14 @@ export type TypedErrorTree<S, E extends string, T> =
 
 /**
  * The type of `errorMessages()`: the error messages of a changeset, typed by its schema.
- * Give it the changeset's type, or the schema class (whose own `changeset` function's
- * extra keys are included). `JsonReturn` of a server action that returns
- * `errorMessages()` is the same type, so a client can use either.
+ * Give it the changeset's type (which carries the keys its validations added, such as
+ * `passwordConfirmation`), or a schema class (its fields, associations and `$base` only).
+ * `JsonReturn` of a server action that returns `errorMessages()` is the same type, so a
+ * client can use either.
  *
  * @example
  * ```ts
- * type SignUpErrors = ErrorMessages<typeof User>; // { email?: string[]; passwordConfirmation?: string[]; … }
+ * type SignUpErrors = ErrorMessages<ReturnType<typeof User.changeset>>; // { email?: string[]; passwordConfirmation?: string[]; … }
  * const errors: SignUpErrors = { email: ["has already been taken"] };
  * ```
  */

@@ -1437,7 +1437,7 @@ export class Changeset<
    * The errors as messages, with `{placeholders}` filled in from each error's metadata,
    * including those of nested changesets. The tree is typed by the schema: its fields,
    * associations and embeds (nested trees), the keys validations added
-   * (`passwordConfirmation`), those of the schema's own `changeset` function, and `$base`.
+   * (`passwordConfirmation`, carried in the changeset's type), and `$base`.
    * The type is exported as `ErrorMessages`.
    *
    * @example

@@ -59,9 +59,40 @@ would open a new pool each time. Keep it on `globalThis` outside production:
 
 <<< @/examples/frameworks.ts#nextjs-action
 
-`errorMessages()` is plain, serialisable data, so a server action can return it to the
-client as it is. The [form errors recipe](/recipes/form-errors) shows the React side, with
-`useActionState`.
+`errorMessages()` is plain, serialisable data, typed by field, so a server action can
+return it to the client as it is. The [form errors recipe](/recipes/form-errors) shows the
+React side, with `useActionState`.
+
+## Typing responses
+
+A row is written as JSON by `res.json(row)`, `c.json(row)` or `Response.json(row)`, and
+what the client receives is not the row's class: dates are strings, `bigint`s are decimal
+strings, redacted and virtual fields are gone. `Json<T>` is that type, and
+`JsonReturn<typeof fn>` is `Json` of what a function resolves to, so the type of a
+response comes from the code that makes it:
+
+<<< @/examples/frameworks.ts#typing-from-function
+
+To name the type from the schema instead, give `Loaded` the preloads; or write the spec
+once, `as const satisfies PreloadSpec<…>`, and use it for both the query and the type:
+
+<<< @/examples/frameworks.ts#typing-from-schema
+
+The errors a server action returns are typed the same way:
+
+<<< @/examples/frameworks.ts#typing-errors
+
+- Type a React client component's props with `JsonReturn` of the server function whose
+  result it receives. Rows are class instances, which React does not pass from a server
+  component to a client component; their JSON, from a route handler or a server action,
+  is what the client gets.
+- `JsonReturn` keeps `null`: a function that may find nothing has `| null` in its type.
+  Use the `...OrThrow` reads (a miss becomes a 404 in your error handler), or
+  `NonNullable<JsonReturn<…>>`.
+- Write `JsonReturn<typeof fn>` rather than `Json<Awaited<ReturnType<typeof fn>>>`:
+  TypeScript's `Awaited` can exceed its instantiation depth on a loaded row
+  ("Type instantiation is excessively deep").
+- [Errors as HTTP responses](/recipes/error-responses) maps the errors to statuses.
 
 Use the repo in server code only (server components, route handlers, server actions): it
 needs Node.js, not a browser or the Edge runtime.

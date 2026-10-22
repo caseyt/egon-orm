@@ -88,7 +88,7 @@ export async function showUser(id: number): Promise<Response> {
 // What the client receives, typed from the schema: no class, no Date, no password.
 export type SignUpResponse =
   | { readonly user: Json<User> } // 201
-  | { readonly errors: ErrorMessages<typeof User> }; // 422
+  | { readonly errors: ErrorMessages<ReturnType<typeof User.changeset>> }; // 422
 
 export async function submit(form: FormData): Promise<SignUpResponse> {
   const response = await fetch("/users", { method: "POST", body: JSON.stringify(Object.fromEntries(form)) });
@@ -97,8 +97,8 @@ export async function submit(form: FormData): Promise<SignUpResponse> {
 
 export function firstError(response: SignUpResponse): string | undefined {
   if (!("errors" in response)) return undefined;
-  // Typed by field: a misspelt key does not compile. passwordConfirmation comes from
-  // validateConfirmation in User.changeset.
+  // Typed by field: a misspelt key does not compile. passwordConfirmation is there because
+  // User.changeset calls validateConfirmation.
   return response.errors.email?.[0] ?? response.errors.passwordConfirmation?.[0];
 }
 // #endregion client

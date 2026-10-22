@@ -143,7 +143,6 @@ Guide: [Changesets and validation](/guide/changesets).
 | [`ErrorMessages`](/api/reference/egon-orm/type-aliases/ErrorMessages) | type | The type of `errorMessages()`. |
 | [`ErrorTree`](/api/reference/egon-orm/interfaces/ErrorTree) | interface | The errors of a changeset as `traverseErrors` returns them. |
 | [`ErrorTreeOf`](/api/reference/egon-orm/type-aliases/ErrorTreeOf) | type | What `traverseErrors(changeset, fn)` returns, for a changeset of type `C` and a callback returning `T`. |
-| [`ExtraErrorKeys`](/api/reference/egon-orm/type-aliases/ExtraErrorKeys) | type | The error keys a schema's own `changeset` function adds beyond its fields. |
 | [`FieldChange`](/api/reference/egon-orm/type-aliases/FieldChange) | type | The change of field `K` of `S` in `changeset.changes`. |
 | [`FieldName`](/api/reference/egon-orm/type-aliases/FieldName) | type | The field names of `S`. |
 | [`FieldOfType`](/api/reference/egon-orm/type-aliases/FieldOfType) | type | The fields of `S` whose value (without `null`) is a `T`. |

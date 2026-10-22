@@ -1,14 +1,16 @@
 // Type tests of the error tree: errorMessages() and traverseErrors() typed by the schema.
 import { Comment, Post, User } from "@egon-orm/test-support";
 import { describe, expectTypeOf, test } from "vitest";
+import { createBatch } from "./batch/index.js";
 import { type Changeset, cast, change, traverseErrors } from "./changeset/changeset.js";
-import type { ErrorMessages, ErrorTree, ExtraErrorKeys, TypedErrorTree } from "./changeset/types.js";
+import type { ErrorMessages, ErrorTree, TypedErrorTree } from "./changeset/types.js";
 import type { Repo } from "./repo/repo.js";
 import { hasMany, Schema, t } from "./schema/index.js";
 
 declare const repo: Repo;
 declare const params: Record<string, unknown>;
 declare const post: Post;
+declare const account: Account;
 
 class Account extends Schema("accounts", {
   id: t.integer().primaryKey().dbGenerated(),
@@ -104,18 +106,43 @@ describe("errorMessages()", () => {
     expectTypeOf(cs).toEqualTypeOf<Changeset<typeof User, true>>();
   });
 
-  test("includes the extra keys of the schema's own changeset function, also after a write", async () => {
-    expectTypeOf<ExtraErrorKeys<typeof Account>>().toEqualTypeOf<"passwordConfirmation" | "terms">();
-    const result = await repo.insert(Account.changeset(Account, params));
-    if (!result.success) {
-      const tree = result.error.errorMessages();
+  test("the extra keys flow through a write: the error changeset is the one given", async () => {
+    const inserted = await repo.insert(Account.changeset(Account, params));
+    if (!inserted.success) {
+      const tree = inserted.error.errorMessages();
       expectTypeOf(tree.passwordConfirmation).toEqualTypeOf<string[] | undefined>();
       expectTypeOf(tree.terms).toEqualTypeOf<string[] | undefined>();
       expectTypeOf(tree.notes).not.toBeAny();
+      expectTypeOf(inserted.error).toEqualTypeOf<ReturnType<typeof Account.changeset>>();
     }
-    expectTypeOf<ErrorMessages<typeof Account>["passwordConfirmation"]>().toEqualTypeOf<
-      string[] | undefined
-    >();
+    const updated = await repo.update(cast(account, params, ["email"]).addError("captcha", "is wrong"));
+    if (!updated.success)
+      expectTypeOf(updated.error.errorMessages().captcha).toEqualTypeOf<string[] | undefined>();
+    const upserted = await repo.insertOrUpdate(Account.changeset(account, params));
+    if (!upserted.success) {
+      expectTypeOf(upserted.error.errorMessages().passwordConfirmation).toEqualTypeOf<string[] | undefined>();
+    }
+  });
+
+  test("only the changeset that adds a key has it: another changeset of the schema does not", async () => {
+    const login = cast(Account, params, ["email"]);
+    // @ts-expect-error nothing added passwordConfirmation to this changeset
+    login.errorMessages().passwordConfirmation;
+    const result = await repo.insert(login);
+    // @ts-expect-error nor to the one the write gives back
+    if (!result.success) result.error.errorMessages().passwordConfirmation;
+    // @ts-expect-error a schema class has its fields, associations and $base only
+    type _FromClass = ErrorMessages<typeof Account>["passwordConfirmation"];
+  });
+
+  test("the extra keys flow through a batch's failure", async () => {
+    const batch = createBatch().insert("account", Account.changeset(Account, params));
+    const outcome = await repo.transaction(batch);
+    if (!outcome.success && outcome.error.step === "account") {
+      expectTypeOf(outcome.error.error.errorMessages().passwordConfirmation).toEqualTypeOf<
+        string[] | undefined
+      >();
+    }
   });
 
   test("a changeset with extra keys is still a changeset of its schema", async () => {

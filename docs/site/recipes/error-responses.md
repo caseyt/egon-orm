@@ -36,9 +36,10 @@ go to `errorResponse`.
 
 - `Json<User>` is the user as `JSON.stringify` writes it: `createdAt` is a string, and the
   virtual `password` is not there (nor would a redacted field be).
-- `ErrorMessages<typeof User>` is the type of `errorMessages()`: one optional key per field
-  and association, plus the keys that `User.changeset` adds (`passwordConfirmation`) and
-  `$base`.
+- `ErrorMessages<ReturnType<typeof User.changeset>>` is the type of `errorMessages()` on
+  the changeset `User.changeset` makes, and on the one the write gives back: one optional
+  key per field and association, `$base`, and the keys its validations add
+  (`passwordConfirmation`). `JsonReturn` of a handler that returns it is the same type.
 
 ::: tip Good to know
 - Declare the constraints a user can violate (`uniqueConstraint("email")`): the write then

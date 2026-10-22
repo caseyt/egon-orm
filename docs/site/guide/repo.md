@@ -196,7 +196,8 @@ however many statements it runs.
 - The returned row has the values written and what the database returned: the primary
   key, `dbGenerated()` fields and `writable("never")` fields. A database default on a
   column whose field declares no default is not read back: pass `{ returning: ["field"] }`,
-  or `{ returning: true }` for every field. Virtual fields keep their changes.
+  or `{ returning: true }` for every field. Virtual fields keep their changes on the row;
+  the row's JSON leaves them out unless they are declared `.virtual({ json: true })`.
 
 ### Update
 

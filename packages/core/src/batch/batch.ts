@@ -249,16 +249,16 @@ export class Batch<R extends object = Empty, F = never> {
    * createBatch().insert("user", User.changeset(User, input));
    * ```
    */
-  insert<const N extends string, S extends AnySchema, New extends boolean>(
+  insert<const N extends string, S extends AnySchema, New extends boolean, E extends string = never>(
     name: Unique<N, R>,
-    changeset: Input<R, Changeset<S, New>>,
+    changeset: Input<R, Changeset<S, New, E>>,
     options: InsertOptions<S> & { readonly onConflict: "nothing" },
-  ): Batch<With<R, N, Row<S> | null>, F | BatchFailure<N, Changeset<S, New>, R>>;
-  insert<const N extends string, S extends AnySchema, New extends boolean>(
+  ): Batch<With<R, N, Row<S> | null>, F | BatchFailure<N, Changeset<S, New, E>, R>>;
+  insert<const N extends string, S extends AnySchema, New extends boolean, E extends string = never>(
     name: Unique<N, R>,
-    changeset: Input<R, Changeset<S, New>>,
+    changeset: Input<R, Changeset<S, New, E>>,
     options?: InsertOptions<S> & { readonly onConflict?: UpdatingConflict<S> },
-  ): Batch<With<R, N, Row<S>>, F | BatchFailure<N, Changeset<S, New>, R>>;
+  ): Batch<With<R, N, Row<S>>, F | BatchFailure<N, Changeset<S, New, E>, R>>;
   insert(name: string, changeset: unknown, options?: unknown): Batch<object, unknown> {
     return this.#add("insert", name, step("insert", changeset, options));
   }
@@ -271,11 +271,11 @@ export class Batch<R extends object = Empty, F = never> {
    * createBatch().update("renamed", cast(user, { name: "Ada" }, ["name"]));
    * ```
    */
-  update<const N extends string, S extends AnySchema, New extends boolean>(
+  update<const N extends string, S extends AnySchema, New extends boolean, E extends string = never>(
     name: Unique<N, R>,
-    changeset: Input<R, Changeset<S, New>>,
+    changeset: Input<R, Changeset<S, New, E>>,
     options?: UpdateOptions<S>,
-  ): Batch<With<R, N, Row<S>>, F | BatchFailure<N, Changeset<S, New>, R>>;
+  ): Batch<With<R, N, Row<S>>, F | BatchFailure<N, Changeset<S, New, E>, R>>;
   update(name: string, changeset: unknown, options?: unknown): Batch<object, unknown> {
     return this.#add("update", name, step("update", changeset, options));
   }
@@ -288,11 +288,11 @@ export class Batch<R extends object = Empty, F = never> {
    * createBatch().delete("old", post);
    * ```
    */
-  delete<const N extends string, S extends AnySchema, New extends boolean>(
+  delete<const N extends string, S extends AnySchema, New extends boolean, E extends string = never>(
     name: Unique<N, R>,
-    changeset: Input<R, Changeset<S, New>>,
+    changeset: Input<R, Changeset<S, New, E>>,
     options?: DeleteOptions,
-  ): Batch<With<R, N, Row<S>>, F | BatchFailure<N, Changeset<S, New>, R>>;
+  ): Batch<With<R, N, Row<S>>, F | BatchFailure<N, Changeset<S, New, E>, R>>;
   delete<const N extends string, W extends object>(
     name: Unique<N, R>,
     row: Input<R, W>,
@@ -310,16 +310,16 @@ export class Batch<R extends object = Empty, F = never> {
    * createBatch().insertOrUpdate("saved", User.changeset(userOrClass, input));
    * ```
    */
-  insertOrUpdate<const N extends string, S extends AnySchema, New extends boolean>(
+  insertOrUpdate<const N extends string, S extends AnySchema, New extends boolean, E extends string = never>(
     name: Unique<N, R>,
-    changeset: Input<R, Changeset<S, New>>,
+    changeset: Input<R, Changeset<S, New, E>>,
     options: InsertOrUpdateOptions<S> & { readonly onConflict: "nothing" },
-  ): Batch<With<R, N, Row<S> | null>, F | BatchFailure<N, Changeset<S, New>, R>>;
-  insertOrUpdate<const N extends string, S extends AnySchema, New extends boolean>(
+  ): Batch<With<R, N, Row<S> | null>, F | BatchFailure<N, Changeset<S, New, E>, R>>;
+  insertOrUpdate<const N extends string, S extends AnySchema, New extends boolean, E extends string = never>(
     name: Unique<N, R>,
-    changeset: Input<R, Changeset<S, New>>,
+    changeset: Input<R, Changeset<S, New, E>>,
     options?: InsertOrUpdateOptions<S> & { readonly onConflict?: UpdatingConflict<S> },
-  ): Batch<With<R, N, Row<S>>, F | BatchFailure<N, Changeset<S, New>, R>>;
+  ): Batch<With<R, N, Row<S>>, F | BatchFailure<N, Changeset<S, New, E>, R>>;
   insertOrUpdate(name: string, changeset: unknown, options?: unknown): Batch<object, unknown> {
     return this.#add("insertOrUpdate", name, step("insertOrUpdate", changeset, options));
   }

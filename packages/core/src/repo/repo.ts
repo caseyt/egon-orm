@@ -604,18 +604,18 @@ export interface Repo {
    * nested changes; ConstraintError for a violation the changeset does not declare;
    * DatabaseError when the database fails.
    */
-  insert<S extends AnySchema, N extends boolean>(
-    changeset: Changeset<S, N> & NewRecordOnly<N>,
+  insert<S extends AnySchema, N extends boolean, E extends string = never>(
+    changeset: Changeset<S, N, E> & NewRecordOnly<N>,
     options: InsertOptions<S> & { readonly onConflict: "nothing" },
-  ): Promise<Result<Row<S> | null, Changeset<S, N>>>;
-  insert<S extends AnySchema, N extends boolean>(
-    changeset: Changeset<S, N> & NewRecordOnly<N>,
+  ): Promise<Result<Row<S> | null, Changeset<S, N, E>>>;
+  insert<S extends AnySchema, N extends boolean, E extends string = never>(
+    changeset: Changeset<S, N, E> & NewRecordOnly<N>,
     options?: InsertOptions<S> & { readonly onConflict?: UpdatingConflict<S> },
-  ): Promise<Result<Row<S>, Changeset<S, N>>>;
-  insert<S extends AnySchema, N extends boolean>(
-    changeset: Changeset<S, N> & NewRecordOnly<N>,
+  ): Promise<Result<Row<S>, Changeset<S, N, E>>>;
+  insert<S extends AnySchema, N extends boolean, E extends string = never>(
+    changeset: Changeset<S, N, E> & NewRecordOnly<N>,
     options?: InsertOptions<S>,
-  ): Promise<Result<Row<S> | null, Changeset<S, N>>>;
+  ): Promise<Result<Row<S> | null, Changeset<S, N, E>>>;
 
   /**
    * Like {@link Repo.insert}, but returns the row and throws for an invalid changeset.
@@ -627,16 +627,16 @@ export interface Repo {
    *
    * @throws InvalidChangesetError (it carries the changeset) where `insert` returns a failure.
    */
-  insertOrThrow<S extends AnySchema, N extends boolean>(
-    changeset: Changeset<S, N> & NewRecordOnly<N>,
+  insertOrThrow<S extends AnySchema, N extends boolean, E extends string = never>(
+    changeset: Changeset<S, N, E> & NewRecordOnly<N>,
     options: InsertOptions<S> & { readonly onConflict: "nothing" },
   ): Promise<Row<S> | null>;
-  insertOrThrow<S extends AnySchema, N extends boolean>(
-    changeset: Changeset<S, N> & NewRecordOnly<N>,
+  insertOrThrow<S extends AnySchema, N extends boolean, E extends string = never>(
+    changeset: Changeset<S, N, E> & NewRecordOnly<N>,
     options?: InsertOptions<S> & { readonly onConflict?: UpdatingConflict<S> },
   ): Promise<Row<S>>;
-  insertOrThrow<S extends AnySchema, N extends boolean>(
-    changeset: Changeset<S, N> & NewRecordOnly<N>,
+  insertOrThrow<S extends AnySchema, N extends boolean, E extends string = never>(
+    changeset: Changeset<S, N, E> & NewRecordOnly<N>,
     options?: InsertOptions<S>,
   ): Promise<Row<S> | null>;
 
@@ -654,10 +654,10 @@ export interface Repo {
    * @throws QueryError when the changeset is of a new record, or its row has no key;
    * StaleEntryError when no row matched; ConstraintError for an undeclared violation.
    */
-  update<S extends AnySchema, N extends boolean>(
-    changeset: Changeset<S, N> & LoadedRowOnly<N>,
+  update<S extends AnySchema, N extends boolean, E extends string = never>(
+    changeset: Changeset<S, N, E> & LoadedRowOnly<N>,
     options?: UpdateOptions<S>,
-  ): Promise<Result<Row<S>, Changeset<S, N>>>;
+  ): Promise<Result<Row<S>, Changeset<S, N, E>>>;
 
   /**
    * Like {@link Repo.update}, but returns the row and throws for an invalid changeset.
@@ -669,8 +669,8 @@ export interface Repo {
    *
    * @throws InvalidChangesetError where `update` returns a failure.
    */
-  updateOrThrow<S extends AnySchema, N extends boolean>(
-    changeset: Changeset<S, N> & LoadedRowOnly<N>,
+  updateOrThrow<S extends AnySchema, N extends boolean, E extends string = never>(
+    changeset: Changeset<S, N, E> & LoadedRowOnly<N>,
     options?: UpdateOptions<S>,
   ): Promise<Row<S>>;
 
@@ -688,10 +688,10 @@ export interface Repo {
    * @throws QueryError when the row has no primary key; StaleEntryError when no row
    * matched; ConstraintError for an undeclared violation.
    */
-  delete<S extends AnySchema, N extends boolean>(
-    changeset: Changeset<S, N> & LoadedRowOnly<N>,
+  delete<S extends AnySchema, N extends boolean, E extends string = never>(
+    changeset: Changeset<S, N, E> & LoadedRowOnly<N>,
     options?: DeleteOptions,
-  ): Promise<Result<Row<S>, Changeset<S, N>>>;
+  ): Promise<Result<Row<S>, Changeset<S, N, E>>>;
   delete<R extends object>(
     row: R & NotAChangeset<R>,
     options?: DeleteOptions,
@@ -707,8 +707,8 @@ export interface Repo {
    *
    * @throws InvalidChangesetError where `delete` returns a failure.
    */
-  deleteOrThrow<S extends AnySchema, N extends boolean>(
-    changeset: Changeset<S, N> & LoadedRowOnly<N>,
+  deleteOrThrow<S extends AnySchema, N extends boolean, E extends string = never>(
+    changeset: Changeset<S, N, E> & LoadedRowOnly<N>,
     options?: DeleteOptions,
   ): Promise<Row<S>>;
   deleteOrThrow<R extends object>(row: R & NotAChangeset<R>, options?: DeleteOptions): Promise<R>;
@@ -724,18 +724,18 @@ export interface Repo {
    *
    * @throws as {@link Repo.insert} and {@link Repo.update} do.
    */
-  insertOrUpdate<S extends AnySchema, N extends boolean>(
-    changeset: Changeset<S, N>,
+  insertOrUpdate<S extends AnySchema, N extends boolean, E extends string = never>(
+    changeset: Changeset<S, N, E>,
     options: InsertOrUpdateOptions<S> & { readonly onConflict: "nothing" },
-  ): Promise<Result<Row<S> | null, Changeset<S, N>>>;
-  insertOrUpdate<S extends AnySchema, N extends boolean>(
-    changeset: Changeset<S, N>,
+  ): Promise<Result<Row<S> | null, Changeset<S, N, E>>>;
+  insertOrUpdate<S extends AnySchema, N extends boolean, E extends string = never>(
+    changeset: Changeset<S, N, E>,
     options?: InsertOrUpdateOptions<S> & { readonly onConflict?: UpdatingConflict<S> },
-  ): Promise<Result<Row<S>, Changeset<S, N>>>;
-  insertOrUpdate<S extends AnySchema, N extends boolean>(
-    changeset: Changeset<S, N>,
+  ): Promise<Result<Row<S>, Changeset<S, N, E>>>;
+  insertOrUpdate<S extends AnySchema, N extends boolean, E extends string = never>(
+    changeset: Changeset<S, N, E>,
     options?: InsertOrUpdateOptions<S>,
-  ): Promise<Result<Row<S> | null, Changeset<S, N>>>;
+  ): Promise<Result<Row<S> | null, Changeset<S, N, E>>>;
 
   /**
    * Like {@link Repo.insertOrUpdate}, but returns the row and throws for an invalid changeset.
@@ -747,16 +747,16 @@ export interface Repo {
    *
    * @throws InvalidChangesetError where `insertOrUpdate` returns a failure.
    */
-  insertOrUpdateOrThrow<S extends AnySchema, N extends boolean>(
-    changeset: Changeset<S, N>,
+  insertOrUpdateOrThrow<S extends AnySchema, N extends boolean, E extends string = never>(
+    changeset: Changeset<S, N, E>,
     options: InsertOrUpdateOptions<S> & { readonly onConflict: "nothing" },
   ): Promise<Row<S> | null>;
-  insertOrUpdateOrThrow<S extends AnySchema, N extends boolean>(
-    changeset: Changeset<S, N>,
+  insertOrUpdateOrThrow<S extends AnySchema, N extends boolean, E extends string = never>(
+    changeset: Changeset<S, N, E>,
     options?: InsertOrUpdateOptions<S> & { readonly onConflict?: UpdatingConflict<S> },
   ): Promise<Row<S>>;
-  insertOrUpdateOrThrow<S extends AnySchema, N extends boolean>(
-    changeset: Changeset<S, N>,
+  insertOrUpdateOrThrow<S extends AnySchema, N extends boolean, E extends string = never>(
+    changeset: Changeset<S, N, E>,
     options?: InsertOrUpdateOptions<S>,
   ): Promise<Row<S> | null>;
 

@@ -332,7 +332,8 @@ export default defineMigration({
         const refused = await egon(args);
         expect(refused.code).toBe(1);
         expect(refused.stderr).toMatch(
-          /^error: migration\.loadFailed: Cannot load the migration file ".*29990101000000_one_way\.ts": defineMigration\(\) was given no down\(\)\. See https:\/\/\S+\n {2}caused by: migration\.missingSteps: defineMigration\(\) was given no down\(\)\. See https:\/\/\S+\n$/,
+          // The egon command prints full messages: the advice is there again.
+          /^error: migration\.loadFailed: Cannot load the migration file ".*29990101000000_one_way\.ts": defineMigration\(\) was given no down\(\)\. The cause is .+ See https:\/\/\S+\n {2}caused by: migration\.missingSteps: defineMigration\(\) was given no down\(\)\. A migration has both up\(m\) and down\(m\); when there is nothing to undo, write down\(\) \{\} with a \/\/ noop comment\. See https:\/\/\S+\n$/,
         );
       }
       expect(await tables()).not.toContain("one_way");

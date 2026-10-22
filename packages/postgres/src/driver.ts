@@ -46,8 +46,9 @@ export const PG_RUNTIME: PgRuntime = {
       return module.default;
     } catch (error) {
       throw new QueryError(
-        'Streaming rows from Postgres needs the "pg-cursor" package, which is not installed. Add it with: pnpm add pg-cursor',
-        error,
+        "query.pgCursorMissing",
+        'Streaming rows from Postgres needs the "pg-cursor" package, which is not installed.',
+        { cause: error },
       );
     }
   },

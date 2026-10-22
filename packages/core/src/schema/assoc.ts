@@ -20,7 +20,7 @@ import type {
   OnReplace,
   SchemaMeta,
 } from "../contracts/schema.js";
-import { SchemaDefinitionError } from "../errors.js";
+import { type ErrorDetails, type ErrorParams, type IdsOf, SchemaDefinitionError } from "../errors.js";
 import { isPlainObject } from "../internal/plain-object.js";
 import { definedOnPrototype, describe, isSchema } from "./guards.js";
 
@@ -188,7 +188,7 @@ export interface ManyToManySchemaOptions<T, J> extends ManyToManyCommon<T> {
 }
 
 /** The key under which a declaration holds the options it was given. */
-const ASSOC: unique symbol = Symbol.for("egon.assoc");
+const ASSOC: unique symbol = /* @__PURE__ */ Symbol.for("egon.assoc");
 
 interface Declaration {
   readonly kind: AssocKind;
@@ -361,8 +361,8 @@ const ON_REPLACE: Readonly<Record<AssocKind, readonly OnReplace[]>> = {
   manyToMany: ["error", "invalid", "delete"],
 };
 
-const NO_KEYS: readonly string[] = Object.freeze([]);
-const NO_ORDER: readonly AssocOrderMeta[] = Object.freeze([]);
+const NO_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze([]);
+const NO_ORDER: readonly AssocOrderMeta[] = /* @__PURE__ */ Object.freeze([]);
 
 const quoted = (names: readonly string[]): string => names.map((name) => `"${name}"`).join(", ");
 
@@ -378,8 +378,8 @@ interface Context {
   readonly metaOf: (schema: AnySchema) => SchemaMeta;
 }
 
-function fail(context: Context, problem: string, cause?: unknown): never {
-  throw new SchemaDefinitionError(`${context.label}: ${problem}`, cause);
+function fail(context: Context, id: IdsOf<"schema">, problem: string, details?: ErrorDetails): never {
+  throw new SchemaDefinitionError(id, `${context.label}: ${problem}`, details);
 }
 
 /** The association declarations of a class and of the classes it extends, nearest first winning. */
@@ -411,12 +411,20 @@ function optionsOf(context: Omit<Context, "options">, declaration: Declaration):
   const raw = declaration[ASSOC] ?? {};
   const full = context as Context;
   if (typeof raw !== "object" || !isPlainObject(raw)) {
-    fail(full, `the options of ${context.kind} must be an object, but got ${describe(raw)}.`);
+    fail(
+      full,
+      "schema.assocOptionsNotObject",
+      `the options of ${context.kind} must be an object, but got ${describe(raw)}.`,
+    );
   }
   const allowed = OPTIONS[context.kind];
   for (const key of Object.keys(raw)) {
     if (!allowed.includes(key)) {
-      fail(full, `${context.kind} has no option "${key}". It takes ${allowed.join(", ")}.`);
+      fail(
+        full,
+        "schema.assocUnknownOption",
+        `${context.kind} has no option "${key}". It takes ${allowed.join(", ")}.`,
+      );
     }
   }
   return { ...context, options: raw as Readonly<Record<string, unknown>> };
@@ -427,7 +435,9 @@ function targetOf(context: Context, thunk: unknown, role = "target"): [AnySchema
   if (typeof thunk !== "function" || isSchema(thunk)) {
     fail(
       context,
-      `the ${role} must be given as a function that returns the class, so that classes can refer to each other: ${example}.`,
+      "schema.assocTargetThunk",
+      `the ${role} must be given as a function that returns the class.`,
+      { params: { example } },
     );
   }
   let target: unknown;
@@ -436,18 +446,25 @@ function targetOf(context: Context, thunk: unknown, role = "target"): [AnySchema
   } catch (cause) {
     fail(
       context,
-      `the function for the ${role} threw (${cause instanceof Error ? cause.message : describe(cause)}). It is called when associations are first used, by which time every schema module must have been loaded.`,
-      cause,
+      "schema.assocTargetThrew",
+      `the function for the ${role} threw (${cause instanceof Error ? cause.message : describe(cause)}).`,
+      { cause },
     );
   }
   if (!isSchema(target)) {
-    fail(context, `the function for the ${role} returned ${describe(target)}, not a schema class.`);
+    fail(
+      context,
+      "schema.assocTargetNotSchema",
+      `the function for the ${role} returned ${describe(target)}, not a schema class.`,
+    );
   }
   const targetMeta = context.metaOf(target);
   if (targetMeta.source === null) {
     fail(
       context,
-      `${targetMeta.name} is an embedded schema and has no table, so it cannot be the ${role} of an association. Declare it as a field: t.embedOne(() => ${targetMeta.name}).`,
+      "schema.assocTargetEmbedded",
+      `${targetMeta.name} is an embedded schema and has no table, so it cannot be the ${role} of an association.`,
+      { params: { name: targetMeta.name } },
     );
   }
   return [target, targetMeta];
@@ -460,23 +477,42 @@ function keyNames(context: Context, option: string, value: unknown): readonly st
     names.length === 0 ||
     names.some((name) => typeof name !== "string" || name === "")
   ) {
-    fail(context, `${option} must be a field name, or an array of field names for a composite key.`);
+    fail(
+      context,
+      "schema.assocKeyOption",
+      `${option} must be a field name, or an array of field names for a composite key.`,
+    );
   }
   return Object.freeze([...(names as string[])]);
 }
 
-/** A stored field of `meta` by name. `role` and `fix` complete the message when it is missing. */
-function storedField(context: Context, meta: SchemaMeta, name: string, role: string, fix: string): FieldMeta {
+/** What a missing field is reported as: one identifier per role, and the values its advice names. */
+interface Missing {
+  readonly id: IdsOf<"schema">;
+  readonly params?: ErrorParams;
+}
+
+/** A stored field of `meta` by name. `role` names it in the message; `missing` is the error when there is none. */
+function storedField(
+  context: Context,
+  meta: SchemaMeta,
+  name: string,
+  role: string,
+  missing: Missing,
+): FieldMeta {
   const field = meta.fieldsByName.get(name);
   if (field === undefined) {
     fail(
       context,
-      `${context.kind} expects the ${role} field "${name}" on ${meta.name}, but ${meta.name} has no such field. ${fix}`,
+      missing.id,
+      `${context.kind} expects the ${role} field "${name}" on ${meta.name}, but ${meta.name} has no such field.`,
+      { params: { field: name, ...missing.params } },
     );
   }
   if (field.virtual) {
     fail(
       context,
+      "schema.assocFieldVirtual",
       `the ${role} field "${name}" of ${meta.name} is virtual, so it is not stored and cannot be part of an association.`,
     );
   }
@@ -487,7 +523,9 @@ function primaryKeyOf(context: Context, meta: SchemaMeta, option: string): reado
   if (meta.primaryKey.length === 0) {
     fail(
       context,
-      `${meta.name} has no primary key, so the field the key points at cannot be guessed. Pass { ${option} }.`,
+      "schema.assocNoPrimaryKey",
+      `${meta.name} has no primary key, so the field the key points at cannot be guessed.`,
+      { params: { option } },
     );
   }
   return Object.freeze(meta.primaryKey.map((field) => field.name));
@@ -511,27 +549,25 @@ function checkPairs(
   foreignKey: readonly string[],
   referencedMeta: SchemaMeta,
   references: readonly string[],
-  foreignKeyFix: string,
+  foreignKeyMissing: Missing,
 ): void {
   if (foreignKey.length !== references.length) {
     fail(
       context,
-      `the foreign key has ${foreignKey.length} field(s) (${quoted(foreignKey)}) but it points at ${references.length} (${quoted(references)} on ${referencedMeta.name}). Give one foreign-key field per referenced field, in the same order.`,
+      "schema.assocKeyCount",
+      `the foreign key has ${foreignKey.length} field(s) (${quoted(foreignKey)}) but it points at ${references.length} (${quoted(references)} on ${referencedMeta.name}).`,
     );
   }
   for (let i = 0; i < foreignKey.length; i++) {
-    const key = storedField(context, holderMeta, foreignKey[i] as string, "foreign key", foreignKeyFix);
-    const referenced = storedField(
-      context,
-      referencedMeta,
-      references[i] as string,
-      "referenced",
-      "Pass { references } with the field the key points at.",
-    );
+    const key = storedField(context, holderMeta, foreignKey[i] as string, "foreign key", foreignKeyMissing);
+    const referenced = storedField(context, referencedMeta, references[i] as string, "referenced", {
+      id: "schema.referencedFieldMissing",
+    });
     if (keyShape(key) !== keyShape(referenced)) {
       fail(
         context,
-        `the foreign key ${holderMeta.name}.${key.name} is of type ${key.type.name}, but ${referencedMeta.name}.${referenced.name}, which it points at, is of type ${referenced.type.name}. Declare both with the same type.`,
+        "schema.assocKeyType",
+        `the foreign key ${holderMeta.name}.${key.name} is of type ${key.type.name}, but ${referencedMeta.name}.${referenced.name}, which it points at, is of type ${referenced.type.name}.`,
       );
     }
   }
@@ -541,7 +577,11 @@ function onReplaceOf(context: Context): OnReplace {
   const value = context.options.onReplace ?? "error";
   const allowed = ON_REPLACE[context.kind];
   if (!allowed.includes(value as OnReplace)) {
-    fail(context, `onReplace must be one of ${quoted(allowed)} for ${context.kind}.`);
+    fail(
+      context,
+      "schema.assocOnReplace",
+      `onReplace must be one of ${quoted(allowed)} for ${context.kind}.`,
+    );
   }
   return value as OnReplace;
 }
@@ -555,12 +595,12 @@ function filterOf(
   const value = context.options[option];
   if (value === undefined) return undefined;
   if (typeof value !== "object" || value === null || !isPlainObject(value)) {
-    fail(context, `${option} must be an object from name to value, such as { published: true }.`);
+    fail(context, "schema.assocWhereOption", `${option} must be an object from name to value.`);
   }
   const filter: Record<string, unknown> = {};
   for (const [key, expected] of Object.entries(value)) {
     if (expected === undefined) {
-      fail(context, `${option}.${key} is undefined. Use null to match NULL, or leave the key out.`);
+      fail(context, "schema.assocWhereUndefined", `${option}.${key} is undefined.`);
     }
     filter[rename(key)] = expected;
   }
@@ -571,27 +611,20 @@ function whereOf(context: Context, targetMeta: SchemaMeta): Readonly<Record<stri
   return filterOf(
     context,
     "where",
-    (key) =>
-      storedField(
-        context,
-        targetMeta,
-        key,
-        "where",
-        "A where condition is written with the target's field names.",
-      ).name,
+    (key) => storedField(context, targetMeta, key, "where", { id: "schema.assocWhereFieldMissing" }).name,
   );
 }
 
 function orderOf(context: Context, targetMeta: SchemaMeta): readonly AssocOrderMeta[] {
   const value = context.options.orderBy;
   if (value === undefined) return NO_ORDER;
-  const problem =
-    'orderBy must be an array of field names or { field: "asc" | "desc" } objects, such as ["createdAt"] or [{ createdAt: "desc" }].';
-  if (!Array.isArray(value)) fail(context, problem);
+  const problem = 'orderBy must be an array of field names or { field: "asc" | "desc" } objects.';
+  if (!Array.isArray(value)) fail(context, "schema.assocOrderBy", problem);
   const order: AssocOrderMeta[] = [];
   const add = (field: unknown, direction: unknown): void => {
-    if (typeof field !== "string" || (direction !== "asc" && direction !== "desc")) fail(context, problem);
-    storedField(context, targetMeta, field, "orderBy", "An order is written with the target's field names.");
+    if (typeof field !== "string" || (direction !== "asc" && direction !== "desc"))
+      fail(context, "schema.assocOrderBy", problem);
+    storedField(context, targetMeta, field, "orderBy", { id: "schema.assocOrderByFieldMissing" });
     order.push(Object.freeze({ field, direction }));
   };
   for (const entry of value as unknown[]) {
@@ -647,14 +680,7 @@ function resolveBelongsTo(context: Context, declaration: Declaration): ResolvedA
     options.references === undefined
       ? primaryKeyOf(context, targetMeta, "references")
       : keyNames(context, "references", options.references);
-  checkPairs(
-    context,
-    ownerMeta,
-    foreignKey,
-    targetMeta,
-    references,
-    `Declare it (${foreignKey[0]}: t.integer()) or pass { foreignKey }.`,
-  );
+  checkPairs(context, ownerMeta, foreignKey, targetMeta, references, { id: "schema.belongsToKeyMissing" });
   return assocMeta(context, {
     target: declaration.target as () => AnySchema,
     ownerKey: foreignKey,
@@ -669,7 +695,9 @@ function resolveHas(context: Context, declaration: Declaration): ResolvedAssoc {
   if (options.foreignKey === undefined) {
     fail(
       context,
-      `${kind} needs { foreignKey }: the field on ${targetMeta.name} that points at ${ownerMeta.name}, as in ${kind}(() => ${targetMeta.name}, { foreignKey: "authorId" }).`,
+      "schema.foreignKeyRequired",
+      `${kind} needs { foreignKey }: the field on ${targetMeta.name} that points at ${ownerMeta.name}.`,
+      { params: { kind, target: targetMeta.name } },
     );
   }
   const foreignKey = keyNames(context, "foreignKey", options.foreignKey);
@@ -677,14 +705,10 @@ function resolveHas(context: Context, declaration: Declaration): ResolvedAssoc {
     options.references === undefined
       ? primaryKeyOf(context, ownerMeta, "references")
       : keyNames(context, "references", options.references);
-  checkPairs(
-    context,
-    targetMeta,
-    foreignKey,
-    ownerMeta,
-    references,
-    `Declare it on ${targetMeta.name} (${foreignKey[0]}: t.integer()) or correct { foreignKey }.`,
-  );
+  checkPairs(context, targetMeta, foreignKey, ownerMeta, references, {
+    id: "schema.hasKeyMissing",
+    params: { target: targetMeta.name },
+  });
   return assocMeta(context, {
     target: declaration.target as () => AnySchema,
     ownerKey: references,
@@ -701,6 +725,7 @@ function singleKey(context: Context, meta: SchemaMeta): FieldMeta {
   if (key === undefined || rest.length > 0) {
     fail(
       context,
+      "schema.manyToManyCompositeKey",
       `manyToMany needs ${meta.name} to have a primary key of exactly one field, because a join table holds one column for each side. ${meta.name} has ${meta.primaryKey.length}.`,
     );
   }
@@ -719,13 +744,17 @@ function joinKeyNames(context: Context, unit: string): { owner: string; target: 
     keys.owner === "" ||
     keys.target === ""
   ) {
-    fail(context, `joinKeys must be { owner, target }, each the name of a ${unit} of the join table.`);
-  }
-  if (keys.owner === keys.target) {
     fail(
       context,
-      `joinKeys.owner and joinKeys.target are both "${keys.owner}". They are two different ${unit}s.`,
+      "schema.joinKeysOption",
+      `joinKeys must be { owner, target }, each the name of a ${unit} of the join table.`,
+      { params: { unit } },
     );
+  }
+  if (keys.owner === keys.target) {
+    fail(context, "schema.joinKeysSame", `joinKeys.owner and joinKeys.target are both "${keys.owner}".`, {
+      params: { unit },
+    });
   }
   return { owner: keys.owner, target: keys.target };
 }
@@ -740,7 +769,9 @@ function joinFieldTo(context: Context, joinMeta: SchemaMeta, side: AnySchema, si
   if (only === undefined || rest.length > 0 || only.ownerKey.length !== 1) {
     fail(
       context,
-      `the join keys cannot be worked out: ${joinMeta.name} declares ${found.length} belongsTo association(s) to ${sideMeta.name} and exactly one, with a single foreign key, is needed. Pass { joinKeys: { owner, target } } with the fields of ${joinMeta.name}.`,
+      "schema.joinKeysAmbiguous",
+      `the join keys cannot be worked out: ${joinMeta.name} declares ${found.length} belongsTo association(s) to ${sideMeta.name} and exactly one, with a single foreign key, is needed.`,
+      { params: { name: joinMeta.name } },
     );
   }
   return only.ownerKey[0] as string;
@@ -758,12 +789,14 @@ function resolveManyToMany(context: Context, declaration: Declaration): Resolved
   let targetColumn: string;
   let joinWhere: Readonly<Record<string, unknown>> | undefined;
   if (typeof through === "string") {
-    if (through === "") fail(context, "joinThrough is an empty string. Give the join table's name.");
+    if (through === "") fail(context, "schema.joinThroughEmpty", "joinThrough is an empty string.");
     const keys = joinKeyNames(context, "column");
     if (keys === undefined) {
       fail(
         context,
-        `manyToMany through the table "${through}" needs joinKeys with that table's column names, as in { joinThrough: "${through}", joinKeys: { owner: "post_id", target: "tag_id" } }: owner is the column that points at ${ownerMeta.name}, target the one that points at ${targetMeta.name}.`,
+        "schema.joinKeysRequired",
+        `manyToMany through the table "${through}" needs joinKeys with that table's column names.`,
+        { params: { through, owner: ownerMeta.name, target: targetMeta.name } },
       );
     }
     joinThrough = Object.freeze({ source: through, schema: undefined, model: undefined });
@@ -773,6 +806,7 @@ function resolveManyToMany(context: Context, declaration: Declaration): Resolved
   } else if (through === undefined) {
     fail(
       context,
+      "schema.joinThroughRequired",
       "manyToMany needs { joinThrough }: the name of the join table (with joinKeys), or a function returning its schema class.",
     );
   } else {
@@ -781,10 +815,12 @@ function resolveManyToMany(context: Context, declaration: Declaration): Resolved
     if (keys === undefined && owner === target) {
       fail(
         context,
-        `${ownerMeta.name} is on both sides of this manyToMany, so the join keys cannot be told apart. Pass { joinKeys: { owner, target } } with the fields of ${joinMeta.name}.`,
+        "schema.joinKeysSelf",
+        `${ownerMeta.name} is on both sides of this manyToMany, so the join keys cannot be told apart.`,
+        { params: { name: joinMeta.name } },
       );
     }
-    const fix = `Pass { joinKeys } with fields of ${joinMeta.name}.`;
+    const fix: Missing = { id: "schema.joinKeyFieldMissing", params: { join: joinMeta.name } };
     const ownerField = storedField(
       context,
       joinMeta,
@@ -806,7 +842,8 @@ function resolveManyToMany(context: Context, declaration: Declaration): Resolved
       if (keyShape(joinField) !== keyShape(key)) {
         fail(
           context,
-          `the join key ${joinMeta.name}.${joinField.name} is of type ${joinField.type.name}, but ${side.name}.${key.name}, which it points at, is of type ${key.type.name}. Declare both with the same type.`,
+          "schema.joinKeyType",
+          `the join key ${joinMeta.name}.${joinField.name} is of type ${joinField.type.name}, but ${side.name}.${key.name}, which it points at, is of type ${key.type.name}.`,
         );
       }
     }
@@ -821,18 +858,15 @@ function resolveManyToMany(context: Context, declaration: Declaration): Resolved
       context,
       "joinWhere",
       (key) =>
-        storedField(
-          context,
-          joinMeta,
-          key,
-          "joinWhere",
-          `A joinWhere condition is written with the field names of ${joinMeta.name}.`,
-        ).column,
+        storedField(context, joinMeta, key, "joinWhere", {
+          id: "schema.joinWhereFieldMissing",
+          params: { join: joinMeta.name },
+        }).column,
     );
   }
 
   const unique = options.unique ?? false;
-  if (typeof unique !== "boolean") fail(context, "unique must be true or false.");
+  if (typeof unique !== "boolean") fail(context, "schema.uniqueOption", "unique must be true or false.");
   return assocMeta(context, {
     target: declaration.target as () => AnySchema,
     ownerKey: Object.freeze([ownerKey.name]),
@@ -855,10 +889,7 @@ function resolveThrough(context: Context, declaration: Declaration): ResolvedAss
   const { options, kind } = context;
   const others = Object.keys(options).filter((key) => key !== "through");
   if (others.length > 0) {
-    fail(
-      context,
-      `through cannot be combined with ${others.join(", ")}: the associations it follows already say how the rows are found.`,
-    );
+    fail(context, "schema.throughCombined", `through cannot be combined with ${others.join(", ")}.`);
   }
   const path = options.through;
   if (
@@ -868,7 +899,9 @@ function resolveThrough(context: Context, declaration: Declaration): ResolvedAss
   ) {
     fail(
       context,
-      `through must be an array of at least two association names to follow, as in ${kind}(() => Comment, { through: ["posts", "comments"] }).`,
+      "schema.throughPath",
+      "through must be an array of at least two association names to follow.",
+      { params: { kind } },
     );
   }
   return assocMeta(context, {
@@ -899,6 +932,7 @@ function checkPath(context: Context, assoc: ResolvedAssoc, path: readonly string
         .filter((name) => current !== context.owner || name !== context.name);
       fail(
         context,
+        "schema.throughUnknownStep",
         `through follows "${step}" on ${currentMeta.name}, but ${currentMeta.name} has no such association. It has: ${known.length === 0 ? "none" : known.join(", ")}.`,
       );
     }
@@ -908,6 +942,7 @@ function checkPath(context: Context, assoc: ResolvedAssoc, path: readonly string
   if (current !== target) {
     fail(
       context,
+      "schema.throughWrongTarget",
       `through [${quoted(path)}] ends at ${currentMeta.name}, but the association is declared with ${context.metaOf(target).name} as its target.`,
     );
   }
@@ -947,25 +982,30 @@ export function resolveAssocs(
     if (ownerMeta.source === null) {
       fail(
         context,
-        `${ownerMeta.name} is an embedded schema: it is stored inside its parent's row and has no table to associate. Move the association to the parent schema.`,
+        "schema.assocOnEmbedded",
+        `${ownerMeta.name} is an embedded schema: it is stored inside its parent's row and has no table to associate.`,
       );
     }
     if (ownerMeta.fieldsByName.has(name)) {
       fail(
         context,
-        `${ownerMeta.name} has a field and an association that are both named "${name}". A preloaded association is a property of the row, so rename one of them (the foreign-key field is usually "${name}Id").`,
+        "schema.assocFieldClash",
+        `${ownerMeta.name} has a field and an association that are both named "${name}".`,
+        { params: { name } },
       );
     }
     if (reservedName(name) || name === "fields") {
       fail(
         context,
-        `"${name}" cannot be the name of an association: "constructor", "__proto__", "toJSON", "fields" and names that start with "$" are reserved. Rename the static member.`,
+        "schema.assocReservedName",
+        `"${name}" cannot be the name of an association: "constructor", "__proto__", "toJSON", "fields" and names that start with "$" are reserved.`,
       );
     }
     if (definedOnPrototype(owner.prototype, name)) {
       fail(
         context,
-        `${ownerMeta.name} defines "${name}" as a getter, method or property of the class, and "${name}" is also an association. A preloaded association is a property of the row, so the class member would hide it or make it impossible to set. Rename one of them.`,
+        "schema.assocShadowedByMember",
+        `${ownerMeta.name} defines "${name}" as a getter, method or property of the class, and "${name}" is also an association.`,
       );
     }
     pending.push([context, declaration]);

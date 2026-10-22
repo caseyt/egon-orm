@@ -94,7 +94,7 @@ export interface AssocRoute {
   readonly mayRepeat: boolean;
 }
 
-const routes = new WeakMap<AssocMeta, AssocRoute>();
+const routes = /* @__PURE__ */ new WeakMap<AssocMeta, AssocRoute>();
 
 /**
  * The route of association `name` of `ownerMeta`, computed once and cached.
@@ -112,6 +112,7 @@ export function routeOf(ownerMeta: SchemaMeta, name: string): AssocRoute {
   if (assoc === undefined) {
     const known = [...ownerMeta.assocs().keys()];
     throw new QueryError(
+      "query.assocUnknown",
       `${ownerMeta.name} has no association "${name}". Its associations are: ${known.length === 0 ? "none" : known.join(", ")}.`,
     );
   }
@@ -405,7 +406,8 @@ export function checkRows(method: string, schema: AnySchema, rows: readonly unkn
     const own = schemaOfRow(row);
     if (own === undefined || meta(own) !== schemaMeta) {
       throw new QueryError(
-        `${method} was given rows of ${schemaMeta.name}, but ${rows.length === 1 ? "the row" : `element ${i}`} is a row of ${own === undefined ? "no schema" : meta(own).name}. Rows of different schemas are preloaded in separate calls.`,
+        "query.preloadMixedRows",
+        `${method} was given rows of ${schemaMeta.name}, but ${rows.length === 1 ? "the row" : `element ${i}`} is a row of ${own === undefined ? "no schema" : meta(own).name}.`,
       );
     }
   }
@@ -465,6 +467,7 @@ export function assoc<S extends AnySchema, const K extends AssocKeys<S>>(
   const targetKey = route.targetMeta.primaryKey;
   if (targetKey.length !== 1) {
     throw new QueryError(
+      "query.throughKey",
       `assoc(${meta(schema).name}, …, "${name}"): ${route.targetMeta.name} needs a primary key of exactly one field to be found through a has-through chain.`,
     );
   }
@@ -556,7 +559,7 @@ export function isLoaded<S extends AnySchema, R extends Row<S>, const K extends 
 // ---------------------------------------------------------------------------
 
 /** The kinds whose values are compared as JavaScript primitives (`===`). */
-const PRIMITIVE_KINDS: ReadonlySet<string> = new Set([
+const PRIMITIVE_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "integer",
   "bigint",
   "float",
@@ -565,7 +568,7 @@ const PRIMITIVE_KINDS: ReadonlySet<string> = new Set([
   "uuid",
 ]);
 /** The kinds held in a `Date`, compared by their time. */
-const DATE_KINDS: ReadonlySet<string> = new Set(["date", "timestamp", "timestamptz", "time"]);
+const DATE_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set(["date", "timestamp", "timestamptz", "time"]);
 
 /**
  * A map from key tuples to values. Every key part is looked up in a `Map` under a
@@ -633,7 +636,7 @@ function primitiveOf(type: AnyFieldType, value: unknown): { readonly found: bool
   return FOUND_NOT;
 }
 
-const HEX = Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));
+const HEX = /* @__PURE__ */ Array.from({ length: 256 }, (_, i) => i.toString(16).padStart(2, "0"));
 
 function hexOf(bytes: Uint8Array): string {
   let out = "";

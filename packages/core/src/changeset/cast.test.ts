@@ -61,7 +61,7 @@ describe("cast: params", () => {
       expect(() => cast(User, params, ["email"])).toThrow(CastError);
     }
     expect(() => cast(User, [], ["email"])).toThrowErrorMatchingInlineSnapshot(
-      `[CastError: cast() expects params to be a plain object (or null or undefined for none), but got an array.]`,
+      `[CastError: cast.paramsNotObject: cast() expects params to be a plain object (or null or undefined for none), but got an array. Pass the params as a plain object, such as a parsed request body; null and undefined count as no params. See https://egon-orm.github.io/egon-orm/reference/errors/cast#cast-paramsnotobject]`,
     );
   });
 
@@ -100,19 +100,19 @@ describe("cast: params", () => {
 describe("cast: permitted fields", () => {
   test("throws for a name that is not a field", () => {
     expect(() => cast(User, {}, ["nickname" as "name"])).toThrowErrorMatchingInlineSnapshot(
-      `[QueryError: cast(): User has no field "nickname". Its fields are: id, email, name, age, role, password, passwordHash, settings, lockVersion, createdAt, updatedAt.]`,
+      `[QueryError: query.changesetFieldUnknown: cast(): User has no field "nickname". Its fields are: id, email, name, age, role, password, passwordHash, settings, lockVersion, createdAt, updatedAt. Name one of the schema's fields; a typo is the usual cause. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-changesetfieldunknown]`,
     );
   });
 
   test("throws for an association, pointing at castAssoc", () => {
     expect(() => cast(Post, {}, ["comments" as "title"])).toThrowErrorMatchingInlineSnapshot(
-      `[QueryError: cast(): "comments" is an association of Post, not a field. Associations are changed through castAssoc and putAssoc.]`,
+      `[QueryError: query.fieldIsAssoc: cast(): "comments" is an association of Post, not a field. Associations are changed through castAssoc and putAssoc. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-fieldisassoc]`,
     );
   });
 
   test("throws for an embed, pointing at castEmbed", () => {
     expect(() => cast(User, { settings: {} }, ["settings"])).toThrowErrorMatchingInlineSnapshot(
-      `[QueryError: cast(): "settings" is an embed. Cast it with castEmbed("settings", …) instead.]`,
+      `[QueryError: query.castEmbed: cast(): "settings" is an embed. Cast it with castEmbed("settings", …) instead. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-castembed]`,
     );
   });
 
@@ -347,7 +347,7 @@ describe("cast: without a schema class", () => {
     expect(() =>
       cast({ data: {}, types: { q: "string" } } as never, {}, []),
     ).toThrowErrorMatchingInlineSnapshot(
-      `[QueryError: The type of the field "q" is not a field type. Give each field a type made with t, as in q: t.string().]`,
+      `[QueryError: query.schemalessFieldType: The type of the field "q" is not a field type. Give each field a type made with t, as in q: t.string(). See https://egon-orm.github.io/egon-orm/reference/errors/query#query-schemalessfieldtype]`,
     );
     expect(() => cast({ data: null, types } as never, {}, [])).toThrow(QueryError);
     expect(() => cast({ data: {}, types: null } as never, {}, [])).toThrow(QueryError);

@@ -305,7 +305,7 @@ Each adapter states what its database can do. A query that needs something missi
 error from the database:
 
 ```
-QueryError: FULL JOIN is not supported by mysql
+QueryError: query.unsupportedFeature: FULL JOIN is not supported by mysql. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-unsupportedfeature
 ```
 
 ## See also

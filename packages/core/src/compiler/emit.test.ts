@@ -409,7 +409,7 @@ describe("dialect clause variants", () => {
     }
     const ast = rebuild(from(User, "u").ast, { lock: { kind: "lock", clause: "FOR UPDATE OF everything" } });
     expect(() => sql(sqlite, ast)).toThrow(
-      'The lock clause "FOR UPDATE OF everything" is not one sqlite accepts as a string; use a fragment.',
+      'query.lockClause: The lock clause "FOR UPDATE OF everything" is not one sqlite accepts as a string.',
     );
   });
 
@@ -429,7 +429,7 @@ describe("dialect clause variants", () => {
     expect(bindParams(plan.slots, ast.params)).toEqual([1]);
     // An unknown lock string is still refused.
     expect(() => sql(sqlite, rebuild(ast, { lock: { kind: "lock", clause: "FOR NOTHING" } }))).toThrow(
-      'The lock clause "FOR NOTHING" is not one sqlite accepts as a string; use a fragment.',
+      'query.lockClause: The lock clause "FOR NOTHING" is not one sqlite accepts as a string.',
     );
   });
 
@@ -615,7 +615,7 @@ describe("refused nodes", () => {
   test("compile() takes a query", () => {
     expect(() =>
       createCompiler(postgresDialect).compile({ kind: "fragment" } as never, "all", undefined),
-    ).toThrow('compile() takes a query: from(User, "u")….');
+    ).toThrow("query.compileArgument: compile() takes a query.");
   });
 });
 

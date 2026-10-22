@@ -387,7 +387,9 @@ describe("pg-cursor", () => {
 
   test("a failed load is tried again next time", async () => {
     const { driver, runtime } = setup();
-    vi.mocked(runtime.loadCursor).mockRejectedValueOnce(new QueryError("missing"));
+    vi.mocked(runtime.loadCursor).mockRejectedValueOnce(
+      new QueryError("query.unsupportedFeature", "missing"),
+    );
     await expect(driver.cursorClass()).rejects.toThrow("missing");
     await expect(driver.cursorClass()).resolves.toBe(FakeCursor);
     expect(runtime.loadCursor).toHaveBeenCalledTimes(2);
@@ -405,7 +407,9 @@ describe("pg-cursor", () => {
     const error = await fresh.loadCursor().catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).name).toBe("QueryError");
-    expect((error as Error).message).toContain("pnpm add pg-cursor");
+    expect((error as Error).message).toContain(
+      'query.pgCursorMissing: Streaming rows from Postgres needs the "pg-cursor" package, which is not installed. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-pgcursormissing',
+    );
   });
 });
 

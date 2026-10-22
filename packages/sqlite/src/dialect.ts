@@ -16,7 +16,7 @@ import type { Capabilities } from "egon-orm";
  * SQLITE_CAPABILITIES.isolationLevels; // []
  * ```
  */
-export const SQLITE_CAPABILITIES: Capabilities = Object.freeze({
+export const SQLITE_CAPABILITIES: Capabilities = /* @__PURE__ */ Object.freeze({
   returning: true,
   onConflict: true,
   conflictTarget: true,
@@ -54,8 +54,8 @@ export const SQLITE_CAPABILITIES: Capabilities = Object.freeze({
   foreignKeyNames: false,
   conflictConstraint: false,
   longIdentifiers: true,
-  lockModes: Object.freeze([]),
-  isolationLevels: Object.freeze([]),
+  lockModes: /* @__PURE__ */ Object.freeze([]),
+  isolationLevels: /* @__PURE__ */ Object.freeze([]),
   savepoints: true,
   ddlTransactions: true,
   stream: true,

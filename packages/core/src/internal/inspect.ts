@@ -59,16 +59,15 @@ const MAX_ENTRIES = 20;
 const MAX_DEPTH = 3;
 
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-const NOTHING_REDACTED: ReadonlySet<string> = new Set();
+const NOTHING_REDACTED: ReadonlySet<string> = /* @__PURE__ */ new Set();
 
 // Built-in accessors and methods, captured once, so that formatting a value never runs
 // a method or getter that the value (or its class) defines in their place.
 const dateTime = Date.prototype.getTime;
 const dateIso = Date.prototype.toISOString;
-const typedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype) as object;
-const byteLength = Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength")?.get as (
-  this: unknown,
-) => number;
+const typedArrayPrototype = /* @__PURE__ */ Object.getPrototypeOf(Uint8Array.prototype) as object;
+const byteLength = /* @__PURE__ */ Object.getOwnPropertyDescriptor(typedArrayPrototype, "byteLength")
+  ?.get as (this: unknown) => number;
 const symbolToString = Symbol.prototype.toString;
 
 /** The value of an own data property; `undefined` for a missing property or an accessor. */
@@ -103,7 +102,7 @@ interface Redaction {
 const EVERYTHING_REDACTED: Redaction = { has: () => true };
 
 /** The redaction per schema metadata object, computed once each. */
-const redactionByMeta = new WeakMap<object, Redaction>();
+const redactionByMeta = /* @__PURE__ */ new WeakMap<object, Redaction>();
 
 /** The redacted names listed by a `fields` array, or `undefined` if any entry is not plain data. */
 function redactedNames(fields: unknown): Set<string> | undefined {

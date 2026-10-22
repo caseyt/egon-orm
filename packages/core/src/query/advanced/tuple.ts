@@ -33,7 +33,7 @@ import {
   type ValueOf,
 } from "../expr.js";
 
-const BOOLEAN = booleanType();
+const BOOLEAN = /* @__PURE__ */ booleanType();
 
 /** A plain value's type widened to its primitive: `tuple(cursor, 10)` holds a `number`, not `10`. */
 type Widen<V> = V extends string
@@ -201,13 +201,12 @@ export class Tuple<V extends readonly unknown[], P = NoParams> {
 export function tuple<const A extends readonly [NonNullable<unknown>, ...NonNullable<unknown>[]]>(
   ...items: A
 ): Tuple<{ -readonly [K in keyof A]: Widen<ValueOf<A[K]>> }, ParamsOfAll<A>> {
-  if (items.length === 0) throw new QueryError("tuple() needs at least one item.");
+  if (items.length === 0) throw new QueryError("query.tupleEmpty", "tuple() needs at least one item.");
   for (const item of items) {
-    if (item === undefined) throw new QueryError("tuple() was given undefined, which is not a value.");
+    if (item === undefined)
+      throw new QueryError("query.tupleUndefined", "tuple() was given undefined, which is not a value.");
     if (item === null) {
-      throw new QueryError(
-        "tuple() was given null. A comparison with null is never true: compare the other items, and test this one with isNull().",
-      );
+      throw new QueryError("query.tupleNull", "tuple() was given null.");
     }
   }
   return new Tuple(items.slice()) as never;
@@ -243,14 +242,12 @@ function cast(expr: AnyExpr, type: AnyFieldType): AnyExpr {
 
 function compare(op: BinaryOp, left: { readonly items: readonly unknown[] }, right: unknown): AnyExpr {
   if (!(right instanceof Tuple)) {
-    throw new QueryError(`${op}() on a tuple takes another tuple: tuple(a, b).${op}(tuple(x, y)).`);
+    throw new QueryError("query.tupleCompare", `${op}() on a tuple takes another tuple.`, { params: { op } });
   }
   const a = left.items;
   const b = right.items as readonly unknown[];
   if (a.length !== b.length) {
-    throw new QueryError(
-      `${op}(): the rows have ${a.length} and ${b.length} items; rows compare position by position, so they need as many.`,
-    );
+    throw new QueryError("query.tupleLength", `${op}(): the rows have ${a.length} and ${b.length} items.`);
   }
   const leftItems: AnyExpr[] = [];
   const rightItems: AnyExpr[] = [];
@@ -261,7 +258,8 @@ function compare(op: BinaryOp, left: { readonly items: readonly unknown[] }, rig
     const yTyped = isExpr(y) && !untyped(y);
     if (!xTyped && !yTyped) {
       throw new QueryError(
-        `${op}(): position ${i + 1} of the rows has no type on either side, so the database would compare it as text. Put a column there, or give one value a type: val(value, t.integer()).`,
+        "query.tupleUntyped",
+        `${op}(): position ${i + 1} of the rows has no type on either side, so the database would compare it as text.`,
       );
     }
     const lx = isExpr(x) ? x : undefined;

@@ -44,10 +44,10 @@ export interface CompilerOptions {
   readonly keyOf?: (node: QueryNode) => number;
 }
 
-const OWN_CONVERSIONS: CodecSource = Object.freeze({ typeOverrides: () => undefined });
+const OWN_CONVERSIONS: CodecSource = /* @__PURE__ */ Object.freeze({ typeOverrides: () => undefined });
 
 /** Numbers each schema's metadata for the write-plan keys; the numbers never reach SQL. */
-const metaIds = new WeakMap<SchemaMeta, number>();
+const metaIds = /* @__PURE__ */ new WeakMap<SchemaMeta, number>();
 let nextMetaId = 1;
 
 function metaId(meta: SchemaMeta): number {
@@ -139,9 +139,10 @@ export class Compiler {
   ): CompiledQuery {
     const analyze = options.analyze ?? false;
     const format = options.format;
-    if (typeof analyze !== "boolean") throw new QueryError("explain's analyze option is true or false.");
+    if (typeof analyze !== "boolean")
+      throw new QueryError("query.explainAnalyze", "explain's analyze option is true or false.");
     if (format !== undefined && format !== "text" && format !== "json") {
-      throw new QueryError('explain\'s format option is "text" or "json".');
+      throw new QueryError("query.explainFormat", 'explain\'s format option is "text" or "json".');
     }
     const key = `${analyze ? "a" : ""}:${format ?? ""}`;
     const base = this.compile(ast, operation, schema);
@@ -151,12 +152,20 @@ export class Compiler {
     const parts: string[] = [];
     if (analyze) {
       if (!this.dialect.capabilities.explainOptions)
-        throw new QueryError(`explain's analyze option is not supported by ${this.dialect.name}.`);
+        throw new QueryError(
+          "query.explainAnalyzeUnsupported",
+          `explain's analyze option is not supported by ${this.dialect.name}.`,
+          { params: { dialect: this.dialect.name } },
+        );
       parts.push("analyze");
     }
     if (format !== undefined) {
       if (!this.dialect.capabilities.explainOptions)
-        throw new QueryError(`explain's format option is not supported by ${this.dialect.name}.`);
+        throw new QueryError(
+          "query.explainFormatUnsupported",
+          `explain's format option is not supported by ${this.dialect.name}.`,
+          { params: { dialect: this.dialect.name } },
+        );
       parts.push(`format ${format}`);
     }
     let prefix: string;
@@ -166,7 +175,9 @@ export class Compiler {
         // tree. MySQL 8.4 runs `explain analyze` in the tree format only.
         if (analyze && format === "json") {
           throw new QueryError(
+            "query.explainAnalyzeJson",
             `explain with both analyze and format "json" is not supported by ${this.dialect.name}.`,
+            { params: { dialect: this.dialect.name } },
           );
         }
         prefix = `explain ${analyze ? "analyze " : ""}${format === undefined ? "" : `format=${format === "json" ? "json" : "tree"} `}`;
@@ -205,7 +216,7 @@ export class Compiler {
    */
   compileFragment(node: FragmentNode): CompiledQuery {
     if (typeof node !== "object" || node === null || node.kind !== "fragment") {
-      throw new QueryError("compileFragment() takes a fragment: fragment`select …`.");
+      throw new QueryError("query.compileFragmentArgument", "compileFragment() takes a fragment.");
     }
     const shape = shapeOf(node);
     // A query nested in the fragment may hold lists; where they are expanded, their
@@ -251,7 +262,7 @@ export class Compiler {
     else if (source?.kind === "query") {
       key += `q${source.query.shape}`;
       nodes.push(source.query);
-    } else throw new QueryError("An insert's source is values, cells or a query.");
+    } else throw new QueryError("query.astInsertSource", "An insert's source is values, cells or a query.");
     key += `|${conflictKey(options.onConflict, nodes)}`;
     // Where lists are expanded, the lengths of the lists in the AST parts are part of the SQL.
     if (this.#expands && nodes.length > 0) key += `|l${listLengthsOf(nodes).join(",")}`;
@@ -371,7 +382,7 @@ function exceptOf(update: unknown): readonly FieldMeta[] | undefined {
   return Array.isArray(except) ? (except as readonly FieldMeta[]) : undefined;
 }
 
-const LIST_LENGTHS_UNUSED: readonly number[] = Object.freeze([]);
+const LIST_LENGTHS_UNUSED: readonly number[] = /* @__PURE__ */ Object.freeze([]);
 
 /** The lengths of every list in `nodes`, in canonical order. */
 function listLengthsOf(nodes: readonly QueryNode[]): number[] {
@@ -382,7 +393,7 @@ function listLengthsOf(nodes: readonly QueryNode[]): number[] {
   }
   return lengths;
 }
-const NO_NODES: readonly QueryNode[] = Object.freeze([]);
+const NO_NODES: readonly QueryNode[] = /* @__PURE__ */ Object.freeze([]);
 
 function schemaKey(schema: string | undefined): string {
   return schema === undefined ? "-" : JSON.stringify(schema);
@@ -395,7 +406,8 @@ function fieldsKey(fields: readonly FieldMeta[]): string {
 }
 
 function cellsKey(rows: readonly (readonly InsertCell[])[], nodes: QueryNode[]): string {
-  if (!Array.isArray(rows)) throw new QueryError("An insert of cells needs at least one row.");
+  if (!Array.isArray(rows))
+    throw new QueryError("query.insertNoRows", "An insert of cells needs at least one row.");
   let key = "c";
   for (const row of rows) {
     key += "(";

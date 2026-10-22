@@ -10,6 +10,7 @@ import { postgres, VERSION as postgresVersion } from "@egon-orm/postgres";
 import { sqlite, VERSION as sqliteVersion } from "@egon-orm/sqlite";
 import { VERSION as zodVersion } from "@egon-orm/zod";
 import { createRepo, EgonError, VERSION } from "egon-orm";
+import { explain } from "egon-orm/messages";
 import { defineMigration, MigrationError } from "egon-orm/migration";
 import { createSandbox, expectQueries } from "egon-orm/testing";
 
@@ -50,8 +51,18 @@ const repo = createRepo({ adapter: postgres({ connectionString: "postgres://loca
 assert.equal(typeof (await createSandbox(repo)).begin, "function");
 assert.deepEqual(await expectQueries(repo, () => undefined), []);
 await repo.close();
-// The subpath `egon-orm/migration` shares its classes with the main entry (one build, chunks).
-assert.ok(new MigrationError("x") instanceof EgonError);
+// The subpath `egon-orm/migration` shares its classes with the main entry (one build, one
+// file per module).
+assert.ok(new MigrationError("migration.failed", "x") instanceof EgonError);
+// `egon-orm/messages` explains an error of the main entry: it shares its error module.
+const short = new MigrationError("migration.missingSteps", "defineMigration() was given no down().");
+assert.match(short.message, /^migration\.missingSteps: .+ See https:\/\//);
+assert.match(explain(short), /A migration has both up\(m\) and down\(m\)/);
+assert.deepEqual(JSON.parse(JSON.stringify(short)), {
+  name: "MigrationError",
+  code: "migration",
+  id: "migration.missingSteps",
+});
 assert.equal(defineMigration({ up() {}, down() {} }).transaction, true);
 
 console.log(`esm: egon-orm ${VERSION} (resolved to ${import.meta.resolve("egon-orm")})`);

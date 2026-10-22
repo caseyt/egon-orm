@@ -17,7 +17,7 @@ import type { Capabilities } from "egon-orm";
  * MYSQL_CAPABILITIES.ddlTransactions; // false: DDL commits implicitly
  * ```
  */
-export const MYSQL_CAPABILITIES: Capabilities = Object.freeze({
+export const MYSQL_CAPABILITIES: Capabilities = /* @__PURE__ */ Object.freeze({
   returning: false,
   onConflict: true,
   // ON DUPLICATE KEY UPDATE applies to any unique index; none can be named.
@@ -54,10 +54,18 @@ export const MYSQL_CAPABILITIES: Capabilities = Object.freeze({
   conflictConstraint: false,
   // MySQL refuses an identifier longer than 64 characters.
   longIdentifiers: false,
-  lockModes: Object.freeze(
-    ["FOR UPDATE", "FOR SHARE"].flatMap((mode) => [mode, `${mode} SKIP LOCKED`, `${mode} NOWAIT`]),
+  lockModes: /* @__PURE__ */ Object.freeze(
+    /* @__PURE__ */ ["FOR UPDATE", "FOR SHARE"].flatMap((mode) => [
+      mode,
+      `${mode} SKIP LOCKED`,
+      `${mode} NOWAIT`,
+    ]),
   ),
-  isolationLevels: Object.freeze(["read committed", "repeatable read", "serializable"] as const),
+  isolationLevels: /* @__PURE__ */ Object.freeze([
+    "read committed",
+    "repeatable read",
+    "serializable",
+  ] as const),
   savepoints: true,
   // A DDL statement commits the transaction it runs in.
   ddlTransactions: false,

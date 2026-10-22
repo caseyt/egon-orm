@@ -126,7 +126,7 @@ describe("normalizeSqliteError", () => {
     const error = normalizeSqliteError(sqliteError("SQLITE_ERROR", 'near "selec": syntax error'), "selec 1");
     expect(error).toMatchObject({ code: "database" });
     expect((error as Error).message).toBe(
-      'The database rejected the statement (SQLITE_ERROR): near "selec": syntax error.',
+      "database.rejected: The database rejected the statement (SQLITE_ERROR): near \"selec\": syntax error. The cause is the driver's error, with the database's full report; error.sql is the statement. Look the SQL state up in the database's documentation. See https://egon-orm.github.io/egon-orm/reference/errors/database#database-rejected",
     );
   });
 
@@ -137,7 +137,7 @@ describe("normalizeSqliteError", () => {
   });
 
   test("anything else is returned unchanged", () => {
-    const egon = new QueryError("mine");
+    const egon = new QueryError("query.unsupportedFeature", "mine");
     const plain = new Error("app");
     const type = new TypeError("not about the database");
     const named = sqliteError("NOT_SQLITE", "x");

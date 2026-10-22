@@ -89,7 +89,9 @@ ones a consumer is most likely to trip over:
   the same two methods, and both are `Executor`s. `ExecuteOptions` carries `slots` (for
   redaction in telemetry), `context` (returned on the event) and `statementName`.
 - `RawResult` has `insertId`. `Connection` has `destroy`.
-- `Adapter.typeOverrides` is a function from a type to a `Codec`, cached per adapter instance.
+- `Adapter.typeOverrides` is a function from a type to a `Codec`, cached per configuration:
+  every adapter made with the same dialect, capabilities, driver codecs and `planCacheSize`
+  shares one (step 21a, with the plan cache).
 - `SchemaMeta.create` takes the row's `RowMeta`; `rowMeta(state, schema)` supplies it and
   `createWith(assocs)` is the factory for rows that carry preloaded associations.
 - `QueryAst` has `params` and `listLengths`; `SelectNode` has `constants`; `CteNode` has

@@ -234,7 +234,7 @@ export function converterOf(type: AnyFieldType): JsonConverter | undefined {
 }
 
 /** The conversion of each field, once chosen; `null` for a field whose value is JSON already. */
-const converters = new WeakMap<FieldMeta, JsonConverter | null>();
+const converters = /* @__PURE__ */ new WeakMap<FieldMeta, JsonConverter | null>();
 
 /**
  * The conversion of `field`'s values ({@link converterOf} of its type), chosen once per field.

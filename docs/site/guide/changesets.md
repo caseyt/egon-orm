@@ -178,7 +178,7 @@ For Zod and other schema validators, see [Validation](/guide/validation).
   embed holds the nested tree), `$base`, and the keys validations add, such as
   `passwordConfirmation` from `validateConfirmation` or a key given to `addError`. A
   misspelt key does not compile. The changeset a write gives back keeps those keys.
-  Name the type with `ErrorMessages<typeof cs>`, or `ErrorMessages<ReturnType<typeof User.changeset>>`
+  Name the type with `ErrorMessagesOf<typeof cs>`, or `ErrorMessagesOf<ReturnType<typeof User.changeset>>`
   (`ReturnType<typeof cs.errorMessages>` gives the untyped tree).
 - `traverseErrors(cs, fn)` lets you format each error yourself (translation, plurals) and
   descends into [nested changesets](/guide/nested-changesets).

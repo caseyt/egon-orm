@@ -11,6 +11,7 @@ const MODULES = {
   "core/src/index.ts": "egon-orm",
   "core/src/testing.ts": "egon-orm/testing",
   "core/src/migration/index.ts": "egon-orm/migration",
+  "core/src/messages/index.ts": "egon-orm/messages",
   "postgres/src/index.ts": "@egon-orm/postgres",
   "sqlite/src/index.ts": "@egon-orm/sqlite",
   "mysql/src/index.ts": "@egon-orm/mysql",

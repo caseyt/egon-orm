@@ -40,7 +40,7 @@ export type {
   ConfirmationOptions,
   ConstraintOptions,
   ErrorFormatter,
-  ErrorMessages,
+  ErrorMessagesOf,
   ErrorTree,
   ErrorTreeOf,
   FieldName,

@@ -1,6 +1,6 @@
 // Unit tests for matching constraint violations to a changeset's declarations, and for the
 // message of a violation no declaration handles.
-import { Post, User } from "@egon-orm/test-support";
+import { messageText, Post, User } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
 import type { Constraint } from "../contracts/changeset.js";
 import { ConstraintError, type ConstraintViolationType } from "../errors.js";
@@ -195,11 +195,11 @@ describe("the message of an unhandled violation", () => {
   });
 
   test("a name that is not a default name gets the { name } form only", () => {
-    expect(unhandledViolation(cs, violation("unique", "uq_users_email"), "insert").message).toBe(
+    expect(messageText(unhandledViolation(cs, violation("unique", "uq_users_email"), "insert"))).toBe(
       [
         'unique constraint "uq_users_email" violated on insert into "users".',
         'The changeset has not defined this constraint. Add: .uniqueConstraint("<field>", { name: "uq_users_email" })',
-      ].join("\n"),
+      ].join(" "),
     );
     // Not a column of the table, the bare table prefix, another table.
     for (const name of ["users_nope_key", "users__key", "users_key", "posts_email_key"]) {
@@ -216,13 +216,14 @@ describe("the message of an unhandled violation", () => {
     }) {}
     const project = change(Project, {});
     expect(
-      unhandledViolation(project, violation("unique", "projects_org_id_slug_name_key"), "update").message,
+      messageText(
+        unhandledViolation(project, violation("unique", "projects_org_id_slug_name_key"), "update"),
+      ),
     ).toBe(
       [
         'unique constraint "projects_org_id_slug_name_key" violated on update of "projects".',
-        'The changeset has not defined this constraint. Add: .uniqueConstraint(["orgId", "slugName"])',
-        '(or .uniqueConstraint(["orgId", "slugName"], { name: "projects_org_id_slug_name_key" }))',
-      ].join("\n"),
+        'The changeset has not defined this constraint. Add: .uniqueConstraint(["orgId", "slugName"])\n(or .uniqueConstraint(["orgId", "slugName"], { name: "projects_org_id_slug_name_key" }))',
+      ].join(" "),
     );
     expect(
       unhandledViolation(project, violation("unique", "projects_org_slug_name_key"), "insert").message,
@@ -315,11 +316,11 @@ describe("the message of an unhandled violation", () => {
     expect(unhandledViolation(cs, violation("exclusion", "users_age_excl"), "insert").message).toContain(
       'Add: .exclusionConstraint("age")\n(or .exclusionConstraint("age", { name: "users_age_excl" }))',
     );
-    expect(unhandledViolation(cs, violation("exclusion", "no_overlap"), "delete").message).toBe(
+    expect(messageText(unhandledViolation(cs, violation("exclusion", "no_overlap"), "delete"))).toBe(
       [
         'exclusion constraint "no_overlap" violated on delete from "users".',
         'The changeset has not defined this constraint. Add: .exclusionConstraint("<field>", { name: "no_overlap" })',
-      ].join("\n"),
+      ].join(" "),
     );
   });
 });

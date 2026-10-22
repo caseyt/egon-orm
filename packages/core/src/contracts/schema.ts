@@ -36,7 +36,7 @@ import type { AnyFieldType } from "./type.js";
  * const source = User[META].source; // "users"
  * ```
  */
-export const META: unique symbol = Symbol.for("egon.meta");
+export const META: unique symbol = /* @__PURE__ */ Symbol.for("egon.meta");
 
 /**
  * The key under which a row holds its {@link RowMeta}: `user[ROW]`. It is the last own
@@ -51,7 +51,7 @@ export const META: unique symbol = Symbol.for("egon.meta");
  * }
  * ```
  */
-export const ROW: unique symbol = Symbol.for("egon.row");
+export const ROW: unique symbol = /* @__PURE__ */ Symbol.for("egon.row");
 
 /**
  * Where a row stands relative to the database.

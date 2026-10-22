@@ -177,13 +177,12 @@ export function sourceColumns(
   const ast = query.ast;
   if (ast.preloads.length > 0) {
     throw new QueryError(
-      `${method}(): the query has preloads, which a query read as a source cannot run: exclude("preload") first.`,
+      "query.sourceWithPreloads",
+      `${method}(): the query has preloads, which a query read as a source cannot run.`,
     );
   }
   if (ast.updates.length > 0) {
-    throw new QueryError(
-      `${method}(): the query has set(…) assignments, an update; only a query that reads can be a source.`,
-    );
+    throw new QueryError("query.sourceIsUpdate", `${method}(): the query has set(…) assignments, an update.`);
   }
   const select = ast.select;
   if (select === undefined) {
@@ -238,12 +237,13 @@ export function sourceColumns(
 
 function refused(method: string, what: string): QueryError {
   return new QueryError(
+    "query.sourceShape",
     `${method}() reads a query as a source, so the query must select an object of expressions or whole rows of a schema; it selects ${what}.`,
   );
 }
 
 /** The aggregates whose value is not made of their argument's values. */
-const COUNTING: ReadonlySet<string> = new Set([
+const COUNTING: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "count",
   "rowNumber",
   "rank",
@@ -253,14 +253,21 @@ const COUNTING: ReadonlySet<string> = new Set([
   "ntile",
 ]);
 /** The functions and operators whose value is made of their arguments' values. */
-const VALUE_FUNCTIONS: ReadonlySet<string> = new Set([
+const VALUE_FUNCTIONS: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "lower",
   "upper",
   "coalesce",
   "arrayAppend",
   "arrayRemove",
 ]);
-const VALUE_OPERATORS: ReadonlySet<string> = new Set(["add", "sub", "mul", "div", "mod", "concat"]);
+const VALUE_OPERATORS: ReadonlySet<string> = /* @__PURE__ */ new Set([
+  "add",
+  "sub",
+  "mul",
+  "div",
+  "mod",
+  "concat",
+]);
 
 /**
  * Whether a selected value carries a redacted field's values, so that values compared with

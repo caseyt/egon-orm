@@ -302,7 +302,7 @@ describe("nested insert", () => {
     const { repo, driver } = setup();
     driver.respond = (sql) =>
       sql.startsWith('insert into "boats"')
-        ? new DatabaseError("boom", { code: "connection" })
+        ? new DatabaseError("database.rejected", "boom", { code: "connection" })
         : sql.startsWith("insert")
           ? { rows: [{ c0: 1 }], rowCount: 1 }
           : {};
@@ -781,13 +781,15 @@ describe("review round 1: repo", () => {
     const odd = Object.create(Object.getPrototypeOf(crew), Object.getOwnPropertyDescriptors(crew));
     Object.defineProperty(odd, "changes", { value: { name: "x", nothing: [] } });
     const error = await rejection(repo.insert(odd));
-    expect((error as Error).message).toMatch(/^repo\.insert\(\): the changeset holds a change of "nothing"/);
+    expect((error as Error).message).toMatch(
+      /^query\.writeUnknownChange: repo\.insert\(\): the changeset holds a change of "nothing"/,
+    );
     const row = loaded(Crew, { id: 1, name: "x" });
     const onRow = change(row).addError("name", "is bad");
     const odder = Object.create(Object.getPrototypeOf(onRow), Object.getOwnPropertyDescriptors(onRow));
     Object.defineProperty(odder, "changes", { value: { name: change(Crew) } });
     expect(((await rejection(repo.update(odder))) as Error).message).toMatch(
-      /^repo\.update\(\): the changeset of Crew/,
+      /^query\.writeNestedNotEmbed: repo\.update\(\): the changeset of Crew/,
     );
   });
 });

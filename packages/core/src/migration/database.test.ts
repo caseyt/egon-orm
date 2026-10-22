@@ -47,7 +47,7 @@ describe("createDatabase and dropDatabase", () => {
 describe("MigrationError", () => {
   test("has its own name and code, and carries the migration and the statement", () => {
     const cause = new Error("driver");
-    const error = new MigrationError("failed", {
+    const error = new MigrationError("migration.failed", "failed", {
       version: 20260101000000,
       migration: "a",
       sql: "select 1",
@@ -63,7 +63,7 @@ describe("MigrationError", () => {
       "select 1",
       cause,
     ]);
-    const bare = new MigrationError("x");
+    const bare = new MigrationError("migration.failed", "x");
     expect([bare.version, bare.migration, bare.sql, bare.cause]).toEqual([
       undefined,
       undefined,

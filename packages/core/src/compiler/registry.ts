@@ -20,7 +20,7 @@ import type { SqlDialect } from "./dialect.js";
  * PRECEDENCE.and < PRECEDENCE.comparison; // true
  * ```
  */
-export const PRECEDENCE = Object.freeze({
+export const PRECEDENCE = /* @__PURE__ */ Object.freeze({
   fragment: 0,
   or: 1,
   and: 2,
@@ -73,7 +73,7 @@ export interface NodeEmitter {
   sameShape(a: never, b: never): boolean;
 }
 
-const BUILT_IN_KINDS: ReadonlySet<string> = new Set<QueryNode["kind"]>([
+const BUILT_IN_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set<QueryNode["kind"]>([
   "column",
   "param",
   "namedParam",
@@ -115,7 +115,7 @@ const BUILT_IN_KINDS: ReadonlySet<string> = new Set<QueryNode["kind"]>([
   "query",
 ]);
 
-const registry = new Map<string, NodeEmitter>();
+const registry = /* @__PURE__ */ new Map<string, NodeEmitter>();
 
 /**
  * Teaches the emitter an expression node kind of its own.
@@ -129,7 +129,7 @@ const registry = new Map<string, NodeEmitter>();
  */
 export function registerNodeEmitter(kind: string, emitter: NodeEmitter): void {
   if (BUILT_IN_KINDS.has(kind) || registry.has(kind)) {
-    throw new QueryError(`The node kind "${kind}" already has an emitter.`);
+    throw new QueryError("query.emitterTwice", `The node kind "${kind}" already has an emitter.`);
   }
   registry.set(kind, emitter);
 }

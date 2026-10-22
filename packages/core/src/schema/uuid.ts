@@ -4,10 +4,12 @@
  * @module
  */
 
-const HEX: readonly string[] = Array.from({ length: 256 }, (_, byte) => (byte + 0x100).toString(16).slice(1));
+const HEX: readonly string[] = /* @__PURE__ */ Array.from({ length: 256 }, (_, byte) =>
+  (byte + 0x100).toString(16).slice(1),
+);
 
 /** Reused between calls: the text is built before the next call can overwrite it. */
-const bytes = new Uint8Array(16);
+const bytes = /* @__PURE__ */ new Uint8Array(16);
 
 /**
  * Generates a UUID of version 7 (RFC 9562): the first 48 bits are the time in

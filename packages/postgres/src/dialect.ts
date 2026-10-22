@@ -13,7 +13,7 @@ import type { Capabilities } from "egon-orm";
  * POSTGRES_CAPABILITIES.returning; // true
  * ```
  */
-export const POSTGRES_CAPABILITIES: Capabilities = Object.freeze({
+export const POSTGRES_CAPABILITIES: Capabilities = /* @__PURE__ */ Object.freeze({
   returning: true,
   onConflict: true,
   conflictTarget: true,
@@ -45,14 +45,18 @@ export const POSTGRES_CAPABILITIES: Capabilities = Object.freeze({
   conflictConstraint: true,
   longIdentifiers: true,
   // Every clause lock() writes: the four modes, each alone or with SKIP LOCKED or NOWAIT.
-  lockModes: Object.freeze(
-    ["FOR UPDATE", "FOR NO KEY UPDATE", "FOR SHARE", "FOR KEY SHARE"].flatMap((mode) => [
+  lockModes: /* @__PURE__ */ Object.freeze(
+    /* @__PURE__ */ ["FOR UPDATE", "FOR NO KEY UPDATE", "FOR SHARE", "FOR KEY SHARE"].flatMap((mode) => [
       mode,
       `${mode} SKIP LOCKED`,
       `${mode} NOWAIT`,
     ]),
   ),
-  isolationLevels: Object.freeze(["read committed", "repeatable read", "serializable"] as const),
+  isolationLevels: /* @__PURE__ */ Object.freeze([
+    "read committed",
+    "repeatable read",
+    "serializable",
+  ] as const),
   savepoints: true,
   ddlTransactions: true,
   stream: true,

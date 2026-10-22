@@ -61,13 +61,13 @@ export const SQLITE_RUNTIME: SqliteRuntime = {
   },
 };
 
-const EMPTY_ROWS: readonly Record<string, unknown>[] = Object.freeze([]);
+const EMPTY_ROWS: readonly Record<string, unknown>[] = /* @__PURE__ */ Object.freeze([]);
 
 /** The statements kept prepared, per handle. Plans repeat their SQL text, so most are found here. */
 const STATEMENT_CACHE_SIZE = 500;
 
-const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
-const MIN_SAFE = BigInt(Number.MIN_SAFE_INTEGER);
+const MAX_SAFE = /* @__PURE__ */ BigInt(Number.MAX_SAFE_INTEGER);
+const MIN_SAFE = /* @__PURE__ */ BigInt(Number.MIN_SAFE_INTEGER);
 
 /**
  * Every integer is read exactly, as a `bigint` (safe integers), and then given back as a

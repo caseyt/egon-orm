@@ -1,0 +1,21 @@
+{
+  "name": "@egon-orm/example-edge-worker",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The reference app as a Cloudflare Worker (nodejs_compat): built with wrangler, run in workerd through Miniflare against Postgres. Never deployed.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "WRANGLER_SEND_METRICS=false wrangler deploy --dry-run --minify --outdir dist",
+    "check": "pnpm run build && node run.mjs"
+  },
+  "dependencies": {
+    "@egon-orm/postgres": "workspace:*",
+    "egon-orm": "workspace:*",
+    "pg": "8.23.1"
+  },
+  "devDependencies": {
+    "miniflare": "4.20260730.0",
+    "wrangler": "4.149.0"
+  }
+}

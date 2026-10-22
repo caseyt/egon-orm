@@ -76,15 +76,19 @@ export interface DdlContext {
   readonly compileFragment: (node: FragmentNode) => CompiledQuery;
 }
 
-const NO_PARAMS: readonly unknown[] = Object.freeze([]);
-const NO_SLOTS: readonly ParamSlot[] = Object.freeze([]);
+const NO_PARAMS: readonly unknown[] = /* @__PURE__ */ Object.freeze([]);
+const NO_SLOTS: readonly ParamSlot[] = /* @__PURE__ */ Object.freeze([]);
 
 function ddl(sql: string): MigrationStatement {
   return { sql, params: NO_PARAMS, slots: NO_SLOTS };
 }
 
 function unsupported(ctx: DdlContext, feature: string): MigrationError {
-  return new MigrationError(`${feature} is not supported by ${ctx.dialect.name}.`);
+  return new MigrationError(
+    "migration.unsupportedFeature",
+    `${feature} is not supported by ${ctx.dialect.name}.`,
+    { params: { dialect: ctx.dialect.name } },
+  );
 }
 
 /**
@@ -242,6 +246,7 @@ export function typeSql(type: TypeSpec, serial: boolean, ctx: DdlContext): strin
     case "custom":
       if (typeof type.sql !== "string" || !CUSTOM_SQL_TYPE.test(type.sql)) {
         throw new MigrationError(
+          "migration.customTypeSql",
           "A custom column type's sql is not a plain type name, so it was not written.",
         );
       }
@@ -286,11 +291,15 @@ function literal(value: unknown, ctx: DdlContext): string {
   switch (typeof value) {
     case "string":
       if (!isLiteralText(value)) {
-        throw new MigrationError("A string constant in DDL cannot hold a NUL character or a lone surrogate.");
+        throw new MigrationError(
+          "migration.stringConstant",
+          "A string constant in DDL cannot hold a NUL character or a lone surrogate.",
+        );
       }
       return ctx.dialect.stringLiteral(value);
     case "number":
-      if (!Number.isFinite(value)) throw new MigrationError("A number constant in DDL must be finite.");
+      if (!Number.isFinite(value))
+        throw new MigrationError("migration.numberConstant", "A number constant in DDL must be finite.");
       return String(value);
     case "bigint":
       return String(value);
@@ -299,6 +308,7 @@ function literal(value: unknown, ctx: DdlContext): string {
     default:
       if (value === null) return "null";
       throw new MigrationError(
+        "migration.constantType",
         "A constant in DDL must be a string, a finite number, a bigint, a boolean or null.",
       );
   }
@@ -308,9 +318,7 @@ function literal(value: unknown, ctx: DdlContext): string {
 function fragmentSql(node: FragmentNode, what: string, ctx: DdlContext): string {
   const plan = ctx.compileFragment(node);
   if (plan.slots.length > 0) {
-    throw new MigrationError(
-      `${what} cannot bind values: DDL takes no parameters. Write the constant in the template text, or use fragment.ident() for a name.`,
-    );
+    throw new MigrationError("migration.ddlParams", `${what} cannot bind values: DDL takes no parameters.`);
   }
   return plan.sql;
 }
@@ -324,6 +332,7 @@ function columnDefinition(column: ColumnDef, inlineKey: boolean, ctx: DdlContext
   if (column.primaryKey && inlineKey) sql += ` primary key${column.serial ? ctx.dialect.serialKey : ""}`;
   else if (column.serial && ctx.dialect.serialKey !== "") {
     throw new MigrationError(
+      "migration.generatedKeyAlone",
       `The generated key "${column.name}" must be the table's only key column on ${ctx.dialect.name}.`,
     );
   }
@@ -367,7 +376,9 @@ function alter(ref: TableRef, change: AlterChange, ctx: DdlContext): string {
         // MODIFY COLUMN writes the whole column: what is not given would be lost.
         if (change.notNull === undefined || change.default === undefined) {
           throw new MigrationError(
-            `${ctx.dialect.name} changes a column by writing it whole (MODIFY COLUMN): give modify() both notNull and default (null for none) for "${change.column}".`,
+            "migration.modifyWhole",
+            `${ctx.dialect.name} changes a column by writing it whole (MODIFY COLUMN), and modify() of "${change.column}" does not give both notNull and default.`,
+            { params: { column: change.column } },
           );
         }
         let sql = `${head} modify column ${q(change.column)} ${typeSql(change.type, false, ctx)} ${change.notNull ? "not null" : "null"}`;
@@ -389,7 +400,8 @@ function indexMethod(using: string, ctx: DdlContext): string {
   const method = ctx.dialect.features.indexMethods.find((name) => name === using.toLowerCase());
   if (method === undefined) {
     throw new MigrationError(
-      `The index method "${using}" is not one ${ctx.dialect.name} has: use one of ${ctx.dialect.features.indexMethods.join(", ")}.`,
+      "migration.indexMethod",
+      `The index method "${using}" is not one ${ctx.dialect.name} has; it has ${ctx.dialect.features.indexMethods.join(", ")}.`,
     );
   }
   return method;

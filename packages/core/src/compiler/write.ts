@@ -48,13 +48,15 @@ import { resolveTableSchema } from "./plan.js";
  */
 export function insertChunks(rows: number, columns: number, maxParams: number): number[] {
   if (!Number.isSafeInteger(rows) || rows < 0) {
-    throw new QueryError("An insert's row count is a whole number of zero or more.");
+    throw new QueryError("query.insertRowCount", "An insert's row count is a whole number of zero or more.");
   }
   const perRow = Math.max(columns, 1);
   const fit = Math.floor(maxParams / perRow);
   if (fit < 1) {
     throw new QueryError(
+      "query.insertRowTooWide",
       `One row of ${columns} values is more than the ${maxParams} parameters a statement may have.`,
+      { params: { maxParams } },
     );
   }
   let largest = 1;
@@ -99,10 +101,14 @@ export interface WrittenWrite {
 export function checkFields(meta: SchemaMeta, fields: readonly FieldMeta[], what: string): void {
   for (const field of fields) {
     if (typeof field !== "object" || field === null || meta.fields[field.index] !== field) {
-      throw new QueryError(`${what} holds a field that is not a field of ${meta.name}.`);
+      throw new QueryError(
+        "query.writeUnknownField",
+        `${what} holds a field that is not a field of ${meta.name}.`,
+      );
     }
     if (field.virtual) {
       throw new QueryError(
+        "query.writeVirtualField",
         `${what} holds the virtual field ${meta.name}.${field.name}, which has no column.`,
       );
     }
@@ -115,7 +121,10 @@ function table(
   schema: string | undefined,
 ): { sql: string; schema: string | undefined } {
   if (meta.source === null) {
-    throw new QueryError(`${meta.name} is an embedded schema: it has no table to write to.`);
+    throw new QueryError(
+      "query.writeEmbedded",
+      `${meta.name} is an embedded schema: it has no table to write to.`,
+    );
   }
   const resolved = resolveTableSchema(schema, meta, undefined);
   const name = quoteIdentifier(ctx.dialect, meta.source);
@@ -192,11 +201,12 @@ export function emitInsert(
       sql += insertCells(ctx, columns, source.rows, schema);
       break;
     case "query":
-      if (columns.length === 0) throw new QueryError("An insert from a query needs a column list.");
+      if (columns.length === 0)
+        throw new QueryError("query.insertQueryColumns", "An insert from a query needs a column list.");
       sql += ` (${columnList(ctx, columns)}) ${emitLooseQuery(ctx, source.query, schema)}`;
       break;
     default:
-      throw new QueryError("An insert's source is values, cells or a query.");
+      throw new QueryError("query.astInsertSource", "An insert's source is values, cells or a query.");
   }
   if (options.onConflict !== undefined) {
     sql +=
@@ -215,7 +225,10 @@ function insertValues(
   rows: number,
 ): string {
   if (!Number.isSafeInteger(rows) || rows < 1) {
-    throw new QueryError("An insert of values needs a whole number of rows, at least one.");
+    throw new QueryError(
+      "query.insertValuesRows",
+      "An insert of values needs a whole number of rows, at least one.",
+    );
   }
   if (columns.length === 0) {
     if (rows === 1) {
@@ -228,7 +241,11 @@ function insertValues(
       throw unsupported(ctx.dialect, "DEFAULT in a VALUES list (several rows of defaults)");
     }
     const first = meta.persisted[0];
-    if (first === undefined) throw new QueryError(`${meta.name} has no column to insert defaults into.`);
+    if (first === undefined)
+      throw new QueryError(
+        "query.insertDefaultsNoColumn",
+        `${meta.name} has no column to insert defaults into.`,
+      );
     let text = ` (${quoteIdentifier(ctx.dialect, first.column)}) values `;
     for (let r = 0; r < rows; r++) text += `${r > 0 ? ", " : ""}(default)`;
     return text;
@@ -251,14 +268,18 @@ function insertCells(
   rows: readonly (readonly InsertCell[])[],
   schema: string | undefined,
 ): string {
-  if (columns.length === 0) throw new QueryError("An insert of cells needs a column list.");
+  if (columns.length === 0)
+    throw new QueryError("query.insertCellsColumns", "An insert of cells needs a column list.");
   if (!Array.isArray(rows) || rows.length === 0)
-    throw new QueryError("An insert of cells needs at least one row.");
+    throw new QueryError("query.insertNoRows", "An insert of cells needs at least one row.");
   let text = ` (${columnList(ctx, columns)}) values `;
   for (let r = 0; r < rows.length; r++) {
     const row = rows[r] as readonly InsertCell[];
     if (row.length !== columns.length) {
-      throw new QueryError(`Row ${r} of the insert has ${row.length} cells for ${columns.length} columns.`);
+      throw new QueryError(
+        "query.insertCellsRowLength",
+        `Row ${r} of the insert has ${row.length} cells for ${columns.length} columns.`,
+      );
     }
     text += r > 0 ? ", (" : "(";
     for (let c = 0; c < row.length; c++) {
@@ -282,7 +303,10 @@ function insertCells(
           text += namedValue(ctx, cell.name, field.type, field.redact);
           break;
         default:
-          throw new QueryError(`Unknown insert cell kind "${String((cell as { kind: unknown }).kind)}".`);
+          throw new QueryError(
+            "query.astInsertCell",
+            `Unknown insert cell kind "${String((cell as { kind: unknown }).kind)}".`,
+          );
       }
     }
     text += ")";
@@ -300,13 +324,14 @@ function onConflict(
   if (!ctx.dialect.capabilities.onConflict) throw unsupported(ctx.dialect, "onConflict");
   if (conflict === "nothing") return " on conflict do nothing";
   if (typeof conflict !== "object" || conflict === null) {
-    throw new QueryError('onConflict is "nothing" or { target, update }.');
+    throw new QueryError("query.onConflictShape", 'onConflict is "nothing" or { target, update }.');
   }
   let text = " on conflict";
   if (conflict.target === undefined) {
     if (ctx.dialect.conflictUpdateNeedsTarget) {
       throw new QueryError(
-        `onConflict with update needs a target on ${ctx.dialect.name}: the conflicting fields, { constraint } or a fragment.`,
+        "query.onConflictTarget",
+        `onConflict with update needs a target on ${ctx.dialect.name}.`,
       );
     }
   } else {
@@ -315,9 +340,7 @@ function onConflict(
   }
   const fields = updatedFields(meta, columns, conflict.update);
   if (fields.length === 0) {
-    throw new QueryError(
-      'onConflict\'s update leaves no column to update; use onConflict: "nothing" instead.',
-    );
+    throw new QueryError("query.onConflictNoUpdate", "onConflict's update leaves no column to update.");
   }
   text += " do update set ";
   for (let i = 0; i < fields.length; i++) {
@@ -351,12 +374,16 @@ function onDuplicateKey(
   if (!ctx.dialect.capabilities.onConflict) throw unsupported(ctx.dialect, "onConflict");
   if (conflict === "nothing") {
     const first = meta.primaryKey[0] ?? columns[0] ?? meta.persisted[0];
-    if (first === undefined) throw new QueryError(`${meta.name} has no column to write onConflict with.`);
+    if (first === undefined)
+      throw new QueryError(
+        "query.onConflictNoColumn",
+        `${meta.name} has no column to write onConflict with.`,
+      );
     const column = quoteIdentifier(ctx.dialect, first.column);
     return ` on duplicate key update ${column} = ${column}`;
   }
   if (typeof conflict !== "object" || conflict === null) {
-    throw new QueryError('onConflict is "nothing" or { target, update }.');
+    throw new QueryError("query.onConflictShape", 'onConflict is "nothing" or { target, update }.');
   }
   if (conflict.target !== undefined && !ctx.dialect.capabilities.conflictTarget) {
     throw unsupported(ctx.dialect, "An onConflict target");
@@ -364,9 +391,7 @@ function onDuplicateKey(
   if (fromQuery) throw unsupported(ctx.dialect, "onConflict with update on an insert from a query");
   const fields = updatedFields(meta, columns, conflict.update);
   if (fields.length === 0) {
-    throw new QueryError(
-      'onConflict\'s update leaves no column to update; use onConflict: "nothing" instead.',
-    );
+    throw new QueryError("query.onConflictNoUpdate", "onConflict's update leaves no column to update.");
   }
   const excluded = quoteIdentifier(ctx.dialect, EXCLUDED);
   let text = ` as ${excluded} on duplicate key update `;
@@ -391,7 +416,8 @@ function conflictTarget(
 ): string {
   if (Array.isArray(target)) {
     const fields = target as readonly FieldMeta[];
-    if (fields.length === 0) throw new QueryError("onConflict's target lists no field.");
+    if (fields.length === 0)
+      throw new QueryError("query.onConflictTargetEmpty", "onConflict's target lists no field.");
     checkFields(meta, fields, "onConflict's target");
     return ` (${columnList(ctx, fields)})`;
   }
@@ -403,7 +429,10 @@ function conflictTarget(
     }
     return ` on constraint ${quoteIdentifier(ctx.dialect, node.constraint)}`;
   }
-  throw new QueryError("onConflict's target is a list of fields, { constraint: name } or a fragment.");
+  throw new QueryError(
+    "query.onConflictTargetShape",
+    "onConflict's target is a list of fields, { constraint: name } or a fragment.",
+  );
 }
 
 function updatedFields(
@@ -419,7 +448,10 @@ function updatedFields(
   }
   const except = (update as { readonly except?: unknown }).except;
   if (!Array.isArray(except))
-    throw new QueryError('onConflict\'s update is "all", a list of fields or { except }.');
+    throw new QueryError(
+      "query.onConflictUpdate",
+      'onConflict\'s update is "all", a list of fields or { except }.',
+    );
   checkFields(meta, except as readonly FieldMeta[], "onConflict's except list");
   return columns.filter((field) => !(except as readonly FieldMeta[]).includes(field));
 }
@@ -444,8 +476,10 @@ export function emitUpdate(
 ): WrittenWrite {
   checkFields(meta, set, "The update's set list");
   checkFields(meta, where, "The update's where list");
-  if (set.length === 0) throw new QueryError("A row update needs at least one field to set.");
-  if (where.length === 0) throw new QueryError("A row update needs at least one field to find the row by.");
+  if (set.length === 0)
+    throw new QueryError("query.updateNoSet", "A row update needs at least one field to set.");
+  if (where.length === 0)
+    throw new QueryError("query.updateNoKey", "A row update needs at least one field to find the row by.");
   const target = table(ctx, meta, schema);
   let sql = `update ${target.sql} set `;
   for (let i = 0; i < set.length; i++) {
@@ -475,7 +509,8 @@ export function emitDelete(
   schema: string | undefined,
 ): WrittenWrite {
   checkFields(meta, where, "The delete's where list");
-  if (where.length === 0) throw new QueryError("A row delete needs at least one field to find the row by.");
+  if (where.length === 0)
+    throw new QueryError("query.deleteNoKey", "A row delete needs at least one field to find the row by.");
   const target = table(ctx, meta, schema);
   const sql = `delete from ${target.sql} where ${equalities(ctx, where)}`;
   const written = returning(ctx, meta, back);

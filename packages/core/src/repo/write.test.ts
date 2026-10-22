@@ -14,6 +14,7 @@ import {
   InvalidChangesetError,
   QueryError,
   StaleEntryError,
+  shortMessageOf,
 } from "../errors.js";
 import {
   caseWhen,
@@ -445,7 +446,7 @@ describe("insert", () => {
   });
 
   test("other database errors are passed through", async () => {
-    const failure = new DatabaseError("down", { code: "connection" });
+    const failure = new DatabaseError("database.rejected", "down", { code: "connection" });
     const { repo, events } = setup(() => failure);
     expect(await rejection(repo.insert(change(Tag, { name: "a" })))).toBe(failure);
     expect(events[0]?.error).toBe(failure);
@@ -829,7 +830,7 @@ describe("update", () => {
     expect(result.success).toBe(false);
     const error = await rejection(env.repo.update(change(user, { email: "b" })));
     expect((error as Error).message).toContain("violated on update of");
-    env.driver.respond = () => new DatabaseError("x");
+    env.driver.respond = () => new DatabaseError("database.rejected", "x");
     expect(await rejection(env.repo.update(change(user, { email: "b" })))).toBeInstanceOf(DatabaseError);
   });
 });
@@ -888,7 +889,7 @@ describe("delete", () => {
     if (result.success) throw new Error("expected a failure");
     expect(result.error.errorMessages()).toEqual({ posts: ["is still associated with this entry"] });
     expect(await rejection(env.repo.delete(user))).toBeInstanceOf(ConstraintError);
-    env.driver.respond = () => new DatabaseError("x");
+    env.driver.respond = () => new DatabaseError("database.rejected", "x");
     expect(await rejection(env.repo.delete(user))).toBeInstanceOf(DatabaseError);
   });
 
@@ -1194,7 +1195,7 @@ describe("insertAll", () => {
   test("a failed acquire is passed on", async () => {
     const small: Capabilities = { ...POSTGRES_CAPABILITIES, maxParams: 1 };
     const env = setup(() => ({ rowCount: 1 }), small);
-    env.driver.gate = Promise.reject(new DatabaseError("no", { code: "connection" }));
+    env.driver.gate = Promise.reject(new DatabaseError("database.rejected", "no", { code: "connection" }));
     env.driver.gate.catch(() => undefined);
     expect(
       await rejection(env.repo.insertAll(Tag, [{ name: "a" }, { name: "b" }], { timeoutMs: 1_000 })),
@@ -1296,7 +1297,7 @@ describe("timeoutMs is one budget for the whole call", () => {
     expect((await env.repo.insertAll(Tag, rows, { timeoutMs: 1_000 })).count).toBe(2);
     // Errors that are not timeouts pass unchanged.
     env.driver.delay = () => 0;
-    const failure = new DatabaseError("no", { code: "connection" });
+    const failure = new DatabaseError("database.rejected", "no", { code: "connection" });
     env.driver.respond = (sql) => (sql.startsWith("insert") ? failure : { rowCount: 1 });
     expect(await rejection(env.repo.insertAll(Tag, rows, { timeoutMs: 1_000 }))).toBe(failure);
   });
@@ -1418,13 +1419,13 @@ describe("insertAll cells, pinned in review round 2", () => {
 
 describe("a value of an integer type that is not a whole number names the field it is written to (owner row 7, status 03)", () => {
   const written = (field: string, type = "t.integer()") =>
-    `The value written to ${field} holds a number that is not a whole number where ${type} is expected. Give it a whole number, or declare the field t.float() or t.decimal() if it holds fractions.`;
+    `query.writeNotWholeNumber: The value written to ${field} holds a number that is not a whole number where ${type} is expected. Give it a whole number, or declare the field t.float() or t.decimal() if it holds fractions. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-writenotwholenumber`;
 
   async function refusal(promise: Promise<unknown>): Promise<QueryError> {
     const error = await rejection(promise);
     expect(error).toBeInstanceOf(QueryError);
     // The error that names the parameter is kept as the cause.
-    expect(((error as Error).cause as Error).message).toMatch(/^Parameter \d+ has the type /);
+    expect(shortMessageOf((error as Error).cause as QueryError)).toMatch(/^Parameter \d+ has the type /);
     return error as QueryError;
   }
 
@@ -1475,7 +1476,9 @@ describe("a value of an integer type that is not a whole number names the field 
       .where(({ p }) => p.views.eq(2.5))
       .set({ published: true });
     const error = await rejection(env.repo.updateAll(where));
-    expect((error as Error).message).toMatch(/^Parameter 2 has the type t\.integer\(\) /);
+    expect((error as Error).message).toMatch(
+      /^query\.paramNotWholeNumber: Parameter 2 has the type t\.integer\(\) /,
+    );
     expect(env.statements).toHaveLength(0);
   });
 });

@@ -97,6 +97,7 @@ test("the public entry point exports exactly these values", () => {
     "timestamps",
     "traverseErrors",
     "tuple",
+    "useFullErrorMessages",
     "val",
   ]);
 });

@@ -153,7 +153,7 @@ describe("up", () => {
     expect(error.sql).toBe('create table "b" ("id" bigserial primary key)');
     expect(error.cause).toBe(failure);
     expect(error.message).toBe(
-      'Migration 20260201000000_create_b failed and was rolled back: relation "b" already exists',
+      'migration.failed: Migration 20260201000000_create_b failed and was rolled back: relation "b" already exists The cause is the database\'s error, and sql the statement that failed. Fix the migration and run it again; what stays applied is said above. See https://egon-orm.github.io/egon-orm/reference/errors/migration#migration-failed',
     );
     expect(fake.versions()).toEqual([V1]);
     expect(fake.work()).toEqual([
@@ -270,7 +270,9 @@ describe("up", () => {
     ];
     const { fake, migrator } = setup(migrations);
     const error = await rejection(migrator.up());
-    expect(error.message).toMatch(/^Migration 20260101000000_bad_index: The index method "rtree"/);
+    expect(error.message).toMatch(
+      /^migration\.buildFailed: Migration 20260101000000_bad_index: The index method "rtree"/,
+    );
     expect(error.version).toBe(V1);
     expect(fake.work()).toEqual([]);
   });
@@ -290,7 +292,9 @@ describe("up", () => {
       },
     ];
     const error = await rejection(setup(migrations).migrator.up());
-    expect(error.message).toBe("Migration 20260101000000_throws: oops");
+    expect(error.message).toBe(
+      "migration.buildFailed: Migration 20260101000000_throws: oops The cause is the error the migration's up() or down() threw while it described its statements; fix the migration. See https://egon-orm.github.io/egon-orm/reference/errors/migration#migration-buildfailed",
+    );
     expect(error.cause).toBe(thrown);
   });
 

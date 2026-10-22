@@ -1,14 +1,19 @@
 /**
  * Every error Egon throws. Each class has a stable `code`, so callers can branch on
  * `error.code` (or use {@link isEgonError}) without depending on `instanceof`, which
- * fails when two copies of the package are loaded.
+ * fails when two copies of the package are loaded. Each message has a stable identifier
+ * of its own, `error.id` (ADR 0007).
  *
- * Messages say what happened, what was expected and how to fix it. They never contain
- * the value of a parameter or of a redacted field.
+ * A message is `<id>: <short sentence> See <docs link>`. The short sentence names what
+ * failed (the schema, field, clause, parameter or SQL state); what to do about it is in
+ * the docs, and in the message as well after `useFullErrorMessages(messages)` with the
+ * catalog of `egon-orm/messages`. Messages never contain the value of a parameter or of a
+ * redacted field.
  *
  * @module
  */
 import type { ChangesetLike } from "./contracts/changeset.js";
+import type { messages } from "./messages/catalog.js";
 
 /**
  * The stable codes of the error classes. {@link DatabaseError} has several, one per kind
@@ -55,34 +60,253 @@ export type DatabaseErrorCode =
   | "aborted"
   | "timeout";
 
+/**
+ * The identifier of every message Egon throws, such as `"query.aliasTaken"`: a namespace
+ * for the error class and a name, or the class's `code` alone for a class with one
+ * message (`"noResults"`). It never changes between releases. Each has an entry in the
+ * docs (the link at the end of the message).
+ *
+ * @example
+ * ```ts
+ * if (isEgonError(error) && error.id === "query.aliasTaken") renameAlias();
+ * ```
+ */
+export type ErrorId = keyof typeof messages;
+
+/**
+ * A catalog of full messages: for an identifier, the advice that follows the short
+ * sentence. `{{name}}` in an entry is replaced by the error's parameter of that name.
+ * `egon-orm/messages` exports the catalog in English; a translated or shortened one has
+ * the same shape, and an identifier it leaves out keeps its short message.
+ *
+ * @example
+ * ```ts
+ * const mine: ErrorMessages = { noResults: "Check the id the client sent." };
+ * ```
+ */
+export type ErrorMessages = Readonly<Partial<Record<ErrorId, string>>>;
+
+/**
+ * The values named by `{{name}}` in an identifier's catalog entry. They are values the
+ * short sentence shows already (a clause, a field, an association), never the value of a
+ * query parameter.
+ *
+ * @example
+ * ```ts
+ * const params: ErrorParams = { association: "posts" };
+ * ```
+ */
+export type ErrorParams = Readonly<Record<string, string | number>>;
+
+/**
+ * What an error's constructor takes besides the identifier and the short sentence.
+ *
+ * @example
+ * ```ts
+ * const details: ErrorDetails = { params: { association: "posts" }, cause: driverError };
+ * ```
+ */
+export interface ErrorDetails {
+  /** The values the catalog entry names with `{{name}}`. */
+  readonly params?: ErrorParams | undefined;
+  /** The underlying error, kept as `error.cause`. */
+  readonly cause?: unknown;
+}
+
+/**
+ * The identifiers of one namespace. Internal: for helpers that throw on behalf of their
+ * callers.
+ *
+ * @example
+ * ```ts
+ * function fail(id: IdsOf<"schema">, message: string): never {
+ *   throw new SchemaDefinitionError(id, message);
+ * }
+ * ```
+ */
+export type IdsOf<N extends string> = Extract<ErrorId, `${N}.${string}`>;
+
+/** Where the docs of the identifiers are; the namespace's page and the anchor are appended. */
+const DOCS = "https://egon-orm.github.io/egon-orm/reference/errors/";
+
+/**
+ * The link to an identifier's entry in the docs: one page per namespace (`general` for
+ * the identifiers without one), one anchor per identifier.
+ *
+ * @example
+ * ```ts
+ * docsLink("query.aliasTaken");
+ * // "https://egon-orm.github.io/egon-orm/reference/errors/query#query-aliastaken"
+ * ```
+ */
+export function docsLink(id: ErrorId): string {
+  const dot = id.indexOf(".");
+  return `${DOCS}${dot < 0 ? "general" : id.slice(0, dot)}#${id.replace(".", "-").toLowerCase()}`;
+}
+
+/** The catalog set by {@link useFullErrorMessages}; `null` for short messages (the default). */
+let catalog: ErrorMessages | null = null;
+
+/**
+ * Makes every error constructed from now on carry its full message: the short sentence,
+ * then the advice from `messages` (what to do about it), then the docs link. Pass the
+ * catalog of `egon-orm/messages`, or one of your own with the same shape; `null` turns
+ * short messages back on.
+ *
+ * Call it once, in the first module your application imports: an error constructed
+ * before the call (a schema that fails while its module is imported) keeps its short
+ * message. It applies to everything this copy of `egon-orm` throws, in every repo. It
+ * needs nothing from the runtime (no `process`), so it works on Cloudflare Workers and
+ * Vercel Edge too. The catalog adds its own size to the bundle of an application that
+ * imports it, and nothing to one that does not.
+ *
+ * @example
+ * ```ts
+ * import { useFullErrorMessages } from "egon-orm";
+ * import { messages } from "egon-orm/messages";
+ *
+ * useFullErrorMessages(messages);
+ * ```
+ *
+ * @throws TypeError when `messages` is neither an object nor `null`.
+ */
+export function useFullErrorMessages(messages: ErrorMessages | null): void {
+  if (messages !== null && (typeof messages !== "object" || Array.isArray(messages))) {
+    throw new TypeError(
+      "useFullErrorMessages() takes a catalog of messages, such as the one of egon-orm/messages, or null.",
+    );
+  }
+  catalog = messages;
+}
+
+/** Replaces each `{{name}}` of a catalog entry with the parameter of that name. */
+function fill(advice: string, params: ErrorParams | undefined): string {
+  return advice.replace(/\{\{(\w+)\}\}/g, (placeholder, key: string) =>
+    params !== undefined && Object.hasOwn(params, key) ? String(params[key]) : placeholder,
+  );
+}
+
+/** The message of an error: the identifier, the short sentence, the advice from `from` (when given), the link. */
+function compose(
+  id: ErrorId,
+  short: string,
+  params: ErrorParams | undefined,
+  from: ErrorMessages | null = catalog,
+): string {
+  const gap = short.includes("\n") ? "\n\n" : " ";
+  const advice = from !== null && Object.hasOwn(from, id) ? from[id] : undefined;
+  const text = typeof advice === "string" ? `${short}${gap}${fill(advice, params)}` : short;
+  return `${id}: ${text}${gap}See ${docsLink(id)}`;
+}
+
 /** Marks an error as Egon's across copies of the package (`Symbol.for` is process-wide). */
-const BRAND: unique symbol = Symbol.for("egon.error");
+const BRAND: unique symbol = /* @__PURE__ */ Symbol.for("egon.error");
+
+/** The short sentence and parameters of each error, for {@link shortMessageOf} and {@link rewrap}. */
+const parts = /* @__PURE__ */ new WeakMap<
+  object,
+  { readonly short: string; readonly params: ErrorParams | undefined }
+>();
 
 /**
  * The base class of every error Egon throws.
+ *
+ * `JSON.stringify(error)` gives `{ name, code, id }`: safe to send to a client, and
+ * stable to switch on. The message, the cause and any SQL stay on the server.
  *
  * @example
  * ```ts
  * try {
  *   await work();
  * } catch (error) {
- *   if (error instanceof EgonError) console.error(error.code, error.message);
+ *   if (error instanceof EgonError) console.error(error.id, error.message);
  *   else throw error;
  * }
  * ```
  */
 export abstract class EgonError extends Error {
-  /** A stable, machine-readable identifier. It never changes between releases. */
+  /** A stable, machine-readable code of the error class. It never changes between releases. */
   abstract readonly code: ErrorCode;
+  /** The stable identifier of this message. It never changes between releases. */
+  readonly id: ErrorId;
   readonly [BRAND] = true;
 
   /**
-   * @param message What happened, what was expected, and how to fix it.
-   * @param cause The underlying error, kept as `error.cause`.
+   * @param id The message's identifier.
+   * @param message The short sentence: what failed, without advice.
+   * @param details The catalog entry's parameters, and the underlying error.
    */
-  constructor(message: string, cause?: unknown) {
-    super(message, cause === undefined ? undefined : { cause });
+  constructor(id: ErrorId, message: string, details?: ErrorDetails) {
+    const cause = details?.cause;
+    super(compose(id, message, details?.params), cause === undefined ? undefined : { cause });
+    this.id = id;
+    parts.set(this, { short: message, params: details?.params });
   }
+
+  /**
+   * What `JSON.stringify` writes: the class name, the code and the identifier, and
+   * nothing else (no message, cause or SQL).
+   *
+   * @example
+   * ```ts
+   * JSON.stringify(new NotLoadedError({ schema: "User", association: "posts" }));
+   * // '{"name":"NotLoadedError","code":"notLoaded","id":"notLoaded"}'
+   * ```
+   */
+  toJSON(): { readonly name: string; readonly code: ErrorCode; readonly id: ErrorId } {
+    return { name: this.name, code: this.code, id: this.id };
+  }
+}
+
+/**
+ * The short sentence of an error, without the identifier, the advice or the link.
+ * Internal: for code that adds context to an error it caught.
+ *
+ * @example
+ * ```ts
+ * shortMessageOf(error); // 'join() was given the alias "u", which this query already uses.'
+ * ```
+ */
+export function shortMessageOf(error: EgonError): string {
+  return parts.get(error)?.short ?? error.message;
+}
+
+/**
+ * The full message of an error with the advice of `messages`, whatever
+ * {@link useFullErrorMessages} was told; `undefined` for an error this copy of the package
+ * did not construct, or whose identifier `messages` has no entry for. Internal: what
+ * `explain` of `egon-orm/messages` is built on.
+ *
+ * @example
+ * ```ts
+ * fullMessageOf(error, messages) ?? error.message;
+ * ```
+ */
+export function fullMessageOf(error: EgonError, messages: ErrorMessages): string | undefined {
+  const own = parts.get(error);
+  if (own === undefined || !Object.hasOwn(messages, error.id)) return undefined;
+  return compose(error.id, own.short, own.params, messages);
+}
+
+/**
+ * A new error of the same class as `error`, with the same identifier and parameters, a
+ * changed short sentence, and `error` as its `cause`. Internal: for code that adds
+ * context (the clause it was in) to an error it caught.
+ *
+ * @example
+ * ```ts
+ * throw rewrap(error, (short) => `where(): ${short}`);
+ * ```
+ */
+export function rewrap<E extends QueryError | CastError | SchemaDefinitionError>(
+  error: E,
+  change: (short: string) => string,
+): E {
+  const Kind = error.constructor as new (id: ErrorId, message: string, details?: ErrorDetails) => E;
+  return new Kind(error.id, change(shortMessageOf(error)), {
+    params: parts.get(error)?.params,
+    cause: error,
+  });
 }
 
 /**
@@ -127,10 +351,9 @@ export class NoResultsError extends EgonError {
   readonly query: string | undefined;
 
   constructor(details: { readonly query?: string; readonly cause?: unknown } = {}) {
-    super(
-      `Expected at least one result but got none${inQuery(details.query)}. Use the variant without "OrThrow" (it returns null) if a missing row is not an error.`,
-      details.cause,
-    );
+    super("noResults", `Expected at least one result but got none${inQuery(details.query)}.`, {
+      cause: details.cause,
+    });
     this.query = details.query;
   }
 }
@@ -153,8 +376,9 @@ export class MultipleResultsError extends EgonError {
 
   constructor(details: { readonly count: number; readonly query?: string; readonly cause?: unknown }) {
     super(
-      `Expected at most one result but got ${details.count}${inQuery(details.query)}. Narrow the query until it matches a single row, add limit(1), or use all().`,
-      details.cause,
+      "multipleResults",
+      `Expected at most one result but got ${details.count}${inQuery(details.query)}.`,
+      { cause: details.cause },
     );
     this.count = details.count;
     this.query = details.query;
@@ -199,8 +423,9 @@ export class InvalidChangesetError<C extends ChangesetLike = ChangesetLike> exte
     const listing =
       lines.length === 0 ? "  (the changeset is marked invalid but lists no errors)" : lines.join("\n");
     super(
-      `Could not perform ${details.action} because the changeset is invalid.\n\nErrors:\n${listing}\n\nFix the input, or call the variant without "OrThrow" to get the changeset back as a Result instead of an exception.`,
-      details.cause,
+      "invalidChangeset",
+      `Could not perform ${details.action} because the changeset is invalid.\n\nErrors:\n${listing}`,
+      { cause: details.cause },
     );
     this.action = details.action;
     this.changeset = details.changeset;
@@ -225,10 +450,11 @@ export class StaleEntryError extends EgonError {
 
   constructor(details: { readonly action: string; readonly schema: string; readonly cause?: unknown }) {
     super(
+      "staleEntry",
       `Attempted to ${details.action} a stale ${details.schema} row: no row matched its primary key${
         details.action === "update" ? " and lock version" : ""
-      }. It was deleted or changed since it was loaded. Reload it and try again, or pass allowStale: true to ignore this.`,
-      details.cause,
+      }.`,
+      { cause: details.cause },
     );
     this.action = details.action;
     this.schema = details.schema;
@@ -244,15 +470,6 @@ export class StaleEntryError extends EgonError {
  * ```
  */
 export type ConstraintViolationType = "unique" | "foreignKey" | "check" | "exclusion" | "notNull";
-
-/** The changeset method that turns each kind of violation into a changeset error. */
-const CONSTRAINT_HELP: Record<ConstraintViolationType, string> = {
-  unique: "uniqueConstraint",
-  foreignKey: "foreignKeyConstraint (or noAssocConstraint on the referenced side)",
-  check: "checkConstraint",
-  exclusion: "exclusionConstraint",
-  notNull: "validateRequired",
-};
 
 /**
  * The database rejected a write because of a constraint that the changeset did not
@@ -289,8 +506,10 @@ export class ConstraintError extends EgonError {
     readonly table: string | undefined;
     readonly column: string | undefined;
     readonly detail: string | undefined;
-    /** Replaces the default message (step 13 names the exact call to add). */
+    /** Replaces the default identifier, short sentence and parameters (step 13 names the exact call to add). */
+    readonly id?: IdsOf<"constraint">;
     readonly message?: string;
+    readonly params?: ErrorParams;
     readonly sql?: string;
     readonly cause?: unknown;
   }) {
@@ -301,11 +520,18 @@ export class ConstraintError extends EgonError {
       details.table === undefined
         ? ""
         : ` on table "${details.table}"${details.column === undefined ? "" : `, column "${details.column}"`}`;
-    super(
-      details.message ??
-        `The database rejected the write: ${what} constraint${name}${where} was violated. To report this as a changeset error instead of an exception, call ${CONSTRAINT_HELP[details.type]} on the changeset before the write.`,
-      details.cause,
-    );
+    if (details.message !== undefined) {
+      super(details.id ?? "constraint.violated", details.message, {
+        params: details.params,
+        cause: details.cause,
+      });
+    } else {
+      super(
+        "constraint.violated",
+        `The database rejected the write: ${what} constraint${name}${where} was violated.`,
+        { cause: details.cause },
+      );
+    }
     this.type = details.type;
     this.constraint = details.constraint;
     this.table = details.table;
@@ -322,12 +548,21 @@ export class ConstraintError extends EgonError {
  *
  * @example
  * ```ts
- * throw new QueryError('FULL JOIN is not supported by sqlite. Use a LEFT JOIN, or UNION two LEFT JOINs.');
+ * throw new QueryError("query.fullJoinUnsupported", "FULL JOIN is not supported by sqlite.");
  * ```
  */
 export class QueryError extends EgonError {
   override readonly name = "QueryError" as const;
   readonly code = "query" as const;
+
+  /**
+   * @param id The message's identifier, in the `query` namespace.
+   * @param message The short sentence: what failed, without advice.
+   * @param details The catalog entry's parameters, and the underlying error.
+   */
+  constructor(id: IdsOf<"query">, message: string, details?: ErrorDetails) {
+    super(id, message, details);
+  }
 }
 
 /**
@@ -336,12 +571,21 @@ export class QueryError extends EgonError {
  *
  * @example
  * ```ts
- * throw new CastError('Cannot cast params of type "string" to a changeset: expected a plain object.');
+ * throw new CastError("cast.paramsNotObject", 'Cannot cast params of type "string" to a changeset.');
  * ```
  */
 export class CastError extends EgonError {
   override readonly name = "CastError" as const;
   readonly code = "cast" as const;
+
+  /**
+   * @param id The message's identifier, in the `cast` namespace.
+   * @param message The short sentence: what failed, without advice.
+   * @param details The catalog entry's parameters, and the underlying error.
+   */
+  constructor(id: IdsOf<"cast">, message: string, details?: ErrorDetails) {
+    super(id, message, details);
+  }
 }
 
 /**
@@ -360,10 +604,10 @@ export class NotLoadedError extends EgonError {
   readonly association: string;
 
   constructor(details: { readonly schema: string; readonly association: string; readonly cause?: unknown }) {
-    super(
-      `Association "${details.association}" of ${details.schema} is not loaded. Preload it first: add .preload("${details.association}") to the query, or call repo.preload(rows, "${details.association}").`,
-      details.cause,
-    );
+    super("notLoaded", `Association "${details.association}" of ${details.schema} is not loaded.`, {
+      params: { association: details.association },
+      cause: details.cause,
+    });
     this.schema = details.schema;
     this.association = details.association;
   }
@@ -379,7 +623,7 @@ export class NotLoadedError extends EgonError {
  * try {
  *   await pool.query(sql, params);
  * } catch (cause) {
- *   throw new DatabaseError("Lost the connection to the database while running a statement.", {
+ *   throw new DatabaseError("database.connectionLost", "Lost the connection to the database while running a statement.", {
  *     code: "connection",
  *     sql,
  *     cause,
@@ -394,17 +638,23 @@ export class DatabaseError extends EgonError {
   readonly retryable: boolean;
   readonly sql: string | undefined;
 
+  /**
+   * @param id The message's identifier, in the `database` namespace.
+   * @param message The short sentence: what failed, without advice.
+   * @param details The code, whether a retry can succeed, the statement, the catalog
+   * entry's parameters, and the driver's error.
+   */
   constructor(
+    id: IdsOf<"database">,
     message: string,
-    details: {
+    details: ErrorDetails & {
       readonly code?: DatabaseErrorCode;
       /** Defaults to true for `"serializationFailure"` and `"deadlock"`, false otherwise. */
       readonly retryable?: boolean;
       readonly sql?: string;
-      readonly cause?: unknown;
     } = {},
   ) {
-    super(message, details.cause);
+    super(id, message, details);
     this.code = details.code ?? "database";
     this.retryable = details.retryable ?? (this.code === "serializationFailure" || this.code === "deadlock");
     this.sql = details.sql;
@@ -438,11 +688,19 @@ export class RollbackError<R = unknown> extends EgonError {
   /** Why the transaction was rolled back. */
   readonly reason: R;
 
-  constructor(details: { readonly reason: R; readonly message?: string; readonly cause?: unknown }) {
+  constructor(details: {
+    readonly reason: R;
+    /** Replaces the default identifier and short sentence (`rollback.called`). */
+    readonly id?: IdsOf<"rollback">;
+    readonly message?: string;
+    readonly params?: ErrorParams;
+    readonly cause?: unknown;
+  }) {
     super(
+      details.id ?? "rollback.called",
       details.message ??
-        "The transaction was rolled back: tx.rollback(reason) was called, and the reason is error.reason. Call repo.transaction() instead of transactionOrThrow() to get the reason back as a failed Result.",
-      details.cause,
+        "The transaction was rolled back: tx.rollback(reason) was called, and the reason is error.reason.",
+      { params: details.params, cause: details.cause },
     );
     this.reason = details.reason;
   }
@@ -456,13 +714,23 @@ export class RollbackError<R = unknown> extends EgonError {
  * @example
  * ```ts
  * throw new SchemaDefinitionError(
- *   'Post.author: belongsTo expects the foreign key field "authorId" on Post, but Post has no such field. Declare it (authorId: t.integer()) or pass { foreignKey }.',
+ *   "schema.foreignKeyMissing",
+ *   'Post.author: belongsTo expects the foreign key field "authorId" on Post, but Post has no such field.',
  * );
  * ```
  */
 export class SchemaDefinitionError extends EgonError {
   override readonly name = "SchemaDefinitionError" as const;
   readonly code = "schemaDefinition" as const;
+
+  /**
+   * @param id The message's identifier, in the `schema` namespace.
+   * @param message The short sentence: what failed, without advice.
+   * @param details The catalog entry's parameters, and the underlying error.
+   */
+  constructor(id: IdsOf<"schema">, message: string, details?: ErrorDetails) {
+    super(id, message, details);
+  }
 }
 
 /**
@@ -476,6 +744,7 @@ export class SchemaDefinitionError extends EgonError {
  * @example
  * ```ts
  * throw new MigrationError(
+ *   "migration.noDown",
  *   'Cannot load the migration file "20261012093000_drop_age.ts": defineMigration() was given no down().',
  *   { version: 20261012093000, migration: "drop_age" },
  * );
@@ -491,16 +760,22 @@ export class MigrationError extends EgonError {
   /** The statement that failed, when a statement failed. Parameter values are never attached. */
   readonly sql: string | undefined;
 
+  /**
+   * @param id The message's identifier, in the `migration` namespace.
+   * @param message The short sentence: what failed, without advice.
+   * @param details The migration, the statement, the catalog entry's parameters, and the
+   * underlying error.
+   */
   constructor(
+    id: IdsOf<"migration">,
     message: string,
-    details: {
+    details: ErrorDetails & {
       readonly version?: number;
       readonly migration?: string;
       readonly sql?: string;
-      readonly cause?: unknown;
     } = {},
   ) {
-    super(message, details.cause);
+    super(id, message, details);
     this.version = details.version;
     this.migration = details.migration;
     this.sql = details.sql;

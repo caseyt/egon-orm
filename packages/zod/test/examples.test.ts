@@ -51,7 +51,7 @@ describe("the step's examples", () => {
   test("Yup: its Standard Schema is asynchronous, so the example runs with validateAsync", async () => {
     const cs = cast(User, { email: "not an address" }, ["email"]);
     expect(() => cs.validate(yup.object({ email: yup.string().email().required() }))).toThrow(
-      "validator returned a Promise; use validateAsync",
+      "query.validatorPromise: The validator returned a Promise.",
     );
     const checked = await cs.validateAsync(yup.object({ email: yup.string().email().required() }));
     expect(Object.keys(checked.errors)).toEqual(["email"]);

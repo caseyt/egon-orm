@@ -96,7 +96,7 @@ interface OperatorSpec {
   readonly precedence: number;
 }
 
-const OPERATORS: Readonly<Record<TableOperator, OperatorSpec>> = Object.freeze({
+const OPERATORS: Readonly<Record<TableOperator, OperatorSpec>> = /* @__PURE__ */ Object.freeze({
   eq: { precedence: PRECEDENCE.comparison },
   neq: { precedence: PRECEDENCE.comparison },
   gt: { precedence: PRECEDENCE.comparison },
@@ -118,14 +118,14 @@ const OPERATORS: Readonly<Record<TableOperator, OperatorSpec>> = Object.freeze({
   overlaps: { precedence: PRECEDENCE.other },
 });
 
-const UNARY_PRECEDENCE: Readonly<Record<UnaryOp, number>> = Object.freeze({
+const UNARY_PRECEDENCE: Readonly<Record<UnaryOp, number>> = /* @__PURE__ */ Object.freeze({
   not: PRECEDENCE.not,
   neg: PRECEDENCE.unary,
   isNull: PRECEDENCE.is,
   isNotNull: PRECEDENCE.is,
 });
 
-const JOIN_KEYWORDS: Readonly<Record<JoinType, string>> = Object.freeze({
+const JOIN_KEYWORDS: Readonly<Record<JoinType, string>> = /* @__PURE__ */ Object.freeze({
   inner: "inner join",
   left: "left join",
   right: "right join",
@@ -135,9 +135,15 @@ const JOIN_KEYWORDS: Readonly<Record<JoinType, string>> = Object.freeze({
   leftLateral: "left join lateral",
 });
 
-const DIRECTIONS: Readonly<Record<string, string>> = Object.freeze({ asc: "asc", desc: "desc" });
-const NULLS: Readonly<Record<string, string>> = Object.freeze({ first: "nulls first", last: "nulls last" });
-const SET_OPERATIONS: Readonly<Record<string, string>> = Object.freeze({
+const DIRECTIONS: Readonly<Record<string, string>> = /* @__PURE__ */ Object.freeze({
+  asc: "asc",
+  desc: "desc",
+});
+const NULLS: Readonly<Record<string, string>> = /* @__PURE__ */ Object.freeze({
+  first: "nulls first",
+  last: "nulls last",
+});
+const SET_OPERATIONS: Readonly<Record<string, string>> = /* @__PURE__ */ Object.freeze({
   union: "union",
   intersect: "intersect",
   except: "except",
@@ -255,8 +261,8 @@ export function newContext(dialect: SqlDialect, codecs: CodecSource): EmitContex
 export type EmitContext = Ctx;
 
 /** The built-in integer types, whose values are refused at bind time unless whole (see {@link wholeNumber}). */
-const INTEGER_TYPE: AnyFieldType = integerType();
-const BIGINT_NUMBER_TYPE: AnyFieldType = bigintType({ mode: "number" });
+const INTEGER_TYPE: AnyFieldType = /* @__PURE__ */ integerType();
+const BIGINT_NUMBER_TYPE: AnyFieldType = /* @__PURE__ */ bigintType({ mode: "number" });
 
 /**
  * The conversion of a slot's values: the type's driver conversion, or none for the
@@ -318,7 +324,8 @@ export function namedValue(
   type: AnyFieldType | undefined,
   redact: boolean,
 ): string {
-  if (typeof name !== "string" || name === "") throw new QueryError("A named parameter has no name.");
+  if (typeof name !== "string" || name === "")
+    throw new QueryError("query.astParamName", "A named parameter has no name.");
   return placeholder(ctx, {
     kind: "named",
     name,
@@ -399,7 +406,7 @@ function list(ctx: Ctx, frame: Frame, nodes: readonly ExprNode[], minPrecedence:
 }
 
 function quote(ctx: Ctx, name: string): string {
-  if (typeof name !== "string") throw new QueryError("An identifier is not a string.");
+  if (typeof name !== "string") throw new QueryError("query.astIdentifier", "An identifier is not a string.");
   return quoteIdentifier(ctx.dialect, name);
 }
 
@@ -409,6 +416,7 @@ function literal(value: unknown): string {
   if (value === false) return "false";
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   throw new QueryError(
+    "query.astLiteral",
     "A literal holds something other than true, false, null or a finite number; only those are written into the SQL.",
   );
 }
@@ -426,7 +434,9 @@ function expr(ctx: Ctx, frame: Frame, node: ExprNode): string {
     case "list":
       if (!ctx.dialect.capabilities.arrayParams) {
         throw new QueryError(
+          "query.listParamsUnsupported",
           `A list of values outside in() needs array parameters, which ${ctx.dialect.name} does not have.`,
+          { params: { dialect: ctx.dialect.name } },
         );
       }
       return listValue(ctx, node);
@@ -463,6 +473,7 @@ function expr(ctx: Ctx, frame: Frame, node: ExprNode): string {
       const name = lookup(ctx.dialect.functions, node.name);
       if (name === undefined) {
         throw new QueryError(
+          "query.functionUnknown",
           `The function "${String(node.name)}" is not in the ${ctx.dialect.name} function table.`,
         );
       }
@@ -473,6 +484,7 @@ function expr(ctx: Ctx, frame: Frame, node: ExprNode): string {
     case "ident":
       if (typeof node.name !== "string" || !IDENTIFIER.test(node.name)) {
         throw new QueryError(
+          "query.astIdent",
           "fragment.ident() holds a name that is not an identifier, so it was not written.",
         );
       }
@@ -490,7 +502,7 @@ function expr(ctx: Ctx, frame: Frame, node: ExprNode): string {
     case "exists":
       return `exists (${query(ctx, node.query, frame.scope, frame.schema, "all", "exists", undefined).sql})`;
     case "tuple":
-      if (node.items.length === 0) throw new QueryError("A tuple has no items.");
+      if (node.items.length === 0) throw new QueryError("query.astTupleEmpty", "A tuple has no items.");
       return node.items.length === 1 && ctx.dialect.singleTuple === "row"
         ? `row(${list(ctx, frame, node.items, PRECEDENCE.fragment)})`
         : `(${list(ctx, frame, node.items, PRECEDENCE.fragment)})`;
@@ -498,7 +510,9 @@ function expr(ctx: Ctx, frame: Frame, node: ExprNode): string {
       if (node.expr !== undefined) return expr(ctx, frame, node.expr);
       if (frame.outputs !== undefined && !frame.outputs.has(node.name)) {
         throw new QueryError(
-          `selectedAs("${String(node.name)}") refers to a selected value of that name, and the query selects none. Name one in the select: selectedAs(expr, "${String(node.name)}").`,
+          "query.selectedAsUnknown",
+          `selectedAs("${String(node.name)}") refers to a selected value of that name, and the query selects none.`,
+          { params: { String: String(node.name) } },
         );
       }
       return quote(ctx, node.name);
@@ -518,22 +532,29 @@ function checkColumn(scope: Scope, node: ColumnNode): void {
   const alias = String(node.binding);
   const found = resolveBinding(scope, node.binding);
   if (found === undefined) {
-    throw new QueryError(
-      isHidden(scope, node.binding)
-        ? `The column ${alias}.${String(node.field)} is read by a subquery in FROM or a join from a binding of the same query, "${alias}". That needs a lateral join, which is not supported yet: move the condition to the join's on, or use the subquery in where with exists() or in().`
-        : `The column ${alias}.${String(node.field)} refers to the binding "${alias}", which the query does not have.`,
-    );
+    throw isHidden(scope, node.binding)
+      ? new QueryError(
+          "query.lateralReference",
+          `The column ${alias}.${String(node.field)} is read by a subquery in FROM or a join from a binding of the same query, "${alias}", which needs a lateral join.`,
+        )
+      : new QueryError(
+          "query.unknownBinding",
+          `The column ${alias}.${String(node.field)} refers to the binding "${alias}", which the query does not have.`,
+        );
   }
   const required = OUTER_REFS.get(node);
   if (required === undefined) return;
   if (found.own) {
     throw new QueryError(
-      `outerRef("${alias}", ${required.name}) refers to the binding "${alias}" of an outer query, but the query using it has its own binding "${alias}", which would be read instead. Give one of them another alias.`,
+      "query.outerRefShadowed",
+      `outerRef("${alias}", ${required.name}) refers to the binding "${alias}" of an outer query, but the query using it has its own binding "${alias}", which would be read instead.`,
     );
   }
   if (found.entry.meta !== required) {
     throw new QueryError(
+      "query.outerRefWrongSchema",
       `outerRef("${alias}", ${required.name}) expects the outer binding "${alias}" to be ${required.name}, but it is ${found.entry.meta === undefined ? "a source with no schema" : found.entry.meta.name}.`,
+      { params: { alias, found: found.entry.meta === undefined ? "Schema" : found.entry.meta.name } },
     );
   }
 }
@@ -548,7 +569,8 @@ function outputNames(items: readonly SelectItem[]): ReadonlySet<string> {
 function custom(ctx: Ctx, frame: Frame, node: never): string {
   const kind = (node as { kind: unknown }).kind;
   const emitter = typeof kind === "string" ? registeredEmitter(kind) : undefined;
-  if (emitter === undefined) throw new QueryError(`Unknown expression node kind "${String(kind)}".`);
+  if (emitter === undefined)
+    throw new QueryError("query.astNodeKind", `Unknown expression node kind "${String(kind)}".`);
   const api: EmitApi = {
     dialect: ctx.dialect,
     expr: (inner, minPrecedence) => operand(ctx, frame, inner, minPrecedence),
@@ -565,7 +587,7 @@ function typeName(ctx: Ctx, type: AnyFieldType): string {
 /** The database type of a field type, checked: a hand-built tree may hold anything. */
 function dbTypeOf(type: AnyFieldType): DbType {
   if (typeof type !== "object" || type === null || typeof type.db !== "object" || type.db === null) {
-    throw new QueryError("A cast has no column type to cast to.");
+    throw new QueryError("query.astCastType", "A cast has no column type to cast to.");
   }
   return type.db;
 }
@@ -587,7 +609,7 @@ function unary(ctx: Ctx, frame: Frame, op: UnaryOp, inner: ExprNode): string {
     case "isNotNull":
       return `${operand(ctx, frame, inner, COMPARISON_OPERAND)} is not null`;
     default:
-      throw new QueryError(`Unknown unary operator "${String(op)}".`);
+      throw new QueryError("query.astUnaryOperator", `Unknown unary operator "${String(op)}".`);
   }
 }
 
@@ -606,7 +628,7 @@ function binary(ctx: Ctx, frame: Frame, node: BinaryNode): string {
     return `${element} = any(${array})`;
   }
   const spec = tableOperator(op);
-  if (spec === undefined) throw new QueryError(`Unknown operator "${String(op)}".`);
+  if (spec === undefined) throw new QueryError("query.astOperator", `Unknown operator "${String(op)}".`);
   if (op === "ilike" && !ctx.dialect.capabilities.ilike && !ctx.dialect.ilikeAsLike) {
     throw unsupported(ctx.dialect, "ILIKE");
   }
@@ -686,10 +708,10 @@ function integerQuotient(frame: Frame, left: ExprNode, right: ExprNode): DbType 
 const INTEGER_RANK = 1;
 
 /** The database type of an integer literal, which every database reads as an integer. */
-const INTEGER_LITERAL: DbType = Object.freeze({ kind: "integer" });
+const INTEGER_LITERAL: DbType = /* @__PURE__ */ Object.freeze({ kind: "integer" });
 
 /** The database type of `count`, which every database computes as a 64-bit integer. */
-const COUNT_TYPE: DbType = Object.freeze({ kind: "bigint" });
+const COUNT_TYPE: DbType = /* @__PURE__ */ Object.freeze({ kind: "bigint" });
 
 /**
  * The numeric type the database computes `node` in, as far as the plan says: a column of
@@ -765,7 +787,7 @@ function quotient(ctx: Ctx, integral: DbType | undefined, sql: string): string {
 }
 
 /** The three `LIKE` operators, after whose pattern the dialect may add an `ESCAPE` clause. */
-const LIKES: ReadonlySet<string> = new Set(["like", "notLike", "ilike"]);
+const LIKES: ReadonlySet<string> = /* @__PURE__ */ new Set(["like", "notLike", "ilike"]);
 
 /**
  * Writes a table operator between its two written operands, in the dialect's form:
@@ -939,7 +961,8 @@ function inExpr(ctx: Ctx, frame: Frame, positive: boolean, left: ExprNode, right
 }
 
 function nary(ctx: Ctx, frame: Frame, op: "and" | "or", args: readonly ExprNode[]): string {
-  if (op !== "and" && op !== "or") throw new QueryError(`Unknown boolean operator "${String(op)}".`);
+  if (op !== "and" && op !== "or")
+    throw new QueryError("query.astBooleanOperator", `Unknown boolean operator "${String(op)}".`);
   if (args.length === 0) return op === "and" ? "true" : "false";
   if (args.length === 1) return expr(ctx, frame, args[0] as ExprNode);
   // An `and` inside an `or` gets parentheses although it binds tighter: `(a and b) or c`.
@@ -957,6 +980,7 @@ function aggregate(ctx: Ctx, frame: Frame, node: AggregateNode): string {
   const name = lookup(ctx.dialect.aggregates, node.name);
   if (name === undefined) {
     throw new QueryError(
+      "query.aggregateUnknown",
       `The aggregate "${String(node.name)}" is not in the ${ctx.dialect.name} aggregate table.`,
     );
   }
@@ -975,7 +999,7 @@ function aggregate(ctx: Ctx, frame: Frame, node: AggregateNode): string {
 
 function windowName(ctx: Ctx, name: string): string {
   if (typeof name !== "string" || !IDENTIFIER.test(name)) {
-    throw new QueryError("A window name is not an identifier, so it was not written.");
+    throw new QueryError("query.astWindowName", "A window name is not an identifier, so it was not written.");
   }
   return quote(ctx, name);
 }
@@ -1000,11 +1024,13 @@ function orderList(ctx: Ctx, frame: Frame, nodes: readonly OrderNode[]): string 
 
 function orderItem(ctx: Ctx, frame: Frame, node: OrderNode, written: string | undefined): string {
   const direction = lookup(DIRECTIONS, node.direction);
-  if (direction === undefined) throw new QueryError(`Unknown sort direction "${String(node.direction)}".`);
+  if (direction === undefined)
+    throw new QueryError("query.astSortDirection", `Unknown sort direction "${String(node.direction)}".`);
   let text = `${written ?? operand(ctx, frame, node.expr, PRECEDENCE.fragment)} ${direction}`;
   if (node.nulls !== undefined) {
     const nulls = lookup(NULLS, node.nulls);
-    if (nulls === undefined) throw new QueryError(`Unknown nulls order "${String(node.nulls)}".`);
+    if (nulls === undefined)
+      throw new QueryError("query.astNullsOrder", `Unknown nulls order "${String(node.nulls)}".`);
     if (!ctx.dialect.capabilities.nullsOrder) throw unsupported(ctx.dialect, "NULLS FIRST / NULLS LAST");
     text += ` ${nulls}`;
   }
@@ -1023,7 +1049,10 @@ function orderItem(ctx: Ctx, frame: Frame, node: OrderNode, written: string | un
 function fragment(ctx: Ctx, frame: Frame, node: FragmentNode): string {
   const { strings, args } = node;
   if (!Array.isArray(strings) || strings.length !== args.length + 1) {
-    throw new QueryError("A fragment must have exactly one more string than it has arguments.");
+    throw new QueryError(
+      "query.astFragmentStrings",
+      "A fragment must have exactly one more string than it has arguments.",
+    );
   }
   let text = fragmentString(strings[0]);
   for (let i = 0; i < args.length; i++) {
@@ -1049,7 +1078,8 @@ function fragmentArg(ctx: Ctx, frame: Frame, node: ExprNode): string {
 }
 
 function fragmentString(value: unknown): string {
-  if (typeof value !== "string") throw new QueryError("A fragment's strings must be strings.");
+  if (typeof value !== "string")
+    throw new QueryError("query.astFragmentStringType", "A fragment's strings must be strings.");
   return value;
 }
 
@@ -1079,7 +1109,7 @@ function caseExpr(
   selected: string | undefined,
   typedBySibling: boolean,
 ): string {
-  if (node.whens.length === 0) throw new QueryError("A CASE has no WHEN branch.");
+  if (node.whens.length === 0) throw new QueryError("query.astCaseEmpty", "A CASE has no WHEN branch.");
   const where = selected === undefined ? undefined : `a result of a CASE in ${selected}`;
   // A result with a SQL type (a column, an expression, a typed value) types the others, as
   // a coalesce's arguments do: a bare value or NULL beside it is left to it, and a nested
@@ -1156,7 +1186,7 @@ function selectedValue(
 function textOnlyValue(ctx: Ctx, node: ExprNode & { kind: "param" | "namedParam" }, where: string): string {
   if (node.kind === "namedParam") {
     if (typeof node.name !== "string" || node.name === "")
-      throw new QueryError("A named parameter has no name.");
+      throw new QueryError("query.astParamName", "A named parameter has no name.");
     return placeholder(ctx, { kind: "named", name: node.name, toDb: textOnly(where), redact: node.redact });
   }
   if (node.value !== null && typeof node.value !== "string") throw untypedValue(where, node.value);
@@ -1166,7 +1196,7 @@ function textOnlyValue(ctx: Ctx, node: ExprNode & { kind: "param" | "namedParam"
 }
 
 /** The operators that compare their operands: with neither typed, the database compares text. */
-const COMPARISONS: ReadonlySet<string> = new Set([
+const COMPARISONS: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "eq",
   "neq",
   "gt",
@@ -1180,7 +1210,7 @@ const COMPARISONS: ReadonlySet<string> = new Set([
 ]);
 
 /** The arithmetic operators: with no typed operand, the database cannot choose one. */
-const ARITHMETIC: ReadonlySet<string> = new Set(["add", "sub", "mul", "div", "mod"]);
+const ARITHMETIC: ReadonlySet<string> = /* @__PURE__ */ new Set(["add", "sub", "mul", "div", "mod"]);
 
 /**
  * Whether `node` is a `CASE` or a `coalesce` made only of bound values and `NULL`s (see
@@ -1269,7 +1299,7 @@ function jsonPath(
   path: readonly ExprNode[],
   asText: boolean,
 ): string {
-  if (path.length === 0) throw new QueryError("A JSON path has no keys.");
+  if (path.length === 0) throw new QueryError("query.astJsonPathEmpty", "A JSON path has no keys.");
   const style = ctx.dialect.jsonPath;
   if (style === "pathFunctions") {
     const extracted = `json_extract(${operand(ctx, frame, value, PRECEDENCE.fragment)}, ${pathText(ctx, path)})`;
@@ -1305,10 +1335,11 @@ function pathText(ctx: Ctx, path: readonly ExprNode[]): string {
       steps.push(placeholder(ctx, { kind: "inline", index, toDb: jsonPathStep, redact: key.redact }));
     } else if (key.kind === "namedParam") {
       if (typeof key.name !== "string" || key.name === "")
-        throw new QueryError("A named parameter has no name.");
+        throw new QueryError("query.astParamName", "A named parameter has no name.");
       steps.push(placeholder(ctx, { kind: "named", name: key.name, toDb: jsonPathStep, redact: key.redact }));
     } else {
       throw new QueryError(
+        "query.jsonPathKeyExpression",
         `A key of a JSON path on ${ctx.dialect.name} must be a value (a string or a whole number), not an expression.`,
       );
     }
@@ -1333,6 +1364,7 @@ export function jsonPathStep(key: unknown): string {
   if (typeof key === "string") {
     if (key.includes('"') || key.includes("\\")) {
       throw new QueryError(
+        "query.jsonPathKeyQuote",
         "A key of a JSON path holds a double quote or a backslash, which this database cannot read in a path.",
       );
     }
@@ -1340,7 +1372,7 @@ export function jsonPathStep(key: unknown): string {
   }
   if (typeof key === "number" && Number.isSafeInteger(key) && key >= 0) return `[${key}]`;
   if (typeof key === "bigint" && key >= 0n) return `[${key}]`;
-  throw new QueryError("A key of a JSON path is a string or a whole number from 0.");
+  throw new QueryError("query.jsonPathKey", "A key of a JSON path is a string or a whole number from 0.");
 }
 
 // ---------------------------------------------------------------------------
@@ -1404,7 +1436,8 @@ function starts(ast: QueryAst, base: number): number[] {
   out[PROPERTIES] = position;
   if (position - base !== ast.params.length) {
     throw new QueryError(
-      `The query's params hold ${ast.params.length} values, but its parameter nodes hold ${position - base}. Build queries with from(), or compute params with collectParams.`,
+      "query.astParamCount",
+      `The query's params hold ${ast.params.length} values, but its parameter nodes hold ${position - base}.`,
     );
   }
   return out;
@@ -1428,7 +1461,7 @@ export function emitStatement(
   schema: string | undefined,
 ): Written {
   if (typeof ast !== "object" || ast === null || ast.kind !== "query") {
-    throw new QueryError('compile() takes a query: from(User, "u")….');
+    throw new QueryError("query.compileArgument", "compile() takes a query.");
   }
   return query(ctx, ast, undefined, schema, operation, "statement", undefined);
 }
@@ -1455,10 +1488,10 @@ function query(
     bare: undefined,
   };
   if (operation !== "all" && operation !== "updateAll" && operation !== "deleteAll") {
-    throw new QueryError(`Unknown query operation "${String(operation)}".`);
+    throw new QueryError("query.astOperation", `Unknown query operation "${String(operation)}".`);
   }
   if (operation === "all" && ast.updates.length > 0) {
-    throw new QueryError("The query has set(…) assignments; run it with updateAll.");
+    throw new QueryError("query.updateWithAll", "The query has set(…) assignments.");
   }
   const withClause =
     ast.ctes.length === 0 ? "" : at(ctx, start[CTES] as number, () => ctes(ctx, frame, ast.ctes));
@@ -1502,7 +1535,10 @@ function ctes(ctx: Ctx, frame: Frame, nodes: readonly CteNode[]): string {
       body = written.sql;
     } else {
       if (node.operation !== "all")
-        throw new QueryError(`The CTE "${node.name}" has a fragment body, which can only be read.`);
+        throw new QueryError(
+          "query.cteFragmentBody",
+          `The CTE "${node.name}" has a fragment body, which can only be read.`,
+        );
       body = fragment(ctx, frame, node.query);
     }
     frame.scope.ctes.set(node.name, entry);
@@ -1564,13 +1600,17 @@ function select(
   let result = output;
   if (ast.combinations.length > 0) {
     if (ast.lock !== undefined)
-      throw new QueryError("A row lock cannot be combined with union(), intersect() or except().");
+      throw new QueryError(
+        "query.lockCombined",
+        "A row lock cannot be combined with union(), intersect() or except().",
+      );
     ctx.index = start[COMBINATIONS] as number;
     const parenthesized = ctx.dialect.setOperand === "parenthesized";
     let loose = false;
     for (const combination of ast.combinations) {
       const op = lookup(SET_OPERATIONS, combination.op);
-      if (op === undefined) throw new QueryError(`Unknown set operation "${String(combination.op)}".`);
+      if (op === undefined)
+        throw new QueryError("query.astSetOperation", `Unknown set operation "${String(combination.op)}".`);
       if (combination.all && op !== "union" && !ctx.dialect.capabilities.intersectExceptAll) {
         throw unsupported(ctx.dialect, `${op.toUpperCase()} ALL`);
       }
@@ -1670,6 +1710,7 @@ function combinedOrder(
     const alias = outputAliasOf(node.expr, items);
     if (alias === undefined) {
       throw new QueryError(
+        "query.combinedOrderBy",
         "orderBy() on a query combined with union(), intersect() or except() sorts the combined rows, so it can only use expressions the query selects.",
       );
     }
@@ -1695,7 +1736,8 @@ function outputAliasOf(node: ExprNode, items: readonly SelectItem[]): string | u
     if (!same) continue;
     if (found !== undefined) {
       throw new QueryError(
-        "orderBy() on a query combined with union(), intersect() or except() names an expression the query selects more than once (the same expression with other values counts as the same). Name the one to sort by with selectedAs(…) and order by that name.",
+        "query.combinedOrderByAmbiguous",
+        "orderBy() on a query combined with union(), intersect() or except() names an expression the query selects more than once (the same expression with other values counts as the same).",
       );
     }
     found = item.alias;
@@ -1713,12 +1755,14 @@ function lockClause(ctx: Ctx, frame: Frame, clause: string | FragmentNode): stri
       : undefined;
     if (sql === undefined) {
       throw new QueryError(
-        `The lock clause "${clause}" is not one ${ctx.dialect.name} accepts as a string; use a fragment.`,
+        "query.lockClause",
+        `The lock clause "${clause}" is not one ${ctx.dialect.name} accepts as a string.`,
       );
     }
     return ` ${sql}`;
   }
-  if (clause?.kind !== "fragment") throw new QueryError("A lock is a lock clause or a fragment.");
+  if (clause?.kind !== "fragment")
+    throw new QueryError("query.astLock", "A lock is a lock clause or a fragment.");
   // Not written at all where locks are ignored: writing it would add slots without placeholders.
   return ctx.dialect.ignoresLocks ? "" : ` ${fragment(ctx, frame, clause)}`;
 }
@@ -1735,7 +1779,7 @@ function foldBools(nodes: readonly BoolNode[]): ExprNode {
   for (let i = 1; i < nodes.length; i++) {
     const node = nodes[i] as BoolNode;
     if (node.op !== "and" && node.op !== "or")
-      throw new QueryError(`Unknown boolean operator "${String(node.op)}".`);
+      throw new QueryError("query.astBooleanOperator", `Unknown boolean operator "${String(node.op)}".`);
     if (args !== undefined && accOp === node.op) {
       args.push(node.expr);
     } else {
@@ -1761,13 +1805,15 @@ function source(ctx: Ctx, frame: Frame, node: SourceNode, lateral = false): stri
     case "subquerySource":
       return `(${query(ctx, node.query, lateral ? frame.scope : sourceScope(frame.scope), frame.schema, "all", "source", undefined).sql}) as ${alias}`;
     case "values": {
-      if (node.rows.length === 0) throw new QueryError(`The values source "${node.alias}" has no rows.`);
+      if (node.rows.length === 0)
+        throw new QueryError("query.valuesEmpty", `The values source "${node.alias}" has no rows.`);
       const style = ctx.dialect.valuesSource;
       let text = "(values ";
       for (let r = 0; r < node.rows.length; r++) {
         const row = node.rows[r] as readonly ExprNode[];
         if (row.length !== node.columns.length) {
           throw new QueryError(
+            "query.valuesRowLength",
             `Row ${r} of the values source "${node.alias}" does not have one value per column.`,
           );
         }
@@ -1803,7 +1849,8 @@ function joins(ctx: Ctx, frame: Frame, nodes: readonly JoinNode[]): string {
   let text = "";
   for (const node of nodes) {
     const keyword = lookup(JOIN_KEYWORDS, node.type);
-    if (keyword === undefined) throw new QueryError(`Unknown join kind "${String(node.type)}".`);
+    if (keyword === undefined)
+      throw new QueryError("query.astJoinKind", `Unknown join kind "${String(node.type)}".`);
     if (node.type === "full" && !ctx.dialect.capabilities.fullJoin)
       throw unsupported(ctx.dialect, "FULL JOIN");
     if (
@@ -1815,7 +1862,8 @@ function joins(ctx: Ctx, frame: Frame, nodes: readonly JoinNode[]): string {
     const lateral = node.type === "innerLateral" || node.type === "leftLateral";
     text += ` ${keyword} ${source(ctx, frame, node.source, lateral)}`;
     if (node.type === "cross") {
-      if (node.on !== undefined) throw new QueryError("A cross join has no condition.");
+      if (node.on !== undefined)
+        throw new QueryError("query.astCrossJoinCondition", "A cross join has no condition.");
     } else {
       text += ` on ${node.on === undefined ? "true" : expr(ctx, frame, node.on)}`;
     }
@@ -1834,7 +1882,9 @@ function modify(
 ): string {
   const verb = operation === "updateAll" ? "updateAll" : "deleteAll";
   const refuse = (clause: string): never => {
-    throw new QueryError(`${verb} cannot run a query with ${clause}.`);
+    throw new QueryError("query.writeWithClause", `${verb} cannot run a query with ${clause}.`, {
+      params: { clause, verb },
+    });
   };
   if (ast.distinct !== undefined) refuse("distinct()");
   if (ast.groupBys.length > 0) refuse("groupBy()");
@@ -1848,7 +1898,7 @@ function modify(
   if (ast.hints.length > 0) refuse("table hints");
   if (ast.from.kind !== "table") refuse("a root that is not a table");
   if (operation === "updateAll" && ast.updates.length === 0) {
-    throw new QueryError("updateAll needs set(…) assignments.");
+    throw new QueryError("query.updateAllWithoutSet", "updateAll needs set(…) assignments.");
   }
   if (operation === "deleteAll" && ast.updates.length > 0) refuse("set(…) assignments");
   if (ast.joins.length > 0 && !ctx.dialect.capabilities.updateJoin) {
@@ -1864,6 +1914,7 @@ function modify(
   for (const node of ast.joins) {
     if (node.type !== "inner" && node.type !== "cross") {
       throw new QueryError(
+        "query.writeJoinKind",
         `${verb} can join only with join() or crossJoin(); a ${node.type} join has no meaning there.`,
       );
     }
@@ -1941,7 +1992,8 @@ export function finish(
 ): CompiledQuery {
   if (ctx.slots.length > ctx.dialect.capabilities.maxParams) {
     throw new QueryError(
-      `The statement has ${ctx.slots.length} parameters, more than the ${ctx.dialect.capabilities.maxParams} ${ctx.dialect.name} accepts. Split it into smaller statements.`,
+      "query.tooManyParams",
+      `The statement has ${ctx.slots.length} parameters, more than the ${ctx.dialect.capabilities.maxParams} ${ctx.dialect.name} accepts.`,
     );
   }
   return { sql, slots: ctx.slots, output, schema, decoder: undefined };

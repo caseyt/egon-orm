@@ -3,7 +3,7 @@ import { Comment, Post, User } from "@egon-orm/test-support";
 import { describe, expectTypeOf, test } from "vitest";
 import { createBatch } from "./batch/index.js";
 import { type Changeset, cast, change, traverseErrors } from "./changeset/changeset.js";
-import type { ErrorMessages, ErrorTree, TypedErrorTree } from "./changeset/types.js";
+import type { ErrorMessagesOf, ErrorTree, TypedErrorTree } from "./changeset/types.js";
 import type { Repo } from "./repo/repo.js";
 import { hasMany, Schema, t } from "./schema/index.js";
 
@@ -64,7 +64,9 @@ describe("errorMessages()", () => {
       .errorMessages();
     type Notes = NonNullable<(typeof tree)["notes"]>;
     expectTypeOf<Notes>().toEqualTypeOf<
-      string[] | ErrorMessages<typeof Note>[] | { $errors: string[]; $items: ErrorMessages<typeof Note>[] }
+      | string[]
+      | ErrorMessagesOf<typeof Note>[]
+      | { $errors: string[]; $items: ErrorMessagesOf<typeof Note>[] }
     >();
     const notes = tree.notes;
     if (notes !== undefined && !Array.isArray(notes)) {
@@ -132,7 +134,7 @@ describe("errorMessages()", () => {
     // @ts-expect-error nor to the one the write gives back
     if (!result.success) result.error.errorMessages().passwordConfirmation;
     // @ts-expect-error a schema class has its fields, associations and $base only
-    type _FromClass = ErrorMessages<typeof Account>["passwordConfirmation"];
+    type _FromClass = ErrorMessagesOf<typeof Account>["passwordConfirmation"];
   });
 
   test("the extra keys flow through a batch's failure", async () => {
@@ -152,17 +154,17 @@ describe("errorMessages()", () => {
     await repo.update(loaded);
   });
 
-  test("ErrorMessages takes a changeset type or a schema class", () => {
+  test("ErrorMessagesOf takes a changeset type or a schema class", () => {
     const cs = cast(User, params, ["email", "password"]).validateConfirmation("password");
-    expectTypeOf<ErrorMessages<typeof cs>>().toEqualTypeOf(cs.errorMessages());
-    expectTypeOf<ErrorMessages<typeof cs>>().toEqualTypeOf<
+    expectTypeOf<ErrorMessagesOf<typeof cs>>().toEqualTypeOf(cs.errorMessages());
+    expectTypeOf<ErrorMessagesOf<typeof cs>>().toEqualTypeOf<
       TypedErrorTree<typeof User, "passwordConfirmation", string>
     >();
-    expectTypeOf<ErrorMessages<typeof User>>().toEqualTypeOf<TypedErrorTree<typeof User, never, string>>();
-    const clientSide: ErrorMessages<typeof User> = { email: ["has already been taken"] };
+    expectTypeOf<ErrorMessagesOf<typeof User>>().toEqualTypeOf<TypedErrorTree<typeof User, never, string>>();
+    const clientSide: ErrorMessagesOf<typeof User> = { email: ["has already been taken"] };
     expectTypeOf(clientSide).not.toBeAny();
     // @ts-expect-error a typo is a compile error
-    const typo: ErrorMessages<typeof User> = { emial: ["x"] };
+    const typo: ErrorMessagesOf<typeof User> = { emial: ["x"] };
     expectTypeOf(typo).not.toBeAny();
   });
 

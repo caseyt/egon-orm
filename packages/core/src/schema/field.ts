@@ -119,9 +119,9 @@ export interface FieldState {
 }
 
 /** The key under which a builder holds its {@link FieldState}. Registered, so two copies of the package agree. */
-const FIELD: unique symbol = Symbol.for("egon.field");
+const FIELD: unique symbol = /* @__PURE__ */ Symbol.for("egon.field");
 
-const WRITABLE: ReadonlySet<unknown> = new Set<Writable>(["always", "insert", "never"]);
+const WRITABLE: ReadonlySet<unknown> = /* @__PURE__ */ new Set<Writable>(["always", "insert", "never"]);
 
 /** The builder that `t.<type>()` returns. Its public face is the `FieldBuilder` contract. */
 class Builder<T, F extends FieldFlags> implements FieldBuilder<T, F> {
@@ -140,7 +140,8 @@ class Builder<T, F extends FieldFlags> implements FieldBuilder<T, F> {
   default(value: T | (() => T)): FieldBuilder<T, WithFlag<F, "defaulted">> {
     if (value === undefined) {
       throw new SchemaDefinitionError(
-        "default() needs a value, or a function that returns one. To allow a missing value, use nullable().",
+        "schema.defaultValue",
+        "default() needs a value, or a function that returns one.",
       );
     }
     return new Builder({
@@ -159,7 +160,8 @@ class Builder<T, F extends FieldFlags> implements FieldBuilder<T, F> {
   autogenerate(fn?: () => T): FieldBuilder<T, WithFlag<F, "defaulted">> {
     if (fn !== undefined && typeof fn !== "function") {
       throw new SchemaDefinitionError(
-        "autogenerate() takes a function that returns the value, such as autogenerate(() => crypto.randomUUID()).",
+        "schema.autogenerateFunction",
+        "autogenerate() takes a function that returns the value.",
       );
     }
     const generate = fn ?? defaultGenerator(this[FIELD].type);
@@ -181,7 +183,8 @@ class Builder<T, F extends FieldFlags> implements FieldBuilder<T, F> {
       (json !== undefined && typeof json !== "boolean")
     ) {
       throw new SchemaDefinitionError(
-        "virtual() takes no options, or { json: true } to keep the field in the row's JSON.",
+        "schema.virtualOptions",
+        "virtual() takes no options, or { json: true }.",
       );
     }
     // { json: true } keeps the flag as it is: a redacted field stays out of JSON.
@@ -191,7 +194,8 @@ class Builder<T, F extends FieldFlags> implements FieldBuilder<T, F> {
   column(name: string): FieldBuilder<T, F> {
     if (typeof name !== "string" || name === "") {
       throw new SchemaDefinitionError(
-        'column() needs the column name as a non-empty string: column("pw_hash").',
+        "schema.columnName",
+        "column() needs the column name as a non-empty string.",
       );
     }
     return new Builder({ ...this[FIELD], column: name });
@@ -207,7 +211,10 @@ class Builder<T, F extends FieldFlags> implements FieldBuilder<T, F> {
 
   writable(mode: Writable): FieldBuilder<T, F> {
     if (!WRITABLE.has(mode)) {
-      throw new SchemaDefinitionError('writable() takes "always", "insert" or "never".');
+      throw new SchemaDefinitionError(
+        "schema.writableOption",
+        'writable() takes "always", "insert" or "never".',
+      );
     }
     return new Builder({ ...this[FIELD], writable: mode });
   }
@@ -222,7 +229,8 @@ function defaultGenerator(type: AnyFieldType): () => unknown {
   const now = currentTime(type);
   if (now !== undefined) return now;
   throw new SchemaDefinitionError(
-    `autogenerate() without a function works for t.uuid() (a UUID v7) and for timestamps (the current time). The type ${type.name} has no such value, so pass the function: autogenerate(() => value).`,
+    "schema.autogenerateType",
+    `autogenerate() without a function has no value to make for the type ${type.name}.`,
   );
 }
 
@@ -302,7 +310,10 @@ export function fieldState(value: unknown): FieldState | undefined {
 export function fieldTypeOf(value: unknown): AnyFieldType {
   const state = fieldState(value);
   if (state === undefined) {
-    throw new SchemaDefinitionError("Expected a field type such as t.integer() or t.string().");
+    throw new SchemaDefinitionError(
+      "schema.notFieldTypeValue",
+      "Expected a field type such as t.integer() or t.string().",
+    );
   }
   return state.type;
 }
@@ -315,13 +326,15 @@ function embed(
   // A schema class holds its metadata under META and a thunk does not: `Address` for `() => Address`.
   if (typeof schema !== "function" || META in schema) {
     throw new SchemaDefinitionError(
-      `t.${factory}() takes a function that returns the embedded schema class: t.${factory}(() => Address).`,
+      "schema.embedSchemaThunk",
+      `t.${factory}() takes a function that returns the embedded schema class.`,
     );
   }
   const onReplace = options?.onReplace ?? "error";
   const allowed = factory === "embedOne" ? EMBED_ONE_ON_REPLACE : EMBED_MANY_ON_REPLACE;
   if (!allowed.has(onReplace)) {
     throw new SchemaDefinitionError(
+      "schema.onReplaceOption",
       `t.${factory}(): onReplace must be one of ${[...allowed].map((mode) => `"${mode}"`).join(", ")}.`,
     );
   }
@@ -331,8 +344,13 @@ function embed(
   };
 }
 
-const EMBED_ONE_ON_REPLACE: ReadonlySet<unknown> = new Set(["error", "invalid", "update", "delete"]);
-const EMBED_MANY_ON_REPLACE: ReadonlySet<unknown> = new Set(["error", "invalid", "delete"]);
+const EMBED_ONE_ON_REPLACE: ReadonlySet<unknown> = /* @__PURE__ */ new Set([
+  "error",
+  "invalid",
+  "update",
+  "delete",
+]);
+const EMBED_MANY_ON_REPLACE: ReadonlySet<unknown> = /* @__PURE__ */ new Set(["error", "invalid", "delete"]);
 
 const emptyList = (): unknown[] => [];
 
@@ -412,7 +430,7 @@ export interface FieldTypes {
  *
  * @throws SchemaDefinitionError when a type or a modifier is given something it cannot use.
  */
-export const t: FieldTypes = Object.freeze({
+export const t: FieldTypes = /* @__PURE__ */ Object.freeze({
   string: () => builder(stringType()),
   integer: () => builder(integerType()),
   bigint: (options?: { readonly mode?: "bigint" | "number" }) =>
@@ -432,7 +450,8 @@ export const t: FieldTypes = Object.freeze({
     const state = fieldState(inner);
     if (state === undefined || !isPristine(state)) {
       throw new SchemaDefinitionError(
-        "t.array() takes a field type with no modifiers, such as t.array(t.string()). Put the modifiers on the array: t.array(t.string()).nullable().",
+        "schema.arrayElement",
+        "t.array() takes a field type with no modifiers, such as t.array(t.string()).",
       );
     }
     return builder(arrayType(state.type));
@@ -446,7 +465,8 @@ export const t: FieldTypes = Object.freeze({
   type: (type: AnyFieldType) => {
     if (typeof type !== "object" || type === null || typeof type.cast !== "function") {
       throw new SchemaDefinitionError(
-        "t.type() takes a type made with defineType(): t.type(MoneyType). For a built-in type use its own function, such as t.string().",
+        "schema.typeNotDefined",
+        "t.type() takes a type made with defineType(): t.type(MoneyType).",
       );
     }
     return builder(type);
@@ -522,19 +542,22 @@ export function timestamps<
   ] as const) {
     if (name !== false && (typeof name !== "string" || name === "")) {
       throw new SchemaDefinitionError(
+        "schema.timestampsField",
         `timestamps(): ${option} must be a field name, or false to leave the field out.`,
       );
     }
   }
   if (createdAt === updatedAt && createdAt !== false) {
     throw new SchemaDefinitionError(
-      `timestamps(): createdAt and updatedAt are both named "${String(createdAt)}". Give them different names, or pass false for one.`,
+      "schema.timestampsSameName",
+      `timestamps(): createdAt and updatedAt are both named "${String(createdAt)}".`,
     );
   }
   const state = options.type === undefined ? pristine(timestampType()) : fieldState(options.type);
   const now = state !== undefined && isPristine(state) ? currentTime(state.type) : undefined;
   if (state === undefined || now === undefined) {
     throw new SchemaDefinitionError(
+      "schema.timestampsType",
       "timestamps(): type must be a timestamp type with no modifiers, such as t.timestamp() or t.localTimestamp().",
     );
   }

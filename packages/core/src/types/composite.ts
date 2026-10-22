@@ -72,7 +72,7 @@ function jsonHeight(value: unknown, seen: Map<object, number>, depth: number): n
   return tallest + 1;
 }
 
-const JSON_TYPE = defineType<unknown>({
+const JSON_TYPE = /* @__PURE__ */ defineType<unknown>({
   name: "json",
   db: { kind: "jsonb" },
   cast: (input) => {
@@ -111,7 +111,7 @@ export function jsonType<T = unknown>(): FieldType<T, T> {
 // --- array -------------------------------------------------------------------
 
 /** The element type of every array type, for `resolveCodec`. Not a property: every type has one shape. */
-const arrayElements = new WeakMap<AnyFieldType, AnyFieldType>();
+const arrayElements = /* @__PURE__ */ new WeakMap<AnyFieldType, AnyFieldType>();
 
 /**
  * The element type of an array type made by {@link arrayType}, or `undefined` for any
@@ -150,7 +150,7 @@ export function mapElements(convert: (value: unknown) => unknown): (values: unkn
   };
 }
 
-const arrayOf = parameterized((element: AnyFieldType): AnyFieldType => {
+const arrayOf = /* @__PURE__ */ parameterized((element: AnyFieldType): AnyFieldType => {
   const elementCast = detached(element, "cast");
   const elementEqual = detached(element, "equal");
   const elementFromDb = detached(element, "fromDb");
@@ -264,7 +264,7 @@ interface EnumOptions {
   readonly stored: readonly (string | number)[] | undefined;
 }
 
-const enumWith = parameterized((options: EnumOptions): AnyFieldType => {
+const enumWith = /* @__PURE__ */ parameterized((options: EnumOptions): AnyFieldType => {
   const { keys, stored } = options;
   if (stored === undefined) {
     const members = new Set<unknown>(keys);
@@ -300,7 +300,8 @@ const enumWith = parameterized((options: EnumOptions): AnyFieldType => {
       if (key === undefined) {
         // The value itself is left out: the field may be redacted.
         throw new CastError(
-          `An enum column holds a ${typeof value} that is not one of the enum's stored values (${stored.map((v) => JSON.stringify(v)).join(", ")}). Add it to the enum, or fix the stored data.`,
+          "cast.enumStoredValue",
+          `An enum column holds a ${typeof value} that is not one of the enum's stored values (${stored.map((v) => JSON.stringify(v)).join(", ")}).`,
         );
       }
       return key;
@@ -309,6 +310,7 @@ const enumWith = parameterized((options: EnumOptions): AnyFieldType => {
       const value = storedOf.get(key);
       if (value === undefined) {
         throw new CastError(
+          "cast.enumWriteValue",
           `A value that is not a member of the enum (${keys.map((k) => JSON.stringify(k)).join(", ")}) cannot be written to an enum column.`,
         );
       }
@@ -353,21 +355,27 @@ export function enumType<const M extends EnumMapping>(mapping: M): FieldType<key
 export function enumType(members: readonly string[] | EnumMapping): AnyFieldType {
   if (typeof members !== "object" || members === null) {
     throw new SchemaDefinitionError(
-      `t.enum takes a list of strings, t.enum(["admin", "member"]), or a mapping, t.enum({ low: 1, high: 2 }), but got ${members === null ? "null" : typeof members}.`,
+      "schema.enumMembers",
+      `t.enum takes a list of strings or a mapping, but got ${members === null ? "null" : typeof members}.`,
     );
   }
   if (Array.isArray(members)) {
     const keys = members as readonly unknown[];
-    if (keys.length === 0) throw new SchemaDefinitionError("t.enum needs at least one value.");
+    if (keys.length === 0)
+      throw new SchemaDefinitionError("schema.enumEmpty", "t.enum needs at least one value.");
     for (const key of keys) {
       if (typeof key !== "string") {
         throw new SchemaDefinitionError(
-          `t.enum values must be strings, but got ${describeMember(key)}. For other stored values use a mapping: t.enum({ low: 1, high: 2 }).`,
+          "schema.enumMemberType",
+          `t.enum values must be strings, but got ${describeMember(key)}.`,
         );
       }
     }
     if (new Set(keys).size !== keys.length) {
-      throw new SchemaDefinitionError(`t.enum values must be distinct, but got ${JSON.stringify(keys)}.`);
+      throw new SchemaDefinitionError(
+        "schema.enumDuplicate",
+        `t.enum values must be distinct, but got ${JSON.stringify(keys)}.`,
+      );
     }
     return enumWith({ keys: keys as readonly string[], stored: undefined });
   }
@@ -375,7 +383,8 @@ export function enumType(members: readonly string[] | EnumMapping): AnyFieldType
   const mapping = members as Readonly<Record<string, unknown>>;
   // Sorted, so that the same mapping written in another order is the same type.
   const keys = Object.keys(mapping).sort();
-  if (keys.length === 0) throw new SchemaDefinitionError("t.enum needs at least one value.");
+  if (keys.length === 0)
+    throw new SchemaDefinitionError("schema.enumEmpty", "t.enum needs at least one value.");
   const stored = keys.map((key) => mapping[key]);
   const kind = typeof stored[0];
   for (const value of stored) {
@@ -383,12 +392,14 @@ export function enumType(members: readonly string[] | EnumMapping): AnyFieldType
       kind === "number" ? Number.isSafeInteger(value) : kind === "string" && typeof value === "string";
     if (!valid) {
       throw new SchemaDefinitionError(
+        "schema.enumMappingValues",
         `t.enum mapping values must be all strings or all whole numbers, but got ${stored.map(describeMember).join(", ")}.`,
       );
     }
   }
   if (new Set(stored).size !== stored.length) {
     throw new SchemaDefinitionError(
+      "schema.enumMappingDuplicate",
       `t.enum mapping values must be distinct, but got ${stored.map(describeMember).join(", ")}.`,
     );
   }
@@ -397,6 +408,7 @@ export function enumType(members: readonly string[] | EnumMapping): AnyFieldType
     const other = keys.find((k) => k !== key && mapping[k] === key);
     if (other !== undefined) {
       throw new SchemaDefinitionError(
+        "schema.enumMappingAmbiguous",
         `t.enum mapping is ambiguous: ${JSON.stringify(key)} is a key and also the stored value of ${JSON.stringify(other)}, so input ${JSON.stringify(key)} could mean either.`,
       );
     }

@@ -108,7 +108,7 @@ describe("sqlite", () => {
       await adapter.execute("insert into counters values (2, '12a')", []);
       await expect(repo.all(from(Counter, "c"))).rejects.toThrow(CastError);
       await expect(repo.all(from(Counter, "c"))).rejects.toThrow(
-        "Counter.n is declared t.integer(), but the database returned a string for it, not a number:",
+        "cast.integerNotNumber: Counter.n is declared t.integer(), but the database returned a string for it, not a number.",
       );
     } finally {
       await repo.close();
@@ -132,7 +132,7 @@ describe("sqlite", () => {
       expect(await repo.all(q)).toEqual([{ d: 3 }, { d: -3 }]);
       // A fraction bound as an integer is refused before it is sent (the cast would truncate it).
       await expect(repo.all(from(Half, "h").select(({ h }) => ({ d: h.n.div(2.5) })))).rejects.toThrow(
-        /^Parameter 1 has the type t\.integer\(\) .* but its value is not a whole number\./,
+        /^[a-z]+(?:\.\w+)?: Parameter 1 has the type t\.integer\(\) .* but its value is not a whole number\./,
       );
       // A float operand keeps /, and reads the fraction.
       expect(
@@ -163,7 +163,7 @@ describe("sqlite", () => {
       expect(await repo.all(big)).toEqual([{ plain: 1125899906842623, typed: 1125899906842623 }]);
       // A fraction beside the number-mode bigint is refused too (the cast would truncate it).
       await expect(repo.all(from(Big, "x").select(({ x }) => ({ d: x.b.div(2.5) })))).rejects.toThrow(
-        /^Parameter 1 has the type t\.bigint\(\{ mode: "number" \}\) .* but its value is not a whole number\./,
+        /^[a-z]+(?:\.\w+)?: Parameter 1 has the type t\.bigint\(\{ mode: "number" \}\) .* but its value is not a whole number\./,
       );
     } finally {
       await repo.close();

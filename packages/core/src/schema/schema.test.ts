@@ -321,20 +321,20 @@ describe("definition errors", () => {
 
   test("a table name is required", () => {
     expect(() => Schema("", { id })).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema() takes the table name first, as a non-empty string: Schema("users", { ... }). It got an empty string.]`,
+      `[SchemaDefinitionError: schema.tableName: Schema() was given an empty string as the table name. Pass the table name as a non-empty string: Schema("users", { ... }). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-tablename]`,
     );
     expect(() => Schema({ id } as never, {})).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema() takes the table name first, as a non-empty string: Schema("users", { ... }). It got an object.]`,
+      `[SchemaDefinitionError: schema.tableName: Schema() was given an object as the table name. Pass the table name as a non-empty string: Schema("users", { ... }). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-tablename]`,
     );
   });
 
   test("the fields are an object of field types", () => {
     expect(() => Schema("users", null as never)).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema("users"): the fields must be an object from field name to type, such as { id: t.integer().primaryKey() }, but got null.]`,
+      `[SchemaDefinitionError: schema.fieldsNotObject: Schema("users"): the fields must be an object from field name to type, such as { id: t.integer().primaryKey() }, but got null. Pass the fields as the second argument of Schema() (or the first of EmbeddedSchema()), an object whose values are field types made with t. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-fieldsnotobject]`,
     );
     expect(() => Schema("users", "id" as never)).toThrow(SchemaDefinitionError);
     expect(() => Schema("users", { id, email: "string" as never })).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema("users"): field "email" is not a field type. Declare it with t, as in email: t.string(). Associations are static members of the class, not fields.]`,
+      `[SchemaDefinitionError: schema.notFieldType: Schema("users"): field "email" is not a field type. Declare it with t, as in email: t.string(). Associations are static members of the class, not fields. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-notfieldtype]`,
     );
     expect(() =>
       Schema("users", { id, posts: hasMany(() => Post, { foreignKey: "authorId" }) as never }),
@@ -343,14 +343,14 @@ describe("definition errors", () => {
 
   test("a primary key is required unless the table is declared without one", () => {
     expect(() => Schema("events", { name: t.string() })).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema("events"): no field is the primary key. Add .primaryKey() to the key field, as in id: t.integer().primaryKey(), or pass { primaryKey: false } as the third argument for a table without one.]`,
+      `[SchemaDefinitionError: schema.noPrimaryKey: Schema("events"): no field is the primary key. Add .primaryKey() to the key field, as in id: t.integer().primaryKey(), or pass { primaryKey: false } as the third argument for a table without one. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-noprimarykey]`,
     );
     expect(() => Schema("events", {})).toThrow(SchemaDefinitionError);
     expect(() => Schema("events", { id }, { primaryKey: false })).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema("events"): { primaryKey: false } says the table has no key, but the field "id" is declared with .primaryKey(). Remove one of the two.]`,
+      `[SchemaDefinitionError: schema.keylessWithKey: Schema("events"): { primaryKey: false } says the table has no key, but the field "id" is declared with .primaryKey(). Remove one of the two. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-keylesswithkey]`,
     );
     expect(() => Schema("events", { id }, { primaryKey: true as never })).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema("events"): primaryKey can only be false, for a table without a key. A key is declared on its field: id: t.integer().primaryKey().]`,
+      `[SchemaDefinitionError: schema.primaryKeyOption: Schema("events"): primaryKey can only be false, for a table without a key. A key is declared on its field: id: t.integer().primaryKey(). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-primarykeyoption]`,
     );
   });
 
@@ -358,7 +358,7 @@ describe("definition errors", () => {
     expect(() =>
       Schema("users", { id, firstName: t.string(), first_name: t.string() }),
     ).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema("users"): the fields "firstName" and "first_name" are both stored in the column "first_name". Give one of them another column with .column("…").]`,
+      `[SchemaDefinitionError: schema.columnTaken: Schema("users"): the fields "firstName" and "first_name" are both stored in the column "first_name". Give one of them another column with .column("…"). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-columntaken]`,
     );
     expect(() => Schema("users", { id, a: t.string().column("x"), b: t.string().column("x") })).toThrow(
       /"a" and "b" are both stored in the column "x"/,
@@ -367,7 +367,7 @@ describe("definition errors", () => {
 
   test("reserved field names are refused", () => {
     expect(() => Schema("users", { id, toJSON: t.string() })).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema("users"): field "toJSON" has a reserved name. A field cannot be named "constructor", "__proto__" or "toJSON", or start with "$". Rename it, and keep the column with .column("toJSON").]`,
+      `[SchemaDefinitionError: schema.reservedName: Schema("users"): field "toJSON" has a reserved name. A field cannot be named "constructor", "__proto__" or "toJSON", or start with "$". Rename it, and keep the column with .column("toJSON"). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-reservedname]`,
     );
     expect(() => Schema("users", { id, constructor: t.string() })).toThrow(
       /field "constructor" has a reserved name/,
@@ -386,19 +386,19 @@ describe("definition errors", () => {
     expect(() =>
       Schema("users", { id: t.integer().nullable().primaryKey() }),
     ).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema("users"): field "id" is a primary key and nullable. A key always has a value: remove .nullable().]`,
+      `[SchemaDefinitionError: schema.nullableKey: Schema("users"): field "id" is a primary key and nullable. A key always has a value: remove .nullable(). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-nullablekey]`,
     );
     expect(() =>
       Schema("users", { id, x: t.string().virtual().dbGenerated() }),
     ).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema("users"): field "x" is virtual, so it is never stored: it cannot also be a primary key, database-generated or autogenerated. Remove .virtual() or the other modifier.]`,
+      `[SchemaDefinitionError: schema.virtualStored: Schema("users"): field "x" is virtual, so it is never stored: it cannot also be a primary key, database-generated or autogenerated. Remove .virtual() or the other modifier. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-virtualstored]`,
     );
     expect(() => Schema("users", { id: t.string().virtual().primaryKey() })).toThrow(/is virtual/);
     expect(() => Schema("users", { id, x: t.uuid().virtual().autogenerate() })).toThrow(/is virtual/);
     expect(() =>
       Schema("users", { id, x: t.uuid().dbGenerated().autogenerate() }),
     ).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema("users"): field "x" is both database-generated and autogenerated. Only one side can produce the value: remove .dbGenerated() or .autogenerate().]`,
+      `[SchemaDefinitionError: schema.generatedTwice: Schema("users"): field "x" is both database-generated and autogenerated. Only one side can produce the value: remove .dbGenerated() or .autogenerate(). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-generatedtwice]`,
     );
     expect(() =>
       Schema("users", {
@@ -412,7 +412,7 @@ describe("definition errors", () => {
     expect(() =>
       Schema("users", { id, x: t.string().default(null as never) }),
     ).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema("users"): field "x" has the default null but is not nullable. Add .nullable().]`,
+      `[SchemaDefinitionError: schema.nullDefault: Schema("users"): field "x" has the default null but is not nullable. Add .nullable(). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-nulldefault]`,
     );
   });
 
@@ -421,7 +421,7 @@ describe("definition errors", () => {
     expect(() =>
       Schema("users", { id: t.embedOne(() => Address).primaryKey() }),
     ).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema("users"): field "id" is an embed, which cannot be a primary key or virtual.]`,
+      `[SchemaDefinitionError: schema.embedModifier: Schema("users"): field "id" is an embed, which cannot be a primary key or virtual. Remove .primaryKey() or .virtual() from the embed field. An embed is stored in its parent's JSON column; give the embedded schema its own key field if its items need one. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-embedmodifier]`,
     );
     expect(() => Schema("users", { id, address: t.embedOne(() => Address).virtual() })).toThrow(
       /is an embed/,
@@ -430,20 +430,20 @@ describe("definition errors", () => {
 
   test("wrong options are refused", () => {
     expect(() => Schema("users", { id }, "billing" as never)).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema("users"): the options must be an object, but got a string.]`,
+      `[SchemaDefinitionError: schema.optionsNotObject: Schema("users"): the options must be an object, but got a string. Pass the options as an object, such as { schema: "tenant_1" }, or leave them out. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-optionsnotobject]`,
     );
     expect(() => Schema("users", { id }, null as never)).toThrow(SchemaDefinitionError);
     expect(() => Schema("users", { id }, { schema: "" })).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema("users"): schema must be the name of the database schema, as a non-empty string.]`,
+      `[SchemaDefinitionError: schema.schemaOption: Schema("users"): schema must be the name of the database schema, as a non-empty string. Pass the database schema's name, as in { schema: "tenant_1" }, or leave the option out for the connection's default. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-schemaoption]`,
     );
     expect(() => Schema("users", { id }, { schema: 1 as never })).toThrow(SchemaDefinitionError);
     expect(() =>
       Schema("users", { id }, { naming: "kebab-case" as never }),
     ).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema("users"): naming must be "snake_case", "camelCase" or a function from field name to column name.]`,
+      `[SchemaDefinitionError: schema.namingOption: Schema("users"): naming must be "snake_case", "camelCase" or a function from field name to column name. Pass naming: "snake_case" (the default for tables), naming: "camelCase", or a function such as (field) => field.toLowerCase(). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-namingoption]`,
     );
     expect(() => Schema("users", { id }, { naming: (() => "") as never })).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema("users"): the naming function returned an empty string for the field "id". It must return the column name.]`,
+      `[SchemaDefinitionError: schema.namingResult: Schema("users"): the naming function returned an empty string for the field "id". It must return the column name. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-namingresult]`,
     );
     expect(() => Schema("users", { id }, { naming: (() => 1) as never })).toThrow(SchemaDefinitionError);
   });
@@ -465,7 +465,7 @@ describe("there is no public constructor", () => {
 
   test("calling it throws, pointing at changesets", () => {
     expect(() => construct(User)).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: User has no public constructor: a row comes only from the database. Describe a new record with a changeset instead: cast(User, params, [...]) or change(User, values).]`,
+      `[SchemaDefinitionError: schema.noConstructor: User has no public constructor: a row comes only from the database. Describe a new record with a changeset instead: cast(User, params, [...]) or change(User, values). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-noconstructor]`,
     );
     expect(() => construct(User, { email: "a@b.c" })).toThrow(SchemaDefinitionError);
   });
@@ -475,7 +475,7 @@ describe("there is no public constructor", () => {
     expect(() => construct(Anonymous)).toThrow(/has no public constructor/);
     const Unnamed = (() => class extends Schema("things", { id: t.integer().primaryKey() }) {})();
     expect(() => construct(Unnamed)).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Schema("things") has no public constructor: a row comes only from the database. Describe a new record with a changeset instead: cast(Schema("things"), params, [...]) or change(Schema("things"), values).]`,
+      `[SchemaDefinitionError: schema.noConstructor: Schema("things") has no public constructor: a row comes only from the database. Describe a new record with a changeset instead: cast(Schema("things"), params, [...]) or change(Schema("things"), values). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-noconstructor]`,
     );
   });
 
@@ -513,7 +513,7 @@ describe("a class member with a field's name", () => {
     class M extends Schema("m", { id: t.integer().primaryKey(), email: t.string() }) {}
     Object.defineProperty(M.prototype, "email", { value: () => "method", writable: true });
     expect(() => meta(M)).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: M defines "email" as a getter, method or property of the class, and "email" is also a field. A row holds each field as its own property, so the class member would hide it or make it impossible to set. Rename the member.]`,
+      `[SchemaDefinitionError: schema.memberShadowsField: M defines "email" as a getter, method or property of the class, and "email" is also a field. A row holds each field as its own property, so the class member would hide it or make it impossible to set. Rename the member. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-membershadowsfield]`,
     );
   });
 
@@ -642,13 +642,14 @@ describe("the row factory", () => {
     });
     try {
       const restricted = await import("./index.js");
-      vi.unstubAllGlobals();
       class Thing extends restricted.Schema("things", {
         id: restricted.t.integer().primaryKey(),
         name: restricted.t.string(),
       }) {}
       const m = restricted.meta(Thing);
-      expect((m as unknown as { codegen: boolean }).codegen).toBe(false);
+      // Asked for a generated function and refused: the loop is used.
+      expect((m as unknown as { codegen: boolean }).codegen).toBe(true);
+      expect((m as unknown as { maker: unknown }).maker).toBeUndefined();
       const row = m.create([1, "a"], m.rowMeta("loaded", undefined)) as Thing;
       expect(row).toBeInstanceOf(Thing);
       expect({ ...row }).toMatchObject({ id: 1, name: "a" });
@@ -729,10 +730,10 @@ describe("createWith", () => {
   test("refuses a name that is not an association, or one given twice", () => {
     const m = meta(User);
     expect(() => m.createWith(["email"])).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: User has no association "email". It has: posts.]`,
+      `[SchemaDefinitionError: schema.createWithUnknown: User has no association "email". It has: posts. Preload only associations the schema declares. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-createwithunknown]`,
     );
     expect(() => m.createWith(["posts", "posts"])).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: User: the association "posts" is listed twice in createWith().]`,
+      `[SchemaDefinitionError: schema.createWithTwice: User: the association "posts" is listed twice in createWith(). List each association once. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-createwithtwice]`,
     );
     expect(() => meta(Schema("lonely", { id: t.integer().primaryKey() })).createWith(["x"])).toThrow(
       /It has: none/,
@@ -975,13 +976,13 @@ describe("a class gets metadata of its own", () => {
 
   test("what is not a schema class is refused", () => {
     expect(() => meta(Date as never)).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Expected a schema class (a class that extends Schema(...) or EmbeddedSchema(...)), but got the function Date.]`,
+      `[SchemaDefinitionError: schema.notSchemaClass: Expected a schema class (a class that extends Schema(...) or EmbeddedSchema(...)), but got the function Date. Pass the class you declared with class User extends Schema("users", { ... }) {}, not an instance, a row or a plain object. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-notschemaclass]`,
     );
     expect(() => meta(loadedUser() as never)).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Expected a schema class (a class that extends Schema(...) or EmbeddedSchema(...)), but got an object.]`,
+      `[SchemaDefinitionError: schema.notSchemaClass: Expected a schema class (a class that extends Schema(...) or EmbeddedSchema(...)), but got an object. Pass the class you declared with class User extends Schema("users", { ... }) {}, not an instance, a row or a plain object. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-notschemaclass]`,
     );
     expect(() => meta(undefined as never)).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Expected a schema class (a class that extends Schema(...) or EmbeddedSchema(...)), but got undefined.]`,
+      `[SchemaDefinitionError: schema.notSchemaClass: Expected a schema class (a class that extends Schema(...) or EmbeddedSchema(...)), but got undefined. Pass the class you declared with class User extends Schema("users", { ... }) {}, not an instance, a row or a plain object. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-notschemaclass]`,
     );
     expect(() => meta(null as never)).toThrow(SchemaDefinitionError);
     expect(() => meta("users" as never)).toThrow(SchemaDefinitionError);
@@ -1083,7 +1084,7 @@ describe("embedded schemas", () => {
 
   test("definition errors name it", () => {
     expect(() => EmbeddedSchema({ toJSON: t.string() })).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: EmbeddedSchema: field "toJSON" has a reserved name. A field cannot be named "constructor", "__proto__" or "toJSON", or start with "$". Rename it, and keep the column with .column("toJSON").]`,
+      `[SchemaDefinitionError: schema.reservedName: EmbeddedSchema: field "toJSON" has a reserved name. A field cannot be named "constructor", "__proto__" or "toJSON", or start with "$". Rename it, and keep the column with .column("toJSON"). See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-reservedname]`,
     );
     expect(() => EmbeddedSchema(null as never)).toThrow(SchemaDefinitionError);
   });
@@ -1123,7 +1124,7 @@ describe("helpers", () => {
     expect(stateOf(m.create(USER_VALUES, m.rowMeta("deleted", undefined)))).toBe("deleted");
     expect(stateOf(m.create(USER_VALUES, m.rowMeta("built", undefined)))).toBe("built");
     expect(() => stateOf({ id: 1 })).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: stateOf() expects a row: an object returned by a query or a write. A plain object has no state.]`,
+      `[SchemaDefinitionError: schema.stateNotRow: stateOf() expects a row: an object returned by a query or a write. A plain object has no state. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-statenotrow]`,
     );
   });
 
@@ -1158,10 +1159,10 @@ describe("helpers", () => {
     class Event extends Schema("events", { name: t.string() }, { primaryKey: false }) {}
     const event = meta(Event).create(["signup"], meta(Event).rowMeta("loaded", undefined));
     expect(() => primaryKeyOf(event)).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: Event has no primary key, so its rows have no key value. The schema is declared with { primaryKey: false }, or is an embedded schema without a key field.]`,
+      `[SchemaDefinitionError: schema.keylessRow: Event has no primary key, so its rows have no key value. The schema is declared with { primaryKey: false }, or is an embedded schema without a key field. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-keylessrow]`,
     );
     expect(() => primaryKeyOf({ id: 1 })).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: primaryKeyOf() expects a row: an object returned by a query or a write.]`,
+      `[SchemaDefinitionError: schema.notRow: primaryKeyOf() expects a row: an object returned by a query or a write. Pass a row returned by a query or a write, not a plain object or a changeset. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-notrow]`,
     );
     expect(() => primaryKeyOf(null as never)).toThrow(SchemaDefinitionError);
     expect(() => primaryKeyOf(User.prototype)).toThrow(SchemaDefinitionError);

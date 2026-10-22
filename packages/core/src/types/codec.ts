@@ -9,10 +9,10 @@ import { IDENTITY } from "../contracts/type.js";
 import { elementTypeOf, mapElements } from "./composite.js";
 import { detached } from "./define.js";
 
-const IDENTITY_CODEC: Codec = Object.freeze({ fromDb: IDENTITY, toDb: IDENTITY });
+const IDENTITY_CODEC: Codec = /* @__PURE__ */ Object.freeze({ fromDb: IDENTITY, toDb: IDENTITY });
 
 /** Per adapter instance, not per dialect: two adapters of one dialect may read a type differently. */
-const cache = new WeakMap<object, WeakMap<AnyFieldType, Codec>>();
+const cache = /* @__PURE__ */ new WeakMap<object, WeakMap<AnyFieldType, Codec>>();
 
 function buildCodec(type: AnyFieldType, adapter: Pick<Adapter, "typeOverrides">): Codec {
   const override = adapter.typeOverrides(type);

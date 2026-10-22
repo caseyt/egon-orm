@@ -11,7 +11,7 @@ and types the response body on the client.
 | `NoResultsError` from a `...OrThrow` read | 404 | `{ error: "Not Found" }` |
 | `StaleEntryError`: the row changed or was deleted since it was read | 409 | `{ error: "Conflict" }` |
 | `ConstraintError` with `type: "unique"`, for a constraint the changeset did not declare | 409 | `{ error: "Conflict" }` |
-| Anything else | 500 | `{ error: "Internal Server Error" }`: nothing about the error, which goes to your logs |
+| Anything else | 500 | `error.toJSON()` for an error of the library, `{ name, code, id }`; `{ error: "Internal Server Error" }` otherwise. The message goes to your logs. |
 
 ## Setup
 
@@ -36,7 +36,7 @@ go to `errorResponse`.
 
 - `Json<User>` is the user as `JSON.stringify` writes it: `createdAt` is a string, and the
   virtual `password` is not there (nor would a redacted field be).
-- `ErrorMessages<ReturnType<typeof User.changeset>>` is the type of `errorMessages()` on
+- `ErrorMessagesOf<ReturnType<typeof User.changeset>>` is the type of `errorMessages()` on
   the changeset `User.changeset` makes, and on the one the write gives back: one optional
   key per field and association, `$base`, and the keys its validations add
   (`passwordConfirmation`). `JsonReturn` of a handler that returns it is the same type.
@@ -45,8 +45,9 @@ go to `errorResponse`.
 - Declare the constraints a user can violate (`uniqueConstraint("email")`): the write then
   returns an invalid changeset with `has already been taken` on the field, which belongs in
   a 422, instead of throwing.
-- A 500 response says nothing about the error. Its message can name tables and
-  constraints, which is for your logs, not your users.
+- A 500 response carries no message. An error's message can name tables and constraints,
+  which is for your logs, not your users; `error.toJSON()` writes only its class name, its
+  `code` and its `id`, which you can look up in [Errors](/reference/errors).
 - Send rows, not copies of them: `Response.json(user)` writes what `Json<User>` says, but
   a copy (`{ ...user }`, `const { email, ...rest } = user`) is a plain object, which
   `JSON.stringify` writes in full, redacted and virtual fields included. `Json` of a copy

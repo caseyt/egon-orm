@@ -18,7 +18,7 @@ function isSqliteError(error: Error): error is Error & { readonly code: string }
 }
 
 /** The constraint codes, by the kind of violation they report. */
-const CONSTRAINT_CODES: ReadonlyMap<string, ConstraintViolationType> = new Map<
+const CONSTRAINT_CODES: ReadonlyMap<string, ConstraintViolationType> = /* @__PURE__ */ new Map<
   string,
   ConstraintViolationType
 >([
@@ -85,7 +85,11 @@ function violation(
 }
 
 /** Result codes whose message names only SQL objects, never values: repeated in ours. */
-const SAFE_MESSAGE_CODES: ReadonlySet<string> = new Set(["SQLITE_ERROR", "SQLITE_READONLY", "SQLITE_AUTH"]);
+const SAFE_MESSAGE_CODES: ReadonlySet<string> = /* @__PURE__ */ new Set([
+  "SQLITE_ERROR",
+  "SQLITE_READONLY",
+  "SQLITE_AUTH",
+]);
 
 /**
  * Maps an error thrown by `better-sqlite3` to an Egon error, keeping it as `cause` and
@@ -118,6 +122,7 @@ export function normalizeSqliteError(error: unknown, sql: string | undefined): u
   if (!isSqliteError(error)) {
     if (error instanceof TypeError && /database connection is not open/.test(error.message)) {
       return new DatabaseError(
+        "database.closed",
         "The SQLite database is closed.",
         withSql({ code: "connection" as const, cause: error }),
       );
@@ -129,12 +134,14 @@ export function normalizeSqliteError(error: unknown, sql: string | undefined): u
   if (type !== undefined) return violation(error, type, sql);
   if (code === "SQLITE_BUSY" || code.startsWith("SQLITE_BUSY_") || code.startsWith("SQLITE_LOCKED")) {
     return new DatabaseError(
-      `The database is locked by another connection (${code}). Retrying can succeed.`,
+      "database.locked",
+      `The database is locked by another connection (${code}).`,
       withSql({ code: "database" as const, retryable: true, cause: error }),
     );
   }
   if (code.startsWith("SQLITE_CANTOPEN") || code === "SQLITE_NOTADB") {
     return new DatabaseError(
+      "database.openFailed",
       `Could not open the SQLite database (${code}): ${error.message}.`,
       withSql({ code: "connection" as const, cause: error }),
     );
@@ -143,6 +150,7 @@ export function normalizeSqliteError(error: unknown, sql: string | undefined): u
     ? `: ${error.message}`
     : ". The database's message is on error.cause; it is left out here because it may quote a value";
   return new DatabaseError(
+    "database.rejected",
     `The database rejected the statement (${code})${said}.`,
     withSql({ code: "database" as const, cause: error }),
   );

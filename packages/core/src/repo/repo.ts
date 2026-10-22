@@ -1213,7 +1213,8 @@ class DatabaseRepo implements Repo {
     const { nodes, names } = preloadNodesOf(checked, spec, fn);
     if (names.length > 0) {
       throw new QueryError(
-        `repo.preload() runs its callback at once, so its query takes values, not named parameters (${names.map((name) => `"${name}"`).join(", ")}). Write the values into the query.`,
+        "query.preloadNamedParams",
+        `repo.preload() runs its callback at once, so its query takes values, not named parameters (${names.map((name) => `"${name}"`).join(", ")}).`,
       );
     }
     const given = args[0];
@@ -1268,7 +1269,8 @@ class DatabaseRepo implements Repo {
   async raw<X extends Expr<unknown, SomeParams>>(statement: X, ...args: RawArgs<X>): Promise<RawRows> {
     if (!isFragment(statement)) {
       throw new QueryError(
-        `repo.raw() takes a fragment: repo.raw(fragment\`select …\`). It was given ${typeof statement === "string" ? "a string, which would put text into the SQL unchecked" : "something else"}; values go into the template as interpolations, where they are bound.`,
+        "query.rawArgument",
+        `repo.raw() takes a fragment, and was given ${typeof statement === "string" ? "a string, which would put text into the SQL unchecked" : "something else"}.`,
       );
     }
     const names: string[] = [];
@@ -1373,9 +1375,7 @@ class DatabaseRepo implements Repo {
   close(): Promise<void> {
     if (this.#scope instanceof Level) {
       return Promise.reject(
-        new QueryError(
-          "close() closes the whole repo and its pool: call it on the repo createRepo made, not on the repo of a transaction, a checkout or a sandbox.",
-        ),
+        new QueryError("query.closeNotRoot", "close() closes the whole repo and its pool."),
       );
     }
     this.#core.hub.close();

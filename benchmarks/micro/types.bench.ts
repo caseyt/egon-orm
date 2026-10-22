@@ -14,7 +14,7 @@ type Internal = typeof import("../../packages/core/src/internal/index.js");
 type AnyFieldType = import("../../packages/core/src/contracts/type.js").AnyFieldType;
 type Codec = import("../../packages/core/src/contracts/type.js").Codec;
 
-const builtInternal = join(dirname(resolveBuiltEgon()), "internal.js");
+const builtInternal = join(dirname(resolveBuiltEgon()), "internal", "index.js");
 if (!existsSync(builtInternal)) {
   throw new Error(`${builtInternal} does not exist. Run \`pnpm build\` first.`);
 }

@@ -72,7 +72,7 @@ export type PoolSource =
   | { readonly owned: true; readonly config: pg.PoolConfig }
   | { readonly owned: false; readonly pool: pg.Pool };
 
-const OPTION_KEYS: ReadonlySet<string> = new Set([
+const OPTION_KEYS: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "connectionString",
   "host",
   "port",
@@ -86,7 +86,11 @@ const OPTION_KEYS: ReadonlySet<string> = new Set([
   "applicationName",
 ]);
 
-const POOL_KEYS: ReadonlySet<string> = new Set(["max", "idleTimeoutMs", "connectionTimeoutMs"]);
+const POOL_KEYS: ReadonlySet<string> = /* @__PURE__ */ new Set([
+  "max",
+  "idleTimeoutMs",
+  "connectionTimeoutMs",
+]);
 
 /** Options that configure the connections the adapter opens, which a supplied pool has already settled. */
 const CONNECTION_KEYS = [

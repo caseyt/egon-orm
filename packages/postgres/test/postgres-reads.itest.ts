@@ -60,7 +60,7 @@ test("a t.integer() field over a bigint column throws a CastError instead of hol
   const read = repo.all(from(LooseUser, "u").orderBy(({ u }) => u.id));
   await expect(read).rejects.toThrow(CastError);
   await expect(repo.all(from(LooseUser, "u"))).rejects.toThrow(
-    "LooseUser.id is declared t.integer(), but the database returned a string for it, not a number: the column or expression is not of an integer type (Postgres reads bigint, bigserial and numeric columns as text; MySQL's / returns a decimal). Declare the field t.bigint({ mode: \"number\" }) for a 64-bit integer column, or t.decimal() for a decimal, or change the column's type.",
+    "cast.integerNotNumber: LooseUser.id is declared t.integer(), but the database returned a string for it, not a number. The column or expression is not of an integer type (Postgres reads bigint, bigserial and numeric columns as text; MySQL's / returns a decimal). Declare the field t.bigint({ mode: \"number\" }) for a 64-bit integer column, or t.decimal() for a decimal, or change the column's type.",
   );
   // A selected column is checked too, named by its key.
   await expect(repo.all(from(LooseUser, "u").select(({ u }) => ({ key: u.id })))).rejects.toThrow(
@@ -91,7 +91,7 @@ test("a t.float() field over a numeric column throws a CastError; t.decimal() or
   }) {}
   class ExactMeasure extends Schema("measures", { id: t.integer().primaryKey(), amount: t.decimal() }) {}
   await expect(repo.all(from(Measure, "m"))).rejects.toThrow(
-    "Measure.amount is declared t.float(), but the database returned a string for it, not a number: the column or expression is not of a floating-point type (Postgres reads numeric columns as text). Declare the field t.decimal() for a decimal column, or change the column's type.",
+    "cast.floatNotNumber: Measure.amount is declared t.float(), but the database returned a string for it, not a number. The column or expression is not of a floating-point type (Postgres reads numeric columns as text). Declare the field t.decimal() for a decimal column, or change the column's type.",
   );
   expect((await repo.all(from(ExactMeasure, "m"))).map((m) => m.amount)).toEqual(["1.50"]);
   const asFloat = from(ExactMeasure, "m").select(({ m }) => ({ amount: m.amount.cast(t.float()) }));
@@ -116,7 +116,7 @@ test("a division of two integers is exact above 2^53, and a fraction bound as an
   }));
   expect(await repo.all(q)).toEqual([{ plain: 1125899906842623, typed: 1125899906842623, half: 3 }]);
   await expect(repo.all(from(Big, "x").select(({ x }) => ({ d: x.n.div(2.5) })))).rejects.toThrow(
-    /^Parameter 1 has the type t\.integer\(\) .* but its value is not a whole number\./,
+    /^[a-z]+(?:\.\w+)?: Parameter 1 has the type t\.integer\(\) .* but its value is not a whole number\./,
   );
 });
 
@@ -127,11 +127,11 @@ test("a write whose returned key fails to decode throws after the row is written
   await handle.db.exec("select setval('users_id_seq', 100)");
   const insert = repo.insert(change(LooseUser, { email: "written@example.com" }));
   await expect(insert).rejects.toThrow(
-    /^LooseUser\.id is declared t\.integer\(\).* The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction\.$/,
+    /^cast\.integerNotNumber: LooseUser\.id is declared t\.integer\(\).* The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction\. /,
   );
   await expect(
     repo.insertAll(LooseUser, [{ email: "bulk@example.com" }], { returning: true }),
-  ).rejects.toThrow(/^LooseUser\.id is declared t\.integer\(\)/);
+  ).rejects.toThrow(/^[a-z]+(?:\.\w+)?: LooseUser\.id is declared t\.integer\(\)/);
   const emails = await repo.all(
     from(User, "u")
       .where(({ u }) => u.email.in(["written@example.com", "bulk@example.com"]))

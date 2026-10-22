@@ -247,7 +247,7 @@ describe.runIf(tier2Enabled())("mysql", () => {
     );
     // A fraction bound as an integer is refused before it is sent (DIV would truncate it).
     await expect(repo.all(from(Half, "h").select(({ h }) => ({ d: h.n.div(2.5) })))).rejects.toThrow(
-      /^Parameter 1 has the type t\.integer\(\) .* but its value is not a whole number\./,
+      /^[a-z]+(?:\.\w+)?: Parameter 1 has the type t\.integer\(\) .* but its value is not a whole number\./,
     );
   });
 
@@ -263,7 +263,7 @@ describe.runIf(tier2Enabled())("mysql", () => {
     expect(await repo.all(q)).toEqual([{ plain: 1125899906842623, typed: 1125899906842623 }]);
     // A fraction beside the number-mode bigint is refused too (DIV would truncate it).
     await expect(repo.all(from(Big, "x").select(({ x }) => ({ d: x.b.div(2.5) })))).rejects.toThrow(
-      /^Parameter 1 has the type t\.bigint\(\{ mode: "number" \}\) .* but its value is not a whole number\./,
+      /^[a-z]+(?:\.\w+)?: Parameter 1 has the type t\.bigint\(\{ mode: "number" \}\) .* but its value is not a whole number\./,
     );
   });
 
@@ -278,7 +278,7 @@ describe.runIf(tier2Enabled())("mysql", () => {
       score: t.integer().dbGenerated(),
     }) {}
     await expect(repo.insert(change(Tally, { label: "first" }))).rejects.toThrow(
-      /^Tally\.score is declared t\.integer\(\), but the database returned a string.* The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction\.$/,
+      /^cast\.integerNotNumber: Tally\.score is declared t\.integer\(\), but the database returned a string.* The write itself was applied: outside a transaction it stays; inside one it commits or rolls back with the transaction\. /,
     );
     // The row is there: the insert ran before the read-back failed.
     expect(await repo.count(from(Tally, "t"))).toBe(1);
@@ -287,7 +287,7 @@ describe.runIf(tier2Enabled())("mysql", () => {
     await expect(
       repo.insert(change(Tally, { label: "second" }), { onConflict: { update: ["label"] } }),
     ).rejects.toThrow(
-      /^Tally\.score is declared t\.integer\(\).* The write was undone: an upsert and its read-back run as one unit\.$/,
+      /^cast\.integerNotNumber: Tally\.score is declared t\.integer\(\).* The write was undone: an upsert and its read-back run as one unit\. /,
     );
     expect(await repo.count(from(Tally, "t"))).toBe(1);
   });

@@ -100,14 +100,14 @@ export interface PlanCacheOptions {
 export type CacheOperation = QueryOperation | "fragment";
 
 /** A per-operation code mixed into the L2 key. */
-const OPERATION_CODES: Readonly<Record<CacheOperation, number>> = Object.freeze({
+const OPERATION_CODES: Readonly<Record<CacheOperation, number>> = /* @__PURE__ */ Object.freeze({
   all: 1,
   updateAll: 2,
   deleteAll: 3,
   fragment: 4,
 });
 
-const NO_LENGTHS: readonly number[] = Object.freeze([]);
+const NO_LENGTHS: readonly number[] = /* @__PURE__ */ Object.freeze([]);
 
 /**
  * The two-level cache of compiled queries (and the cache of row-level write plans).

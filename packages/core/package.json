@@ -22,7 +22,7 @@
   "sideEffects": false,
   "files": [
     "dist",
-    "!dist/internal.*"
+    "!dist/internal/index.*"
   ],
   "types": "./dist/index.d.ts",
   "exports": {
@@ -32,11 +32,15 @@
     },
     "./migration": {
       "types": "./dist/migration.d.ts",
-      "default": "./dist/migration.js"
+      "default": "./dist/migration/index.js"
     },
     "./testing": {
       "types": "./dist/testing.d.ts",
       "default": "./dist/testing.js"
+    },
+    "./messages": {
+      "types": "./dist/messages.d.ts",
+      "default": "./dist/messages/index.js"
     },
     "./package.json": "./package.json"
   },

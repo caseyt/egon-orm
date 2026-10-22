@@ -52,7 +52,7 @@ export interface Relation {
   readonly key: readonly FieldMeta[];
 }
 
-const relations = new WeakMap<object, Map<string, Relation>>();
+const relations = /* @__PURE__ */ new WeakMap<object, Map<string, Relation>>();
 
 function describe(value: unknown): string {
   if (value === null) return "null";
@@ -81,7 +81,8 @@ export function relationOf(
     byName = new Map();
     relations.set(cacheKey, byName);
   }
-  if (typeof name !== "string") throw new QueryError(`${fn}() takes the name as a string.`);
+  if (typeof name !== "string")
+    throw new QueryError("query.nestedName", `${fn}() takes the name as a string.`);
   const id = `${wanted}:${name}`;
   const known = byName.get(id);
   if (known !== undefined) return known;
@@ -106,14 +107,18 @@ function embedRelation(
   if (field === undefined || info === undefined) {
     if (model !== null && meta(model).assocs().has(name)) {
       throw new QueryError(
-        `${fn}(): "${name}" is an association of ${meta(model).name}, not an embed. Use ${fn === "castEmbed" ? "castAssoc" : "putAssoc"}("${name}", …).`,
+        "query.nestedAssocNotEmbed",
+        `${fn}(): "${name}" is an association of ${meta(model).name}, not an embed.`,
+        { params: { fn: fn === "castEmbed" ? "castAssoc" : "putAssoc", name } },
       );
     }
-    throw new QueryError(
-      field === undefined
-        ? `${fn}(): ${ownerNameOf(model)} has no field "${name}".`
-        : `${fn}(): "${name}" is not an embed field (it is ${field.type.name}). ${fn} changes fields declared with t.embedOne or t.embedMany; change other fields with ${fn === "castEmbed" ? "cast" : "putChange"}.`,
-    );
+    throw field === undefined
+      ? new QueryError("query.nestedUnknownField", `${fn}(): ${ownerNameOf(model)} has no field "${name}".`)
+      : new QueryError(
+          "query.nestedNotEmbed",
+          `${fn}(): "${name}" is not an embed field (it is ${field.type.name}).`,
+          { params: { fn, other: fn === "castEmbed" ? "cast" : "putChange" } },
+        );
   }
   const target = info.schema();
   const targetMeta = meta(target);
@@ -138,7 +143,10 @@ function assocRelation(
   fn: string,
 ): Relation {
   if (model === null) {
-    throw new QueryError(`${fn}(): a changeset without a schema class has no associations.`);
+    throw new QueryError(
+      "query.nestedNoSchema",
+      `${fn}(): a changeset without a schema class has no associations.`,
+    );
   }
   const ownerMeta = meta(model);
   const assoc = ownerMeta.assocs().get(name);
@@ -146,17 +154,21 @@ function assocRelation(
     const field = fields.get(name);
     if (field !== undefined && embedTypeInfo(field.type) !== undefined) {
       throw new QueryError(
-        `${fn}(): "${name}" is an embed field of ${ownerMeta.name}, not an association. Use ${fn === "castAssoc" ? "castEmbed" : "putEmbed"}("${name}", …).`,
+        "query.nestedEmbedNotAssoc",
+        `${fn}(): "${name}" is an embed field of ${ownerMeta.name}, not an association.`,
+        { params: { fn: fn === "castAssoc" ? "castEmbed" : "putEmbed", name } },
       );
     }
     const names = [...ownerMeta.assocs().keys()];
     throw new QueryError(
-      `${fn}(): ${ownerMeta.name} has no association "${name}". ${names.length === 0 ? "It has none." : `Its associations are: ${names.join(", ")}.`}`,
+      "query.nestedUnknownAssoc",
+      `${fn}(): ${ownerMeta.name} has no association "${name}". ${names.length === 0 ? "It has none." : `Its associations are: ${names.join(", ")}.`}.`,
     );
   }
   if (assoc.through !== undefined) {
     throw new QueryError(
-      `${fn}(): "${name}" of ${ownerMeta.name} is a has-through association, which is read-only. Change the associations it goes through (${assoc.through.join(", ")}) instead.`,
+      "query.nestedThroughReadOnly",
+      `${fn}(): "${name}" of ${ownerMeta.name} is a has-through association (through ${assoc.through.join(", ")}), which is read-only.`,
     );
   }
   const target = assoc.target();
@@ -203,7 +215,7 @@ export function currentOf(changeset: AnyChangeset, relation: Relation): readonly
   return rows as readonly object[];
 }
 
-const NONE: readonly object[] = Object.freeze([]);
+const NONE: readonly object[] = /* @__PURE__ */ Object.freeze([]);
 
 /**
  * The primary-key values of an item, or `undefined` when one is missing (`undefined`,

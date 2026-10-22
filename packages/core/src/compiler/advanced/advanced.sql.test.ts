@@ -3,7 +3,7 @@
 import { Post, User } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
 import type { Dialect } from "../../contracts/adapter.js";
-import { QueryError } from "../../errors.js";
+import { QueryError, shortMessageOf } from "../../errors.js";
 import { from } from "../../index.js";
 import { collectParams, shapeOf } from "../../query/ast.js";
 import { bindParams } from "../bind.js";
@@ -28,7 +28,7 @@ describe.each(DIALECTS)("step 09 statements on $name", (dialect) => {
         actual = { sql: plan.sql, params: bindParams(plan.slots, entry.query.ast.params, entry.named) };
       } catch (error) {
         if (!(error instanceof QueryError)) throw error;
-        actual = { error: error.message };
+        actual = { error: shortMessageOf(error) };
       }
       expect(actual).toEqual(EXPECTED[dialect.name][entry.name]);
     });

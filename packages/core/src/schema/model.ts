@@ -14,4 +14,4 @@
  * const metadata = (row as { readonly [MODEL]: unknown })[MODEL];
  * ```
  */
-export const MODEL: unique symbol = Symbol.for("egon.model");
+export const MODEL: unique symbol = /* @__PURE__ */ Symbol.for("egon.model");

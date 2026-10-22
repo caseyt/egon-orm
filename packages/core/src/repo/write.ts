@@ -75,6 +75,7 @@ import {
   InvalidChangesetError,
   isEgonError,
   QueryError,
+  rewrap,
   StaleEntryError,
 } from "../errors.js";
 import { isPlainObject } from "../internal/plain-object.js";
@@ -98,7 +99,7 @@ const UNDONE = " The write was undone: an upsert and its read-back run as one un
 /** A changeset of any schema, as the repo handles it. */
 export type AnyChangeset = Changeset<AnySchema, boolean>;
 
-const NONE: readonly never[] = Object.freeze([]);
+const NONE: readonly never[] = /* @__PURE__ */ Object.freeze([]);
 const hasOwn = Object.hasOwn;
 const now = (): number => performance.now();
 
@@ -231,31 +232,18 @@ export interface InsertOrUpdateOptions<S extends AnySchema = AnySchema>
   readonly returning?: true | readonly FieldNames<S>[] | undefined;
 }
 
-export const INSERT_OPTION_KEYS: readonly string[] = Object.freeze([
-  ...READ_OPTION_KEYS,
-  "returning",
-  "onConflict",
-]);
-export const UPDATE_OPTION_KEYS: readonly string[] = Object.freeze([
-  ...READ_OPTION_KEYS,
-  "returning",
-  "force",
-  "staleError",
-  "allowStale",
-]);
-export const DELETE_OPTION_KEYS: readonly string[] = Object.freeze([
-  ...READ_OPTION_KEYS,
-  "staleError",
-  "allowStale",
-]);
-export const INSERT_OR_UPDATE_OPTION_KEYS: readonly string[] = Object.freeze([
-  ...READ_OPTION_KEYS,
-  "returning",
-  "onConflict",
-  "force",
-  "staleError",
-  "allowStale",
-]);
+export const INSERT_OPTION_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze(
+  /* @__PURE__ */ READ_OPTION_KEYS.concat(["returning", "onConflict"]),
+);
+export const UPDATE_OPTION_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze(
+  /* @__PURE__ */ READ_OPTION_KEYS.concat(["returning", "force", "staleError", "allowStale"]),
+);
+export const DELETE_OPTION_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze(
+  /* @__PURE__ */ READ_OPTION_KEYS.concat(["staleError", "allowStale"]),
+);
+export const INSERT_OR_UPDATE_OPTION_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze(
+  /* @__PURE__ */ READ_OPTION_KEYS.concat(["returning", "onConflict", "force", "staleError", "allowStale"]),
+);
 
 /** Everything a write reads from its options, checked. */
 export interface WriteSettings {
@@ -269,7 +257,7 @@ export interface WriteSettings {
   readonly allowStale: boolean;
 }
 
-const NO_SETTINGS: WriteSettings = Object.freeze({
+const NO_SETTINGS: WriteSettings = /* @__PURE__ */ Object.freeze({
   options: undefined,
   returning: undefined,
   onConflict: undefined,
@@ -294,6 +282,7 @@ export function persistedField(schemaMeta: SchemaMeta, name: unknown, where: str
   const field = typeof name === "string" ? schemaMeta.fieldsByName.get(name) : undefined;
   if (field === undefined || field.virtual) {
     throw new QueryError(
+      "query.writeOptionField",
       `${where}: ${typeof name === "string" ? `"${name}"` : describe(name)} is not ${field?.virtual === true ? "a stored field (it is virtual)" : "a field"} of ${schemaMeta.name}. Its fields are: ${schemaMeta.persisted.map((each) => each.name).join(", ")}.`,
     );
   }
@@ -302,7 +291,7 @@ export function persistedField(schemaMeta: SchemaMeta, name: unknown, where: str
 
 function fieldList(schemaMeta: SchemaMeta, names: unknown, where: string): readonly FieldMeta[] {
   if (!Array.isArray(names) || names.length === 0) {
-    throw new QueryError(`${where} must be a non-empty list of field names.`);
+    throw new QueryError("query.writeOptionFields", `${where} must be a non-empty list of field names.`);
   }
   return names.map((name) => persistedField(schemaMeta, name, where));
 }
@@ -321,6 +310,7 @@ export function returningOption(
   if (returning === true) return true;
   if (!Array.isArray(returning)) {
     throw new QueryError(
+      "query.returningOption",
       `repo.${method}(): returning is true or a list of field names, but it is ${describe(returning)}.`,
     );
   }
@@ -343,13 +333,17 @@ export function conflictOption(
   if (option === "nothing") return { onConflict: "nothing", params: NONE };
   if (typeof option !== "object" || option === null || !isPlainObject(option)) {
     throw new QueryError(
-      `${where} is "nothing" or { target, update }, but it is ${describe(option)}. (There is no spelling for "raise": leave the option out.)`,
+      "query.onConflictOption",
+      `${where} is "nothing" or { target, update }, but it is ${describe(option)}.`,
     );
   }
   const given = option as { readonly target?: unknown; readonly update?: unknown };
   for (const key of Object.keys(given)) {
     if (key !== "target" && key !== "update") {
-      throw new QueryError(`${where} has the keys target and update; "${key}" is not one of them.`);
+      throw new QueryError(
+        "query.onConflictKey",
+        `${where} has the keys target and update; "${key}" is not one of them.`,
+      );
     }
   }
   let target: OnConflict & object extends { target: infer T } ? T : never;
@@ -375,6 +369,7 @@ export function conflictOption(
     target = { constraint: (rawTarget as { constraint: string }).constraint };
   } else {
     throw new QueryError(
+      "query.onConflictTargetOption",
       `${where}'s target is a list of field names, { constraint: "name" } or a fragment, but it is ${describe(rawTarget)}.`,
     );
   }
@@ -396,7 +391,8 @@ export function conflictOption(
     };
   } else {
     throw new QueryError(
-      `${where}'s update is "all", a list of field names or { except: [...] }, but it is ${describe(rawUpdate)}. To ignore a conflict, use onConflict: "nothing".`,
+      "query.onConflictUpdateOption",
+      `${where}'s update is "all", a list of field names or { except: [...] }, but it is ${describe(rawUpdate)}.`,
     );
   }
   return { onConflict: { target, update }, params };
@@ -564,7 +560,8 @@ export async function runWrite<T, E>(
 export function overBudget(error: unknown, options: ReadOptions | undefined): unknown {
   if (!(error instanceof DatabaseError) || error.code !== "timeout") return error;
   return new DatabaseError(
-    `The call ran longer than its timeoutMs (${options?.timeoutMs} ms), which covers every statement it runs, so this statement was stopped.`,
+    "database.callTimeout",
+    `The call ran longer than its timeoutMs (${options?.timeoutMs} ms), which covers every statement it runs.`,
     { code: "timeout", ...(error.sql === undefined ? {} : { sql: error.sql }), cause: error },
   );
 }
@@ -584,7 +581,9 @@ export async function acquireWithin(
 ): Promise<Connection> {
   const signal = options?.signal;
   if (signal?.aborted === true) {
-    throw new DatabaseError(`The ${what} was not run: its AbortSignal had fired.`, { code: "aborted" });
+    throw new DatabaseError("database.abortedBefore", `The ${what} was not run: its AbortSignal had fired.`, {
+      code: "aborted",
+    });
   }
   const pending = core.adapter.acquire();
   if (signal === undefined && deadline === undefined) return pending;
@@ -604,6 +603,7 @@ export async function acquireWithin(
     const onAbort = (): void =>
       giveUp(
         new DatabaseError(
+          "database.abortedWaiting",
           `The ${what} was not run: its AbortSignal fired while it waited for a free connection.`,
           {
             code: "aborted",
@@ -615,6 +615,7 @@ export async function acquireWithin(
         () =>
           giveUp(
             new DatabaseError(
+              "database.timeoutWaiting",
               `The ${what} was not run: it waited longer than its timeoutMs (${options?.timeoutMs} ms) for a free connection.`,
               { code: "timeout" },
             ),
@@ -686,9 +687,9 @@ interface WriteTable {
   readonly positions: ReadonlyMap<FieldMeta, number>;
 }
 
-const tables = new WeakMap<SchemaMeta, WriteTable>();
+const tables = /* @__PURE__ */ new WeakMap<SchemaMeta, WriteTable>();
 
-const TIMESTAMP_KINDS: ReadonlySet<string> = new Set(["timestamp", "timestamptz"]);
+const TIMESTAMP_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set(["timestamp", "timestamptz"]);
 
 /**
  * The write table of a schema.
@@ -700,6 +701,7 @@ export function writeTable(schemaMeta: SchemaMeta): WriteTable {
   if (table !== undefined) return table;
   if (schemaMeta.source === null) {
     throw new QueryError(
+      "query.writeEmbeddedSchema",
       `${schemaMeta.name} is an embedded schema: it is stored inside its parent's row and has no table to write to.`,
     );
   }
@@ -775,7 +777,8 @@ function changesetMeta(changeset: unknown, method: string): SchemaMeta {
   const model = (changeset as AnyChangeset).model;
   if (model === null) {
     throw new QueryError(
-      `repo.${method}(): this changeset has no schema class (it was cast from { data, types }), so it has no table to write to. Use applyAction() to validate such data.`,
+      "query.writeSchemaless",
+      `repo.${method}(): this changeset has no schema class (it was cast from { data, types }), so it has no table to write to.`,
     );
   }
   const schemaMeta = meta(model);
@@ -797,13 +800,15 @@ function hasAssocChanges(changeset: AnyChangeset, schemaMeta: SchemaMeta, method
     if (field === undefined) {
       if (!schemaMeta.assocs().has(key)) {
         throw new QueryError(
+          "query.writeUnknownChange",
           `repo.${method}(): the changeset holds a change of "${key}", which is neither a field nor an association of ${schemaMeta.name}.`,
         );
       }
       nested = true;
     } else if (isNestedValue(changes[key]) && !schemaMeta.embeds.some((embed) => embed.name === key)) {
       throw new QueryError(
-        `repo.${method}(): the changeset of ${schemaMeta.name} holds a changeset as the change of "${key}", which is not an embed field. Only embed fields and associations hold nested changesets.`,
+        "query.writeNestedNotEmbed",
+        `repo.${method}(): the changeset of ${schemaMeta.name} holds a changeset as the change of "${key}", which is not an embed field.`,
       );
     }
   }
@@ -819,17 +824,21 @@ export function loadedRow(
   const data = changeset.data;
   if (data === null) {
     throw new QueryError(
-      `repo.${method}() needs a changeset of a loaded row; this one is of a new ${schemaMeta.name} (made from the class). Insert it with repo.insert(), or use repo.insertOrUpdate().`,
+      "query.writeNewRecord",
+      `repo.${method}() needs a changeset of a loaded row; this one is of a new ${schemaMeta.name} (made from the class).`,
     );
   }
   if (!isRow(data) || data[ROW].state !== "loaded") {
     throw new QueryError(
+      "query.writeNotLoaded",
       `repo.${method}() needs a row read from the database; ${isRow(data) ? `this ${schemaMeta.name} row is ${data[ROW].state}` : "the changeset's data is not a row"}.`,
     );
   }
   if (schemaMeta.primaryKey.length === 0) {
     throw new QueryError(
-      `repo.${method}(): ${schemaMeta.name} has no primary key, so a row of it cannot be found again to ${method === "delete" ? "delete" : "update"}. Use repo.${method === "delete" ? "deleteAll" : "updateAll"}() with a query.`,
+      "query.writeNoPrimaryKey",
+      `repo.${method}(): ${schemaMeta.name} has no primary key, so a row of it cannot be found again to ${method === "delete" ? "delete" : "update"}.`,
+      { params: { method: method === "delete" ? "deleteAll" : "updateAll" } },
     );
   }
   const row = data as unknown as Record<string, unknown>;
@@ -837,6 +846,7 @@ export function loadedRow(
     const value = row[field.name];
     if (value === null || value === undefined) {
       throw new QueryError(
+        "query.writeNoKeyValue",
         `repo.${method}(): the ${schemaMeta.name} row has no value for its key field "${field.name}".`,
       );
     }
@@ -867,10 +877,10 @@ export function runPrepare(changeset: AnyChangeset, action: Action, repo: unknow
   return withRepo(current, null);
 }
 
-const BLANK: ChangesetError = Object.freeze({
+const BLANK: ChangesetError = /* @__PURE__ */ Object.freeze({
   message: "can't be blank",
   validation: "required",
-  meta: Object.freeze({}),
+  meta: /* @__PURE__ */ Object.freeze({}),
 });
 
 function blank(changeset: AnyChangeset, fields: readonly FieldMeta[]): AnyChangeset {
@@ -965,7 +975,7 @@ function isConstraintError(error: unknown): error is ConstraintError {
 // insert
 // ---------------------------------------------------------------------------
 
-const ONE_ROW = Object.freeze({ kind: "values" as const, rows: 1 });
+const ONE_ROW = /* @__PURE__ */ Object.freeze({ kind: "values" as const, rows: 1 });
 
 /**
  * `repo.insert`: writes a new-record changeset.
@@ -985,7 +995,8 @@ export async function insert(
   const changeset = given as AnyChangeset;
   if (changeset.data !== null) {
     throw new QueryError(
-      `repo.${method}() takes a changeset of a new record (made from the class, cast(${schemaMeta.name}, …)); this one is of a loaded row. Update it with repo.update(), or use repo.insertOrUpdate().`,
+      "query.insertLoadedRow",
+      `repo.${method}() takes a changeset of a new record (made from the class, cast(${schemaMeta.name}, …)); this one is of a loaded row.`,
     );
   }
   // Refused before anything else, as an invalid changeset is.
@@ -1105,7 +1116,7 @@ export async function insertRow(
   // counts an existing row that the update left as it was as no row).
   if (result.rowCount === 0 && reread === undefined) {
     if (settings.onConflict === "nothing") return success(null);
-    throw new QueryError(`The insert into ${schemaMeta.name} reported no row written.`);
+    throw new QueryError("query.insertNoRow", `The insert into ${schemaMeta.name} reported no row written.`);
   }
   const returned = result.returned ?? reread ?? insertIdRow(schemaMeta, result.insertId);
   const rowValues: unknown[] = new Array(persisted.length);
@@ -1226,7 +1237,7 @@ async function writeThenRead(
     // its read-back are one unit (see insertThenRead), which this error undoes; a plain
     // insert stays.
     if (error instanceof CastError) {
-      throw new CastError(`${error.message}${isUpsert(settings.onConflict) ? UNDONE : WRITTEN}`, error);
+      throw rewrap(error, (short) => `${short}${isUpsert(settings.onConflict) ? UNDONE : WRITTEN}`);
     }
     throw error;
   }
@@ -1235,7 +1246,8 @@ async function writeThenRead(
     // The update hit a row with another key (a conflict on another unique field), and a
     // database without RETURNING does not say which.
     throw new QueryError(
-      `The upsert into ${schemaMeta.name} met a row that could not be read back by the key it was given: the conflict was on another unique field, and ${core.adapter.dialect} does not report which row it updated. Nothing was written. Upsert by the key, or read the row by the conflicting field and update it.`,
+      "query.upsertUnreadable",
+      `The upsert into ${schemaMeta.name} met a row that could not be read back by the key it was given: the conflict was on another unique field, and ${core.adapter.dialect} does not report which row it updated.`,
     );
   }
   return [result, row];
@@ -1461,7 +1473,7 @@ function deletedRow(
 // delete
 // ---------------------------------------------------------------------------
 
-const NO_CHANGES: Readonly<Record<string, unknown>> = Object.freeze({});
+const NO_CHANGES: Readonly<Record<string, unknown>> = /* @__PURE__ */ Object.freeze({});
 
 /**
  * `repo.delete`: deletes a loaded row, given as itself or as a changeset of it.
@@ -1624,11 +1636,15 @@ export async function validateUnique(
   const model = changeset.model;
   if (model === null) {
     throw new QueryError(
+      "query.uniqueAsyncSchemaless",
       "validateUniqueAsync(): this changeset has no schema class, so there is no table to look in.",
     );
   }
   if (fields.length === 0) {
-    throw new QueryError("validateUniqueAsync() takes a field name or a non-empty list of them.");
+    throw new QueryError(
+      "query.uniqueAsyncFields",
+      "validateUniqueAsync() takes a field name or a non-empty list of them.",
+    );
   }
   const changes = changeset.changes as Readonly<Record<string, unknown>>;
   if (!fields.some((field) => hasOwn(changes, field))) return changeset;

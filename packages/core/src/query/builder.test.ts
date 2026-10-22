@@ -229,7 +229,7 @@ describe("where and orWhere", () => {
 
   test("a callback must return a condition", () => {
     expect(() => from(User, "u").where(() => true as never)).toThrow(
-      /where\(\) needs its callback to return a condition.*returned a boolean/,
+      "query.conditionExpected: where() needs its callback to return a condition; it returned a boolean. Return a condition from the callback, such as ({ u }) => u.age.gte(18). See https://egon-orm.github.io/egon-orm/reference/errors/query#query-conditionexpected",
     );
     expect(() => from(User, "u").where(({ u }) => u.age as never)).toThrow(
       /where\(\) needs a condition, and its callback returned the integer expression u\.age/,
@@ -237,7 +237,9 @@ describe("where and orWhere", () => {
     expect(() => from(User, "u").where(({ u }) => u.age.add(1) as never)).toThrow(
       /returned the integer expression\./,
     );
-    expect(() => from(User, "u").where((() => [1]) as never)).toThrow(/returned an array/);
+    expect(() => from(User, "u").where((() => [1]) as never)).toThrow(
+      "query.conditionExpected: where() needs its callback to return a condition; it returned an array.",
+    );
     expect(() => from(User, "u").where((() => null) as never)).toThrow(/returned null/);
     expect(() => from(User, "u").where((({ u }: { u: object }) => u) as never)).toThrow(
       /returned a whole binding/,
@@ -256,7 +258,7 @@ describe("where and orWhere", () => {
 
   test("an error thrown inside a callback names the clause", () => {
     expect(() => from(User, "u").where(({ u }) => u.age.eq(null as never))).toThrow(
-      /^where\(\): eq\(\) was given null/,
+      /^[a-z]+(?:\.\w+)?: where\(\): eq\(\) was given null/,
     );
     const error = (() => {
       try {
@@ -559,7 +561,9 @@ describe("select", () => {
       from(Post, "p")
         .select(({ p }) => ({ id: p.id }))
         .selectMerge(({ p }) => [p.id] as never),
-    ).toThrow(/selectMerge\(\) needs its callback to return an object of keys to add; it returned an array/);
+    ).toThrow(
+      "query.selectMergeResult: selectMerge() needs its callback to return an object of keys to add; it returned an array. Return an object of keys to add, as in selectMerge(({ p }) => ({ title: p.title })). See https://egon-orm.github.io/egon-orm/reference/errors/query#query-selectmergeresult",
+    );
   });
 });
 
@@ -795,9 +799,11 @@ describe("exclude and pipe", () => {
 
   test("exclude refuses an unknown clause, and to drop a named parameter", () => {
     expect(() => from(User, "u").exclude("join" as never)).toThrow(
-      /exclude\(\) removes one of: where.*given "join"/,
+      'query.excludeUnknown: exclude() was given "join", which is not a clause it removes. exclude() takes where, select, distinct, groupBy, having, orderBy, limit, offset, lock, preload, set, windows, withCte or setOperations.',
     );
-    expect(() => from(User, "u").exclude(1 as never)).toThrow(/given a number/);
+    expect(() => from(User, "u").exclude(1 as never)).toThrow(
+      "query.excludeUnknown: exclude() was given a number, which is not a clause it removes.",
+    );
     const q = from(User, "u").where(({ u }) => u.age.gte(param("minAge", t.integer())));
     expect(() => q.exclude("where")).toThrow(/exclude\("where"\) would remove the named parameter "minAge"/);
     const pre = from(User, "u").preload("posts", (x) =>
@@ -1023,7 +1029,7 @@ describe("preload", () => {
 
   test("a callback must return the query it was given", () => {
     expect(() => from(User, "u").preload("posts", (() => 1) as never)).toThrow(
-      /the callback must return a query.*a number/,
+      'query.preloadCallbackResult: preload("posts", callback): the callback must return a query, the one it receives with clauses added; it returned a number. Return the query the callback receives, with clauses added. See https://egon-orm.github.io/egon-orm/reference/errors/query#query-preloadcallbackresult',
     );
     expect(() => from(User, "u").preload("posts", (() => from(Post, "posts")) as never)).not.toThrow();
     expect(() => from(User, "u").preload("posts", (() => from(Post, "p")) as never)).toThrow(
@@ -1087,7 +1093,7 @@ describe("preload", () => {
       /preload\(\{ posts: "p" \}\): "p" is a binding of this query, but it was not joined through the association "posts" from "u", so it cannot fill it\. Join it with joinAssoc\("u", "posts", "p"\)/,
     );
     expect(() => other.preload({ posts: { $from: "p" } } as never)).toThrow(
-      /\$from names the binding to fill "posts" from, which must be joined through that association: joinAssoc\("u", "posts", "p"\)/,
+      'query.preloadFrom: preload({ posts: { $from: "p" } }): $from names the binding to fill "posts" from, which must be joined through that association.',
     );
     expect(() => from(User, "u").preload({ posts: { $from: 1 } } as never)).toThrow(/\$from: a number/);
     // Below a separately loaded association, there is no join to take rows from.
@@ -1516,7 +1522,7 @@ describe("less common paths", () => {
   test("an error from a nested clause keeps the inner clause's name", () => {
     expect(() =>
       from(User, "u").where(() => exists(from(Post, "p").where(({ p }) => p.views.eq(null as never)))),
-    ).toThrow(/^where\(\): eq\(\) was given null/);
+    ).toThrow(/^[a-z]+(?:\.\w+)?: where\(\): eq\(\) was given null/);
   });
 
   test("offset takes a named parameter, and replacing it is checked", () => {
@@ -1785,35 +1791,45 @@ describe("review, round 2", () => {
   test("a clash of named parameters names the clause", () => {
     const q = from(User, "u").where(({ u }) => u.age.gte(param("n", t.integer())));
     const clash = () => param("n" as never, t.string());
-    expect(() => q.where(({ u }) => u.email.eq(clash()))).toThrow(/^where\(\): The named parameter "n"/);
-    expect(() => q.orWhere(({ u }) => u.email.eq(clash()))).toThrow(/^orWhere\(\): The named parameter "n"/);
+    expect(() => q.where(({ u }) => u.email.eq(clash()))).toThrow(
+      /^[a-z]+(?:\.\w+)?: where\(\): The named parameter "n"/,
+    );
+    expect(() => q.orWhere(({ u }) => u.email.eq(clash()))).toThrow(
+      /^[a-z]+(?:\.\w+)?: orWhere\(\): The named parameter "n"/,
+    );
     expect(() => q.join(Post, "p", ({ p }) => p.title.eq(clash()))).toThrow(
-      /^join\(\): The named parameter "n"/,
+      /^[a-z]+(?:\.\w+)?: join\(\): The named parameter "n"/,
     );
     expect(() => q.joinAssoc("u", "posts", "p", ({ p }) => p.title.eq(clash()))).toThrow(
-      /^joinAssoc\(\): The named parameter "n"/,
+      /^[a-z]+(?:\.\w+)?: joinAssoc\(\): The named parameter "n"/,
     );
     expect(() => q.select(({ u }) => ({ x: u.email.eq(clash()) }) as never)).toThrow(
-      /^select\(\): The named/,
+      /^[a-z]+(?:\.\w+)?: select\(\): The named/,
     );
     expect(() =>
       q.select(({ u }) => ({ id: u.id })).selectMerge(({ u }) => ({ x: u.email.eq(clash()) }) as never),
-    ).toThrow(/^selectMerge\(\): The named/);
+    ).toThrow(/^[a-z]+(?:\.\w+)?: selectMerge\(\): The named/);
     expect(() => q.distinct(({ u }) => [u.email.concat(clash())] as never)).toThrow(
-      /^distinct\(\): The named/,
+      /^[a-z]+(?:\.\w+)?: distinct\(\): The named/,
     );
-    expect(() => q.groupBy(({ u }) => [u.email.concat(clash())] as never)).toThrow(/^groupBy\(\): The named/);
-    expect(() => q.orderBy(({ u }) => u.email.concat(clash()) as never)).toThrow(/^orderBy\(\): The named/);
-    expect(() => q.limit(clash() as never)).toThrow(/^limit\(\): The named/);
-    expect(() => q.lock(fragment`FOR UPDATE ${clash()}` as never)).toThrow(/^lock\(\): The named/);
+    expect(() => q.groupBy(({ u }) => [u.email.concat(clash())] as never)).toThrow(
+      /^[a-z]+(?:\.\w+)?: groupBy\(\): The named/,
+    );
+    expect(() => q.orderBy(({ u }) => u.email.concat(clash()) as never)).toThrow(
+      /^[a-z]+(?:\.\w+)?: orderBy\(\): The named/,
+    );
+    expect(() => q.limit(clash() as never)).toThrow(/^[a-z]+(?:\.\w+)?: limit\(\): The named/);
+    expect(() => q.lock(fragment`FOR UPDATE ${clash()}` as never)).toThrow(
+      /^[a-z]+(?:\.\w+)?: lock\(\): The named/,
+    );
     expect(() => q.preload("posts", (x) => x.where(({ posts }) => posts.title.eq(clash())) as never)).toThrow(
-      /^preload\("posts"\): The named parameter "n"/,
+      /^[a-z]+(?:\.\w+)?: preload\("posts"\): The named parameter "n"/,
     );
     const preloaded = from(User, "u").preload("posts", (x) =>
       x.where(({ posts }) => posts.title.eq(clash())),
     );
     expect(() => preloaded.where(({ u }) => u.age.gte(param("n" as never, t.integer())))).toThrow(
-      /^where\(\): The named parameter "n"/,
+      /^[a-z]+(?:\.\w+)?: where\(\): The named parameter "n"/,
     );
   });
 
@@ -1837,10 +1853,14 @@ describe("review, round 2: nullable named parameters", () => {
   test("one name as nullable and as not nullable is refused within one expression, in both orders", () => {
     expect(() =>
       from(User, "u").where(({ u }) => u.age.gte(plain()).and(u.age.lte(nullable() as never))),
-    ).toThrow(/^where\(\): The named parameter "n" is used with two types, integer and integer \| null/);
+    ).toThrow(
+      /^[a-z]+(?:\.\w+)?: where\(\): The named parameter "n" is used with two types, integer and integer \| null/,
+    );
     expect(() =>
       from(User, "u").where(({ u }) => u.age.gte(nullable() as never).and(u.age.lte(plain()))),
-    ).toThrow(/^where\(\): The named parameter "n" is used with two types, integer \| null and integer/);
+    ).toThrow(
+      /^[a-z]+(?:\.\w+)?: where\(\): The named parameter "n" is used with two types, integer \| null and integer/,
+    );
   });
 
   test("one name as nullable and as not nullable is refused across clauses, in both orders", () => {
@@ -1848,12 +1868,16 @@ describe("review, round 2: nullable named parameters", () => {
       from(User, "u")
         .where(({ u }) => u.age.gte(plain()))
         .orderBy(({ u }) => u.age.add(nullable() as never)),
-    ).toThrow(/^orderBy\(\): The named parameter "n" is used with two types, integer and integer \| null/);
+    ).toThrow(
+      /^[a-z]+(?:\.\w+)?: orderBy\(\): The named parameter "n" is used with two types, integer and integer \| null/,
+    );
     expect(() =>
       from(User, "u")
         .limit(nullable() as never)
         .where(({ u }) => u.age.gte(plain())),
-    ).toThrow(/^where\(\): The named parameter "n" is used with two types, integer \| null and integer/);
+    ).toThrow(
+      /^[a-z]+(?:\.\w+)?: where\(\): The named parameter "n" is used with two types, integer \| null and integer/,
+    );
   });
 
   test("the same nullability on both sides is accepted, also through redaction", () => {
@@ -1873,7 +1897,9 @@ describe("review, round 2: nullable named parameters", () => {
       from(User, "u")
         .where(({ u }) => u.passwordHash.eq(param("h", t.string().nullable()) as never))
         .where(({ u }) => u.email.eq(param("h" as never, t.string()))),
-    ).toThrow(/^where\(\): The named parameter "h" is used with two types, string \| null and string/);
+    ).toThrow(
+      /^[a-z]+(?:\.\w+)?: where\(\): The named parameter "h" is used with two types, string \| null and string/,
+    );
   });
 });
 
@@ -1883,7 +1909,9 @@ describe("review, round 3", () => {
       from(User, "u")
         .where(({ u }) => u.age.gte(param("k", t.integer())))
         .where(({ u }) => u.id.gte(param("k", t.bigint({ mode: "number" })))),
-    ).toThrow(/^where\(\): The named parameter "k" is used with two types, integer and bigint\(number\)/);
+    ).toThrow(
+      /^[a-z]+(?:\.\w+)?: where\(\): The named parameter "k" is used with two types, integer and bigint\(number\)/,
+    );
   });
 
   test("two different enums under one name are named as two types", () => {
@@ -1921,7 +1949,7 @@ describe("review, round 3", () => {
         .where(({ u }) => u.age.gte(n("integer")))
         .limit(n("integer"))
         .limit(n("number") as never),
-    ).toThrow(/^limit\(\): The named parameter "n" is used with two types/);
+    ).toThrow(/^[a-z]+(?:\.\w+)?: limit\(\): The named parameter "n" is used with two types/);
   });
 });
 
@@ -1932,7 +1960,9 @@ describe("review, round 4", () => {
         a: u.age.eq(param("n", t.integer())),
         b: u.email.eq(param("n" as never, t.string())),
       })),
-    ).toThrow(/^select\(\): The named parameter "n" is used with two types, integer and string/);
+    ).toThrow(
+      /^[a-z]+(?:\.\w+)?: select\(\): The named parameter "n" is used with two types, integer and string/,
+    );
     expect(() =>
       from(User, "u")
         .select(({ u }) => ({ id: u.id }))
@@ -1941,7 +1971,7 @@ describe("review, round 4", () => {
           b: [u.age.gt(param("n", t.integer()))],
         })),
     ).toThrow(
-      /^selectMerge\(\): The named parameter "n" is used with two types, integer \| null and integer/,
+      /^[a-z]+(?:\.\w+)?: selectMerge\(\): The named parameter "n" is used with two types, integer \| null and integer/,
     );
   });
 

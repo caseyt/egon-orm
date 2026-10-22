@@ -181,7 +181,7 @@ export class PreparedQuery<R, P> implements QueryLike {
  */
 export function prepare<Q extends QueryLike>(query: Q): PreparedQuery<QueryResult<Q>, QueryParams<Q>> {
   if (!(query instanceof Query)) {
-    throw new QueryError('prepare() takes a query: prepare(from(User, "u").where(…)).');
+    throw new QueryError("query.prepareQuery", "prepare() takes a query.");
   }
   return new PreparedQuery<QueryResult<Q>, QueryParams<Q>>(query);
 }

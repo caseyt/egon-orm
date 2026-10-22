@@ -47,7 +47,7 @@ import type {
   ConfirmationOptions,
   ConstraintOptions,
   ErrorFormatter,
-  ErrorMessages,
+  ErrorMessagesOf,
   ErrorTree,
   ErrorTreeOf,
   FieldName,
@@ -80,9 +80,9 @@ type WithErrorKey<C, K extends string> =
   C extends Changeset<infer S, infer N, infer E> ? Changeset<S, N, E | K> : C;
 
 /** Proves that a constructor call comes from this module. */
-const TOKEN: unique symbol = Symbol("changeset");
+const TOKEN: unique symbol = /* @__PURE__ */ Symbol("changeset");
 /** Node's `util.inspect.custom`, looked up by name: no import of `node:util`. */
-const INSPECT: unique symbol = Symbol.for("nodejs.util.inspect.custom");
+const INSPECT: unique symbol = /* @__PURE__ */ Symbol.for("nodejs.util.inspect.custom");
 
 type Errors = Readonly<Record<string, readonly ChangesetError[]>>;
 type Values = Readonly<Record<string, unknown>>;
@@ -111,20 +111,26 @@ interface ValidationNode {
  */
 type PrepareFn = (changeset: never) => unknown;
 
-const EMPTY: Values = Object.freeze({});
-const NO_ERRORS: Errors = Object.freeze({});
-const NO_CONSTRAINTS: readonly Constraint[] = Object.freeze([]);
-const NO_PREPARE: readonly PrepareFn[] = Object.freeze([]);
-const NO_ISSUES: readonly ChangesetError[] = Object.freeze([]);
-const DEFAULT_EMPTY_VALUES: readonly unknown[] = Object.freeze([""]);
-const ACTIONS: ReadonlySet<unknown> = new Set<Action>(["insert", "update", "delete", "replace", "ignore"]);
+const EMPTY: Values = /* @__PURE__ */ Object.freeze({});
+const NO_ERRORS: Errors = /* @__PURE__ */ Object.freeze({});
+const NO_CONSTRAINTS: readonly Constraint[] = /* @__PURE__ */ Object.freeze([]);
+const NO_PREPARE: readonly PrepareFn[] = /* @__PURE__ */ Object.freeze([]);
+const NO_ISSUES: readonly ChangesetError[] = /* @__PURE__ */ Object.freeze([]);
+const DEFAULT_EMPTY_VALUES: readonly unknown[] = /* @__PURE__ */ Object.freeze([""]);
+const ACTIONS: ReadonlySet<unknown> = /* @__PURE__ */ new Set<Action>([
+  "insert",
+  "update",
+  "delete",
+  "replace",
+  "ignore",
+]);
 
 const BLANK = "can't be blank";
 /** The error for a `null` given to a field that is not nullable. Shared: errors are plain values. */
-const NOT_NULL: ChangesetError = Object.freeze({
+const NOT_NULL: ChangesetError = /* @__PURE__ */ Object.freeze({
   message: BLANK,
   validation: "required",
-  meta: Object.freeze({}),
+  meta: /* @__PURE__ */ Object.freeze({}),
 });
 
 /**
@@ -213,7 +219,10 @@ function messageOf(option: MessageOption | undefined, fallback: string, meta: Va
   if (typeof option === "string") return option;
   const message: unknown = option(meta);
   if (typeof message !== "string") {
-    throw new QueryError("A message function must return the message as a string.");
+    throw new QueryError(
+      "query.messageFunctionResult",
+      "A message function must return the message as a string.",
+    );
   }
   return message;
 }
@@ -257,14 +266,20 @@ function appendErrors(
 
 function checkErrorKey(key: unknown, fn: string): string {
   if (typeof key !== "string" || key === "" || key === "__proto__") {
-    throw new QueryError(`${fn}(): the error key must be a non-empty string other than "__proto__".`);
+    throw new QueryError(
+      "query.errorKey",
+      `${fn}(): the error key must be a non-empty string other than "__proto__".`,
+    );
   }
   return key;
 }
 
 function checkMessage(message: unknown, fn: string): void {
   if (message !== undefined && typeof message !== "string" && typeof message !== "function") {
-    throw new QueryError(`${fn}(): message must be a string or a function that returns one.`);
+    throw new QueryError(
+      "query.messageOption",
+      `${fn}(): message must be a string or a function that returns one.`,
+    );
   }
 }
 
@@ -358,9 +373,7 @@ export class Changeset<
     repo: unknown,
   ) {
     if (token !== TOKEN) {
-      throw new QueryError(
-        "Changeset has no public constructor. Make one with cast(User, params, [...]) or change(User, values).",
-      );
+      throw new QueryError("query.changesetConstructor", "Changeset has no public constructor.");
     }
     this.model = spec.model as ChangesetModel<S>;
     this.data = data as DataMember<S, New>;
@@ -539,11 +552,13 @@ export class Changeset<
   #put(field: FieldMeta, value: unknown, force: boolean, fn: string): this {
     if (value === undefined) {
       throw new QueryError(
-        `${fn}("${field.name}", undefined): undefined is not a value. Use null for no value, or deleteChange("${field.name}") to remove the change.`,
+        "query.putChangeUndefined",
+        `${fn}("${field.name}", undefined): undefined is not a value.`,
+        { params: { name: field.name } },
       );
     }
     if (this.#spec.embeds.has(field.name)) {
-      throw new QueryError(`${fn}(): "${field.name}" is an embed. Change it with putEmbed.`);
+      throw new QueryError("query.putChangeEmbed", `${fn}(): "${field.name}" is an embed.`);
     }
     if (value === null && !field.nullable) {
       return this.#with(this.changes, appendErrors(this.errors, field.name, [NOT_NULL], true), false);
@@ -607,16 +622,15 @@ export class Changeset<
    */
   merge(other: Changeset<S, New>): this {
     if (!(other instanceof Changeset)) {
-      throw new QueryError("merge() takes another changeset.");
+      throw new QueryError("query.mergeArgument", "merge() takes another changeset.");
     }
     const otherSpec = specOf(other);
     if (otherSpec !== this.#spec || other.data !== this.data) {
-      throw new QueryError(
-        "merge(): the changesets are not of the same record. Merge changesets made from the same row (or class, for a new record).",
-      );
+      throw new QueryError("query.mergeOtherRecord", "merge(): the changesets are not of the same record.");
     }
     if (this.action !== null && other.action !== null && this.action !== other.action) {
       throw new QueryError(
+        "query.mergeActions",
         `merge(): the changesets have different actions ("${this.action}" and "${other.action}").`,
       );
     }
@@ -837,7 +851,10 @@ export class Changeset<
     // A single name is not wrapped in an array, so that a passing check allocates nothing.
     const names: string | readonly string[] = fields === undefined ? spec.requiredByDefault : fields;
     if (typeof names !== "string" && !Array.isArray(names)) {
-      throw new QueryError("validateRequired() takes a field name or a list of them.");
+      throw new QueryError(
+        "query.requiredFields",
+        "validateRequired() takes a field name or a list of them.",
+      );
     }
     checkMessage(options?.message, "validateRequired");
     const trim = options?.trim !== false;
@@ -879,7 +896,7 @@ export class Changeset<
   validateFormat(field: FieldOfType<S, string>, pattern: RegExp, options?: MessageOptions): this {
     fieldOf(this.#spec, field, "validateFormat");
     if (!(pattern instanceof RegExp)) {
-      throw new QueryError("validateFormat() takes a regular expression, such as /^[^@\\s]+@[^@\\s]+$/.");
+      throw new QueryError("query.formatPattern", "validateFormat() takes a regular expression.");
     }
     checkMessage(options?.message, "validateFormat");
     const value = this.#changed(field);
@@ -941,7 +958,10 @@ export class Changeset<
   ): this {
     const fn = validation === "inclusion" ? "validateInclusion" : "validateExclusion";
     const field = fieldOf(this.#spec, name, fn);
-    if (!Array.isArray(values)) throw new QueryError(`${fn}() takes the values as an array.`);
+    if (!Array.isArray(values))
+      throw new QueryError("query.inclusionValues", `${fn}() takes the values as an array.`, {
+        params: { fn },
+      });
     checkMessage(options?.message, fn);
     const value = this.#changed(name);
     let error: ChangesetError | undefined;
@@ -969,7 +989,8 @@ export class Changeset<
     options?: MessageOptions,
   ): this {
     fieldOf(this.#spec, field, "validateSubset");
-    if (!Array.isArray(values)) throw new QueryError("validateSubset() takes the values as an array.");
+    if (!Array.isArray(values))
+      throw new QueryError("query.subsetValues", "validateSubset() takes the values as an array.");
     checkMessage(options?.message, "validateSubset");
     const value = this.#changed(field);
     let error: ChangesetError | undefined;
@@ -1007,18 +1028,21 @@ export class Changeset<
   validateLength(field: FieldOfType<S, string | readonly unknown[]>, options: LengthOptions): this {
     fieldOf(this.#spec, field, "validateLength");
     if (typeof options !== "object" || options === null) {
-      throw new QueryError("validateLength() takes its limits as an object: { min: 2, max: 80 }.");
+      throw new QueryError("query.lengthOptions", "validateLength() takes its limits as an object.");
     }
     const { is, min, max } = options;
     if (is === undefined && min === undefined && max === undefined) {
-      throw new QueryError("validateLength() needs at least one of is, min and max.");
+      throw new QueryError("query.lengthNoLimit", "validateLength() needs at least one of is, min and max.");
     }
     checkLimit(is);
     checkLimit(min);
     checkLimit(max);
     const count = options.count ?? "graphemes";
     if (count !== "graphemes" && count !== "codepoints" && count !== "bytes") {
-      throw new QueryError('validateLength(): count must be "graphemes", "codepoints" or "bytes".');
+      throw new QueryError(
+        "query.lengthCount",
+        'validateLength(): count must be "graphemes", "codepoints" or "bytes".',
+      );
     }
     checkMessage(options.message, "validateLength");
     const value = this.#changed(field);
@@ -1072,7 +1096,7 @@ export class Changeset<
   validateNumber(field: FieldOfType<S, number | bigint>, options: NumberOptions): this {
     fieldOf(this.#spec, field, "validateNumber");
     if (typeof options !== "object" || options === null) {
-      throw new QueryError("validateNumber() takes its limits as an object: { greaterThan: 0 }.");
+      throw new QueryError("query.numberOptions", "validateNumber() takes its limits as an object.");
     }
     // Two passes with for…in, so that a passing check allocates nothing.
     let limits = 0;
@@ -1081,16 +1105,17 @@ export class Changeset<
       limits++;
       if (!hasOwn(NUMBER_CHECKS, key)) {
         throw new QueryError(
+          "query.numberUnknownOption",
           `validateNumber(): unknown option "${key}". The options are ${Object.keys(NUMBER_CHECKS).join(", ")} and message.`,
         );
       }
       const limit: unknown = (options as Values)[key];
       if (typeof limit !== "bigint" && (typeof limit !== "number" || Number.isNaN(limit))) {
-        throw new QueryError(`validateNumber(): ${key} must be a number.`);
+        throw new QueryError("query.numberLimit", `validateNumber(): ${key} must be a number.`);
       }
     }
     if (limits === 0) {
-      throw new QueryError("validateNumber() needs at least one limit, such as { greaterThan: 0 }.");
+      throw new QueryError("query.numberNoLimit", "validateNumber() needs at least one limit.");
     }
     checkMessage(options.message, "validateNumber");
     const value = this.#changed(field);
@@ -1204,7 +1229,8 @@ export class Changeset<
     fn: (value: NonNullable<FieldValues<S>[K]>, field: K) => ChangeValidatorResult,
   ): this {
     fieldOf(this.#spec, field, "validateChange");
-    if (typeof fn !== "function") throw new QueryError("validateChange() takes a function.");
+    if (typeof fn !== "function")
+      throw new QueryError("query.validateChangeFunction", "validateChange() takes a function.");
     const value = this.#changed(field);
     if (value === undefined || value === null || hasOwn(this.errors, field)) {
       return this.#validated(field, "change", undefined, this.changes, this.errors, this.valid);
@@ -1425,7 +1451,8 @@ export class Changeset<
     meta?: Readonly<Record<string, unknown>>,
   ): WithErrorKey<this, Exclude<K, FieldName<S>>> {
     checkErrorKey(key, "addError");
-    if (typeof message !== "string") throw new QueryError("addError() takes the message as a string.");
+    if (typeof message !== "string")
+      throw new QueryError("query.addErrorMessage", "addError() takes the message as a string.");
     const error: ChangesetError = { message, meta: meta === undefined ? EMPTY : { ...meta } };
     return this.#with(this.changes, appendErrors(this.errors, key, [error], false), false) as WithErrorKey<
       this,
@@ -1438,15 +1465,15 @@ export class Changeset<
    * including those of nested changesets. The tree is typed by the schema: its fields,
    * associations and embeds (nested trees), the keys validations added
    * (`passwordConfirmation`, carried in the changeset's type), and `$base`.
-   * The type is exported as `ErrorMessages`.
+   * The type is exported as `ErrorMessagesOf`.
    *
    * @example
    * ```ts
    * cast(User, {}, ["email"]).validateRequired(["email"]).errorMessages(); // { email: ["can't be blank"] }
    * ```
    */
-  errorMessages<C extends ChangesetLike>(this: C): ErrorMessages<C> {
-    return traverseErrors(this as ChangesetLike, interpolate) as ErrorMessages<C>;
+  errorMessages<C extends ChangesetLike>(this: C): ErrorMessagesOf<C> {
+    return traverseErrors(this as ChangesetLike, interpolate) as ErrorMessagesOf<C>;
   }
 
   // -------------------------------------------------------------------------
@@ -1469,7 +1496,10 @@ export class Changeset<
   uniqueConstraint(fields: FieldName<S> | readonly FieldName<S>[], options?: ConstraintOptions): this {
     const names: readonly string[] = typeof fields === "string" ? [fields] : fields;
     if (!Array.isArray(names) || names.length === 0) {
-      throw new QueryError("uniqueConstraint() takes a field name or a non-empty list of them.");
+      throw new QueryError(
+        "query.uniqueFields",
+        "uniqueConstraint() takes a field name or a non-empty list of them.",
+      );
     }
     const columns = names.map((name) => fieldOf(this.#spec, name, "uniqueConstraint").column);
     return this.#constraint(
@@ -1521,7 +1551,8 @@ export class Changeset<
     const found = this.#assoc(assoc, "assocConstraint");
     if (found.kind !== "belongsTo") {
       throw new QueryError(
-        `assocConstraint(): "${assoc}" is a ${found.kind} association. It applies to belongsTo associations; for the other side, use noAssocConstraint.`,
+        "query.assocConstraintKind",
+        `assocConstraint(): "${assoc}" is a ${found.kind} association.`,
       );
     }
     const columns = found.ownerKey.map((name) => columnOf(found.owner, name));
@@ -1552,7 +1583,8 @@ export class Changeset<
     const found = this.#assoc(assoc, "noAssocConstraint");
     if ((found.kind !== "hasOne" && found.kind !== "hasMany") || found.through !== undefined) {
       throw new QueryError(
-        `noAssocConstraint(): "${assoc}" is ${found.through !== undefined ? "a has-through" : `a ${found.kind}`} association. It applies to hasOne and hasMany associations with a foreign key.`,
+        "query.noAssocConstraintKind",
+        `noAssocConstraint(): "${assoc}" is ${found.through !== undefined ? "a has-through" : `a ${found.kind}`} association.`,
       );
     }
     const target = found.target();
@@ -1581,9 +1613,7 @@ export class Changeset<
   checkConstraint(field: FieldName<S>, options: CheckConstraintOptions): this {
     fieldOf(this.#spec, field, "checkConstraint");
     if (typeof options?.name !== "string" || options.name === "") {
-      throw new QueryError(
-        'checkConstraint() needs the constraint\'s name: checkConstraint("age", { name: "users_age_check" }).',
-      );
+      throw new QueryError("query.checkConstraintName", "checkConstraint() needs the constraint's name.");
     }
     return this.#constraint("check", field, () => options.name, "is invalid", options, "checkConstraint");
   }
@@ -1615,7 +1645,8 @@ export class Changeset<
     const source = this.#spec.meta?.source;
     if (source === null || source === undefined) {
       throw new QueryError(
-        `${fn}(): ${this.#spec.model === null ? "a changeset without a schema class" : `${this.#spec.name}`} has no table, so the constraint has no default name. Pass it: { name: "…" }.`,
+        "query.constraintNoTable",
+        `${fn}(): ${this.#spec.model === null ? "a changeset without a schema class" : `${this.#spec.name}`} has no table, so the constraint has no default name.`,
       );
     }
     return source;
@@ -1624,7 +1655,10 @@ export class Changeset<
   #assoc(name: string, fn: string): AssocMeta {
     const found = this.#spec.meta?.assocs().get(name);
     if (found === undefined) {
-      throw new QueryError(`${fn}(): ${this.#spec.name} has no association "${String(name)}".`);
+      throw new QueryError(
+        "query.constraintUnknownAssoc",
+        `${fn}(): ${this.#spec.name} has no association "${String(name)}".`,
+      );
     }
     return found;
   }
@@ -1638,17 +1672,17 @@ export class Changeset<
     fn: string,
   ): this {
     if (options !== undefined && (typeof options !== "object" || options === null)) {
-      throw new QueryError(`${fn}(): the options must be an object.`);
+      throw new QueryError("query.constraintOptions", `${fn}(): the options must be an object.`);
     }
     const name = options?.name ?? defaultName();
     if (typeof name !== "string" || name === "")
-      throw new QueryError(`${fn}(): name must be a non-empty string.`);
+      throw new QueryError("query.constraintName", `${fn}(): name must be a non-empty string.`);
     const match = options?.match ?? "exact";
     if (match !== "exact" && match !== "suffix" && match !== "prefix") {
-      throw new QueryError(`${fn}(): match must be "exact", "suffix" or "prefix".`);
+      throw new QueryError("query.constraintMatch", `${fn}(): match must be "exact", "suffix" or "prefix".`);
     }
     if (options?.message !== undefined && typeof options.message !== "string") {
-      throw new QueryError(`${fn}(): message must be a string.`);
+      throw new QueryError("query.constraintMessage", `${fn}(): message must be a string.`);
     }
     const constraint: Constraint = Object.freeze({
       type,
@@ -1697,13 +1731,11 @@ export class Changeset<
   ): this {
     const meta = fieldOf(this.#spec, field, "optimisticLock");
     if (increment !== undefined && typeof increment !== "function") {
-      throw new QueryError("optimisticLock(): the incrementer must be a function.");
+      throw new QueryError("query.lockIncrementer", "optimisticLock(): the incrementer must be a function.");
     }
     const current = currentValue(this.#spec, this.data, meta);
     if (current === null || current === undefined) {
-      throw new QueryError(
-        `optimisticLock(): "${field}" has no value to compare. Give the field a default, such as t.integer().default(1).`,
-      );
+      throw new QueryError("query.lockNoValue", `optimisticLock(): "${field}" has no value to compare.`);
     }
     const next = (increment ?? incrementWithRollover)(current as never) as unknown;
     const bump: PrepareFunction<S, New> = (changeset) => changeset.forceChange(field, next as never);
@@ -1735,7 +1767,8 @@ export class Changeset<
    * @throws QueryError when `fn` is not a function.
    */
   prepareChanges(fn: PrepareFunction<S, New>): this {
-    if (typeof fn !== "function") throw new QueryError("prepareChanges() takes a function.");
+    if (typeof fn !== "function")
+      throw new QueryError("query.prepareFunction", "prepareChanges() takes a function.");
     return construct(
       this.#spec,
       this.data,
@@ -1780,6 +1813,7 @@ export class Changeset<
     if (uniqueAsync === undefined) {
       return Promise.reject(
         new QueryError(
+          "query.uniqueAsyncUnavailable",
           "validateUniqueAsync() needs the repo's write support, which is not available in this build.",
         ),
       );
@@ -1856,7 +1890,7 @@ function changesJson(changes: object, spec: Spec): Record<string, unknown> {
 
 type ElementOf<T> = T extends readonly (infer E)[] ? E : never;
 
-const ACCEPTANCE = booleanType();
+const ACCEPTANCE = /* @__PURE__ */ booleanType();
 
 const LENGTH_MESSAGES = {
   string: {
@@ -1878,7 +1912,7 @@ const LENGTH_MESSAGES = {
 
 type Compare = (value: number | bigint, limit: number | bigint) => boolean;
 
-const NUMBER_CHECKS = Object.freeze({
+const NUMBER_CHECKS = /* @__PURE__ */ Object.freeze({
   lessThan: [(value, limit) => value < limit, "must be less than {number}"],
   greaterThan: [(value, limit) => value > limit, "must be greater than {number}"],
   lessThanOrEqualTo: [(value, limit) => value <= limit, "must be less than or equal to {number}"],
@@ -1906,12 +1940,16 @@ function confirms(field: FieldMeta, confirmation: unknown, change: unknown): boo
 
 function checkLimit(limit: unknown): void {
   if (limit !== undefined && (typeof limit !== "number" || !Number.isInteger(limit) || limit < 0)) {
-    throw new QueryError("validateLength(): is, min and max must be whole numbers, 0 or more.");
+    throw new QueryError(
+      "query.lengthWholeNumbers",
+      "validateLength(): is, min and max must be whole numbers, 0 or more.",
+    );
   }
 }
 
 function notOfType(fn: string, field: string, expected: string): QueryError {
   return new QueryError(
+    "query.validatorValueType",
     `${fn}(): the change of "${field}" is not ${expected}, so it cannot be validated this way.`,
   );
 }
@@ -1932,6 +1970,7 @@ function issuesOf(result: unknown): readonly ChangesetError[] {
       return errorOf(message, validation, meta === undefined ? EMPTY : meta);
     }
     throw new QueryError(
+      "query.validateChangeResult",
       "A validateChange() function must return a message, an error ({ message, meta? }), a list of either, or nothing.",
     );
   });
@@ -1940,9 +1979,7 @@ function issuesOf(result: unknown): readonly ChangesetError[] {
 function incrementWithRollover(current: unknown): unknown {
   if (typeof current === "bigint") return current + 1n;
   if (typeof current !== "number") {
-    throw new QueryError(
-      "optimisticLock(): the field is not a number. Pass a function that makes the next value.",
-    );
+    throw new QueryError("query.lockNotNumber", "optimisticLock(): the field is not a number.");
   }
   return current >= 2147483647 ? 1 : current + 1;
 }
@@ -1970,7 +2007,8 @@ function applied(changeset: AnyChangeset): object {
   const changes = changeset.changes as Values;
   if (data === null) {
     throw new QueryError(
-      `applyChanges() and applyAction() need a changeset of a loaded row (or one without a schema class). This one is of a new ${spec.name}: a row the database never returned cannot exist. Insert it with the repo instead.`,
+      "query.applyChangesNewRecord",
+      `applyChanges() and applyAction() need a changeset of a loaded row (or one without a schema class); this one is of a new ${spec.name}.`,
     );
   }
   if (spec.meta === null) {
@@ -2192,12 +2230,11 @@ export function cast(
 ): AnyChangeset {
   const given = paramsOf(params);
   if (!Array.isArray(permitted)) {
-    throw new QueryError(
-      'cast() takes the permitted field names as an array: cast(User, params, ["email"]).',
-    );
+    throw new QueryError("query.castPermitted", "cast() takes the permitted field names as an array.");
   }
   const emptyValues = options?.emptyValues ?? DEFAULT_EMPTY_VALUES;
-  if (!Array.isArray(emptyValues)) throw new QueryError("cast(): emptyValues must be an array.");
+  if (!Array.isArray(emptyValues))
+    throw new QueryError("query.castEmptyValues", "cast(): emptyValues must be an array.");
   const force = options?.forceChanges === true;
   const base = target instanceof Changeset ? (target as AnyChangeset) : undefined;
   const { spec, data } =
@@ -2210,7 +2247,7 @@ export function cast(
   for (const name of permitted) {
     const field = fieldOf(spec, name, "cast");
     if (spec.embeds.has(name)) {
-      throw new QueryError(`cast(): "${name}" is an embed. Cast it with castEmbed("${name}", …) instead.`);
+      throw new QueryError("query.castEmbed", `cast(): "${name}" is an embed.`, { params: { name } });
     }
     if (given === undefined || !hasOwn(given, name)) continue;
     let value: unknown = given[name];
@@ -2324,7 +2361,7 @@ export function change(target: unknown, values?: Readonly<Record<string, unknown
   }
   if (values === undefined) return changeset;
   if (typeof values !== "object" || values === null) {
-    throw new QueryError('change() takes the values as an object: change(User, { email: "…" }).');
+    throw new QueryError("query.changeValues", "change() takes the values as an object.");
   }
   for (const key of Object.keys(values)) {
     const value = values[key];
@@ -2332,7 +2369,7 @@ export function change(target: unknown, values?: Readonly<Record<string, unknown
     const spec = specOf(changeset);
     fieldOf(spec, key, "change");
     if (spec.embeds.has(key)) {
-      throw new QueryError(`change(): "${key}" is an embed. Change it with putEmbed("${key}", …) instead.`);
+      throw new QueryError("query.changeEmbed", `change(): "${key}" is an embed.`, { params: { key } });
     }
     changeset = changeset.putChange(key, value as never);
   }
@@ -2361,9 +2398,7 @@ export function applyAction<S extends ChangesetSource, New extends boolean>(
   action: Action,
 ): Result<AppliedData<S>, Changeset<S, New>> {
   if (!ACTIONS.has(action)) {
-    throw new QueryError(
-      `applyAction(): "${String(action)}" is not an action. Use "insert", "update", "delete", "replace" or "ignore".`,
-    );
+    throw new QueryError("query.applyActionUnknown", `applyAction(): "${String(action)}" is not an action.`);
   }
   if (changeset.data === null) applied(changeset);
   if (changeset.valid)

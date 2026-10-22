@@ -458,7 +458,7 @@ type CastResult<T, U> = [T] extends [null] ? null : U | (unknown extends T ? nev
  * }
  * ```
  */
-export const AS_SUBQUERY: unique symbol = Symbol.for("egon.asSubquery");
+export const AS_SUBQUERY: unique symbol = /* @__PURE__ */ Symbol.for("egon.asSubquery");
 
 /**
  * Something that can stand as a subquery whose single value is of type `R`, with the
@@ -505,7 +505,10 @@ export function subqueryOf(
 ): AnyExpr & { readonly node: { readonly kind: "subquery"; readonly query: QueryAst } } {
   const expr = value[AS_SUBQUERY]();
   if (!(expr instanceof Expr) || expr.node.kind !== "subquery") {
-    throw new QueryError(`${method}() takes a query, which did not produce a subquery expression.`);
+    throw new QueryError(
+      "query.subqueryExpected",
+      `${method}() takes a query, which did not produce a subquery expression.`,
+    );
   }
   return expr as AnyExpr & { readonly node: { readonly kind: "subquery"; readonly query: QueryAst } };
 }
@@ -534,11 +537,11 @@ export type AnyExpr = Expr<unknown, SomeParams>;
  * new Expr(node, undefined, false, NONE, NONE, NONE, shapeOf(node));
  * ```
  */
-export const NONE: readonly never[] = Object.freeze([]);
+export const NONE: readonly never[] = /* @__PURE__ */ Object.freeze([]);
 
-const BOOLEAN: AnyFieldType = booleanType();
-const STRING: AnyFieldType = stringType();
-const JSON_VALUE: AnyFieldType = jsonType();
+const BOOLEAN: AnyFieldType = /* @__PURE__ */ booleanType();
+const STRING: AnyFieldType = /* @__PURE__ */ stringType();
+const JSON_VALUE: AnyFieldType = /* @__PURE__ */ jsonType();
 
 /**
  * A typed SQL expression. `T` is the type of its value in TypeScript; `P` the named
@@ -938,7 +941,8 @@ export class Expr<out T, in P = NoParams> {
     this: Expr<S, SomeParams>,
     ...parts: A & CompatibleParams<P, ParamsOfAll<A>>
   ): Expr<string | NullOf<S> | NullOf<ValueOf<A[number]>>, MergeParams<P, ParamsOfAll<A>>> {
-    if (parts.length === 0) throw new QueryError("concat() needs at least one part to append.");
+    if (parts.length === 0)
+      throw new QueryError("query.concatEmpty", "concat() needs at least one part to append.");
     let result: AnyExpr = this;
     for (const part of parts) {
       result = operate("concat", result, part, STRING, this.redact, STRING, this.redact, "concat", false);
@@ -1535,7 +1539,8 @@ export function joinNamed(
         const left = namedTypeName(x);
         const right = namedTypeName(y);
         throw new QueryError(
-          `The named parameter "${x.name}" is used with two types, ${left} and ${left === right ? `another ${right} type (other values or options)` : right}. A named parameter has one type: give the other use its own name.`,
+          "query.paramTwoTypes",
+          `The named parameter "${x.name}" is used with two types, ${left} and ${left === right ? `another ${right} type (other values or options)` : right}.`,
         );
       }
     }
@@ -1553,7 +1558,7 @@ export function joinNamed(
  * NULLABLE_PARAMS.has(param("n", t.integer().nullable()).named[0]); // true
  * ```
  */
-export const NULLABLE_PARAMS: WeakSet<NamedParamNode> = new WeakSet();
+export const NULLABLE_PARAMS: WeakSet<NamedParamNode> = /* @__PURE__ */ new WeakSet();
 
 function namedTypeName(node: NamedParamNode): string {
   const name = node.type?.name ?? "untyped";
@@ -1573,9 +1578,7 @@ function namedTypeName(node: NamedParamNode): string {
 export function typeArgument(value: unknown, method: string): AnyFieldType {
   const state = fieldState(value);
   if (state === undefined) {
-    throw new QueryError(
-      `${method}() takes a field type such as t.integer() or t.string() to name the type.`,
-    );
+    throw new QueryError("query.castType", `${method}() takes a field type.`);
   }
   return state.type;
 }
@@ -1586,10 +1589,8 @@ function elementType(type: AnyFieldType | undefined): AnyFieldType | undefined {
 
 function nullOperand(method: string, comparison: boolean): QueryError {
   return comparison
-    ? new QueryError(
-        `${method}() was given null. A comparison with null is always unknown in SQL, so it would match nothing: use isNull() or isNotNull(), or isDistinctFrom() to compare treating null as a value.`,
-      )
-    : new QueryError(`${method}() was given null, which it cannot take.`);
+    ? new QueryError("query.compareNull", `${method}() was given null.`)
+    : new QueryError("query.nullNotAllowed", `${method}() was given null, which it cannot take.`);
 }
 
 /**
@@ -1632,11 +1633,12 @@ export function toOperand(
     return redact ? redacted(value) : value;
   }
   if (value === undefined) {
-    throw new QueryError(
-      allowNull
-        ? `${method}() was given undefined, which is not a value. Pass null for SQL NULL.`
-        : `${method}() was given undefined, which is not a value.`,
-    );
+    throw allowNull
+      ? new QueryError(
+          "query.undefinedOperandNullable",
+          `${method}() was given undefined, which is not a value.`,
+        )
+      : new QueryError("query.undefinedOperand", `${method}() was given undefined, which is not a value.`);
   }
   if (value === null && !allowNull) throw nullOperand(method, comparison);
   return new Expr(
@@ -1651,7 +1653,7 @@ export function toOperand(
 }
 
 /** The functions whose result is made of their arguments' values, so a secret argument makes a secret result. */
-const VALUE_FUNCTIONS: ReadonlySet<string> = new Set([
+const VALUE_FUNCTIONS: ReadonlySet<string> = /* @__PURE__ */ new Set([
   "lower",
   "upper",
   "coalesce",
@@ -1659,7 +1661,14 @@ const VALUE_FUNCTIONS: ReadonlySet<string> = new Set([
   "arrayRemove",
 ]);
 /** The binary operators whose result is made of their operands' values. */
-const VALUE_OPERATORS: ReadonlySet<string> = new Set(["add", "sub", "mul", "div", "mod", "concat"]);
+const VALUE_OPERATORS: ReadonlySet<string> = /* @__PURE__ */ new Set([
+  "add",
+  "sub",
+  "mul",
+  "div",
+  "mod",
+  "concat",
+]);
 
 /**
  * `node` with every parameter it carries a value through marked `redact`: a bare parameter,
@@ -1877,7 +1886,7 @@ export function booleanOperand(value: unknown, method: string): AnyExpr {
       shapeOfParam(BOOLEAN, false),
     );
   }
-  throw new QueryError(`${method}() takes a boolean expression, such as u.age.gte(18), or true or false.`);
+  throw new QueryError("query.booleanExpected", `${method}() takes a boolean expression.`);
 }
 
 function logical(op: "and" | "or", left: AnyExpr, right: unknown): AnyExpr {
@@ -1910,8 +1919,24 @@ function logical(op: "and" | "or", left: AnyExpr, right: unknown): AnyExpr {
   );
 }
 
-const FALSE: AnyExpr = new Expr(literalNode(false), BOOLEAN, false, NONE, NONE, NONE, shapeOfLiteral(false));
-const TRUE: AnyExpr = new Expr(literalNode(true), BOOLEAN, false, NONE, NONE, NONE, shapeOfLiteral(true));
+const FALSE: AnyExpr = /* @__PURE__ */ new Expr(
+  /* @__PURE__ */ literalNode(false),
+  BOOLEAN,
+  false,
+  NONE,
+  NONE,
+  NONE,
+  /* @__PURE__ */ shapeOfLiteral(false),
+);
+const TRUE: AnyExpr = /* @__PURE__ */ new Expr(
+  /* @__PURE__ */ literalNode(true),
+  BOOLEAN,
+  false,
+  NONE,
+  NONE,
+  NONE,
+  /* @__PURE__ */ shapeOfLiteral(true),
+);
 
 /**
  * The literal `true` or `false` as an expression. Shared: expressions are immutable.
@@ -1956,12 +1981,15 @@ function membership(op: "in" | "notIn", left: AnyExpr, values: unknown): AnyExpr
     for (let i = 0; i < length; i++) {
       const value: unknown = values[i];
       if (value === undefined) {
-        throw new QueryError(`${op}() was given a list holding undefined, which is not a value.`);
+        throw new QueryError(
+          "query.listUndefined",
+          `${op}() was given a list holding undefined, which is not a value.`,
+        );
       }
       if (value === null) {
-        throw new QueryError(
-          `${op}() was given a list holding null. x ${op === "in" ? "IN" : "NOT IN"} (…, NULL) never matches the null: filter it out and add isNull() separately.`,
-        );
+        throw new QueryError("query.listNull", `${op}() was given a list holding null.`, {
+          params: { operator: op === "in" ? "IN" : "NOT IN" },
+        });
       }
       copy[i] = value;
     }
@@ -1981,7 +2009,10 @@ function membership(op: "in" | "notIn", left: AnyExpr, values: unknown): AnyExpr
     right = left.redact ? redacted(values) : values;
   } else if (isSubqueryOperand(values)) right = subqueryOf(values, op);
   else {
-    throw new QueryError(`${op}() takes an array of values, an expression of array type, or a query.`);
+    throw new QueryError(
+      "query.inOperand",
+      `${op}() takes an array of values, an expression of array type, or a query.`,
+    );
   }
   const first = right.redact ? redacted(left) : left;
   return new Expr(
@@ -1995,29 +2026,33 @@ function membership(op: "in" | "notIn", left: AnyExpr, values: unknown): AnyExpr
   );
 }
 
-const JSON_KINDS: ReadonlySet<string> = new Set(["json", "jsonb", "custom"]);
+const JSON_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set(["json", "jsonb", "custom"]);
 
 /** The kinds a JSON text value reads as without a cast. */
-const TEXT_KINDS: ReadonlySet<string> = new Set(["text"]);
+const TEXT_KINDS: ReadonlySet<string> = /* @__PURE__ */ new Set(["text"]);
 
 function embedField(value: AnyExpr, name: unknown): AnyExpr {
   const info = value.type === undefined ? undefined : embedTypeInfo(value.type);
   if (info === undefined || info.cardinality !== "one") {
     throw new QueryError(
-      `field() reads a field of an embedded row, and this expression is ${value.type === undefined ? "of no known type" : info === undefined ? `of the type ${value.type.name}` : "a list of embedded rows"}. Use it on a t.embedOne() field; for other JSON use path() or pathText().`,
+      "query.fieldNotEmbed",
+      `field() reads a field of an embedded row, and this expression is ${value.type === undefined ? "of no known type" : info === undefined ? `of the type ${value.type.name}` : "a list of embedded rows"}.`,
     );
   }
   const embedded = meta(info.schema());
   const field = typeof name === "string" ? embedded.fieldsByName.get(name) : undefined;
   if (field === undefined || field.virtual) {
     throw new QueryError(
+      "query.fieldUnknown",
       `field(): ${embedded.name} has no stored field ${typeof name === "string" ? `"${name}"` : String(name)}. Its fields are: ${embedded.persisted.map((each) => each.name).join(", ")}.`,
     );
   }
   const kind = field.type.db.kind;
   if (kind === "binary" || kind === "array") {
     throw new QueryError(
-      `field(): ${embedded.name}.${field.name} is ${kind === "binary" ? "bytes, stored as base64 text" : "a list, stored as a JSON array"}, which field() cannot read as its type. Read it with path("${field.column}") instead.`,
+      "query.fieldNotReadable",
+      `field(): ${embedded.name}.${field.name} is ${kind === "binary" ? "bytes, stored as base64 text" : "a list, stored as a JSON array"}, which field() cannot read as its type.`,
+      { params: { column: field.column } },
     );
   }
   const redact = value.redact || field.redact;
@@ -2050,16 +2085,20 @@ function jsonPath(
 ): AnyExpr {
   if (value.type !== undefined && !JSON_KINDS.has(value.type.db.kind)) {
     throw new QueryError(
-      `${method}() reads inside a JSON value, and this expression has the type ${value.type.name}. Use it on a t.json() or embedded field, or on a fragment.`,
+      "query.pathNotJson",
+      `${method}() reads inside a JSON value, and this expression has the type ${value.type.name}.`,
     );
   }
-  if (keys.length === 0) throw new QueryError(`${method}() needs at least one key.`);
+  if (keys.length === 0) throw new QueryError("query.pathEmpty", `${method}() needs at least one key.`);
   const path: ExprNode[] = [];
   const shapes: number[] = [];
   const keyShape = shapeOfParam(undefined, false);
   for (const key of keys) {
     if (typeof key !== "string" && !(typeof key === "number" && Number.isInteger(key))) {
-      throw new QueryError(`${method}() takes keys that are strings, or whole numbers for array positions.`);
+      throw new QueryError(
+        "query.pathKey",
+        `${method}() takes keys that are strings, or whole numbers for array positions.`,
+      );
     }
     path.push(paramNode(key, undefined, false));
     shapes.push(keyShape);

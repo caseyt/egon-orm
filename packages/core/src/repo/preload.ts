@@ -81,7 +81,7 @@ import { type AfterDecodeContext, Call, type ReadCore } from "./read.js";
 import { overBudget } from "./write.js";
 
 const now = (): number => performance.now();
-const NONE: readonly never[] = Object.freeze([]);
+const NONE: readonly never[] = /* @__PURE__ */ Object.freeze([]);
 
 // ---------------------------------------------------------------------------
 // Options
@@ -109,10 +109,9 @@ export interface PreloadOptions extends Omit<ReadOptions, "schema"> {
  * checkReadOptions("preload", options, PRELOAD_OPTION_KEYS);
  * ```
  */
-export const PRELOAD_OPTION_KEYS: readonly string[] = Object.freeze([
-  ...READ_OPTION_KEYS.filter((key) => key !== "schema"),
-  "force",
-]);
+export const PRELOAD_OPTION_KEYS: readonly string[] = /* @__PURE__ */ Object.freeze(
+  /* @__PURE__ */ ["force"].concat(/* @__PURE__ */ READ_OPTION_KEYS.filter((key) => key !== "schema")),
+);
 
 /**
  * Internal limits of preloading. Not public API; tests lower `chunkKeys` to exercise the
@@ -273,7 +272,7 @@ interface CallOptions {
   readonly batchSize: undefined;
 }
 
-const namesBySlots = new WeakMap<readonly ParamSlot[], readonly string[]>();
+const namesBySlots = /* @__PURE__ */ new WeakMap<readonly ParamSlot[], readonly string[]>();
 
 /** The named values a plan uses, out of all the call was given. */
 function usedNames(
@@ -418,9 +417,9 @@ export function keepPreloads(from: object, to: object): void {
  * `repo.preload`, and every whole row a preload loaded with preloads below it. One shared
  * record per call and level; one entry per row.
  */
-const records = new WeakMap<object, PreloadRecord>();
+const records = /* @__PURE__ */ new WeakMap<object, PreloadRecord>();
 
-const checked = new WeakSet<readonly PreloadNode[]>();
+const checked = /* @__PURE__ */ new WeakSet<readonly PreloadNode[]>();
 
 /**
  * Builds (and caches) the statement parts of every separate preload of a query, so that
@@ -462,7 +461,9 @@ export function checkJoinLimit(ast: QueryAst, schemaMeta: SchemaMeta, operation:
   if (many === undefined) return;
   const what = operation === "first" ? "repo.first() (which adds a limit)" : "a limit or an offset";
   throw new QueryError(
-    `This query preloads "${many}" from a join, and ${what} would count the joined rows, not the parents, cutting their "${many}" short. Preload "${many}" with a separate query instead (preload("${many}"), or a callback with its own per-parent limit), or read the rows with repo.all() and no limit.`,
+    "query.joinPreloadLimit",
+    `This query preloads "${many}" from a join, and ${what} would count the joined rows, not the parents, cutting their "${many}" short.`,
+    { params: { many } },
   );
 }
 
@@ -820,7 +821,8 @@ async function nestInto(
   for (const child of children) {
     if (!isRow(child)) {
       throw new QueryError(
-        `repo.preload(): "${node.assoc}" of ${schemaMeta.name} is loaded as selected values, not rows, so nothing can be preloaded below it. Load it again with { force: true }.`,
+        "query.preloadBelowSelected",
+        `repo.preload(): "${node.assoc}" of ${schemaMeta.name} is loaded as selected values, not rows, so nothing can be preloaded below it.`,
       );
     }
   }
@@ -1023,7 +1025,7 @@ interface Level {
   readonly nested: readonly PreloadNode[];
 }
 
-const levels = new WeakMap<PreloadNode, Level>();
+const levels = /* @__PURE__ */ new WeakMap<PreloadNode, Level>();
 
 function levelOf(route: AssocRoute, node: PreloadNode): Level {
   let level = levels.get(node);
@@ -1043,25 +1045,31 @@ function buildLevel(route: AssocRoute, node: PreloadNode): Level {
   const label = `preload "${route.assoc.name}" of ${route.owner.name}`;
   if (!direct && node.nested.some((nested) => nested.from !== undefined)) {
     throw new QueryError(
-      `${label}: a nested preload from a join is not supported under a ${route.assoc.kind === "manyToMany" ? "many-to-many" : "has-through"} association. Preload the nested association with a separate query instead.`,
+      "query.joinPreloadUnderThrough",
+      `${label}: a nested preload from a join is not supported under a ${route.assoc.kind === "manyToMany" ? "many-to-many" : "has-through"} association.`,
     );
   }
   const limited = base.limit !== undefined || base.offset !== undefined;
   if (limited) {
     if (route.mayRepeat) {
       throw new QueryError(
-        `${label}: limit and offset apply per parent, and a row of ${route.targetMeta.name} can be reached along more than one path of this has-through chain, so it would be counted more than once. Preload without limit, or preload the chain's associations themselves.`,
+        "query.throughLimitAmbiguous",
+        `${label}: limit and offset apply per parent, and a row of ${route.targetMeta.name} can be reached along more than one path of this has-through chain, so it would be counted more than once.`,
       );
     }
     if (route.targetMeta.primaryKey.length === 0) {
       throw new QueryError(
+        "query.preloadLimitKey",
         `${label}: limit and offset apply per parent, which needs ${route.targetMeta.name} to have a primary key to rank its rows by.`,
+        { params: { target: route.targetMeta.name } },
       );
     }
     const many = toManyJoin(route.targetMeta, node.nested);
     if (many !== undefined) {
       throw new QueryError(
-        `${label}: its callback preloads "${many}" from a join, and its limit or offset would count the joined rows, not the rows of ${route.targetMeta.name}, giving a parent fewer than it asks for. Preload "${many}" with a separate query instead (preload("${many}") in the callback).`,
+        "query.joinPreloadCallbackLimit",
+        `${label}: its callback preloads "${many}" from a join, and its limit or offset would count the joined rows, not the rows of ${route.targetMeta.name}, giving a parent fewer than it asks for.`,
+        { params: { many } },
       );
     }
   }
@@ -1307,7 +1315,8 @@ function dedupe(
 ): object[] {
   if (strict && schemaMeta.primaryKey.length === 0) {
     throw new QueryError(
-      `A join preload merges the result rows of each ${schemaMeta.name} by its primary key, and ${schemaMeta.name} has none. Preload with a separate query instead.`,
+      "query.joinPreloadNoKey",
+      `A join preload merges the result rows of each ${schemaMeta.name} by its primary key, and ${schemaMeta.name} has none.`,
     );
   }
   return dedupeKeyed(rows, NONE, schemaMeta, nodes).rows;

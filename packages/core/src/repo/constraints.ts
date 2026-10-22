@@ -58,8 +58,8 @@ export function nameMatches(declared: Pick<Constraint, "name" | "match">, report
 // Names the database shortened
 // ---------------------------------------------------------------------------
 
-const encoder = new TextEncoder();
-const decoder = new TextDecoder();
+const encoder = /* @__PURE__ */ new TextEncoder();
+const decoder = /* @__PURE__ */ new TextDecoder();
 
 /** `text` cut to at most `bytes` bytes of UTF-8, never inside a character. */
 export function clipBytes(text: string, bytes: number): string {
@@ -369,9 +369,9 @@ function suggestion(
  * @example
  * ```ts
  * unhandledViolation(cs, violation, "insert").message;
- * // unique constraint "users_email_key" violated on insert into "users".
- * // The changeset has not defined this constraint. Add: .uniqueConstraint("email")
- * // (or .uniqueConstraint("email", { name: "users_email_key" }))
+ * // constraint.undeclared: unique constraint "users_email_key" violated on insert into "users".
+ * // The changeset has not defined this constraint. See …
+ * // (with full messages: Add: .uniqueConstraint("email") (or .uniqueConstraint("email", { name: "users_email_key" })))
  * ```
  */
 export function unhandledViolation(
@@ -384,17 +384,16 @@ export function unhandledViolation(
   const schemaMeta = meta(changeset.model);
   const { plain, named } = suggestion(schemaMeta, violation, action, name);
   const first = `${VIOLATION_WORDS[violation.type]} constraint ${JSON.stringify(name)} violated on ${actionPhrase(action)} ${JSON.stringify(schemaMeta.source)}.`;
-  const add =
-    plain === undefined
-      ? `The changeset has not defined this constraint. Add: ${named}`
-      : `The changeset has not defined this constraint. Add: ${plain}\n(or ${named})`;
+  const add = plain === undefined ? named : `${plain}\n(or ${named})`;
   return new ConstraintError({
     type: violation.type,
     constraint: violation.constraint,
     table: violation.table,
     column: violation.column,
     detail: violation.detail,
-    message: `${first}\n${add}`,
+    id: "constraint.undeclared",
+    message: `${first} The changeset has not defined this constraint.`,
+    params: { add },
     ...(violation.sql === undefined ? {} : { sql: violation.sql }),
     cause: violation.cause,
   });

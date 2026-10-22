@@ -7,7 +7,8 @@ import {
   ConstraintError,
   cast,
   createRepo,
-  type ErrorMessages,
+  type ErrorMessagesOf,
+  isEgonError,
   type Json,
   NoResultsError,
   Schema,
@@ -49,8 +50,10 @@ export function errorResponse(error: unknown): Response {
     // A unique constraint the changeset did not declare: declare it to get a 422 instead.
     return Response.json({ error: "Conflict" }, { status: 409 });
   }
-  console.error(error); // for your logs; the response says nothing about it
-  return Response.json({ error: "Internal Server Error" }, { status: 500 });
+  console.error(error); // the full message, for your logs
+  // An error of the library is written as { name, code, id }: no message, SQL or values.
+  const body = isEgonError(error) ? error.toJSON() : { error: "Internal Server Error" };
+  return Response.json(body, { status: 500 });
 }
 // #endregion map
 
@@ -88,7 +91,7 @@ export async function showUser(id: number): Promise<Response> {
 // What the client receives, typed from the schema: no class, no Date, no password.
 export type SignUpResponse =
   | { readonly user: Json<User> } // 201
-  | { readonly errors: ErrorMessages<ReturnType<typeof User.changeset>> }; // 422
+  | { readonly errors: ErrorMessagesOf<ReturnType<typeof User.changeset>> }; // 422
 
 export async function submit(form: FormData): Promise<SignUpResponse> {
   const response = await fetch("/users", { method: "POST", body: JSON.stringify(Object.fromEntries(form)) });

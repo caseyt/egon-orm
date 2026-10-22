@@ -179,9 +179,9 @@ function postgresStringLiteral(value: string): string {
  * POSTGRES_MIGRATION_DIALECT.serial.bigint; // "bigserial"
  * ```
  */
-export const POSTGRES_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
+export const POSTGRES_MIGRATION_DIALECT: MigrationDialect = /* @__PURE__ */ Object.freeze({
   name: "postgres",
-  features: Object.freeze({
+  features: /* @__PURE__ */ Object.freeze({
     schemas: true,
     extensions: true,
     concurrentIndexes: true,
@@ -189,26 +189,26 @@ export const POSTGRES_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
     includeColumns: true,
     exclusionConstraints: true,
     dropCascade: true,
-    indexMethods: Object.freeze(["btree", "hash", "gist", "gin", "spgist", "brin"]),
+    indexMethods: /* @__PURE__ */ Object.freeze(["btree", "hash", "gist", "gin", "spgist", "brin"]),
     indexIfExists: true,
     alterConstraints: true,
     constraintIfExists: true,
     modifyColumn: "alter",
   }),
-  serial: Object.freeze({ integer: "serial", bigint: "bigserial" }),
-  referenceActions: Object.freeze({
+  serial: /* @__PURE__ */ Object.freeze({ integer: "serial", bigint: "bigserial" }),
+  referenceActions: /* @__PURE__ */ Object.freeze({
     cascade: "cascade",
     restrict: "restrict",
     setNull: "set null",
     setDefault: "set default",
     noAction: "no action",
   }),
-  booleans: Object.freeze({ true: "true", false: "false" }),
+  booleans: /* @__PURE__ */ Object.freeze({ true: "true", false: "false" }),
   now: "now()",
   stringLiteral: postgresStringLiteral,
   // A session-level advisory lock: held by the connection until released or closed, and
   // outside every transaction, so the migrations' own transactions are not affected.
-  lock: Object.freeze({
+  lock: /* @__PURE__ */ Object.freeze({
     kind: "session",
     acquire: "select pg_advisory_lock($1, $2)",
     release: "select pg_advisory_unlock($1, $2)",
@@ -224,7 +224,7 @@ export const POSTGRES_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
   trackingTimestamp: "timestamp(0)",
   columnTypes: postgresDialect.types,
   precision: true,
-  defaultPrecision: Object.freeze({}),
+  defaultPrecision: /* @__PURE__ */ Object.freeze({}),
   arrayType: undefined,
   nowWithPrecision: false,
   columnConstraints: "inline",
@@ -276,9 +276,9 @@ function sqliteStringLiteral(value: string): string {
  * MYSQL_MIGRATION_DIALECT.serial.bigint; // "bigint auto_increment"
  * ```
  */
-export const MYSQL_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
+export const MYSQL_MIGRATION_DIALECT: MigrationDialect = /* @__PURE__ */ Object.freeze({
   name: "mysql",
-  features: Object.freeze({
+  features: /* @__PURE__ */ Object.freeze({
     // A database schema is a database on MySQL: CREATE SCHEMA is CREATE DATABASE.
     schemas: true,
     extensions: false,
@@ -289,26 +289,29 @@ export const MYSQL_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
     // MySQL accepts CASCADE on DROP TABLE and does nothing with it.
     dropCascade: false,
     // MySQL writes the index type before ON; not offered.
-    indexMethods: Object.freeze([]),
+    indexMethods: /* @__PURE__ */ Object.freeze([]),
     indexIfExists: false,
     alterConstraints: true,
     constraintIfExists: false,
     modifyColumn: "modify",
   }),
-  serial: Object.freeze({ integer: "integer auto_increment", bigint: "bigint auto_increment" }),
-  referenceActions: Object.freeze({
+  serial: /* @__PURE__ */ Object.freeze({
+    integer: "integer auto_increment",
+    bigint: "bigint auto_increment",
+  }),
+  referenceActions: /* @__PURE__ */ Object.freeze({
     cascade: "cascade",
     restrict: "restrict",
     setNull: "set null",
     setDefault: "set default",
     noAction: "no action",
   }),
-  booleans: Object.freeze({ true: "true", false: "false" }),
+  booleans: /* @__PURE__ */ Object.freeze({ true: "true", false: "false" }),
   now: "current_timestamp",
   stringLiteral: mysqlStringLiteral,
   // A named lock of the session, per database and tracking table (names are server-wide,
   // and at most 64 characters: hence the hash).
-  lock: Object.freeze({
+  lock: /* @__PURE__ */ Object.freeze({
     kind: "session",
     acquire: "select get_lock(concat('egon:', sha1(concat(database(), ':', ?, ':', ?))), -1) as locked",
     release: "select release_lock(concat('egon:', sha1(concat(database(), ':', ?, ':', ?)))) as released",
@@ -322,7 +325,7 @@ export const MYSQL_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
     "select 1 from information_schema.columns where table_schema = coalesce(?, database()) and table_name = ? and column_name = ?",
   utcNow: "utc_timestamp()",
   trackingTimestamp: "datetime",
-  columnTypes: Object.freeze({
+  columnTypes: /* @__PURE__ */ Object.freeze({
     integer: "integer",
     bigint: "bigint",
     float: "double",
@@ -341,11 +344,11 @@ export const MYSQL_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
     jsonb: "json",
   }),
   precision: true,
-  defaultPrecision: Object.freeze({
-    decimal: Object.freeze([65, 30]),
-    time: Object.freeze([6]),
-    timestamp: Object.freeze([6]),
-    timestamptz: Object.freeze([6]),
+  defaultPrecision: /* @__PURE__ */ Object.freeze({
+    decimal: /* @__PURE__ */ Object.freeze([65, 30]),
+    time: /* @__PURE__ */ Object.freeze([6]),
+    timestamp: /* @__PURE__ */ Object.freeze([6]),
+    timestamptz: /* @__PURE__ */ Object.freeze([6]),
   }),
   arrayType: "json",
   nowWithPrecision: true,
@@ -365,9 +368,9 @@ export const MYSQL_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
  * SQLITE_MIGRATION_DIALECT.serial.bigint; // "integer" (with primary key autoincrement)
  * ```
  */
-export const SQLITE_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
+export const SQLITE_MIGRATION_DIALECT: MigrationDialect = /* @__PURE__ */ Object.freeze({
   name: "sqlite",
-  features: Object.freeze({
+  features: /* @__PURE__ */ Object.freeze({
     schemas: false,
     extensions: false,
     concurrentIndexes: false,
@@ -375,39 +378,39 @@ export const SQLITE_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
     includeColumns: false,
     exclusionConstraints: false,
     dropCascade: false,
-    indexMethods: Object.freeze([]),
+    indexMethods: /* @__PURE__ */ Object.freeze([]),
     indexIfExists: true,
     alterConstraints: false,
     constraintIfExists: false,
     modifyColumn: "none",
   }),
   // The rowid: an integer key that SQLite generates, never reused with autoincrement.
-  serial: Object.freeze({ integer: "integer", bigint: "integer" }),
-  referenceActions: Object.freeze({
+  serial: /* @__PURE__ */ Object.freeze({ integer: "integer", bigint: "integer" }),
+  referenceActions: /* @__PURE__ */ Object.freeze({
     cascade: "cascade",
     restrict: "restrict",
     setNull: "set null",
     setDefault: "set default",
     noAction: "no action",
   }),
-  booleans: Object.freeze({ true: "true", false: "false" }),
+  booleans: /* @__PURE__ */ Object.freeze({ true: "true", false: "false" }),
   // A timestamp as the adapter stores one: ISO 8601 text in UTC, with milliseconds.
   now: "(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
   stringLiteral: sqliteStringLiteral,
   // SQLite has no lock outside a transaction: the runner holds a write transaction
   // (`begin immediate`) for the whole run, which another runner on the same file, in this
   // process or another, cannot start until it ends.
-  lock: Object.freeze({
+  lock: /* @__PURE__ */ Object.freeze({
     kind: "transaction",
     acquire: "begin immediate",
     release: "commit",
     abandon: "rollback",
   }),
-  busyTimeout: Object.freeze({
+  busyTimeout: /* @__PURE__ */ Object.freeze({
     read: "pragma busy_timeout",
     write: (ms: number) => `pragma busy_timeout = ${Math.max(0, Math.trunc(ms))}`,
   }),
-  foreignKeys: Object.freeze({
+  foreignKeys: /* @__PURE__ */ Object.freeze({
     read: "pragma foreign_keys",
     write: (on: boolean) => `pragma foreign_keys = ${on ? "on" : "off"}`,
   }),
@@ -417,7 +420,7 @@ export const SQLITE_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
   trackingTimestamp: "text",
   columnTypes: sqliteDialect.types,
   precision: false,
-  defaultPrecision: Object.freeze({}),
+  defaultPrecision: /* @__PURE__ */ Object.freeze({}),
   arrayType: "text",
   nowWithPrecision: false,
   columnConstraints: "inline",
@@ -427,7 +430,7 @@ export const SQLITE_MIGRATION_DIALECT: MigrationDialect = Object.freeze({
   locks: true,
 });
 
-const TABLES: Readonly<Partial<Record<Dialect, MigrationDialect>>> = Object.freeze({
+const TABLES: Readonly<Partial<Record<Dialect, MigrationDialect>>> = /* @__PURE__ */ Object.freeze({
   postgres: POSTGRES_MIGRATION_DIALECT,
   mysql: MYSQL_MIGRATION_DIALECT,
   sqlite: SQLITE_MIGRATION_DIALECT,
@@ -447,6 +450,7 @@ export function migrationDialectOf(dialect: Dialect): MigrationDialect {
   const table = Object.hasOwn(TABLES, dialect) ? TABLES[dialect] : undefined;
   if (table === undefined) {
     throw new MigrationError(
+      "migration.dialectUnsupported",
       `Migrations are not supported on ${String(dialect)} by this build of egon-orm: it has no migration dialect table for it.`,
     );
   }

@@ -161,10 +161,11 @@ async function rejection(promise: Promise<unknown>): Promise<unknown> {
   throw new Error("expected a rejection");
 }
 
-const databaseError = (message = "the database said no") => new DatabaseError(message, { code: "database" });
+const databaseError = (message = "the database said no") =>
+  new DatabaseError("database.rejected", message, { code: "database" });
 
 const serializationFailure = () =>
-  new DatabaseError("could not serialize access", { code: "serializationFailure" });
+  new DatabaseError("database.rejected", "could not serialize access", { code: "serializationFailure" });
 
 const violation = () =>
   new ConstraintError({
@@ -1210,7 +1211,9 @@ describe("retries", () => {
     let attempts = 0;
     const plain = new Error("not retryable");
     pool.fail = (sql) =>
-      sql === "write" && attempts === 1 ? new DatabaseError("deadlock", { code: "deadlock" }) : undefined;
+      sql === "write" && attempts === 1
+        ? new DatabaseError("database.rejected", "deadlock", { code: "deadlock" })
+        : undefined;
     await repo.checkout(async (c) => {
       const error = await rejection(
         c.transaction(
@@ -1239,7 +1242,7 @@ describe("retries", () => {
     const plainBegin = (pool: ScriptedPool, plain: Error) => {
       let begins = 0;
       pool.fail = (sql) => {
-        if (sql === "write") return new DatabaseError("deadlock", { code: "deadlock" });
+        if (sql === "write") return new DatabaseError("database.rejected", "deadlock", { code: "deadlock" });
         if (sql === "begin" && ++begins === 2) return plain;
         return undefined;
       };

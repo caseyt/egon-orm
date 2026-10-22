@@ -124,7 +124,7 @@ describe("normalizeMysqlError", () => {
     );
     expect(parse).toBeInstanceOf(DatabaseError);
     expect((parse as Error).message).toBe(
-      "The database rejected the statement (MySQL error 1064, ER_PARSE_ERROR): You have an error in your SQL syntax.",
+      "database.rejected: The database rejected the statement (MySQL error 1064, ER_PARSE_ERROR): You have an error in your SQL syntax. The cause is the driver's error, with the database's full report; error.sql is the statement. Look the SQL state up in the database's documentation. See https://egon-orm.github.io/egon-orm/reference/errors/database#database-rejected",
     );
     const range = normalizeMysqlError(
       serverError(1264, "ER_WARN_DATA_OUT_OF_RANGE", "Out of range value 99999 for column 'n'"),
@@ -162,7 +162,7 @@ describe("normalizeMysqlError", () => {
   });
 
   test("anything else is returned unchanged", () => {
-    const egon = new QueryError("mine");
+    const egon = new QueryError("query.unsupportedFeature", "mine");
     const plain = new Error("app");
     const half = Object.assign(new Error("no state"), { errno: 1062 });
     expect(normalizeMysqlError(egon, "x")).toBe(egon);

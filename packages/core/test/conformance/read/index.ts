@@ -1583,8 +1583,10 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
         await r.ping();
         expect(r.poolStats().size).toBeGreaterThanOrEqual(1);
         const before = r.planCacheStats();
-        await r.all(from(User, "u").where({ id: 1 }));
-        await r.all(from(User, "u").where({ id: 2 }));
+        // A shape no other test compiles (the alias and the operator are this test's own): the
+        // plan cache is shared by every adapter of this configuration.
+        await r.all(from(User, "cacheCounted").where(({ cacheCounted }) => cacheCounted.id.lte(1)));
+        await r.all(from(User, "cacheCounted").where(({ cacheCounted }) => cacheCounted.id.lte(2)));
         const after = r.planCacheStats();
         expect(after.misses - before.misses).toBe(1);
         expect(after.hits - before.hits).toBe(1);

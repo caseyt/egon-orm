@@ -24,7 +24,7 @@ assert.equal(cliVersion, VERSION);
 assert.equal(typeof defineConfig, "function");
 
 // The subpath `egon-orm/migration` loads the same way and shares the main entry's classes.
-assert.ok(new MigrationError("x") instanceof EgonError);
+assert.ok(new MigrationError("migration.failed", "x") instanceof EgonError);
 
 // What was loaded is the one ES module build, not a CommonJS copy of it.
 const resolved = require.resolve("egon-orm");
@@ -40,7 +40,7 @@ const repo = createRepo({ adapter: postgres({ connectionString: "postgres://loca
 Promise.all([import("egon-orm"), createSandbox(repo), createSandbox({}).catch((error) => error)])
   .then(async ([esm, sandbox, refused]) => {
     assert.equal(esm.QueryError, QueryError);
-    const error = new QueryError("x");
+    const error = new QueryError("query.unsupportedFeature", "x");
     assert.ok(error instanceof esm.EgonError);
     assert.ok(isEgonError(error, "query"));
     assert.deepEqual(success(1), { success: true, data: 1 });

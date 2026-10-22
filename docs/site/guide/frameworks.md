@@ -89,9 +89,9 @@ The errors a server action returns are typed the same way:
 - `JsonReturn` keeps `null`: a function that may find nothing has `| null` in its type.
   Use the `...OrThrow` reads (a miss becomes a 404 in your error handler), or
   `NonNullable<JsonReturn<…>>`.
-- Write `JsonReturn<typeof fn>` rather than `Json<Awaited<ReturnType<typeof fn>>>`:
-  TypeScript's `Awaited` can exceed its instantiation depth on a loaded row
-  ("Type instantiation is excessively deep").
+- Write `JsonReturn<typeof fn>` rather than `Json<Awaited<ReturnType<typeof fn>>>`: on a
+  loaded row, `Json<Awaited<…>>` can exceed TypeScript's instantiation depth ("Type
+  instantiation is excessively deep"), depending on what was checked before it.
 - [Errors as HTTP responses](/recipes/error-responses) maps the errors to statuses.
 
 Use the repo in server code only (server components, route handlers, server actions): it

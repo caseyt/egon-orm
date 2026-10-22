@@ -137,6 +137,32 @@ describe("errorMessages()", () => {
     type _FromClass = ErrorMessagesOf<typeof Account>["passwordConfirmation"];
   });
 
+  test("keys are collected along a chain of calls: a reassigned or branched changeset needs them in its type", async () => {
+    // Pinned as it is: the declared type of `let` stays the type of its first value.
+    let reassigned = cast(User, params, ["email"]);
+    reassigned = reassigned.addError("captcha", "is wrong");
+    // @ts-expect-error the key added after the declaration is not in the type
+    reassigned.errorMessages().captcha;
+
+    const ok = params.ok === true;
+    const plain = cast(User, params, ["email"]);
+    const branched = ok ? plain : plain.addError("captcha", "is wrong");
+    // @ts-expect-error a union keeps only the keys both branches have
+    branched.errorMessages().captcha;
+
+    // Declaring the keys in the type keeps them, through a write too.
+    let declared: Changeset<typeof User, true, "captcha"> = cast(User, params, ["email"]);
+    if (!ok) declared = declared.addError("captcha", "is wrong");
+    expectTypeOf(declared.errorMessages().captcha).toEqualTypeOf<string[] | undefined>();
+    const result = await repo.insert(declared);
+    if (!result.success)
+      expectTypeOf(result.error.errorMessages().captcha).toEqualTypeOf<string[] | undefined>();
+    const picked: Changeset<typeof User, true, "captcha"> = ok
+      ? plain
+      : plain.addError("captcha", "is wrong");
+    expectTypeOf(picked.errorMessages().captcha).toEqualTypeOf<string[] | undefined>();
+  });
+
   test("the extra keys flow through a batch's failure", async () => {
     const batch = createBatch().insert("account", Account.changeset(Account, params));
     const outcome = await repo.transaction(batch);

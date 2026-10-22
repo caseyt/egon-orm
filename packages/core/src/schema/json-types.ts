@@ -169,10 +169,9 @@ export type Json<T> = JsonOf<T, "value">;
 
 /**
  * What a promise of `T` resolves to, one level deep (a promise never resolves to a
- * promise). It is not the built-in `Awaited`: `Awaited` asks of the resolved value whether
- * it has a `then` method, and for a loaded row TypeScript can then exceed its
- * instantiation depth ("Type instantiation is excessively deep", TS2589), depending on
- * what it checked before.
+ * promise). It is not the built-in `Awaited`: `Json<Awaited<…>>` of a loaded row can exceed
+ * TypeScript's instantiation depth ("Type instantiation is excessively deep", TS2589),
+ * depending on what was checked before.
  */
 type Resolved<T> = T extends Promise<infer V> ? V : T extends PromiseLike<infer V> ? V : T;
 

@@ -356,11 +356,32 @@ describe("the json flag", () => {
   });
 
   test("virtual() refuses options it does not know", () => {
-    expect(() => t.string().virtual("json" as never)).toThrow(SchemaDefinitionError);
-    expect(() => t.string().virtual({ json: "yes" } as never)).toThrow(SchemaDefinitionError);
-    expect(() => t.string().virtual(null as never)).toThrow(SchemaDefinitionError);
-    expect(() => t.string().virtual({ jsno: true } as never)).toThrow(SchemaDefinitionError);
-    expect(() => t.string().virtual({ json: true, extra: 1 } as never)).toThrow(SchemaDefinitionError);
+    const refusal = (options: unknown): unknown => {
+      try {
+        t.string().virtual(options as never);
+      } catch (error) {
+        expect(error).toBeInstanceOf(SchemaDefinitionError);
+        return { id: (error as SchemaDefinitionError).id, message: (error as Error).message };
+      }
+      throw new Error("expected virtual() to refuse the options");
+    };
+    expect(refusal("json")).toMatchObject({
+      id: "schema.virtualOptions",
+      message: expect.stringContaining("virtual() takes no options, or { json: true }."),
+    });
+    expect(refusal(null)).toMatchObject({ id: "schema.virtualOptions" });
+    expect(refusal({ jsno: true })).toMatchObject({
+      id: "schema.virtualUnknownOption",
+      message: expect.stringContaining('virtual() has no option "jsno". It takes json.'),
+    });
+    expect(refusal({ json: true, extra: 1 })).toMatchObject({
+      id: "schema.virtualUnknownOption",
+      message: expect.stringContaining('no option "extra"'),
+    });
+    expect(refusal({ json: "yes" })).toMatchObject({
+      id: "schema.virtualJsonOption",
+      message: expect.stringContaining("virtual(): json must be true or false."),
+    });
     expect(
       meta(Schema("v", { id: t.integer().primaryKey(), v: t.string().virtual({}) })).fieldsByName.get("v")
         ?.json,

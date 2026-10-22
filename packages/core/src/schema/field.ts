@@ -175,17 +175,22 @@ class Builder<T, F extends FieldFlags> implements FieldBuilder<T, F> {
   virtual(options: { readonly json: true }): FieldBuilder<T, WithFlag<F, "virtual">>;
   virtual(options?: { readonly json?: boolean }): FieldBuilder<T, FieldFlags> {
     const given: unknown = options;
-    const json: unknown =
-      typeof given === "object" && given !== null ? (given as { readonly json?: unknown }).json : undefined;
-    if (
-      (given !== undefined &&
-        (typeof given !== "object" || given === null || Object.keys(given).some((key) => key !== "json"))) ||
-      (json !== undefined && typeof json !== "boolean")
-    ) {
+    if (given !== undefined && (typeof given !== "object" || given === null)) {
       throw new SchemaDefinitionError(
         "schema.virtualOptions",
         "virtual() takes no options, or { json: true }.",
       );
+    }
+    const unknownKey = given === undefined ? undefined : Object.keys(given).find((key) => key !== "json");
+    if (unknownKey !== undefined) {
+      throw new SchemaDefinitionError(
+        "schema.virtualUnknownOption",
+        `virtual() has no option "${unknownKey}". It takes json.`,
+      );
+    }
+    const json: unknown = given === undefined ? undefined : (given as { readonly json?: unknown }).json;
+    if (json !== undefined && typeof json !== "boolean") {
+      throw new SchemaDefinitionError("schema.virtualJsonOption", "virtual(): json must be true or false.");
     }
     // { json: true } keeps the flag as it is: a redacted field stays out of JSON.
     return new Builder({ ...this[FIELD], virtual: true, json: json === true ? this[FIELD].json : false });

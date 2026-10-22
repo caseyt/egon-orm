@@ -1465,11 +1465,15 @@ export class Changeset<
    * including those of nested changesets. The tree is typed by the schema: its fields,
    * associations and embeds (nested trees), the keys validations added
    * (`passwordConfirmation`, carried in the changeset's type), and `$base`.
-   * The type is exported as `ErrorMessagesOf`.
+   * Name its type with `ErrorMessagesOf`: of the changeset's type, or of what the schema's
+   * `changeset` function returns.
    *
    * @example
    * ```ts
    * cast(User, {}, ["email"]).validateRequired(["email"]).errorMessages(); // { email: ["can't be blank"] }
+   *
+   * // For a client: the errors of User.changeset, keys added by its validations included.
+   * type SignUpErrors = ErrorMessagesOf<ReturnType<typeof User.changeset>>;
    * ```
    */
   errorMessages<C extends ChangesetLike>(this: C): ErrorMessagesOf<C> {

@@ -27,6 +27,18 @@ class Account extends Schema("accounts", {
   }
 }
 
+/** A schema whose changeset function adds "other" in one branch only. */
+class Branchy extends Schema("branchy", {
+  id: t.integer().primaryKey().dbGenerated(),
+  password: t.string().virtual(),
+}) {
+  static changeset(row: Branchy | typeof Branchy, input: unknown, strict: boolean) {
+    const cs = cast(row, input, ["password"]).validateConfirmation("password");
+    if (strict) return cs.addError("other", "is not allowed");
+    return cs;
+  }
+}
+
 class Note extends Schema("notes", {
   id: t.integer().primaryKey().dbGenerated(),
   accountId: t.integer(),
@@ -161,6 +173,16 @@ describe("errorMessages()", () => {
       ? plain
       : plain.addError("captcha", "is wrong");
     expectTypeOf(picked.errorMessages().captcha).toEqualTypeOf<string[] | undefined>();
+  });
+
+  test("a changeset function that returns from two branches keeps, through a write, only the keys both add", async () => {
+    const result = await repo.insert(Branchy.changeset(Branchy, params, true));
+    if (!result.success) {
+      // The key both branches add is typed.
+      expectTypeOf(result.error.errorMessages().passwordConfirmation).toEqualTypeOf<string[] | undefined>();
+      // @ts-expect-error "other" is added in one branch only, so the write's error type does not have it
+      result.error.errorMessages().other;
+    }
   });
 
   test("the extra keys flow through a batch's failure", async () => {

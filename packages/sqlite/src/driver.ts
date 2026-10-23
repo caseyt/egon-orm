@@ -52,11 +52,27 @@ export function checkRuntime(driverVersion: string, napiVersion: string | undefi
   }
 }
 
+/** A `require` function, as `createRequire` and CommonJS's own `require` both are. */
+type RequireFunction = (id: string) => unknown;
+
+/**
+ * The `require` to read the driver's `package.json` with: one made from this module's URL,
+ * or, when there is none, the CommonJS `require` of the code around it. A bundler that
+ * turns this ES module into CommonJS (esbuild with `format: "cjs"`) leaves `import.meta`
+ * empty, and `createRequire(undefined)` would throw before the database is opened.
+ * `undefined` when neither exists: the version check is then skipped.
+ */
+export function requireFor(moduleUrl: unknown, commonJsRequire: unknown): RequireFunction | undefined {
+  if (typeof moduleUrl === "string") return createRequire(moduleUrl);
+  return typeof commonJsRequire === "function" ? (commonJsRequire as RequireFunction) : undefined;
+}
+
 /** The real runtime: checks the driver against Node.js once, then opens the file. */
 export const SQLITE_RUNTIME: SqliteRuntime = {
   open: (settings) => {
-    const manifest = createRequire(import.meta.url)("better-sqlite3/package.json") as { version: string };
-    checkRuntime(manifest.version, process.versions.napi);
+    const load = requireFor(import.meta.url, typeof require === "function" ? require : undefined);
+    const manifest = load?.("better-sqlite3/package.json") as { version?: unknown } | undefined;
+    if (typeof manifest?.version === "string") checkRuntime(manifest.version, process.versions.napi);
     return new Database(settings.filename, { readonly: settings.readonly });
   },
 };

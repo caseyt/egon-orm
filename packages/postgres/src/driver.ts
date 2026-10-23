@@ -167,10 +167,12 @@ export class PgDriver implements DriverWrapper {
     if (pool === undefined) return;
     pool.off("connect", this.onConnect);
     pool.off("remove", this.onRemove);
-    if (this.source.owned) {
-      await pool.end();
-      pool.off("error", ignore);
-    }
+    // The error listener of an owned pool stays: pg-pool's end() resolves as soon as it has
+    // asked its idle clients to end, before their sockets have closed, and a client that
+    // reports an error meanwhile (the server terminated its session: a restart,
+    // pg_terminate_backend, DROP DATABASE ... WITH (FORCE)) makes the pool emit "error",
+    // which would end the process with no listener. The pool is discarded either way.
+    if (this.source.owned) await pool.end();
   }
 
   stats(): PoolEvent {

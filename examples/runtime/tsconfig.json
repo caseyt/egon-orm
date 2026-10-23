@@ -1,0 +1,7 @@
+{
+  // Not part of `tsc -b`: this file only stops runtimes that read tsconfig paths (Bun) from
+  // finding the workspace's, whose `paths` point the packages at their sources. The matrix
+  // runs the built packages, as an application does.
+  "compilerOptions": {},
+  "files": []
+}

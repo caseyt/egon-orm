@@ -189,10 +189,27 @@ const docsExamples: TestProjectConfiguration = {
   },
 };
 
+/**
+ * Step 21: the soak test (packages/postgres/test/soak), a long mixed workload with random
+ * backend kills. Opt-in: `pnpm test:soak` (EGON_SOAK_MINUTES sets the length); no other
+ * project matches `*.soak.ts`, so neither CI nor `pnpm test:integration` runs it.
+ */
+const soak: TestProjectConfiguration = {
+  resolve: { alias },
+  test: {
+    name: "postgres:soak",
+    root: fromRoot("./packages/postgres"),
+    environment: "node",
+    include: ["test/soak/**/*.soak.ts"],
+    globalSetup: [fromRoot("./packages/core/test/support/global-setup.ts")],
+    hookTimeout: 60_000,
+  },
+};
+
 export default defineConfig({
   test: {
     passWithNoTests: true,
-    projects: [...PACKAGES.flatMap(projectsFor), parallelPair, sandboxPair, blog, docsExamples],
+    projects: [...PACKAGES.flatMap(projectsFor), parallelPair, sandboxPair, blog, docsExamples, soak],
     coverage: {
       provider: "v8",
       // Resolved against each project root (packages/<name>), not the repository root.

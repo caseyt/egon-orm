@@ -150,14 +150,24 @@ describe("the pool", () => {
     expect(driver.saturated()).toBe(true);
   });
 
-  test("is ended by destroy when the adapter created it, and its listeners are removed", async () => {
+  test("is ended by destroy when the adapter created it, and its event listeners are removed", async () => {
     const { driver, pool } = setup();
     driver.init();
     await driver.destroy();
     expect(pool.ended).toBe(1);
-    expect(pool.listenerCount("connect") + pool.listenerCount("remove") + pool.listenerCount("error")).toBe(
-      0,
-    );
+    expect(pool.listenerCount("connect") + pool.listenerCount("remove")).toBe(0);
+  });
+
+  test("an error a closing connection reports after destroy does not end the process", async () => {
+    // pg-pool's end() resolves before its clients' sockets have closed; a session the server
+    // terminates in that window (DROP DATABASE ... WITH (FORCE)) is reported as a pool error.
+    const { driver, pool } = setup();
+    driver.init();
+    await driver.destroy();
+    expect(pool.listenerCount("error")).toBe(1);
+    expect(() =>
+      pool.emit("error", new Error("terminating connection due to administrator command")),
+    ).not.toThrow();
   });
 
   test("a pool you bring gets no error listener and is not ended, only unsubscribed from", async () => {

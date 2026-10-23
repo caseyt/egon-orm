@@ -1,7 +1,7 @@
 // The driver wrapper over a fake better-sqlite3 handle: no database is opened. The same code
 // runs against a real in-memory database in test/driver.itest.ts.
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { checkRuntime, SqliteDriver, type SqliteHandle, type SqliteRuntime } from "./driver.js";
+import { checkRuntime, requireFor, SqliteDriver, type SqliteHandle, type SqliteRuntime } from "./driver.js";
 import type { OpenSettings } from "./options.js";
 
 const SETTINGS: OpenSettings = {
@@ -355,5 +355,22 @@ describe("cursors", () => {
     await expect(connection.cursor("select from", [])).rejects.toThrow("syntax error");
     handle.prepareFails = undefined;
     await driver.release(connection, false);
+  });
+});
+
+describe("requireFor", () => {
+  test("uses the module's URL when there is one", () => {
+    const load = requireFor(import.meta.url, undefined);
+    expect(load).toBeTypeOf("function");
+    expect((load!("better-sqlite3/package.json") as { name: string }).name).toBe("better-sqlite3");
+  });
+
+  test("falls back to the CommonJS require when a bundle left import.meta empty", () => {
+    const commonJs = (id: string): unknown => ({ id });
+    expect(requireFor(undefined, commonJs)).toBe(commonJs);
+  });
+
+  test("is undefined when there is neither, so that the version check is skipped", () => {
+    expect(requireFor(undefined, undefined)).toBeUndefined();
   });
 });

@@ -1,0 +1,57 @@
+name: Runtime matrix
+
+# Step 21 (robustness): the built packages on every supported runtime, module system and
+# bundler, each doing a round trip against Postgres and SQLite (examples/runtime): an ES
+# module, CommonJS through require(), and esbuild bundles of both, on Node 22 and 24; a
+# Next.js app built with `next build` and served with `next start` (examples/next-app); and,
+# best effort, Bun (Postgres only: Bun cannot load better-sqlite3).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: runtime-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: runtime (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          node-version: ${{ matrix.node }}
+      - run: pnpm db:up
+      - run: pnpm build
+      - run: pnpm --filter @egon-orm/example-runtime run check
+      - run: pnpm --filter @egon-orm/example-next-app run check
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+      - if: failure()
+        run: docker compose logs --no-color
+
+  # Best effort (plan step 21): a failure is reported, not required.
+  bun:
+    name: runtime (bun, best effort)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: pnpm db:up
+      - run: pnpm build
+      # Pinned; the bun package on npm installs the release binary for this platform.
+      - run: npm install --global bun@1.4.2
+      - run: pnpm --filter @egon-orm/example-runtime run check:bun

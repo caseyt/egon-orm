@@ -1,0 +1,23 @@
+{
+  "name": "@egon-orm/example-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The runtime matrix (step 21): one round trip against Postgres and SQLite from an ES module, from CommonJS through require(), and from esbuild bundles of both; run on Node 22 and 24, and on Bun (Postgres only).",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "check": "node esm.mjs && node cjs.cjs && node bundle.mjs",
+    "check:bun": "RUNTIME_TARGETS=postgres bun esm.mjs && RUNTIME_TARGETS=postgres bun cjs.cjs"
+  },
+  "dependencies": {
+    "@egon-orm/postgres": "workspace:*",
+    "@egon-orm/sqlite": "workspace:*",
+    "better-sqlite3": "12.11.1",
+    "egon-orm": "workspace:*",
+    "pg": "8.23.1",
+    "pg-cursor": "2.22.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

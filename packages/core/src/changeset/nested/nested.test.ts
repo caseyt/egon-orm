@@ -1033,8 +1033,8 @@ describe("new embedded rows: defaults, shared timestamps, stored nulls", () => {
     }) {}
     const stored = loaded(Code, { code: "", label: "a" });
     const catalog = loaded(Catalog, { id: 1, codes: [stored] });
-    const items = change(catalog).putEmbed("codes", [{ code: "", label: "b" }] as never).changes
-      .codes as AnyCs[];
+    const put = change(catalog).putEmbed("codes", [{ code: "", label: "b" }] as never);
+    const items = put.changes.codes as unknown as readonly AnyCs[];
     const matched = items.filter((item) => item.data === stored);
     expect(matched.map((item) => item.action)).toEqual(["delete"]);
     expect(items.filter((item) => item.data === null)).toHaveLength(1);

@@ -92,6 +92,9 @@ jobs:
       # Before anything is built: the benchmark runner must refuse to run without dist/.
       - run: node scripts/check-bench-dist-guard.mjs
       - run: pnpm build
+      # The public API of every entry point (api-report/, written by api-extractor from the
+      # built declarations) must match the committed report: an API change is reviewed as one.
+      - run: pnpm api:check
       # Edge runtimes resolve Node built-ins only as node:… (step 21a).
       - run: node scripts/check-node-specifiers.mjs
       - run: pnpm lint:packages

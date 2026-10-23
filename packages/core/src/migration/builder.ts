@@ -930,10 +930,10 @@ export interface DropIndexOptions {
  *
  * @example
  * ```ts
- * const options: AddConstraintOptions = { check: fragment`price > 0` };
+ * const options: CreateConstraintOptions = { check: fragment`price > 0` };
  * ```
  */
-export interface AddConstraintOptions {
+export interface CreateConstraintOptions {
   /** A check constraint's condition. */
   readonly check?: SqlFragment;
   /** An exclusion constraint's elements (`during with &&`). */
@@ -1117,7 +1117,7 @@ export class MigrationBuilder {
    * @throws TypeError when an argument is not valid, or not exactly one of `check` and
    * `exclude` is given.
    */
-  createConstraint(table: string, name: string, options: AddConstraintOptions): void {
+  createConstraint(table: string, name: string, options: CreateConstraintOptions): void {
     const where = `createConstraint("${String(table)}", "${String(name)}")`;
     const checked = checkOptions(where, options, ["check", "exclude", "using", "schema"]);
     const definition = constraintDef(where, checked);

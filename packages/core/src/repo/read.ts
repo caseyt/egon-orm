@@ -1039,7 +1039,10 @@ function wrappedColumn(ast: QueryAst, field: FieldMeta, reason: string): FieldMe
 // The read operations
 // ---------------------------------------------------------------------------
 
-/** `repo.first`: the first row of the query with `LIMIT 1`, or `null`. */
+/**
+ * `repo.first`: the first row of the query, or `null`. It reads at most one row: `LIMIT 1`,
+ * or the query's own limit when smaller, with its offset kept ({@link firstAst}).
+ */
 export async function first(
   core: ReadCore,
   input: QueryInput,
@@ -1051,7 +1054,7 @@ export async function first(
 }
 
 /**
- * `repo.firstOrThrow`: the first row of the query with `LIMIT 1`; {@link NoResultsError},
+ * `repo.firstOrThrow`: the first row of the query, read as `first` reads it; {@link NoResultsError},
  * with the query's rendering, when there is none. It counts the rows rather than testing
  * the row for `null`, so a selected value that is `null` is returned, not refused.
  */

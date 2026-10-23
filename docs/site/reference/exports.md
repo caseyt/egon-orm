@@ -398,12 +398,12 @@ Guide: [The package](/guide/).
 
 | Export | Kind | Summary |
 |---|---|---|
-| [`AddConstraintOptions`](/api/reference/egon-orm/migration/interfaces/AddConstraintOptions) | interface | Options of `MigrationBuilder.createConstraint`. |
 | [`AlterTableBuilder`](/api/reference/egon-orm/migration/interfaces/AlterTableBuilder) | class, as a type | The `t` of `m.alterTable(name, (t) => …)`. |
 | [`ColumnAdder`](/api/reference/egon-orm/migration/interfaces/ColumnAdder) | class, as a type | The column methods shared by `createTable` and `alterTable`. |
 | [`ColumnBuilder`](/api/reference/egon-orm/migration/interfaces/ColumnBuilder) | class, as a type | One column being defined. |
 | [`ColumnKind`](/api/reference/egon-orm/migration/type-aliases/ColumnKind) | type | The column types that have a name of their own. |
 | [`ColumnType`](/api/reference/egon-orm/migration/type-aliases/ColumnType) | type | The type of a column, as a migration names it. |
+| [`CreateConstraintOptions`](/api/reference/egon-orm/migration/interfaces/CreateConstraintOptions) | interface | Options of `MigrationBuilder.createConstraint`. |
 | [`createDatabase`](/api/reference/egon-orm/migration/functions/createDatabase) | function | Runs `CREATE DATABASE name` through `adapter`, which must be connected to another database of the same server (on Postgres, usually `postgres`). |
 | [`createMigrator`](/api/reference/egon-orm/migration/functions/createMigrator) | function | Creates a migration runner over an adapter. |
 | [`CreateTableOptions`](/api/reference/egon-orm/migration/interfaces/CreateTableOptions) | interface | Options of `MigrationBuilder.createTable`. |

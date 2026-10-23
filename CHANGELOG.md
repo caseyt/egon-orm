@@ -23,9 +23,9 @@ If you used the packages from this repository before this release, read
 error constructors take an identifier first, error messages are short by default, the
 dialect packages no longer export `normalizePgError`, `normalizeSqliteError` and
 `normalizeMysqlError`, `ConstraintOptions` of `egon-orm/migration` is now
-`AddConstraintOptions`, and the published declarations leave out members that were only for
-the library's own use (`plan()`, `named` and `query` of a `PreparedQuery`, `operations` of
-the migration builder, and the migration builders' `context` and `added`).
+`CreateConstraintOptions`, and the published declarations leave out members that were only
+for the library's own use (`plan()`, `named` and `query` of a `PreparedQuery`, `operations`
+of the migration builder, and the migration builders' `context` and `added`).
 
 ### Packages
 

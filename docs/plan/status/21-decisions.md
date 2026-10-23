@@ -12,7 +12,7 @@ decisions of 2026-10-22, `status/21-api.md` §1 (API items 1 to 9) and `status/2
 | 2. `createAdapter` documented as internal | Done |
 | 3. The adapter contract's internal types stay unexported | Done (unchanged, checked) |
 | 4. `stripInternal` for the published declarations | Done, in all six packages |
-| 5. `egon-orm/migration`'s `ConstraintOptions` renamed `AddConstraintOptions` | Done, no alias |
+| 5. `egon-orm/migration`'s `ConstraintOptions` renamed (approved as `AddConstraintOptions`, then `CreateConstraintOptions`) | Done, no alias |
 | 6. `applyActionOrThrow` | Done |
 | 7. `repo.firstOrThrow` | Done |
 | 8. `SqlOptions` stays unexported | Done (unchanged, checked) |
@@ -63,7 +63,7 @@ decisions of 2026-10-22, `status/21-api.md` §1 (API items 1 to 9) and `status/2
      on 5.8.3, the minimum (`consumer.mjs --no-runtime --typescript 5.8.3`).
    - Enforcement: a stripped member that comes back changes the API report, so `pnpm
      api:check` fails.
-5. **`AddConstraintOptions`**: `ConstraintOptions` of `egon-orm/migration` renamed, no
+5. **`CreateConstraintOptions`**: `ConstraintOptions` of `egon-orm/migration` renamed, no
    deprecated alias. `ConstraintOptions` of `egon-orm` (a changeset's constraint options) is
    unchanged. See "Needs the owner's decision".
 6. **`applyActionOrThrow(changeset, action)`** in `egon-orm`: returns the applied data
@@ -136,7 +136,7 @@ Every change is intended:
 - `egon-orm`: `+ applyActionOrThrow`, `+ Repo.firstOrThrow`; the stripped `PreparedQuery`
   members, and `PlanSource`, which only `plan()` used.
 - `egon-orm/testing`: the same, through the types it repeats.
-- `egon-orm/migration`: `ConstraintOptions` → `AddConstraintOptions` (and in
+- `egon-orm/migration`: `ConstraintOptions` → `CreateConstraintOptions` (and in
   `createConstraint`); the stripped builder members, and the internal types only they used
   (`Operation` and its parts). The constructors stay.
 - The three dialect reports: the `normalize…Error` function removed.
@@ -157,12 +157,10 @@ Every change is intended:
 
 ## Needs the owner's decision
 
-- **`AddConstraintOptions` or `CreateConstraintOptions`?** Built as approved:
-  `AddConstraintOptions`. The approval rested on `status/21-api.md` calling the method
-  `addConstraint`, but the migration method is `m.createConstraint(table, name, options)`;
-  its neighbours are `CreateTableOptions` (`createTable`), `IndexOptions` (`createIndex`) and
-  `DropConstraintOptions` (`dropConstraint`). *Recommendation:* `CreateConstraintOptions`, a
-  one-line rename before 0.1.0 if you agree; otherwise keep it as is.
+- None open. **Answered (owner, 2026-10-23):** `AddConstraintOptions` is renamed
+  `CreateConstraintOptions`, with no alias. The first approval rested on `status/21-api.md`
+  calling the method `addConstraint`; the method is `m.createConstraint(table, name,
+  options)`, and its neighbours are `CreateTableOptions` and `DropConstraintOptions`.
 
 ## Requests
 
@@ -197,7 +195,9 @@ guide and reference pages above, and the packages' sources, tests and `tsup.conf
 
 ## Not verified
 
-- CI has not run yet at the time of writing; see the PR.
+- CI ran on PR #72: every job of the `ci` check passed on `cdd7d26` and on `7e49be1`; the
+  informational `types (typescript next)` job fails with the known TS5088 and TS5115 errors
+  (`status/21-api.md`). For the head after the rename, see the PR.
 - No benchmarks (deferred to step 19).
 
 ## Review round 1 (PR #72)
@@ -214,4 +214,24 @@ guide and reference pages above, and the packages' sources, tests and `tsup.conf
 3. **FAQ:** the cause of slow completions is "likely", as on the roadmap.
 4. **CHANGELOG.md:** the 0.1.0 paragraph lists the type members left out of the
    declarations; `upgrading.md`'s table no longer lists constructors.
+
+## The rename to `CreateConstraintOptions` (owner, 2026-10-23)
+
+A commit of its own, after round 1: `AddConstraintOptions` → `CreateConstraintOptions` in
+`migration/builder.ts` (the interface, its TSDoc example, `createConstraint`'s parameter),
+`migration/index.ts`, `CHANGELOG.md`, `reference/upgrading.md`, the regenerated
+`reference/exports.md` and `api-report/egon-orm-migration.api.md`. No alias; no type test
+named it. `status/21-api.md` (another part's note) still says `AddConstraintOptions`, as a
+record of the first approval. Checked: lint, typecheck, type tests, build, `api:check`,
+smoke. No migration runtime code changed, so integration was not re-run.
+
+## Review round 2 (PR #72)
+
+Approved at `7e49be1`, with three minor points, fixed in the rename commit:
+
+1. `guide/repo.md`: the `first` row said "Adds `LIMIT 1`"; it now says it reads at most one
+   row, `LIMIT 1` or the query's own smaller limit, with the offset kept. The `firstOrThrow`
+   row ("Like `first`; throws `NoResultsError` if no row matches") reads correctly after it.
+2. `repo/read.ts`: the internal TSDoc of `first` and `firstOrThrow` says the same.
+3. "Not verified" no longer says CI has not run.
 

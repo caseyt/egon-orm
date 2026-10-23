@@ -58,15 +58,6 @@ interface AdapterEvents {
 }
 
 // @public
-export interface AddConstraintOptions {
-    readonly check?: SqlFragment;
-    readonly exclude?: SqlFragment;
-    // (undocumented)
-    readonly schema?: string;
-    readonly using?: string;
-}
-
-// @public
 interface AggregateNode {
     // Warning: (ae-forgotten-export) The symbol "ExprNode" needs to be exported by the entry point migration.d.ts
     //
@@ -520,6 +511,15 @@ interface Connection extends Executor {
     rollback(execute?: ExecuteOptions): Promise<void>;
     rollbackTo(name: string, execute?: ExecuteOptions): Promise<void>;
     savepoint(name: string, execute?: ExecuteOptions): Promise<void>;
+}
+
+// @public
+export interface CreateConstraintOptions {
+    readonly check?: SqlFragment;
+    readonly exclude?: SqlFragment;
+    // (undocumented)
+    readonly schema?: string;
+    readonly using?: string;
 }
 
 // Warning: (ae-forgotten-export) The symbol "Adapter" needs to be exported by the entry point migration.d.ts
@@ -1827,7 +1827,7 @@ export class MigrationBuilder {
     alterTable(name: string, define: (t: AlterTableBuilder) => void, options?: {
         readonly schema?: string;
     }): void;
-    createConstraint(table: string, name: string, options: AddConstraintOptions): void;
+    createConstraint(table: string, name: string, options: CreateConstraintOptions): void;
     createExtension(name: string, options?: {
         readonly ifNotExists?: boolean;
         readonly schema?: string;

@@ -12,10 +12,10 @@
 export { MigrationError } from "../errors.js";
 // The builders are public as types only: a migration receives them.
 export type {
-  AddConstraintOptions,
   AlterTableBuilder,
   ColumnAdder,
   ColumnBuilder,
+  CreateConstraintOptions,
   CreateTableOptions,
   DropConstraintOptions,
   DropIndexOptions,

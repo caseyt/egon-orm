@@ -70,8 +70,9 @@ the next major removes it.
 ### Security fixes
 
 A security fix ships in a patch release of the latest minor line (before 1.0, the latest
-`0.y`), so `^` ranges pick it up. Earlier lines get no fixes before 1.0; from 1.0, the
-previous major also gets them for six months after the next major is released. How to
+`0.y`), so `^` ranges pick it up. Earlier lines get no fixes before 1.0. From 1.0, the
+previous major is to get them for a period after the next major is released (provisional:
+six months is proposed, pending the maintainers' decision). How to
 report a vulnerability is in
 [SECURITY.md](https://github.com/egon-orm/egon-orm/blob/main/SECURITY.md).
 

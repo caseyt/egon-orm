@@ -307,7 +307,8 @@ versioned. The versioning and support policy is in
    links), and replace "unreleased" with the date.
 3. **Publish.** Merging the version pull request makes the publish plan non-empty
    (`changeset publish-plan`). The `pack` job, which holds no credential, builds, runs
-   publint, attw and the consumer matrix, and packs the packages (`changeset pack`). Then
+   publint and attw, packs the packages (`changeset pack`), and then runs the consumer
+   matrix, so that nothing it installs can touch what was packed. Then
    the `publish` job (after an approval, if the `npm` environment has required reviewers)
    publishes those tarballs with npm provenance (`changeset publish --from-pack-dir`). It
    runs no install script. It pushes a tag `<name>@<version>` per package and creates a

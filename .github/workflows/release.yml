@@ -7,8 +7,8 @@ name: Release
 #    version (the fixed group in .changeset/config.json), writes each package's
 #    CHANGELOG.md and the VERSION constants, and removes the changesets.
 # 2. When that pull request is merged, no changeset is pending and the versions are not on
-#    npm yet. The `pack` job, which holds no credential, builds, runs publint, attw and the
-#    consumer matrix, and packs the packages (`changeset pack`). The `publish` job then
+#    npm yet. The `pack` job, which holds no credential, builds, runs publint and attw,
+#    packs the packages (`changeset pack`), then runs the consumer matrix. The `publish` job then
 #    publishes those tarballs (`changeset publish --from-pack-dir`) with provenance, pushes
 #    a git tag `<name>@<version>` per package and creates a GitHub release per tag from its
 #    CHANGELOG section. It runs no install script: nothing third-party executes while it
@@ -94,14 +94,16 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
       # What is published is what CI checks: the build, publint and attw, and the consumer
-      # matrix on the packed packages.
+      # matrix on the packed packages. The tarballs are packed (and uploaded) before the
+      # smoke, which installs peers from npm whose install scripts could otherwise touch
+      # dist/; a failing smoke still stops the publish, which needs this job.
       - run: pnpm build
       - run: pnpm lint:packages
-      - run: pnpm smoke
       - id: pack
         uses: changesets/action/pack@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
           publish-plan-artifact-id: ${{ needs.mode.outputs.publish-plan }}
+      - run: pnpm smoke
 
   publish:
     name: publish

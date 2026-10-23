@@ -92,8 +92,11 @@ both ends; the Zod floor is backed by the reviewer's run with `^4.0.0` (TS2724,
   - `version`: while changesets are pending, opens or updates "Version packages"
     (`pnpm version-packages`: versions, per-package `CHANGELOG.md`, `VERSION` constants);
   - `pack` ("check and pack", read-only permissions, `persist-credentials: false`): builds,
-    runs `lint:packages` and `smoke`, then packs the publish plan (`changeset pack`). All
-    third-party code (install scripts, the peers the smoke installs) runs here;
+    runs `lint:packages`, packs the publish plan (`changeset pack`, uploaded as an
+    artifact), then runs `smoke` (review round 2: packing first means the peers the smoke
+    installs from npm cannot alter `dist/` before it is packed; a failing smoke still blocks
+    `publish`, which needs this job). All third-party code runs here. The dry run has no
+    smoke step, so its order needs no change;
   - `publish`: in the `npm` environment, with `id-token: write` and `contents: write`,
     `persist-credentials: false`, pnpm installed with `--ignore-scripts` (it needs only
     `@changesets/cli`). It publishes the pack job's tarballs
@@ -371,8 +374,9 @@ in "Peer dependency bounds". The earlier runs:
 4. **Security-fix policy** (asked for by 21-security). Written in `upgrading.md`
    ("Security fixes") and linked from a new "Supported versions" section of `SECURITY.md`:
    fixes ship as a patch of the latest minor line. Before 1.0 there are no backports. From
-   1.0, the previous major also gets fixes for six months after the next major is released.
-   The six months is my proposal: confirm or change it.
+   1.0, the previous major also gets fixes for a period after the next major. `upgrading.md`
+   marks the six months as provisional (review round 2). It is my proposal: confirm or
+   change it.
 
 ## Owner actions (cannot be done from a PR)
 

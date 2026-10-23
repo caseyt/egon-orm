@@ -195,6 +195,8 @@ describe("hash collisions", () => {
     expect(cache.get(other, "all", undefined, other.shape, [3])).toBeUndefined();
     expect(cache.stats().collisions).toBe(1);
     const same = from(User, "u").where(({ u }) => u.id.in([5, 6])).ast;
+    // Lengths that start alike but are not as many are not the same lengths.
+    expect(cache.get(same, "all", undefined, same.shape, [2, 1])).toBeUndefined();
     expect(cache.get(same, "all", undefined, same.shape, [2])).toBe(plan);
   });
 
@@ -316,6 +318,19 @@ describe("row-level write plans", () => {
     expect(new Set(variants).size).toBe(variants.length);
     expect(upsert({ target: frag`(email)`, update: "all" })).toBe(variants[6]);
     expect(compiler.stats().collisions).toBe(0);
+  });
+
+  test("the cache size counts read plans and write plans; clear drops both", () => {
+    const compiler = createCompiler(postgresDialect);
+    compiler.compile(byAge(1).ast, "all", undefined);
+    compiler.compileDelete(users, [id], [], undefined);
+    compiler.compileDelete(users, [id], [id], undefined);
+    expect(compiler.stats().size).toBe(3);
+    compiler.clearCache();
+    expect(compiler.stats().size).toBe(0);
+    const misses = compiler.stats().misses;
+    compiler.compileDelete(users, [id], [], undefined);
+    expect(compiler.stats().misses).toBe(misses + 1);
   });
 
   test("a write key collision with different AST parts is caught", () => {

@@ -39,6 +39,11 @@ describe("bindParams", () => {
     expect(bindParams(slots, [3, null, [1, null, 4]], { n: 5 })).toEqual([6, null, [2, null, 8], 2, 10]);
   });
 
+  test("toDb is not called for an undefined item of a list", () => {
+    const slots: ParamSlot[] = [{ kind: "list", index: 0, toDb: double, redact: false }];
+    expect(bindParams(slots, [[1, undefined, 3]])).toEqual([[2, undefined, 6]]);
+  });
+
   test("a list that is not an array is passed as it is", () => {
     const slots: ParamSlot[] = [{ kind: "list", index: 0, toDb: double, redact: false }];
     expect(bindParams(slots, [null])).toEqual([null]);
@@ -76,6 +81,22 @@ describe("bindParams", () => {
     expect(() => bindParams([], [], { minAge: 1 })).toThrow(
       'The query has no named parameter "minAge"; it takes none.',
     );
+    // Positional slots are not named parameters the query takes.
+    const mixed: ParamSlot[] = [
+      { kind: "inline", index: 0, toDb: undefined, redact: false },
+      { kind: "named", name: "minAge", toDb: undefined, redact: false },
+    ];
+    expect(() => bindParams(mixed, [1], { minAge: 1, maxAge: 2 })).toThrow(
+      'The query has no named parameter "maxAge"; it takes "minAge".',
+    );
+  });
+
+  test("the missing-parameter error's advice names the first missing parameter", () => {
+    const slots: ParamSlot[] = [
+      { kind: "named", name: "role", toDb: undefined, redact: false },
+      { kind: "named", name: "minAge", toDb: undefined, redact: false },
+    ];
+    expect(() => bindParams(slots, [])).toThrow("repo.all(q, { role: … })");
   });
 
   test("a compiled query binds named and positional values together", () => {
@@ -188,6 +209,19 @@ describe("a t.integer() value that is not a whole number (owner decision, 2026-1
     expect(bind(postgresDialect, q, { none: null })).toEqual([2.5, -3, null]);
     expect(wholeNumber("12")).toBe("12");
     expect(wholeNumber(7)).toBe(7);
+    expect(wholeBigintNumber(2 ** 40)).toBe(2 ** 40);
+    expect(wholeBigintNumber(-7)).toBe(-7);
+    expect(wholeBigintNumber(5n)).toBe(5n);
+    expect(wholeBigintNumber("12")).toBe("12");
+    expect(wholeBigintNumber(null)).toBe(null);
+  });
+
+  test("the shared check refuses a fraction, NaN and an infinity, as either integer type", () => {
+    for (const check of [wholeNumber, wholeBigintNumber]) {
+      for (const value of [2.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+        expect(() => check(value)).toThrow("A value of an integer type is not a whole number.");
+      }
+    }
   });
 
   test("is one shared check, so plans compiled twice are equal", () => {

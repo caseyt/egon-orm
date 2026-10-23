@@ -10,8 +10,7 @@
 // every area (killed and timed-out mutants over all mutants that ran or had no coverage)
 // and fails when one is under 80%.
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -41,7 +40,8 @@ for (const area of areas) {
   if (!(area in AREAS)) throw new Error(`unknown area ${area}; one of ${Object.keys(AREAS).join(", ")}`);
 }
 
-const stryker = createRequire(import.meta.url).resolve("@stryker-mutator/core/bin/stryker.js");
+// The package exports no bin path; its binary is at a fixed place in the root node_modules.
+const stryker = `${root}node_modules/@stryker-mutator/core/bin/stryker.js`;
 
 /** Counts the mutants of a Stryker JSON report (mutation-testing-report-schema) by status. */
 function tally(path) {
@@ -56,26 +56,35 @@ function tally(path) {
   return { counts, score };
 }
 
+const base = JSON.parse(readFileSync(`${root}stryker.config.json`, "utf8"));
+mkdirSync(`${root}reports/mutation`, { recursive: true });
+
 const results = [];
 for (const area of areas) {
   const json = `reports/mutation/${area}.json`;
-  const args = [
-    stryker,
-    "run",
-    "stryker.config.json",
-    "--mutate",
-    [...AREAS[area], ...NOT_SOURCE].join(","),
-    "--htmlReporter.fileName",
-    `reports/mutation/${area}.html`,
-    "--jsonReporter.fileName",
-    json,
-  ];
-  const run = spawnSync(process.execPath, args, { cwd: root, stdio: "inherit" });
+  // Stryker's command line cannot set the reporters' file names, so each area gets a
+  // configuration file of its own: the shared one, plus the files to mutate and the reports.
+  const config = `reports/mutation/${area}.stryker.json`;
+  writeFileSync(
+    `${root}${config}`,
+    `${JSON.stringify(
+      {
+        ...base,
+        $schema: undefined,
+        mutate: [...AREAS[area], ...NOT_SOURCE],
+        htmlReporter: { fileName: `reports/mutation/${area}.html` },
+        jsonReporter: { fileName: json },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  const run = spawnSync(process.execPath, [stryker, "run", config], { cwd: root, stdio: "inherit" });
   if (run.status !== 0) {
     results.push({ area, error: `stryker exited with ${run.status}` });
     continue;
   }
-  results.push({ area, ...tally(`${root}/${json}`) });
+  results.push({ area, ...tally(`${root}${json}`) });
 }
 
 let failed = false;

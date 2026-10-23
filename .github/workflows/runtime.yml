@@ -34,6 +34,9 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: pnpm db:up
       - run: pnpm build
+      # The consumer matrix of examples/smoke (ESM and require() from the packed packages,
+      # installed outside the workspace) on this Node; ci.yml runs it on 22 and 22.12.0.
+      - run: node examples/smoke/consumer.mjs --no-types
       - run: pnpm --filter @egon-orm/example-runtime run check
       - run: pnpm --filter @egon-orm/example-next-app run check
         env:

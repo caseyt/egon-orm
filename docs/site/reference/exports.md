@@ -98,9 +98,13 @@ Guide: [Types](/guide/types).
 | [`DbType`](/api/reference/egon-orm/type-aliases/DbType) | type | The logical column type of a `FieldType`. |
 | [`DbTypeKind`](/api/reference/egon-orm/type-aliases/DbTypeKind) | type | The `kind` of a `DbType`. |
 | [`DbTypeOf`](/api/reference/egon-orm/type-aliases/DbTypeOf) | type | The driver type of a `FieldType`. |
+| [`DecimalOptions`](/api/reference/egon-orm/interfaces/DecimalOptions) | interface | Options of `t.decimal()`. |
 | [`defineType`](/api/reference/egon-orm/functions/defineType) | function | Creates a type. |
+| [`EnumMapping`](/api/reference/egon-orm/type-aliases/EnumMapping) | type | The mapping of `t.enum({ ... |
 | [`FieldType`](/api/reference/egon-orm/interfaces/FieldType) | interface | A type. |
 | [`parameterized`](/api/reference/egon-orm/functions/parameterized) | function | Builds a family of types from options, and remembers the result per option set. |
+| [`TimestampOptions`](/api/reference/egon-orm/interfaces/TimestampOptions) | interface | Options of `t.timestamp()` and `t.localTimestamp()`. |
+| [`TimestampPrecision`](/api/reference/egon-orm/type-aliases/TimestampPrecision) | type | The precision of a timestamp field. |
 | [`TypeDefinition`](/api/reference/egon-orm/type-aliases/TypeDefinition) | type | What `defineType` takes. |
 
 ### Changesets and validation

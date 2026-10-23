@@ -1124,7 +1124,7 @@ describe("helpers", () => {
     expect(stateOf(m.create(USER_VALUES, m.rowMeta("deleted", undefined)))).toBe("deleted");
     expect(stateOf(m.create(USER_VALUES, m.rowMeta("built", undefined)))).toBe("built");
     expect(() => stateOf({ id: 1 })).toThrowErrorMatchingInlineSnapshot(
-      `[SchemaDefinitionError: schema.stateNotRow: stateOf() expects a row: an object returned by a query or a write. A plain object has no state. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-statenotrow]`,
+      `[SchemaDefinitionError: schema.stateNotRow: stateOf() expects a row: an object returned by a query or a write. Pass a row returned by a query or a write: a plain object or a changeset has no state. See https://egon-orm.github.io/egon-orm/reference/errors/schema#schema-statenotrow]`,
     );
   });
 

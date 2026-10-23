@@ -1741,6 +1741,12 @@ export class Changeset<
     if (current === null || current === undefined) {
       throw new QueryError("query.lockNoValue", `optimisticLock(): "${field}" has no value to compare.`);
     }
+    if (increment === undefined && typeof current !== "number" && typeof current !== "bigint") {
+      throw new QueryError(
+        "query.lockNotNumber",
+        `optimisticLock(): "${field}" is not a number, so it has no default increment.`,
+      );
+    }
     const next = (increment ?? incrementWithRollover)(current as never) as unknown;
     const bump: PrepareFunction<S, New> = (changeset) => changeset.forceChange(field, next as never);
     return construct(
@@ -1980,11 +1986,8 @@ function issuesOf(result: unknown): readonly ChangesetError[] {
   });
 }
 
-function incrementWithRollover(current: unknown): unknown {
+function incrementWithRollover(current: number | bigint): number | bigint {
   if (typeof current === "bigint") return current + 1n;
-  if (typeof current !== "number") {
-    throw new QueryError("query.lockNotNumber", "optimisticLock(): the field is not a number.");
-  }
   return current >= 2147483647 ? 1 : current + 1;
 }
 

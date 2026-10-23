@@ -84,7 +84,7 @@ Acquire a new connection.
 
 > The database is locked by another connection (&#123;code&#125;).
 
-Retrying can succeed.
+Another connection holds the lock. Retry the statement or the transaction (the error is retryable), or let SQLite wait for the lock with the busy\_timeout pragma.
 
 ## `database.openFailed` {#database-openfailed}
 

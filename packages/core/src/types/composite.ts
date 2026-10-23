@@ -249,11 +249,15 @@ export function arrayType<TApp, TDb>(element: FieldType<TApp, TDb>): FieldType<T
 // --- enum --------------------------------------------------------------------
 
 /**
- * The stored values of a mapped enum: all strings or all whole numbers.
+ * The mapping of `t.enum({ ... })`: each key is a value in TypeScript, each value what is
+ * stored. The stored values are all strings or all whole numbers.
  *
  * @example
  * ```ts
- * const levels: EnumMapping = { low: 1, high: 2 };
+ * import { type EnumMapping, t } from "egon-orm";
+ *
+ * const levels = { low: 1, high: 2 } as const satisfies EnumMapping;
+ * const level = t.enum(levels); // "low" | "high"
  * ```
  */
 export type EnumMapping = Readonly<Record<string, string>> | Readonly<Record<string, number>>;

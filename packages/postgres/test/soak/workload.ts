@@ -483,9 +483,14 @@ export async function runSoak(options: SoakOptions): Promise<SoakReport> {
         lastReport = Date.now();
         const total = Object.values(operations).reduce((a, b) => a + b, 0);
         const last = heap[heap.length - 1];
+        // Operations running for more than 10 seconds: a sign of a hang, shown before the deadline.
+        const slow = running
+          .filter((slot) => slot.name !== "" && Date.now() - slot.since > 10_000)
+          .map((slot) => `${slot.name} ${Math.round((Date.now() - slot.since) / 1000)}s`);
         options.progress(
           `soak ${Math.round((Date.now() - start) / 1000)}s: ${total} operations, ${kills} kills, ` +
-            `${unexpectedCount} unexpected, heap ${last?.heapUsedMb ?? 0} MB, pool ${JSON.stringify(repo.poolStats())}`,
+            `${unexpectedCount} unexpected, heap ${last?.heapUsedMb ?? 0} MB, pool ${JSON.stringify(repo.poolStats())}` +
+            (slow.length > 0 ? `, slow: ${slow.join(", ")}` : ""),
         );
       }
     }

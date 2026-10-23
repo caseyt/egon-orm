@@ -383,7 +383,47 @@ describe("a checked-out client that fails between statements", () => {
     driver.init();
     await driver.release(await driver.acquire(), false);
     expect(pool.client.listenerCount("error")).toBe(0);
+    expect(pool.client.listenerCount("end")).toBe(0);
     expect(pool.client.releases).toEqual([false]);
+  });
+});
+
+describe("a cursor whose connection ends", () => {
+  // pg-cursor's close() resolves on the next readyForQuery, which an ended connection never sends.
+  const hangingClose = () =>
+    vi.spyOn(FakeCursor.prototype, "close").mockReturnValue(new Promise(() => undefined));
+
+  test("fails a close that is waiting when the connection ends, and is closed on release", async () => {
+    const { driver, pool } = setup();
+    driver.init();
+    const connection = await driver.acquire();
+    const cursor = await connection.cursor("select n", []);
+    hangingClose();
+    const closing = cursor.close();
+    pool.client.emit("end");
+    await expect(closing).rejects.toThrow(/connection ended before the cursor was closed/);
+    await driver.release(connection, false);
+    expect(pool.client.releases).toEqual([true]);
+    expect(pool.client.listenerCount("end")).toBe(0);
+  });
+
+  test("fails a close at once when the connection has already ended", async () => {
+    const { driver, pool } = setup();
+    driver.init();
+    const connection = await driver.acquire();
+    const cursor = await connection.cursor("select n", []);
+    pool.client.emit("end");
+    const close = hangingClose();
+    await expect(cursor.close()).rejects.toThrow(/connection ended/);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  test("passes on a close that fails by itself", async () => {
+    const { driver } = setup();
+    driver.init();
+    const cursor = await (await driver.acquire()).cursor("select n", []);
+    vi.spyOn(FakeCursor.prototype, "close").mockRejectedValue(new Error("portal gone"));
+    await expect(cursor.close()).rejects.toThrow("portal gone");
   });
 });
 

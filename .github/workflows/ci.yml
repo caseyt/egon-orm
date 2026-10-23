@@ -131,7 +131,8 @@ jobs:
   # pg-protocol (a dependency of the pg peer) do not compile with skipLibCheck: false, so
   # errors located in that package alone are allowed and printed; any other error fails. The
   # CommonJS (.cts) check is skipped on 5.5: TypeScript types a require() of an ES module
-  # from 5.8 on, so a CommonJS project needs 5.8 or later.
+  # from 5.8 on, so a CommonJS project needs 5.8 or later, which `commonjs-minimum` checks
+  # (the newest old-enough 5.8.x, with every program, the CommonJS one included).
   typescript:
     name: types (typescript ${{ matrix.typescript }})
     runs-on: ubuntu-latest
@@ -139,7 +140,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        typescript: [minimum, latest]
+        typescript: [minimum, commonjs-minimum, latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup

@@ -172,11 +172,12 @@ no runtime dependency (ADR 0003); Kysely is a dependency of the step 02 spike on
 
 Users need TypeScript 5.5 or later (decision D14), whatever the workspace builds with. CI's
 `types (typescript …)` jobs type-check the consumer project of `examples/smoke/consumer.mjs`
-against the packed packages with 5.5.4 and with the latest release, and, as information only, with the
+against the packed packages with 5.5.4, the newest 5.8.x (the CommonJS minimum) and the latest
+release, and, as information only, with the
 `next` build (`scripts/typescript-version.mjs` picks the versions). A declaration that needs
 a newer TypeScript fails the 5.5 job. The 5.5 job skips the CommonJS (`.cts`) check
 (`--no-cjs-types`): TypeScript types a `require()` of an ES module only from 5.8 on, so a
-CommonJS project needs 5.8 or later.
+CommonJS project needs 5.8 or later, which the `commonjs-minimum` job checks.
 
 ### The API report
 
@@ -297,7 +298,8 @@ stored in the repo):
 - Require status checks to pass, branch up to date: require the **`ci`** check, which is
   green only when every CI job (`lint`, `typecheck`, `unit+types` on Node 22 and 24,
   `integration`, `integration (tier 2)`, `build+publint+attw`, `peer bounds` (lower and upper),
-  `types (typescript minimum)`, `types (typescript latest)`, `release dry run`, `edge worker`,
+  `types (typescript minimum)`, `types (typescript commonjs-minimum)`, `types (typescript latest)`,
+  `release dry run`, `edge worker`,
   `docs:build`) is green. `types (typescript next, informational)` is not part of it.
 - Allow squash merging only; delete head branches automatically.
 - No force pushes and no deletion of `main`.

@@ -233,7 +233,12 @@ chain|tree|hub|clusters] [--schemas N] [--runs 5] [--completions-only] [--annota
   file is an ECMAScript module and cannot be imported with 'require'"); 5.8.3 passes. That is
   TypeScript's own limit, the first release that types `require()` of an ES module, not
   something in the packages. The 5.5 job therefore passes `--no-cjs-types`, which skips that
-  one program and prints that it did. The `latest` and `next` jobs run it.
+  one program and prints that it did. The CommonJS minimum is checked by a matrix entry of
+  its own, `types (typescript commonjs-minimum)` (inside the `ci` gate), which runs every
+  program, the CommonJS one included, on the newest 5.8.x old enough for the release age
+  (5.8.3 today; `scripts/typescript-version.mjs commonjs-minimum`). The `latest` and `next`
+  jobs run it too. Both minimums stay provisional: the owner has not decided between this
+  split and 5.8 for everyone.
 - I checked a consumer of the packed packages (`examples/smoke/check-types.mjs --typescript …`:
   `declaration: true`, `skipLibCheck: false`) against these versions:
 
@@ -385,7 +390,9 @@ No seam test exposed a bug.
   "no `export const VERSION` line" for the CLI. I did not run it.
 - **To 21-packaging:** the support policy should state TypeScript 5.5 or later (5.7 or later
   for `skipLibCheck: false` with `@egon-orm/postgres`, because of `pg`'s declarations; 5.8 or
-  later for a CommonJS project). That is what CI now checks.
+  later for a CommonJS project). That is what CI now checks: 5.5.4 without the CommonJS
+  program, and the newest 5.8.x with it. (21-packaging has finished; I made the change
+  myself, see "Files outside my paths".)
 - **To 21-audit:** the API report check, the TypeScript jobs and the measurements above are
   the evidence for §1. **The 200 ms completions gate is not met for about 150 to 200
   connected schemas** (242 to 314 ms median at 200 reachable schemas, in chain, tree and hub
@@ -444,6 +451,24 @@ No seam test exposed a bug.
 - New with the merge: the CommonJS check fails on TypeScript before 5.8 (section 3), so the
   5.5 job passes `--no-cjs-types` (a new, explicit option of `consumer.mjs`). This is a
   skipped check, stated here: only that one program, only in that job.
+
+## Review round 3 (PR #69)
+
+- CI now checks the CommonJS minimum it states: a `commonjs-minimum` entry in the
+  `typescript` matrix, inside the `ci` gate, runs the whole consumer check (the `.cts`
+  program included) on the newest old-enough 5.8.x. `scripts/typescript-version.mjs` has a
+  `commonjs-minimum` choice, with a test (the highest 5.8 patch by version, not 5.80).
+- `scripts/typescript-version.mjs`'s header names `consumer.mjs`.
+
+## Files outside my paths
+
+These are changed in this PR because their owner (21-packaging) has finished:
+
+- `docs/site/reference/upgrading.md`: the TypeScript row and note give the split minimum,
+  5.5 for ES modules and 5.8 for CommonJS, still marked provisional.
+- `CHANGELOG.md`: its requirements line says the same.
+- `CONTRIBUTING.md`, `.github/workflows/ci.yml`, `examples/smoke/consumer.mjs`: the TypeScript
+  jobs and their options, as described above.
 
 ## Verification (local)
 

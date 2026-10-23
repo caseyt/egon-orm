@@ -1,8 +1,14 @@
 # Step 21 — Release hardening
 
-**Depends on:** all other steps, including 21a (edge readiness) and 21b (JSON responses).
+**Depends on:** every other step except 19 (performance), including 21a (edge readiness) and
+21b (JSON responses).
 **Owns:** release configuration, `SECURITY.md`, `CHANGELOG.md`, `docs/site/guide/upgrading.md`,
 `docs/plan/status/21-audit.md`. Fixes found here go to the owning area as normal PRs.
+
+> **Owner decisions, 2026-10-22:** step 21 does not wait for step 19, which stays postponed
+> until the owner decides where benchmarks run; the readiness report notes that the published
+> benchmark has not run yet. The soak test, mutation testing and the type-health checks on the
+> 200-schema project stay gates for `0.1.0`; they are not moved to the `1.0` gate.
 
 ## Goal
 
@@ -75,9 +81,9 @@ before `1.0`), and make publishing a one-command, repeatable act.
 ### 5. Readiness report
 
 `docs/plan/status/21-audit.md`: for each area a verdict (ready / ready with caveats /
-not ready) with evidence links; every acceptance box from steps 01–20 re-verified
-(not copied from the status notes); open issues ranked; an explicit recommendation —
-publish `0.1.0` now, or fix a named list first — and the proposed gate for `1.0`.
+not ready) with evidence links; every acceptance box from steps 01–20, 21a and 21b
+re-verified (not copied from the status notes; step 19's are reported as not run); open
+issues ranked; an explicit recommendation — publish `0.1.0` now, or fix a named list first — and the proposed gate for `1.0`.
 
 ## Acceptance
 

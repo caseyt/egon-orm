@@ -216,14 +216,14 @@ Naming is camelCase throughout; a throwing twin is `funOrThrow`; a predicate is
 | 20 Documentation | `20-documentation.md` | skeleton after 01; final pass after 17 | — |
 | 21a Edge readiness (owner decision, 2026-10-20) | `21a-edge-readiness.md` | 17, 18, 20 | 19 |
 | 21b JSON responses (owner decision, 2026-10-21) | `21b-json-responses.md` | 20 | 21a, 19 |
-| 21 Release hardening | `21-release.md` | all | — |
+| 21 Release hardening | `21-release.md` | all except 19 (owner decision, 2026-10-22) | — |
 
 Suggested waves: **A** 01 → **B** 02 → **C** 03, 07, 11 → **D** 04, 10 → **E** 05, 08 →
 **F** 06, 12 → **G** 09, 13, 14 → **H** 15, 16 → **I** 17 → **J** 19, 20, 21 → **follow-up** 18.
 Step 21a (edge readiness) was added on 2026-10-20 and step 21b (JSON responses) on
 2026-10-21; both run before 21, in parallel with each other. Step 19 is postponed until the
 owner decides where benchmarks run; it is a one-off published run, not a CI gate
-(owner decision, 2026-10-21).
+(owner decision, 2026-10-21). Step 21 does not wait for it (owner decision, 2026-10-22).
 
 Steps 01 and 02 are deliberately sequential and small: they freeze the interfaces that let
 everything after them proceed independently.

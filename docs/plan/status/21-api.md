@@ -334,12 +334,13 @@ No seam test exposed a bug.
 - `EGON_TEST_TIER2=1 pnpm test:integration --maxWorkers=2`: 47 files, 1,781 passed,
   2 expected failures (already in the repo), 55 skipped.
 - `node examples/smoke/check-types.mjs --typescript <v>` for the versions in the table in section 3.
+- CI on PR #69 (run 39881683958, at `9797377`): every job green. The API report built on
+  Linux matched the committed one ("API report up to date for 9 entry points"). The 5.5.4
+  job passed with only pg-protocol's errors allowed, and 7.0.2 passed. The informational
+  `next` job failed with exactly the TS5115 (zod) and TS5088 (`consumer.ts:173`) errors
+  recorded above.
 
 ## Not verified
 
-- CI has not run on this branch yet. The new CI jobs (`typescript` and `typescript-next`) and
-  the `api:check` step were run locally only.
-- I did not check that the API report is byte-identical when built on Linux. The CI run
-  will show it.
 - The tsserver timings are from one machine. The CI runners (2 vCPU) would be slower. The
   numbers are a one-off audit measurement, not a gate.

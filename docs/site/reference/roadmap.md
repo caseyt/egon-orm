@@ -32,6 +32,8 @@ Egon ORM is under construction: nothing is published to npm yet.
 | Named server-side prepared statements | For [`prepare`](/guide/queries-advanced#prepared-queries). |
 | Form helpers for nested changesets | Sort and drop parameters, and index-keyed objects in place of arrays. |
 | Other databases through a custom dialect | |
+| Query observability | Built on the `query` event of [`repo.on`](/guide/repo#logging-and-events), which already reports each statement's SQL and timings: slow-query detection, OpenTelemetry tracing and warnings for N+1 query patterns. |
+| Test factories | Beside the [test sandbox](/guide/testing): build valid rows for a schema, override single fields, create association graphs, and generate deterministic test data. For integration tests in large applications. |
 
 ## Not planned
 

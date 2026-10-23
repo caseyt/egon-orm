@@ -20,7 +20,15 @@ import {
 import { meta } from "../schema/index.js";
 import { bindParams } from "./bind.js";
 import { createCompiler } from "./compiler.js";
-import { postgresDialect } from "./dialect.js";
+import {
+  LOCK_CLAUSES,
+  mysqlDialect,
+  postgresDialect,
+  quoteIdentifier,
+  type SqlDialect,
+  sqliteDialect,
+} from "./dialect.js";
+import { jsonPathStep } from "./emit.js";
 import {
   bareQuery,
   col,
@@ -68,28 +76,77 @@ function everyValuePosition(v: readonly string[]): { ast: QueryAst; named: Recor
 
 const marked = (s: string, i: number) => `⟦${i}:${s}⟧`;
 
+/**
+ * Text for values and names: any code point, with the characters that end or escape a
+ * quoted name or string in some dialect (`"`, `` ` ``, `'`, `\`, `[`, `]`) and the start
+ * of a comment or a placeholder weighted in, so that every run sees them often. Without
+ * the weight a binary string seldom holds a quote, and losing the doubling of one
+ * dialect's quote passed some runs.
+ */
+const hostileText = fc.string({
+  unit: fc.oneof(
+    {
+      arbitrary: fc.constantFrom('"', "`", "'", "\\", "[", "]", ";", "--", "/*", "$1", "?", "\u0000"),
+      weight: 1,
+    },
+    { arbitrary: fc.string({ unit: "binary", minLength: 1, maxLength: 1 }), weight: 2 },
+  ),
+});
+
+/** Every dialect the emitter writes; each property runs against all three. */
+const DIALECTS: readonly SqlDialect[] = [postgresDialect, mysqlDialect, sqliteDialect];
+
+/**
+ * `EGON_PROPERTY_RUNS=<n>` runs every property in this file `n` times instead of its
+ * default count (the security review of step 21 ran it at 100,000). CI leaves it unset.
+ */
+const RUNS_OVERRIDE = parseRuns(process.env.EGON_PROPERTY_RUNS);
+
+function parseRuns(text: string | undefined): number | undefined {
+  if (text === undefined || text === "") return undefined;
+  const n = Number(text);
+  if (!Number.isSafeInteger(n) || n < 1)
+    throw new Error(`EGON_PROPERTY_RUNS must be a positive integer, got "${text}".`);
+  return n;
+}
+
+/** The run count of a property: its default, or the override. */
+function runs(defaultRuns: number): number {
+  return RUNS_OVERRIDE ?? defaultRuns;
+}
+
+/** A timeout that grows with the override, so a long run is not cut short. */
+function timeout(base: number, defaultRuns: number): number {
+  return RUNS_OVERRIDE === undefined ? base : Math.ceil(base * Math.max(1, RUNS_OVERRIDE / defaultRuns));
+}
+
 // Thousands of cold compiles take seconds, more under coverage on CI: these tests get
 // their own timeouts instead of fewer runs.
 const LONG = 120_000;
 const SHORT = 60_000;
 
-describe("injection: a value never reaches the SQL text", () => {
+describe.each(DIALECTS)("injection on $name: a value never reaches the SQL text", (dialect) => {
   test(
-    "arbitrary strings in every value position are bound, never written (10,000 runs)",
+    "arbitrary strings in every value position are bound, never written (10,000 runs by default)",
     () => {
+      // MySQL and SQLite bind a JSON path key as one step of a path text (`."key"`), and
+      // refuse a key holding `"` or `\` (a property below): position 8 is that key.
+      const pathSteps = dialect.jsonPath === "pathOperators" || dialect.jsonPath === "pathFunctions";
       fc.assert(
-        fc.property(fc.array(fc.string({ unit: "binary" }), { minLength: 18, maxLength: 18 }), (strings) => {
-          const values = strings.map(marked);
+        fc.property(fc.array(hostileText, { minLength: 18, maxLength: 18 }), (strings) => {
+          const values = strings.map((s, i) => marked(pathSteps && i === 8 ? s.replace(/["\\]/g, "") : s, i));
           const { ast, named } = everyValuePosition(values);
-          const plan = createCompiler(postgresDialect).compile(ast, "all", undefined);
+          const plan = createCompiler(dialect).compile(ast, "all", undefined);
           expect(plan.sql).not.toContain("⟦");
           const bound = flat(bindParams(plan.slots, ast.params, named));
-          for (const v of values) expect(bound).toContain(v);
+          values.forEach((v, i) => {
+            expect(bound).toContain(pathSteps && i === 8 ? `."${v}"` : v);
+          });
         }),
-        { numRuns: 10_000 },
+        { numRuns: runs(10_000) },
       );
     },
-    LONG,
+    timeout(LONG, 10_000),
   );
 
   test(
@@ -99,7 +156,7 @@ describe("injection: a value never reaches the SQL text", () => {
       const email = users.fieldsByName.get("email") as FieldMeta;
       const name = users.fieldsByName.get("name") as FieldMeta;
       fc.assert(
-        fc.property(fc.array(fc.string({ unit: "binary" }), { minLength: 8, maxLength: 8 }), (strings) => {
+        fc.property(fc.array(hostileText, { minLength: 8, maxLength: 8 }), (strings) => {
           const v = strings.map(marked);
           const ast = rebuild(
             bareQuery({ kind: "values", columns: ["a"], rows: [[value(v[0])], [value(v[1])]], alias: "x" }),
@@ -111,7 +168,8 @@ describe("injection: a value never reaches the SQL text", () => {
                   source: {
                     kind: "fragmentSource",
                     fragment: frag`unnest(${value([v[2]])})`,
-                    columns: ["b"],
+                    // SQLite takes no column list after a source's alias.
+                    columns: dialect.sourceColumnList ? ["b"] : [],
                     alias: "y",
                   },
                   on: undefined,
@@ -122,7 +180,7 @@ describe("injection: a value never reaches the SQL text", () => {
               offset: value(v[4]),
             },
           );
-          const compiler = createCompiler(postgresDialect);
+          const compiler = createCompiler(dialect);
           const plan = compiler.compile(ast, "all", undefined);
           expect(plan.sql).not.toContain("⟦");
           const bound = flat(bindParams(plan.slots, ast.params));
@@ -152,10 +210,29 @@ describe("injection: a value never reaches the SQL text", () => {
           expect(insert.sql).not.toContain("⟦");
           expect(bindParams(insert.slots, [v[6], v[5]])).toEqual([v[6], v[5]]);
         }),
-        { numRuns: 1_000 },
+        { numRuns: runs(1_000) },
       );
     },
-    SHORT,
+    timeout(SHORT, 1_000),
+  );
+});
+
+describe("JSON path steps: a key cannot leave its step of the path text", () => {
+  test(
+    "a key is one quoted member, or refused when it holds a double quote or a backslash",
+    () => {
+      fc.assert(
+        fc.property(hostileText, (key) => {
+          if (key.includes('"') || key.includes("\\")) {
+            expect(() => jsonPathStep(key)).toThrow(QueryError);
+          } else {
+            expect(jsonPathStep(key)).toBe(`."${key}"`);
+          }
+        }),
+        { numRuns: runs(2_000) },
+      );
+    },
+    timeout(SHORT, 2_000),
   );
 });
 
@@ -163,17 +240,18 @@ describe("injection: a value never reaches the SQL text", () => {
 // Names from the AST reach the SQL only quoted
 // ---------------------------------------------------------------------------
 
-/** The SQL with every quoted identifier taken out. */
-function unquoted(sql: string): string {
-  return sql.replace(/"(?:[^"]|"")*"/g, "");
+/** The SQL with every identifier quoted for `dialect` taken out. */
+function unquoted(dialect: SqlDialect, sql: string): string {
+  const q = dialect.quote;
+  return sql.replace(new RegExp(`${q}(?:[^${q}]|${q}${q})*${q}`, "g"), "");
 }
 
-describe("identifiers: a name from the AST is always quoted", () => {
+describe.each(DIALECTS)("identifiers on $name: a name from the AST is always quoted", (dialect) => {
   test(
     "arbitrary names in every identifier position appear only inside quotes",
     () => {
       fc.assert(
-        fc.property(fc.array(fc.string({ unit: "binary" }), { minLength: 12, maxLength: 12 }), (strings) => {
+        fc.property(fc.array(hostileText, { minLength: 12, maxLength: 12 }), (strings) => {
           const n = strings.map((s, i) => `«${i}:${s}»`);
           const name = (i: number) => n[i] as string;
           const inner = rebuild(bareQuery(tableSource(name(0), name(1), undefined, name(2))), {
@@ -213,41 +291,41 @@ describe("identifiers: a name from the AST is always quoted", () => {
               orderBys: [orderNode(selectedAsNode(name(9), undefined), "asc", undefined)],
             },
           );
-          const plan = createCompiler(postgresDialect).compile(ast, "all", name(10));
-          expect(unquoted(plan.sql)).not.toMatch(/[«»]/);
-          for (const id of n.slice(0, 10)) expect(plan.sql).toContain(`"${id.replaceAll('"', '""')}"`);
+          const plan = createCompiler(dialect).compile(ast, "all", name(10));
+          expect(unquoted(dialect, plan.sql)).not.toMatch(/[«»]/);
+          for (const id of n.slice(0, 10)) expect(plan.sql).toContain(quoteIdentifier(dialect, id));
         }),
-        { numRuns: 2_000 },
+        { numRuns: runs(2_000) },
       );
     },
-    SHORT,
+    timeout(SHORT, 2_000),
   );
 
   test(
     "names in a row-level write and a bulk update are quoted",
     () => {
       fc.assert(
-        fc.property(fc.string({ unit: "binary" }), fc.string({ unit: "binary" }), (a, b) => {
+        fc.property(hostileText, hostileText, (a, b) => {
           const column = `«${a}»`;
           const schema = `«${b}»`;
           const ast = rebuild(from(Post, "p").ast, {
             updates: [{ kind: "update", field: "views", column, value: literalNode(0) }],
           });
-          const plan = createCompiler(postgresDialect).compile(ast, "updateAll", schema);
-          expect(unquoted(plan.sql)).not.toMatch(/[«»]/);
+          const plan = createCompiler(dialect).compile(ast, "updateAll", schema);
+          expect(unquoted(dialect, plan.sql)).not.toMatch(/[«»]/);
           const tags = meta(Tag);
-          const write = createCompiler(postgresDialect).compileDelete(
+          const write = createCompiler(dialect).compileDelete(
             tags,
             [tags.fieldsByName.get("id") as FieldMeta],
             [],
             schema,
           );
-          expect(unquoted(write.sql)).not.toMatch(/[«»]/);
+          expect(unquoted(dialect, write.sql)).not.toMatch(/[«»]/);
         }),
-        { numRuns: 500 },
+        { numRuns: runs(500) },
       );
     },
-    SHORT,
+    timeout(SHORT, 500),
   );
 
   test(
@@ -291,10 +369,13 @@ describe("identifiers: a name from the AST is always quoted", () => {
           }),
       ];
       const known = new Set([
-        ...Object.keys(postgresDialect.operators),
-        ...Object.keys(postgresDialect.functions),
-        ...Object.keys(postgresDialect.aggregates),
-        ...Object.keys(postgresDialect.locks),
+        ...Object.keys(dialect.operators),
+        ...Object.keys(dialect.functions),
+        ...Object.keys(dialect.aggregates),
+        ...Object.keys(dialect.locks),
+        ...Object.keys(dialect.niladic),
+        // Accepted and not written where locks are ignored (SQLite).
+        ...(dialect.ignoresLocks ? LOCK_CLAUSES : []),
         "in",
         "notIn",
         "has",
@@ -321,7 +402,7 @@ describe("identifiers: a name from the AST is always quoted", () => {
       ]);
       fc.assert(
         fc.property(
-          fc.string({ unit: "binary" }).filter((s) => !known.has(s)),
+          hostileText.filter((s) => !known.has(s)),
           fc.integer({ min: 0, max: positions.length - 1 }),
           (s, i) => {
             const build = positions[i] as (s: string) => QueryAst;
@@ -331,13 +412,13 @@ describe("identifiers: a name from the AST is always quoted", () => {
             } catch {
               return; // The AST helpers refused it already.
             }
-            expect(() => createCompiler(postgresDialect).compile(ast, "all", undefined)).toThrow(QueryError);
+            expect(() => createCompiler(dialect).compile(ast, "all", undefined)).toThrow(QueryError);
           },
         ),
-        { numRuns: 2_000 },
+        { numRuns: runs(2_000) },
       );
     },
-    SHORT,
+    timeout(SHORT, 2_000),
   );
 });
 
@@ -447,27 +528,41 @@ const valuesArb: fc.Arbitrary<Values> = fc.record({
   f: fc.nat(),
 });
 
-describe("parameter binding is independent of the AST the plan was compiled from", () => {
-  test(
-    "a plan compiled from values A, bound with values B, equals a cold compile of B",
-    () => {
-      fc.assert(
-        fc.property(fc.integer({ min: 0, max: TEMPLATES.length - 1 }), valuesArb, valuesArb, (i, a, b) => {
-          const template = TEMPLATES[i] as (v: Values) => QueryAst;
-          const shared = createCompiler(postgresDialect);
-          const astA = template(a);
-          const astB = template(b);
-          const planA = shared.compile(astA, "all", undefined);
-          const planB = shared.compile(astB, "all", undefined);
-          expect(planB).toBe(planA);
-          const cold = createCompiler(postgresDialect).compile(astB, "all", undefined);
-          expect(planA.sql).toBe(cold.sql);
-          expect(bindParams(planA.slots, astB.params)).toEqual(bindParams(cold.slots, astB.params));
-          expect(shared.stats().collisions).toBe(0);
-        }),
-        { numRuns: 1_000 },
-      );
-    },
-    SHORT,
-  );
-});
+describe.each(DIALECTS)(
+  "parameter binding on $name is independent of the AST the plan was compiled from",
+  (dialect) => {
+    test(
+      "a plan compiled from values A, bound with values B, equals a cold compile of B",
+      () => {
+        // Where lists are expanded (one placeholder per item), a list of another length
+        // is another plan: B takes A's length there. The template that needs arrays runs
+        // only where there are arrays, and a JSON path key holds no `"` or `\` (refused
+        // where the path is built from text steps).
+        const templates = dialect.capabilities.arrayParams ? TEMPLATES : TEMPLATES.filter((_, i) => i !== 3);
+        const pathSteps = dialect.jsonPath === "pathOperators" || dialect.jsonPath === "pathFunctions";
+        const fit = (v: Values, like: Values): Values => ({
+          ...v,
+          b: pathSteps ? v.b.replace(/["\\]/g, "") : v.b,
+          c: dialect.capabilities.arrayParams ? v.c : like.c.map((_, k) => v.c[k % v.c.length] as number),
+        });
+        fc.assert(
+          fc.property(fc.integer({ min: 0, max: templates.length - 1 }), valuesArb, valuesArb, (i, a, b) => {
+            const template = templates[i] as (v: Values) => QueryAst;
+            const shared = createCompiler(dialect);
+            const astA = template(fit(a, a));
+            const astB = template(fit(b, a));
+            const planA = shared.compile(astA, "all", undefined);
+            const planB = shared.compile(astB, "all", undefined);
+            expect(planB).toBe(planA);
+            const cold = createCompiler(dialect).compile(astB, "all", undefined);
+            expect(planA.sql).toBe(cold.sql);
+            expect(bindParams(planA.slots, astB.params)).toEqual(bindParams(cold.slots, astB.params));
+            expect(shared.stats().collisions).toBe(0);
+          }),
+          { numRuns: runs(1_000) },
+        );
+      },
+      timeout(SHORT, 1_000),
+    );
+  },
+);

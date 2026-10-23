@@ -1,7 +1,7 @@
 // The type-health measurements of the step 21 audit, taken once and recorded in
 // docs/plan/status/21-api.md. Not a CI gate (plan README §7): timings depend on the machine.
 //
-//   pnpm build && node scripts/type-health/measure.mjs [--typescript <typescript/lib>] [--schemas 200] [--topology chain] [--runs 5]
+//   pnpm build && node scripts/type-health/measure.mjs [--typescript <typescript/lib>] [--schemas 200] [--topology chain|clusters|tree|hub] [--runs 5] [--completions-only] [--annotate-assocs] [--no-changeset]
 //
 // For two consumer projects that resolve `egon-orm` to the built declarations:
 //
@@ -17,7 +17,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { generate } from "./generate.mjs";
+import { generate, reachable } from "./generate.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const TEMP = join(ROOT, "temp", "type-health");
@@ -217,13 +217,22 @@ async function completions(file, edits) {
 
 const typescriptVersion = JSON.parse(readFileSync(join(TS_LIB, "../package.json"), "utf8")).version;
 const results = { typescript: typescriptVersion, node: process.version, projects: {} };
-const blog = blogProject();
-results.projects["examples/blog"] = { ...diagnostics(blog), ...slowest(blog, 5, RUNS) };
+// `--completions-only` skips the blog, the diagnostics and the traces (for a sweep).
+const completionsOnly = process.argv.includes("--completions-only");
+if (!completionsOnly) {
+  const blog = blogProject();
+  results.projects["examples/blog"] = { ...diagnostics(blog), ...slowest(blog, 5, RUNS) };
+}
 const synthetic = join(TEMP, "synthetic");
-const editorFile = generate(synthetic, SCHEMAS, TOPOLOGY);
-results.projects[`synthetic (${SCHEMAS} schemas, ${TOPOLOGY})`] = {
-  ...diagnostics(synthetic),
-  ...slowest(synthetic, 10, RUNS),
+const ANNOTATE = process.argv.includes("--annotate-assocs");
+const NO_CHANGESET = process.argv.includes("--no-changeset");
+const editorFile = generate(synthetic, SCHEMAS, TOPOLOGY, { annotate: ANNOTATE, noChangeset: NO_CHANGESET });
+results.projects[
+  `synthetic (${SCHEMAS} schemas, ${TOPOLOGY}${ANNOTATE ? ", annotated" : ""}${NO_CHANGESET ? ", no changeset methods" : ""})`
+] = {
+  // The schemas the edited query's schema (S001) reaches through associations, itself included.
+  reachableFromEditedSchema: reachable(1, SCHEMAS, TOPOLOGY),
+  ...(completionsOnly ? {} : { ...diagnostics(synthetic), ...slowest(synthetic, 10, RUNS) }),
   completionsInWhere: await completions(editorFile, 20),
 };
 process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);

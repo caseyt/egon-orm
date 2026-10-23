@@ -88,8 +88,10 @@ The changeset was made from a loaded row, so it describes an update:
 The reverse mistake, `repo.update(change(User, values))`, names the other case:
 
 ```text
-error TS2379: … Property '"update and delete take a changeset of a loaded row; this one is of a new record: use insert() or insertOrUpdate()"' is missing …
+error TS2345: … Property '"update and delete take a changeset of a loaded row; this one is of a new record: use insert() or insertOrUpdate()"' is missing …
 ```
+
+With `exactOptionalPropertyTypes` on, the same error is `TS2379`.
 
 The same kind of message, `"a new record has no row: applyChanges() and applyAction() need a changeset of a loaded row"`,
 appears when `applyChanges()` is called on a changeset of a class.
@@ -137,8 +139,10 @@ same goes for `Loaded<typeof Post, "autor">`, which reports
 error TS2554: Expected 2 arguments, but got 1.
 ```
 
-`hasMany` and `hasOne` need `{ foreignKey }`, the field of the **other** schema that holds
-this one's key: `hasMany(() => Post, { foreignKey: "authorId" })`. It is not derived from
+`hasMany` and `hasOne` need their options: either `{ foreignKey }`, the field of the
+**other** schema that holds this one's key, as in `hasMany(() => Post, { foreignKey: "authorId" })`,
+or `{ through }`, a chain of associations to follow, as in
+`hasMany(() => Comment, { through: ["posts", "comments"] })`. The key is not derived from
 the class name, which a minifier may change. `belongsTo` has a default (`<property name>Id`).
 See [Defining associations](/guide/associations#defining-associations).
 

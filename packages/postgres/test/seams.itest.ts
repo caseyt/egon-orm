@@ -221,6 +221,18 @@ test("one prepared query with a named parameter gives each of 50 concurrent task
     // A pool smaller than the number of tasks, so that tasks wait for connections.
     await withRepo(db, 5, async (repo) => {
       const before = repo.planCacheStats();
+      // Evidence that the tasks overlapped: the most connections checked out at once and the
+      // most callers waiting for one, sampled on every turn of the event loop while they run.
+      let busiest = 0;
+      let mostWaiting = 0;
+      let running = true;
+      const sample = (): void => {
+        const stats = repo.poolStats();
+        busiest = Math.max(busiest, stats.size - stats.idle);
+        mostWaiting = Math.max(mostWaiting, stats.waiting);
+        if (running) setImmediate(sample);
+      };
+      setImmediate(sample);
       const tasks = Array.from({ length: 50 }, async (_, i) => {
         const n = i + 1;
         const [rows, older] = await Promise.all([
@@ -229,12 +241,20 @@ test("one prepared query with a named parameter gives each of 50 concurrent task
         ]);
         return { n, rows, older };
       });
-      const results = await Promise.all(tasks);
+      const results = await Promise.all(tasks).finally(() => {
+        running = false;
+      });
+      expect(busiest).toBeGreaterThan(1);
+      expect(mostWaiting).toBeGreaterThan(0);
+      // And on the server: the pool opened more than one session for this database.
+      const [sessions] = await db.query<{ count: string }>(
+        "select count(*) from pg_stat_activity where datname = current_database() and pid <> pg_backend_pid()",
+      );
+      expect(Number(sessions?.count)).toBeGreaterThan(1);
       for (const { n, rows, older } of results) {
         expect(rows).toEqual([{ email: `user${n}@example.com`, age: n }]);
         expect(older).toBe(50 - n);
       }
-      // One plan for each prepared query, however many tasks ran it.
       // Two plans compiled (one per prepared query), every other run a cache hit. The cache
       // is shared by the adapters of one configuration, so the counters are compared with
       // their values before the tasks.
@@ -247,7 +267,8 @@ test("one prepared query with a named parameter gives each of 50 concurrent task
 // --- A million rows, streamed in constant memory ------------------------------------------
 
 /**
- * The number of rows. A million by default (about ten seconds on a laptop);
+ * The number of rows. A million by default: about 3 s on a laptop and about 10 s on a CI
+ * runner, the generation of the rows included;
  * `EGON_TEST_STREAM_ROWS` sets another number, for a slow machine or a longer soak.
  */
 const STREAM_ROWS = Number(process.env.EGON_TEST_STREAM_ROWS ?? 1_000_000);

@@ -37,6 +37,16 @@ test("next never picks a beta, and latest never picks a prerelease", () => {
   assert.equal(pickVersion("latest", distTags, times, cutoff), "7.0.2");
 });
 
+test("latest is the latest tag, not a patch to an older line published after it", () => {
+  const patched = { ...times, "5.9.4": "2026-09-01T00:00:00.000Z" };
+  const cutoff = Date.parse("2026-10-22T12:00:00Z");
+  assert.equal(pickVersion("latest", distTags, patched, cutoff), "7.0.2");
+  // When the tag is too young, the highest stable version that is old enough, by version.
+  const young = { ...patched, "7.0.3": "2026-10-22T10:00:00.000Z" };
+  const tags = { ...distTags, latest: "7.0.3" };
+  assert.equal(pickVersion("latest", tags, young, Date.parse("2026-10-22T09:00:00Z")), "7.0.2");
+});
+
 test("refuses an unknown name", () => {
   assert.throws(() => pickVersion("beta", distTags, times, Date.now()), /unknown version beta/);
 });

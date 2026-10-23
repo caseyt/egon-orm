@@ -23,12 +23,14 @@
 // declarations of those third-party packages, and prints them. It exists for the oldest
 // supported TypeScript: a peer's own dependency may need a newer one when libraries are
 // checked (pg 8.23's pg-protocol writes `Buffer<…>`, which @types/node has from TypeScript
-// 5.7 on). An error anywhere else, in the Egon packages' declarations included, still fails.
+// 5.7 on). An error located anywhere else (the Egon packages' declarations included), or with
+// no location at all, still fails: scripts/allowed-lib-errors.mjs decides.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { disallowedErrors } from "../../scripts/allowed-lib-errors.mjs";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const args = process.argv.slice(2);
@@ -38,11 +40,6 @@ const tsVersion = tsIndex === -1 ? undefined : args[tsIndex + 1];
 const allowIndex = args.indexOf("--allow-lib-errors");
 const allowedLibs = allowIndex === -1 ? [] : args[allowIndex + 1].split(",");
 
-/** The errors in tsc's output that are not in the declarations of an allowed package. */
-function disallowedErrors(output) {
-  const errors = output.split("\n").filter((line) => /\): error TS\d+:/.test(line));
-  return errors.filter((line) => !allowedLibs.some((name) => line.includes(`node_modules/.pnpm/${name}@`)));
-}
 const packages = ["core", "postgres", "mysql", "sqlite", "zod", "cli"];
 
 // pnpm, as the script that started this one ran it (`pnpm smoke` sets npm_execpath).
@@ -149,7 +146,11 @@ try {
       execFileSync(process.execPath, [tsc, "-p", config], { cwd: project, encoding: "utf8", stdio: "pipe" });
     } catch (error) {
       const output = `${error.stdout}${error.stderr}`;
-      if (allowedLibs.length > 0 && output.includes("error TS") && disallowedErrors(output).length === 0) {
+      if (
+        allowedLibs.length > 0 &&
+        output.includes("error TS") &&
+        disallowedErrors(output, allowedLibs).length === 0
+      ) {
         console.log(`types: tsc (${version}) errors only in ${allowedLibs.join(", ")} (allowed):\n${output}`);
         continue;
       }

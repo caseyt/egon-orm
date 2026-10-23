@@ -2,11 +2,11 @@
 // (examples/smoke/check-types.mjs --typescript <version>):
 //
 //   node scripts/typescript-version.mjs minimum   the oldest supported release (below)
-//   node scripts/typescript-version.mjs latest    the newest stable release
+//   node scripts/typescript-version.mjs latest    the `latest` dist-tag
 //   node scripts/typescript-version.mjs next      the newest build of the `next` tag
 //
-// `latest` and `next` are the newest releases that are older than pnpm's minimum release
-// age, so that the strict supply-chain policy (which the consumer install keeps) accepts
+// `latest` and `next` are releases older than pnpm's minimum release age (see pickVersion),
+// so that the strict supply-chain policy (which the consumer install keeps) accepts
 // them. A `next` build is published daily; the newest one is usually too young.
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -23,15 +23,34 @@ const DEFAULT_AGE_MINUTES = 1440;
 /** Margin over the release age, so that a version picked now is still accepted at install. */
 const MARGIN_MINUTES = 60;
 
+/** Compares two `x.y.z` versions numerically. */
+function compareStable(a, b) {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return (pa[i] ?? 0) - (pb[i] ?? 0);
+  return 0;
+}
+
 /**
- * The newest version of `which` ("latest": a stable release; "next": a build with the
- * same major.minor and prerelease tag as the `next` dist-tag) published before `cutoff`.
+ * The version of `which` to check with, among those published before `cutoff`.
+ *
+ * - "latest": the `latest` dist-tag when it is old enough; otherwise the highest stable
+ *   version that is. Not the most recently published one: a patch to an older line (5.9.4
+ *   after 7.0.2) is published later but is not the latest.
+ * - "next": the most recent build with the same major.minor and prerelease tag as the
+ *   `next` dist-tag (builds of one line are published in version order).
  */
 export function pickVersion(which, distTags, times, cutoff) {
-  let matches;
+  const oldEnough = (version) => times[version] !== undefined && Date.parse(times[version]) <= cutoff;
   if (which === "latest") {
-    matches = (version) => /^\d+\.\d+\.\d+$/.test(version);
-  } else if (which === "next") {
+    const tagged = distTags.latest;
+    if (tagged !== undefined && oldEnough(tagged)) return tagged;
+    const stable = Object.keys(times).filter((v) => /^\d+\.\d+\.\d+$/.test(v) && oldEnough(v));
+    if (stable.length === 0) throw new Error("no latest release of TypeScript is older than the release age");
+    return stable.sort(compareStable)[stable.length - 1];
+  }
+  let matches;
+  if (which === "next") {
     const tag = distTags.next;
     const family = tag?.match(/^(\d+\.\d+\.\d+-[a-z]+)\./)?.[1];
     if (family === undefined) throw new Error(`the next dist-tag (${tag}) is not a prerelease build`);

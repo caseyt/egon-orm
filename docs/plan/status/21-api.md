@@ -10,7 +10,7 @@ silicon), Node 22.23.1, TypeScript 6.0.3, against the shared Compose Postgres 16
 |---|---|
 | API review | Done. Four types exported (a user had to name them and could not); TSDoc fixed. Nine renames, removals or additions are listed for the owner below, none made. |
 | API report | `api-report/*.api.md` for all nine entry points, written by API Extractor 7.59.4; `pnpm api:check` in CI's build job fails on any difference. |
-| Type health | Measured and recorded below. **Two budgets are not met in every case**: the first query a program checks takes 59 to 62 ms (one-time cost; every other statement is at most 26 ms), and completions in a `where` callback take 246 ms (median) on a 200-schema project whose associations form one long chain, and 47 ms when they form clusters. |
+| Type health | Measured and recorded below. **Two budgets are not met:** (1) the first query a program checks takes 54 to 63 ms, a one-time cost; every other statement is at most 29 ms. (2) **The 200 ms completions gate is not met once about 150 to 200 schemas are connected through associations.** Completion time after an edit follows the number of schemas the edited query's schema reaches through associations, at about 1.1 to 1.2 ms each, whatever the shape: 242 to 314 ms (median) with 200 reachable (chain, binary tree or hub), and 47 ms when only ten are reachable. The per-schema work is identified (section 3): for every reachable schema the checker infers the type of each static member, the user's `changeset` methods included. Which library type triggers that is likely, but not confirmed. |
 | TypeScript matrix | CI checks the packed packages with TypeScript 5.5.4 (the minimum, decision D14) and the latest release (7.0.2 today). `next` runs as information only, and **fails today** (see below). |
 | Error review | Done. Every error class was triggered (12 tests). Twelve messages or advice entries were reworded, with no identifier changed. Four type errors were added to the FAQ, so it now covers the 12 likeliest. |
 | Seam tests | 5 tests in `packages/postgres/test/seams.itest.ts`, all passing. The full million-row stream runs by default, in about 3 s. |
@@ -132,17 +132,37 @@ workspace's private test helpers):
 |---|---|---|---|---|
 | 282 (8 own) | 14,730 | 48,563 | 0.20 s | `accounts.ts:16` 32.3 / 34.7 ms (a changeset with a Zod `validate`), `comments.ts:11` 21.9 ms, `posts.ts:50` 20.5 ms |
 
-**Synthetic 200-schema project.** 200 schema classes, ten to a file, each with eleven
-fields, a `belongsTo` to the schema before it, a `hasMany` to the one after, and a changeset
-function. Each schema also has a joined, filtered, selected query, a query with a named
-parameter, a preload and an insert (8,340 lines). `--topology chain` (the default) links
-every schema to its neighbours, so all 200 are connected. `--topology clusters` links only
-the ten schemas of each file.
+**Synthetic 200-schema project.** 200 schema classes, ten to a file. Each has eleven
+fields, associations to other schemas, and a `static changeset` function. Each schema also
+has a joined, filtered, selected query, a query with a named parameter, a preload and an
+insert (about 8,300 lines). `--topology` sets how the associations link the schemas:
 
-| Topology | Types | Instantiations | Check time | Slowest statement | Next slowest | Completions in `where`, after an edit (median / max of 20) | Without an edit | First request (loads the project) |
+- `chain`: each schema to the one before and after it. All 200 are connected, depth 200.
+- `tree`: a binary tree. All 200 are connected, depth about 8.
+- `hub`: every schema belongs to `S000`, which has many of each. All 200 are connected, depth 2.
+- `clusters`: the chain, cut at each file. Ten schemas are connected per file.
+
+The editor check works in `S001`'s `where` callback. The column "reachable" is the number of
+schemas `S001` reaches through associations, itself included.
+
+| Topology | Reachable | Types | Instantiations | Check time | Slowest statement | Next slowest | Completions after an edit (median / max of 20) | Without an edit |
 |---|---|---|---|---|---|---|---|---|
-| chain | 61,843 | 413,957 | 4.23 s | 62.0 ms (max 68.2) | 26.4 ms | **246 / 452 ms** | 0 ms | 480 ms |
-| clusters | 59,753 | 401,968 | 1.08 s | 58.7 ms (max 66.3) | 22.1 ms | 47 / 97 ms | 0 ms | 156 ms |
+| chain | 200 | 61,843 | 413,957 | 4.23 s | 62.0 ms (max 68.2) | 26.4 ms | **246 / 452 ms** | 0 ms |
+| tree | 200 | 59,175 | 401,512 | 3.33 s | 63.4 ms (max 102.2) | 29.4 ms | **314 / 449 ms** | 0 ms |
+| hub | 200 | 56,695 | 389,037 | 2.30 s | 54.2 ms (max 54.7) | 22.9 ms | **242 / 397 ms** | 0 ms |
+| clusters | 10 | 59,753 | 401,968 | 1.08 s | 58.7 ms (max 66.3) | 22.1 ms | 47 / 97 ms | 0 ms |
+
+Completions after an edit, median of 20, from a separate sweep run with
+`--completions-only`. The same machine was busier during the table runs above: the tree's
+314 ms there was 244 ms here.
+
+| Reachable schemas | chain | tree | hub | clusters |
+|---|---|---|---|---|
+| 10 | | | | 55 (of 200), 46 (of 400) |
+| 50 | 141 | 89 | 86 | |
+| 100 | 219 | 149 | 137 | |
+| 200 | 244 | 244 | 255 | |
+| 400 | | 473 | | |
 
 What this shows:
 
@@ -150,30 +170,58 @@ What this shows:
   slowest statement is always the first query checked (`queries-00.ts:4`), whichever query
   that is. When the `where`-callback file was checked first, the same 55 to 60 ms moved to it,
   and its own time dropped out of the top ten once it was checked last. That is the
-  one-time cost of resolving the library's types; every other statement is at most 26 ms.
+  one-time cost of resolving the library's types. Every other statement is at most 29 ms.
   By the letter of the budget, one statement per program is over.
-- **Completions under 200 ms: met for clusters, not for a chain.** With no edit, a request
-  takes 0 to 1 ms. After an edit, tsserver rebuilds its checker, and that rebuild costs as much
-  as resolving every schema reachable through associations from the one being edited. The
-  program update itself takes 2 ms (tsserver log, `--tsserver-log`). A hover after an edit
-  costs the same (239 ms on the chain). It grows with the length of the association chain:
-  89 ms (median) with 50 chained schemas, 140 with 100, 246 with 200 and 471 with 400. In the
-  clusters topology it stays flat: 47 ms with 200 and 47 with 400.
-- **Check time is superlinear in chain length.** For the whole chained project: 0.55 s with 50
-  schemas, 1.19 s with 100, 4.4 s with 200 and 26 s with 400, while instantiations grow only
-  linearly (414k, then 806k). Clusters stay linear: 1.1 s, then 1.9 s. The cost is the depth
-  of the association graph, not the number of types. I have not found which type forces the
-  whole chain to resolve. My hypothesis: something reads every static member of an
-  association's target (for example a mapped type over its keys), which resolves the
-  target's own associations, and so on down the chain. I record this as a Request below
-  rather than guess at a fix; a fix would probably change public type signatures.
-- A real application's schemas are usually more clustered than a 200-long chain, but a large,
-  well-connected domain can reach deep chains. The owner keeps these type-health checks as a
-  gate for `0.1.0` (owner decision, 2026-10-22). **The completions budget is not met on the
-  chain topology.**
+- **Completions under 200 ms: not met once about 150 to 200 schemas are connected.**
+  - Completion time after an edit follows the number of **reachable** schemas, not the depth
+    of the graph. The tree (depth about 8) and the hub (depth 2) cost what the chain (depth 200)
+    costs: about 40 ms plus about 1.1 to 1.2 ms per reachable schema. At that rate the 200 ms
+    budget is crossed at about 140 to 170 reachable schemas on this machine; a 2-vCPU CI
+    runner or an older laptop would cross it sooner.
+  - With no edit, a request takes 0 to 1 ms. The program update after an edit takes 2 ms
+    (tsserver log). The time goes into the new checker, which re-resolves the reachable schemas
+    for the first request after each edit. A hover after an edit costs the same.
+  - A real domain model is usually one connected graph (users, posts, comments, tags, orgs,
+    and so on). An application with 150 or more interlinked schemas would miss this budget.
+- **The cause, found with a tsserver trace and two variants of the project.** In the trace
+  of one completion (`--traceDirectory`), almost all the time sits under the `checkExpression`
+  of the binding `s`. Inside it are hundreds of nested `checkExpression` events in the schema
+  files, at the bodies of the `static changeset(…)` methods (`cast(…).validateRequired(…)…`)
+  and at the association initialisers, about 1 ms per schema. So **for every reachable schema
+  the checker infers the type of each static member**: the inferred return type of the
+  user's `changeset` method and the inferred type of each `hasMany(…)` / `belongsTo(…)`.
+  Completions after an edit, tree with 200 schemas:
 
-To reproduce: `pnpm build && node scripts/type-health/measure.mjs [--topology clusters]
-[--schemas N] [--runs 5] [--tsserver-log file]`.
+  | Variant | Median | Max |
+  |---|---|---|
+  | As generated | 249 ms | 394 ms |
+  | Associations given explicit `Assoc<…>` types (`--annotate-assocs`) | 208 ms | 369 ms |
+  | No `changeset` methods (`--no-changeset`) | 105 ms | 240 ms |
+  | Both | 66 ms | 152 ms |
+
+  So, of the roughly 200 ms above the baseline, about 145 ms is inferring the reachable
+  schemas' `changeset` methods and about 40 ms is inferring their associations. What reads
+  every static member is a type that maps over `keyof S`. `AssocKeys<S> = { [K in keyof S]:
+  S[K] extends Assoc ? K : never }[keyof S]` does, so it needs the type of every static member
+  of `S`. A type that recurses through the association targets would apply it to every
+  reachable schema; `PreloadSpec<S>` is one: `{ [K in AssocKeys<S>]?: true |
+  PreloadSpec<Target<S, K>> }`. **The second step is a likely explanation, not a
+  confirmed one.** I have not found which use of the query's type expands that recursion
+  for a plain `where` callback. Finding it, and stopping the expansion (for example by
+  recursing on demand, or by reading association keys from a declared list instead of
+  `keyof S`), would change public types, so it needs the owner's decision. Until then, a user
+  can lower the cost by declaring the return type of `changeset` methods.
+- **Check time is superlinear only for long chains.** For the whole chained project: 0.55 s
+  with 50 schemas, 1.19 s with 100, 4.4 s with 200 and 26 s with 400, while instantiations grow
+  only linearly (414k, then 806k). With the same 200 schemas the tree takes 3.3 s, the hub
+  2.3 s and the clusters 1.1 s. Depth drives the superlinear check time; the reachable count
+  drives the editor time.
+- The owner keeps these type-health checks as a gate for `0.1.0` (owner decision,
+  2026-10-22). **The completions budget is not met for about 150 to 200 connected schemas.**
+
+To reproduce: `pnpm build && node scripts/type-health/measure.mjs [--topology
+chain|tree|hub|clusters] [--schemas N] [--runs 5] [--completions-only] [--annotate-assocs]
+[--no-changeset] [--tsserver-log file]`.
 
 ### Minimum supported TypeScript, and the CI matrix
 
@@ -194,10 +242,16 @@ To reproduce: `pnpm build && node scripts/type-health/measure.mjs [--topology cl
   than pnpm's minimum release age, so the strict policy of the consumer install still holds.
   `types (typescript next, informational)` has `continue-on-error: true` and the `ci` check
   does not wait for it. It is a heads-up about the next TypeScript, not a gate.
-- **Exemption, stated plainly.** In the minimum job only, errors that lie entirely inside
-  `node_modules/.pnpm/pg-protocol@…` are accepted and printed
-  (`check-types.mjs --allow-lib-errors pg-protocol`). Any other error still fails, including
-  one in Egon's own declarations. The existing smoke check (workspace TypeScript, no
+- **Exemption, stated plainly.** In the minimum job only, an error is accepted (and
+  printed) when its **location**, the file before `(line,col)`, lies inside
+  `node_modules/.pnpm/pg-protocol@<version>/node_modules/pg-protocol/`
+  (`check-types.mjs --allow-lib-errors pg-protocol`, filter in
+  `scripts/allowed-lib-errors.mjs`, with node tests). These still fail:
+  - an error with no location, such as TS2688 for a bad `types` entry (review round 1 found
+    that the first version let one through);
+  - an error elsewhere whose text merely mentions pg-protocol;
+  - an error in a package whose name only starts with `pg-protocol`;
+  - any error in Egon's own declarations. The existing smoke check (workspace TypeScript, no
   allowance) is unchanged.
 
 ## 4. Error-message review
@@ -292,17 +346,24 @@ No seam test exposed a bug.
 - The minimum supported TypeScript stays at 5.5 (D14). CI checks it at 5.5.4, with the
   pg-protocol allowance described in section 3.
 - The `next` TypeScript job is informational and not part of the `ci` check.
-- The synthetic project's default topology is the chain, the worst case. Both topologies
+- The synthetic project's default topology is the chain, which is the worst case for check
+  time. For editor time all connected shapes cost about the same. All four topologies
   are recorded.
 - Per-statement times are medians of 5 traced runs.
 
 ## Requests
 
 - **To the owners of the schema and association types (steps 04 and 14), and the owner:** the
-  chain-depth cost in section 3: completions take 246 ms (median) after an edit, and check time
-  grows superlinearly with the length of the association chain. To reproduce:
-  `node scripts/type-health/measure.mjs --schemas 400`. Find which type resolves every schema
-  reachable through the associations, and whether it can stay lazy.
+  editor cost in section 3. After each edit, a completion in a `where` callback costs about
+  1.1 to 1.2 ms per schema reachable through associations, because the checker infers every
+  static member (the user's `changeset` methods, the association initialisers) of every
+  reachable schema. That is 242 to 314 ms with 200 connected schemas, whatever the graph's
+  shape. Find the type that expands the association graph for a plain query (the likely
+  candidate is `AssocKeys<S>`, a mapped type over `keyof S`, applied through the recursive
+  `PreloadSpec<S>`), and keep it lazy, so that only the schemas a query names are resolved.
+  Separately, check time grows superlinearly with the depth of a chain (26 s for 400 chained
+  schemas). To reproduce: `node scripts/type-health/measure.mjs --topology tree
+  --completions-only`, then again with `--no-changeset` and with `--annotate-assocs`.
 - **To the owners of the changeset types (steps 05 and 15):** under TypeScript `next`
   (7.1.0-dev.20261021.1), `export const errors = cs.errorMessages()` fails with TS5088
   (cyclic type that cannot be serialised) in a consumer with `declaration: true`. CI's
@@ -315,17 +376,50 @@ No seam test exposed a bug.
   for `skipLibCheck: false` with `@egon-orm/postgres`, because of `pg`'s declarations). That is
   what CI now checks.
 - **To 21-audit:** the API report check, the TypeScript jobs and the measurements above are
-  the evidence for §1.
+  the evidence for §1. **The 200 ms completions gate is not met for about 150 to 200
+  connected schemas** (242 to 314 ms median at 200 reachable schemas, in chain, tree and hub
+  shapes; met at 47 ms when ten are reachable). It is a `0.1.0` gate (owner decision,
+  2026-10-22), so the readiness report should list it as not met until the request above
+  is resolved. Also not met by the letter: the first query a program checks takes 54 to
+  63 ms, a one-time cost.
 
 ## Acceptance (this part)
 
 - [x] The API report is committed (`api-report/`, nine entry points) and enforced in CI
   (`pnpm api:check` in the build job). I verified that it fails on a changed report.
 - [x] Type-health results are recorded, with instantiation counts (section 3). **Two
-  budgets are not met in every case**: the first query a program checks is over 50 ms, and
-  completions are over 200 ms on the chain topology. Both are listed under Requests and for the owner.
+  budgets are not met**: the first query a program checks is over 50 ms, and completions
+  are over 200 ms once about 150 to 200 schemas are connected (any shape). Both are listed
+  under Requests, for the owner and for 21-audit.
 - [x] The error review is done (section 4).
 - [x] The seam tests pass (section 5), locally against the Compose Postgres.
+
+## Review round 1 (PR #69)
+
+1. **The pg-protocol allowance let location-less errors through** (a bad `types` entry gave
+   only a TS2688, and the check passed). Fixed: every `error TS` line is an error, and one is
+   allowed only by its location. The filter moved to `scripts/allowed-lib-errors.mjs`, with
+   node tests for both holes (a location-less error, and an error elsewhere that mentions
+   the package) and for a look-alike package name.
+2. **The type-health conclusion was wrong.** Completion time follows the number of reachable
+   schemas, not the depth. I added the `tree` and `hub` topologies, swept the sizes, and
+   rewrote section 3, the Request to steps 04/14 and the Request to 21-audit around that.
+   I found the per-schema work: each reachable schema's static members, the `changeset`
+   methods above all, are inferred. Measured with the new diagnostic variants
+   `--no-changeset` and `--annotate-assocs`.
+3. **`latest` meant "most recently published".** It is now the `latest` dist-tag when that
+   is old enough, and otherwise the highest stable version, by version. A test covers a later
+   patch to an older line.
+4. **The API report's entry list was kept by hand.** A test now compares it with every
+   published package's `exports`.
+5. **The 50-task test now proves the tasks overlapped.** It samples `repo.poolStats()` on
+   every event-loop turn: more than one connection checked out at once, and callers waiting.
+   It also expects more than one session for the database in `pg_stat_activity`.
+6. **The stream test's comment** now gives the measured times: about 3 s on a laptop and
+   about 10 s on a CI runner.
+7. **FAQ:** the update twin of the insert entry is TS2345 under plain `strict`, and TS2379
+   only with `exactOptionalPropertyTypes`. I checked both by compiling.
+8. **FAQ:** `hasMany` and `hasOne` take `{ foreignKey }` or `{ through }`.
 
 ## Verification (local)
 

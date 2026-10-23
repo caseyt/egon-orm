@@ -1040,6 +1040,60 @@ describe("new embedded rows: defaults, shared timestamps, stored nulls", () => {
     expect(items.filter((item) => item.data === null)).toHaveLength(1);
   });
 
+  test("a keyless embedded item equal to the stored one is unchanged, even when its values are new objects", () => {
+    class Mark extends EmbeddedSchema({ at: t.timestamp(), note: t.string() }) {
+      static changeset(mark: Mark | typeof Mark, params: unknown) {
+        return cast(mark, params, ["at", "note"]);
+      }
+    }
+    class Diary extends Schema("diaries", { id: t.integer().primaryKey(), marks: t.embedMany(() => Mark) }) {}
+    const when = new Date("2026-03-01T10:00:00.000Z");
+    const diary = loaded(Diary, { id: 1, marks: [loaded(Mark, { at: when, note: "a" })] });
+    const again = cast(diary, { marks: [{ at: "2026-03-01T10:00:00.000Z", note: "a" }] }, []).castEmbed(
+      "marks",
+    );
+    expect(again.changes).toEqual({});
+  });
+
+  test("a change of the stored keyless embed is that row, not a replacement of it", () => {
+    const venue = loaded(Venue, { name: "Old", spot: null });
+    const event = loaded(Event, { id: 1, venue, slots: [], strictSlots: [], taglines: [] });
+    // venue's onReplace is "error": a replacement would throw.
+    expect(() => change(event).putEmbed("venue", change(venue, { name: "New" }) as never)).not.toThrow();
+  });
+
+  test("a keyed embedOne cast with another key is a new row, not an update of the stored one", () => {
+    class Seat extends EmbeddedSchema({ id: t.uuid().primaryKey(), label: t.string() }) {
+      static changeset(seat: Seat | typeof Seat, params: unknown) {
+        return cast(seat, params, ["id", "label"]);
+      }
+    }
+    class Hall extends Schema("halls", {
+      id: t.integer().primaryKey(),
+      seat: t.embedOne(() => Seat, { onReplace: "delete" }).nullable(),
+    }) {}
+    const stored = loaded(Seat, { id: "00000000-0000-4000-8000-000000000001", label: "a" });
+    const hall = loaded(Hall, { id: 1, seat: stored });
+    const other = "00000000-0000-4000-8000-000000000002";
+    const cs = cast(hall, { seat: { id: other, label: "b" } }, []).castEmbed("seat");
+    const child = cs.changes.seat as unknown as AnyCs;
+    expect([child.action, child.data]).toEqual(["insert", null]);
+    const same = cast(hall, { seat: { id: stored.id, label: "b" } }, []).castEmbed("seat");
+    expect((same.changes.seat as unknown as AnyCs).data).toBe(stored);
+  });
+
+  test("a new child changeset put into a list matches no stored row", () => {
+    const rows = [1, 2].map((n) =>
+      loaded(Slot, { id: `00000000-0000-4000-8000-00000000000${n}`, label: `s${n}`, at: null }),
+    );
+    const event = loaded(Event, { id: 1, venue: null, slots: rows, strictSlots: [], taglines: [] });
+    const fresh = change(Slot, { label: "new" });
+    const put = change(event).putEmbed("slots", [fresh] as never);
+    const actions = (put.changes.slots as unknown as readonly AnyCs[]).map((item) => item.action);
+    expect(actions.filter((action) => action === "delete")).toHaveLength(2);
+    expect(actions.filter((action) => action === "insert")).toHaveLength(1);
+  });
+
   test("a stored row that holds null in a required field is reported when it changes", () => {
     const slot = loaded(Slot, { id: "00000000-0000-4000-8000-000000000001", label: null, at: null });
     const event = loaded(Event, { id: 1, venue: null, slots: [slot], strictSlots: [], taglines: [] });

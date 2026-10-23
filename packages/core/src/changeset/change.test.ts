@@ -194,6 +194,17 @@ describe("merge", () => {
     expect(change(row, { name: "A" }).merge(change(row, { name: "B" })).changes).toEqual({ name: "B" });
   });
 
+  test("keeps both of two errors that differ in message, meta or validation", () => {
+    const row = margaret();
+    const one = change(row).addError("age", "is wrong", { at: 1 });
+    expect(one.merge(change(row).addError("age", "is off", { at: 1 })).errors.age).toHaveLength(2);
+    expect(one.merge(change(row).addError("age", "is wrong", { at: 2 })).errors.age).toHaveLength(2);
+    expect(one.merge(change(row).addError("age", "is wrong", { at: 1 })).errors.age).toHaveLength(1);
+    const blank = cast(User, { age: null }, ["age"]).validateRequired(["age"]);
+    const same = change(User).addError("age", "can't be blank");
+    expect(blank.merge(same).errors.age).toHaveLength(2);
+  });
+
   test("does not repeat an error both have", () => {
     const first = cast(User, { age: "x" }, ["age"]);
     const second = cast(first, { name: "Ada" }, ["name"]);

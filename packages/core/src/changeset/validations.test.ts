@@ -397,6 +397,7 @@ describe("validateNumber", () => {
       [{ greaterThanOrEqualTo: 10 }, 10],
       [{ equalTo: 10 }, 10],
       [{ notEqualTo: 10 }, 9],
+      [{ notEqualTo: 10 }, 11],
     ] as const;
     for (const [options, value] of passing)
       expect(seats(value).validateNumber("seats", options).valid).toBe(true);
@@ -421,6 +422,11 @@ describe("validateNumber", () => {
     ).toBe(true);
     expect(cast(Event, { big: 5 }, ["big"]).validateNumber("big", { equalTo: 5 }).valid).toBe(true);
     expect(cast(Event, { big: 5 }, ["big"]).validateNumber("big", { lessThan: 5n }).valid).toBe(false);
+  });
+
+  test("a message option is not a limit: a value that passes every limit is valid, whatever the order", () => {
+    expect(seats(5).validateNumber("seats", { greaterThan: 1, message: "too few" }).valid).toBe(true);
+    expect(seats(5).validateNumber("seats", { message: "too few", greaterThan: 1 }).valid).toBe(true);
   });
 
   test("message option", () => {

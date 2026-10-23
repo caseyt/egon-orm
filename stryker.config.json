@@ -5,7 +5,7 @@
   "plugins": ["@stryker-mutator/vitest-runner"],
   "coverageAnalysis": "perTest",
   "concurrency": 2,
-  "ignoreStatic": true,
+  "ignoreStatic": false,
   "timeoutMS": 10000,
   "reporters": ["clear-text", "progress-append-only", "html", "json"],
   "thresholds": { "high": 90, "low": 80, "break": null },

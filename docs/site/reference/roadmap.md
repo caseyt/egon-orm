@@ -32,6 +32,12 @@ Egon ORM is under construction: nothing is published to npm yet.
 | Named server-side prepared statements | For [`prepare`](/guide/queries-advanced#prepared-queries). |
 | Form helpers for nested changesets | Sort and drop parameters, and index-keyed objects in place of arrays. |
 | Other databases through a custom dialect | |
+| Built-in multi-tenancy | Tenants as a column of shared tables, with the tenant given explicitly on the repo or the call: a query or write on a tenant-scoped schema class without a tenant is refused, inserts fill in the tenant, and preloads stay within it. A database schema per tenant stays a [recipe](/recipes/multi-tenancy), using the repo's `schema` option. |
+| Built-in soft deletes | Support for what the [soft-deletes recipe](/recipes/soft-deletes) does by hand: a schema option for the deleted-at field, soft delete and restore in the repo, and an explicit opt-in to leave deleted rows out of a query. No default scope applies by itself. |
+| Postgres row-level security | Operations in migrations to enable row-level security on a table and to create and drop policies, each with the operation that undoes it, for `down`; settings such as the application's user id (`app.user_id`) given per transaction, always transaction-scoped and bound; a new row a policy refuses (SQLSTATE `42501`, "new row violates row-level security policy") reported as an error of its own. Rows a policy hides are not errors: a read leaves them out and a write affects no rows. Postgres only. |
+| Query observability | Built on the `query` event of [`repo.on`](/guide/repo#logging-and-events), which already reports each statement's SQL and timings: slow-query detection, OpenTelemetry tracing and warnings for N+1 query patterns. |
+| A browser entry point | `egon-orm/client`, with `cast` and the validations, so a form can run the same casts and field validations in the browser, without bundling the query builder or the repo. Constraints and checks that ask the database stay on the server. |
+| Test factories | Beside the [test sandbox](/guide/testing): build valid rows for a schema, override single fields, create association graphs, and generate deterministic test data. For integration tests in large applications. |
 
 ## Not planned
 

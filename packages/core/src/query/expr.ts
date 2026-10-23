@@ -587,6 +587,8 @@ export class Expr<out T, in P = NoParams> {
    * ```ts
    * new Expr(node, undefined, false, NONE, NONE, NONE, shapeOf(node));
    * ```
+   *
+   * @internal
    */
   constructor(
     node: ExprNode,
@@ -1369,6 +1371,8 @@ export class Col<T> extends Expr<T, NoParams> {
    * ```ts
    * new Col("u", field);
    * ```
+   *
+   * @internal
    */
   constructor(binding: string, field: FieldMeta) {
     super(
@@ -1416,6 +1420,8 @@ export class OrderExpr<in P = NoParams> {
    * ```ts
    * new OrderExpr(node, NONE, NONE, NONE, shape, exprShape);
    * ```
+   *
+   * @internal
    */
   constructor(
     node: OrderNode,

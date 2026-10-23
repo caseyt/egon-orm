@@ -355,6 +355,8 @@ export class SourceWrapper<Bd, Rw, P> implements Source<Bd, Rw, P> {
    * ```ts
    * new SourceWrapper(node, columns, ast.params, ast.listLengths, query.named);
    * ```
+   *
+   * @internal
    */
   constructor(
     node: (alias: string) => SourceNode,

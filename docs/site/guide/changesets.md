@@ -224,8 +224,9 @@ refused (use `deleteChange` to remove a change).
 | `isChanged(field, { from?, to? })` | Whether the field has a change (from and to those values, when given). |
 | `applyChanges()` | The data with the changes applied, without validating. |
 | `applyAction(cs, action)` | A [result](/guide/repo#writing): the data with the changes applied if the changeset is valid, else the changeset with its `action` set. No database. |
+| `applyActionOrThrow(cs, action)` | The data with the changes applied; an invalid changeset throws `InvalidChangesetError`, which carries it with its `action` set. No database. |
 
-`applyChanges` and `applyAction` work on a changeset of a loaded row and on a changeset
+`applyChanges`, `applyAction` and `applyActionOrThrow` work on a changeset of a loaded row and on a changeset
 [without a schema](#without-a-schema). They are not available on a new-record changeset:
 a row that the database never returned cannot exist. Calling them there is a compile
 error (and throws `QueryError` if reached anyway).

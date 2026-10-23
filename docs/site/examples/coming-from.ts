@@ -166,6 +166,8 @@ export async function run(): Promise<void> {
   // #region find-first
   const latest = await repo.first(from(Post, "p").orderBy(({ p }) => p.id.desc())); // Post | null
   latest?.title; // => "Notes"
+  const oldest = await repo.firstOrThrow(from(Post, "p").orderBy(({ p }) => p.id)); // throws NoResultsError if none
+  oldest.title; // => "Hello"
   // #endregion find-first
 
   // #region select

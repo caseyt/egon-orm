@@ -62,6 +62,7 @@ import {
   exists,
   explain,
   first,
+  firstOrThrow,
   inputOf,
   isFragment,
   load,
@@ -311,6 +312,20 @@ export interface Repo {
    * ```
    */
   first<Q extends Queryable>(queryable: Q, ...args: ReadArgs<Q, ReadOptions>): Promise<ResultOf<Q> | null>;
+
+  /**
+   * The first row of the query with `LIMIT 1` (replacing a limit of its own), as
+   * {@link Repo.first} reads it. Like `first`, it never throws for extra rows; it throws
+   * when there is no row.
+   *
+   * @example
+   * ```ts
+   * const newest = await repo.firstOrThrow(from(Post, "p").orderBy(({ p }) => p.createdAt.desc()));
+   * ```
+   *
+   * @throws NoResultsError when the query returns no row.
+   */
+  firstOrThrow<Q extends Queryable>(queryable: Q, ...args: ReadArgs<Q, ReadOptions>): Promise<ResultOf<Q>>;
 
   /**
    * The row with primary key `id`, or `null`. For a composite key, `id` is an object of
@@ -1086,6 +1101,15 @@ class DatabaseRepo implements Repo {
     const input = inputOf("first", queryable);
     const { named, options } = splitArgs<ReadOptions>("first", input.names, args, READ_OPTION_KEYS);
     return (await first(this.#core, input, named, options)) as ResultOf<Q> | null;
+  }
+
+  async firstOrThrow<Q extends Queryable>(
+    queryable: Q,
+    ...args: ReadArgs<Q, ReadOptions>
+  ): Promise<ResultOf<Q>> {
+    const input = inputOf("firstOrThrow", queryable);
+    const { named, options } = splitArgs<ReadOptions>("firstOrThrow", input.names, args, READ_OPTION_KEYS);
+    return (await firstOrThrow(this.#core, input, named, options)) as ResultOf<Q>;
   }
 
   async get<S extends AnySchema>(

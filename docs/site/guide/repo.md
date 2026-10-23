@@ -35,6 +35,7 @@ A **queryable** is a schema class or a query. `repo.all(User)` returns every use
 | `one(queryable)` | `R \| null` | Throws `MultipleResultsError` if more than one row matches. |
 | `oneOrThrow(queryable)` | `R` | Also throws `NoResultsError` if none matches. |
 | `first(queryable)` | `R \| null` | Adds `LIMIT 1`. Never throws for extra rows. |
+| `firstOrThrow(queryable)` | `R` | Like `first`; throws `NoResultsError` if no row matches. |
 | `get(Schema, id)` | `Row \| null` | By primary key. |
 | `getOrThrow(Schema, id)` | `Row` | |
 | `getBy(queryable, clauses)` | `R \| null` | `clauses` is the [object form](/guide/queries#object-form) of `where`. Strict, like `one`. |

@@ -93,10 +93,10 @@ and any SQL stay on the server. It is safe to send, and stable to switch on:
 
 | Error | `code` | Thrown when | Extra fields | How to fix |
 |---|---|---|---|---|
-| `InvalidChangesetError` | `"invalidChangeset"` | An `OrThrow` write is given an invalid changeset, or a declared constraint is violated. | `changeset`, `action` | Show `error.changeset.errorMessages()`, or use the method without `OrThrow` and check the result. |
+| `InvalidChangesetError` | `"invalidChangeset"` | An `OrThrow` write or `applyActionOrThrow` is given an invalid changeset, or a declared constraint is violated. | `changeset`, `action` | Show `error.changeset.errorMessages()`, or use the method without `OrThrow` and check the result. |
 | `ConstraintError` | `"constraint"` | The database rejects a write and the changeset did not declare that constraint; also every violation in a bulk write. | `type`, `constraint`, `table`, `column`, `detail`, `sql` | Declare it on the changeset (the full message says how). See [Constraints](/guide/constraints). |
 | `StaleEntryError` | `"staleEntry"` | An update or delete matched no row: the row was deleted, or an optimistic lock failed. | `action`, `schema` | Reload and retry, or pass `staleError` / `allowStale`. See [Update](/guide/repo#update). |
-| `NoResultsError` | `"noResults"` | `oneOrThrow`, `getOrThrow`, `getByOrThrow` or `reloadOrThrow` found nothing. | `query` (rendered, without values) | Use the method without `OrThrow` where a missing row is expected. |
+| `NoResultsError` | `"noResults"` | `oneOrThrow`, `firstOrThrow`, `getOrThrow`, `getByOrThrow` or `reloadOrThrow` found nothing. | `query` (rendered, without values) | Use the method without `OrThrow` where a missing row is expected. |
 | `MultipleResultsError` | `"multipleResults"` | `one`, `getBy` or their twins matched more than one row. | `count`, `query` | Make the query unique, or use `first` for "any one". |
 | `QueryError` | `"query"` | A query, changeset, batch or transaction is built or used wrongly, or needs a feature the database lacks. | | The entry of `error.id` says what to do. See [Dialect support](/reference/dialect-support) for features. |
 | `CastError` | `"cast"` | `cast` is given params that are not an object, or a stored value does not fit its field's type. | | Pass a plain object; check the column holds what the field declares. |

@@ -1249,6 +1249,8 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
    * ```ts
    * const q = from(User, "u");
    * ```
+   *
+   * @internal
    */
   constructor(
     token: typeof TOKEN,

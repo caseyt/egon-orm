@@ -58,6 +58,15 @@ interface AdapterEvents {
 }
 
 // @public
+export interface AddConstraintOptions {
+    readonly check?: SqlFragment;
+    readonly exclude?: SqlFragment;
+    // (undocumented)
+    readonly schema?: string;
+    readonly using?: string;
+}
+
+// @public
 interface AggregateNode {
     // Warning: (ae-forgotten-export) The symbol "ExprNode" needs to be exported by the entry point migration.d.ts
     //
@@ -86,31 +95,7 @@ type AgreedParams<U> = Simplify<{
 }>;
 
 // @public
-type AlterChange = {
-    readonly change: "add";
-    readonly column: ColumnDef;
-} | {
-    readonly change: "modify";
-    readonly column: string;
-    readonly type: TypeSpec;
-    readonly notNull: boolean | undefined;
-    readonly default: DefaultSpec | null | undefined;
-} | {
-    readonly change: "remove";
-    readonly column: string;
-} | {
-    readonly change: "rename";
-    readonly column: string;
-    readonly to: string;
-};
-
-// @public
 export class AlterTableBuilder extends ColumnAdder {
-    // Warning: (ae-forgotten-export) The symbol "TableContext" needs to be exported by the entry point migration.d.ts
-    // Warning: (ae-forgotten-export) The symbol "AlterChange" needs to be exported by the entry point migration.d.ts
-    //
-    // @internal
-    constructor(context: TableContext, changes: AlterChange[]);
     modify(name: string, type: ColumnType, options?: ModifyOptions): void;
     remove(name: string): void;
     rename(from: string, to: string): void;
@@ -346,17 +331,11 @@ interface Codec {
 
 // @public
 export class ColumnAdder {
-    // @internal
-    constructor(context: TableContext, added: (column: ColumnDef) => void);
     add(name: string, type: ColumnType): ColumnBuilder;
-    // @internal (undocumented)
-    protected readonly added: (column: ColumnDef) => void;
     array(name: string, of: ColumnType): ColumnBuilder;
     bigint(name: string): ColumnBuilder;
     binary(name: string): ColumnBuilder;
     boolean(name: string): ColumnBuilder;
-    // @internal (undocumented)
-    protected readonly context: TableContext;
     custom(name: string, sql: string): ColumnBuilder;
     date(name: string): ColumnBuilder;
     decimal(name: string, options?: {
@@ -389,8 +368,6 @@ export class ColumnAdder {
 
 // @public
 export class ColumnBuilder {
-    // @internal
-    constructor(column: ColumnDef, context: TableContext);
     default(value: DefaultValue): this;
     notNull(): this;
     nullable(): this;
@@ -398,30 +375,6 @@ export class ColumnBuilder {
     unique(options?: {
         readonly name?: string;
     }): this;
-}
-
-// @public
-interface ColumnDef {
-    check: {
-        readonly name: string;
-        readonly values: readonly string[];
-    } | undefined;
-    // (undocumented)
-    default: DefaultSpec | undefined;
-    // (undocumented)
-    readonly name: string;
-    // (undocumented)
-    notNull: boolean;
-    // (undocumented)
-    primaryKey: boolean;
-    // Warning: (ae-forgotten-export) The symbol "ReferenceSpec" needs to be exported by the entry point migration.d.ts
-    //
-    // (undocumented)
-    references: ReferenceSpec | undefined;
-    readonly serial: boolean;
-    // (undocumented)
-    readonly type: TypeSpec;
-    unique: string | undefined;
 }
 
 // Warning: (ae-forgotten-export) The symbol "DbType" needs to be exported by the entry point migration.d.ts
@@ -521,24 +474,6 @@ interface Connection extends Executor {
     savepoint(name: string, execute?: ExecuteOptions): Promise<void>;
 }
 
-// @public
-interface ConstraintDef {
-    // (undocumented)
-    readonly expression: FragmentNode;
-    // (undocumented)
-    readonly kind: "check" | "exclude";
-    readonly using: string | undefined;
-}
-
-// @public
-export interface ConstraintOptions {
-    readonly check?: SqlFragment;
-    readonly exclude?: SqlFragment;
-    // (undocumented)
-    readonly schema?: string;
-    readonly using?: string;
-}
-
 // Warning: (ae-forgotten-export) The symbol "Adapter" needs to be exported by the entry point migration.d.ts
 //
 // @public
@@ -546,20 +481,6 @@ export function createDatabase(adapter: Adapter, name: string): Promise<void>;
 
 // @public
 export function createMigrator(options: MigratorOptions): Migrator;
-
-// @public
-interface CreateTableOp {
-    // (undocumented)
-    readonly columns: readonly ColumnDef[];
-    // (undocumented)
-    readonly ifNotExists: boolean;
-    // (undocumented)
-    readonly op: "createTable";
-    // Warning: (ae-forgotten-export) The symbol "TableRef" needs to be exported by the entry point migration.d.ts
-    //
-    // (undocumented)
-    readonly table: TableRef;
-}
 
 // @public
 export interface CreateTableOptions {
@@ -619,17 +540,6 @@ interface DefaultFieldFlags {
     // (undocumented)
     readonly virtual: false;
 }
-
-// @public
-type DefaultSpec = {
-    readonly kind: "value";
-    readonly value: unknown;
-} | {
-    readonly kind: "sql";
-    readonly node: FragmentNode;
-} | {
-    readonly kind: "now";
-};
 
 // @public
 export type DefaultValue = string | number | bigint | boolean | null | JsonValue | SqlFragment;
@@ -767,14 +677,6 @@ interface ExecuteOptions {
 }
 
 // @public
-interface ExecuteStatement {
-    // (undocumented)
-    readonly node: FragmentNode;
-    // (undocumented)
-    readonly params: readonly unknown[];
-}
-
-// @public
 interface Executor {
     // Warning: (ae-forgotten-export) The symbol "RawResult" needs to be exported by the entry point migration.d.ts
     execute(sql: string, params: readonly unknown[], options?: ExecuteOptions): Promise<RawResult>;
@@ -805,7 +707,6 @@ class Expr<out T, in P = NoParams> {
         readonly type: T;
         readonly params: (params: P) => void;
     };
-    constructor(node: ExprNode, type: AnyFieldType | undefined, redact: boolean, params: readonly unknown[], lists: readonly number[], named: readonly NamedParamNode[], shape: number);
     // Warning: (ae-forgotten-export) The symbol "Calculable" needs to be exported by the entry point migration.d.ts
     // Warning: (ae-forgotten-export) The symbol "Numeric" needs to be exported by the entry point migration.d.ts
     add<S extends number | bigint | null, O extends Operand<S>, X extends Expr<S, SomeParams>>(this: X & Expr<S, SomeParams>, other: O & Checked<P, O> & Calculable<X, O>): Expr<Numeric<S> | NullOf<S> | NullOf<ValueOf<O>>, MergeParams<P, ParamsOf<O>>>;
@@ -1042,25 +943,6 @@ export interface IdOptions {
 
 // @public
 type IdsOf<N extends string> = Extract<ErrorId, `${N}.${string}`>;
-
-// @public
-interface IndexDef {
-    readonly columns: readonly (string | FragmentNode)[];
-    // (undocumented)
-    readonly concurrently: boolean;
-    // (undocumented)
-    readonly include: readonly string[];
-    // (undocumented)
-    readonly name: string;
-    // (undocumented)
-    readonly table: TableRef;
-    // (undocumented)
-    readonly unique: boolean;
-    // (undocumented)
-    readonly using: string | undefined;
-    // (undocumented)
-    readonly where: FragmentNode | undefined;
-}
 
 // @public
 export interface IndexOptions {
@@ -1881,12 +1763,10 @@ export interface Migration {
 
 // @public
 export class MigrationBuilder {
-    // @internal
-    constructor(maxBytes: number | undefined);
     alterTable(name: string, define: (t: AlterTableBuilder) => void, options?: {
         readonly schema?: string;
     }): void;
-    createConstraint(table: string, name: string, options: ConstraintOptions): void;
+    createConstraint(table: string, name: string, options: AddConstraintOptions): void;
     createExtension(name: string, options?: {
         readonly ifNotExists?: boolean;
         readonly schema?: string;
@@ -1907,10 +1787,6 @@ export class MigrationBuilder {
     }): void;
     dropTable(name: string, options?: DropTableOptions): void;
     execute(sql: SqlFragment): void;
-    // Warning: (ae-forgotten-export) The symbol "Operation" needs to be exported by the entry point migration.d.ts
-    //
-    // @internal
-    get operations(): readonly Operation[];
     renameTable(from: string, to: string, options?: {
         readonly schema?: string;
     }): void;
@@ -2076,71 +1952,11 @@ type OnReplace = "error" | "invalid" | "setNull" | "update" | "delete" | "delete
 // @public
 type Operand<T> = NonNullable<T> | Expr<T | null, SomeParams>;
 
-// Warning: (ae-forgotten-export) The symbol "CreateTableOp" needs to be exported by the entry point migration.d.ts
-//
-// @public
-type Operation = CreateTableOp | {
-    readonly op: "dropTable";
-    readonly table: TableRef;
-    readonly ifExists: boolean;
-    readonly cascade: boolean;
-} | {
-    readonly op: "alterTable";
-    readonly table: TableRef;
-    readonly changes: readonly AlterChange[];
-} | {
-    readonly op: "renameTable";
-    readonly table: TableRef;
-    readonly to: string;
-} | {
-    readonly op: "createIndex";
-    readonly index: IndexDef;
-    readonly ifNotExists: boolean;
-} | {
-    readonly op: "dropIndex";
-    readonly table: TableRef;
-    readonly name: string;
-    readonly concurrently: boolean;
-    readonly ifExists: boolean;
-} | {
-    readonly op: "createConstraint";
-    readonly table: TableRef;
-    readonly name: string;
-    readonly definition: ConstraintDef;
-} | {
-    readonly op: "dropConstraint";
-    readonly table: TableRef;
-    readonly name: string;
-    readonly ifExists: boolean;
-} | {
-    readonly op: "execute";
-    readonly statement: ExecuteStatement;
-} | {
-    readonly op: "createSchema";
-    readonly name: string;
-    readonly ifNotExists: boolean;
-} | {
-    readonly op: "dropSchema";
-    readonly name: string;
-    readonly ifExists: boolean;
-    readonly cascade: boolean;
-} | {
-    readonly op: "createExtension";
-    readonly name: string;
-    readonly schema: string | undefined;
-    readonly ifNotExists: boolean;
-} | {
-    readonly op: "dropExtension";
-    readonly name: string;
-    readonly ifExists: boolean;
-};
-
 // @public
 class OrderExpr<in P = NoParams> {
     readonly "~order": {
         readonly params: (params: P) => void;
     };
-    constructor(node: OrderNode, params: readonly unknown[], lists: readonly number[], named: readonly NamedParamNode[], shape: number, exprShape: number);
     readonly exprShape: number;
     readonly lists: readonly number[];
     readonly named: readonly NamedParamNode[];
@@ -2373,20 +2189,6 @@ export interface ReferencesOptions {
 }
 
 // @public
-interface ReferenceSpec {
-    // (undocumented)
-    readonly column: string;
-    // (undocumented)
-    readonly name: string;
-    // (undocumented)
-    readonly onDelete: ReferenceAction | undefined;
-    // (undocumented)
-    readonly onUpdate: ReferenceAction | undefined;
-    // (undocumented)
-    readonly table: TableRef;
-}
-
-// @public
 type RowDecoder = (row: Readonly<Record<string, unknown>>, constants: readonly unknown[]) => unknown;
 
 // @public
@@ -2537,22 +2339,6 @@ export class TableBuilder extends ColumnAdder {
 }
 
 // @public
-interface TableContext {
-    readonly maxBytes: number | undefined;
-    // (undocumented)
-    readonly table: TableRef;
-    readonly where: string;
-}
-
-// @public
-interface TableRef {
-    // (undocumented)
-    readonly name: string;
-    // (undocumented)
-    readonly schema: string | undefined;
-}
-
-// @public
 interface TableSourceNode {
     readonly alias: string;
     // (undocumented)
@@ -2586,20 +2372,6 @@ interface TupleNode {
 
 // @public
 type TypesAt<U, K> = U extends unknown ? (K extends keyof U ? U[K] : never) : never;
-
-// @public
-interface TypeSpec {
-    // (undocumented)
-    readonly kind: ColumnKind | "array" | "custom";
-    // (undocumented)
-    readonly of: TypeSpec | undefined;
-    // (undocumented)
-    readonly precision: number | undefined;
-    // (undocumented)
-    readonly scale: number | undefined;
-    // (undocumented)
-    readonly sql: string | undefined;
-}
 
 // @public
 interface UnaryNode {
@@ -2718,12 +2490,6 @@ type Writable = "always" | "insert" | "never";
 // (ae-forgotten-export) The symbol "ConflictTarget" needs to be exported by the entry point migration.d.ts
 // (ae-forgotten-export) The symbol "ConflictUpdate" needs to be exported by the entry point migration.d.ts
 // (ae-forgotten-export) The symbol "InsertCell" needs to be exported by the entry point migration.d.ts
-// (ae-forgotten-export) The symbol "ColumnDef" needs to be exported by the entry point migration.d.ts
-// (ae-forgotten-export) The symbol "TypeSpec" needs to be exported by the entry point migration.d.ts
-// (ae-forgotten-export) The symbol "DefaultSpec" needs to be exported by the entry point migration.d.ts
-// (ae-forgotten-export) The symbol "IndexDef" needs to be exported by the entry point migration.d.ts
-// (ae-forgotten-export) The symbol "ConstraintDef" needs to be exported by the entry point migration.d.ts
-// (ae-forgotten-export) The symbol "ExecuteStatement" needs to be exported by the entry point migration.d.ts
 
 // (No @packageDocumentation comment for this package)
 

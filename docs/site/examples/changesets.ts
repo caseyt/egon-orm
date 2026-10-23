@@ -3,6 +3,7 @@
 // outside a region is the scaffolding that makes the regions compile.
 import {
   applyAction,
+  applyActionOrThrow,
   type Changeset,
   type ChangesetError,
   cast,
@@ -214,6 +215,8 @@ export function changes(user: User) {
   if (result.success)
     result.data; // the User with the changes applied
   else result.error.errors; //         the changeset, with action "update"
+
+  applyActionOrThrow(rename, "update").name; // "Ada"; if invalid, throws InvalidChangesetError
   // #endregion apply
 }
 

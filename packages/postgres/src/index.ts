@@ -11,7 +11,6 @@ import { normalizePgError } from "./errors.js";
 import { type PostgresOptions, resolveOptions } from "./options.js";
 import { PG_DRIVER_CODECS } from "./values.js";
 
-export { normalizePgError } from "./errors.js";
 export type { PostgresOptions, PostgresPoolOptions } from "./options.js";
 
 /**

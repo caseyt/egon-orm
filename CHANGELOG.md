@@ -20,7 +20,10 @@ modules only; a CommonJS project loads them with `require()`. Postgres 14 or lat
 
 If you used the packages from this repository before this release, read
 [Upgrading to 0.1.0](https://egon-orm.github.io/egon-orm/reference/upgrading#_0-1-0): the
-error constructors take an identifier first, and error messages are short by default.
+error constructors take an identifier first, error messages are short by default, the
+dialect packages no longer export `normalizePgError`, `normalizeSqliteError` and
+`normalizeMysqlError`, and `ConstraintOptions` of `egon-orm/migration` is now
+`AddConstraintOptions`.
 
 ### Packages
 
@@ -50,7 +53,8 @@ error constructors take an identifier first, and error messages are short by def
 
 - `cast` and `change` describe a change to one record: the permitted input, the errors and
   the constraints to check. Changesets are immutable and synchronous; `validateAsync` is
-  the explicit asynchronous step.
+  the explicit asynchronous step. `applyAction` and `applyActionOrThrow` validate a form
+  without storing it.
 - Built-in validations (required, length, format, number, inclusion, confirmation and
   more), any [Standard Schema](https://standardschema.dev) validator (Zod, Valibot,
   ArkType, Yup) and plain functions.
@@ -75,7 +79,8 @@ error constructors take an identifier first, and error messages are short by def
 - `createRepo({ adapter })`: reads (`all`, `one`, `get`, `getBy`, `count`, `aggregate`,
   `exists`, `stream`), writes (`insert`, `update`, `delete`, upserts, `insertAll`,
   `updateAll`, `deleteAll`), each returning `{ success: true, data }` or
-  `{ success: false, error }` with an `OrThrow` twin.
+  `{ success: false, error }` with an `OrThrow` twin. The reads that can find nothing
+  (`one`, `first`, `get`, `getBy`, `reload`) have one too.
 - Preloads, in one query per association or through a join.
 - Explicit transactions with savepoints, `tx.rollback(reason)`, and `createBatch` for a
   sequence of dependent steps that commits or rolls back as one.

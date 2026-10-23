@@ -11,7 +11,6 @@ import { normalizeMysqlError } from "./errors.js";
 import { type MysqlOptions, resolveOptions } from "./options.js";
 import { MYSQL_DRIVER_CODECS } from "./values.js";
 
-export { normalizeMysqlError } from "./errors.js";
 export type { MysqlOptions, MysqlPoolOptions } from "./options.js";
 
 /**

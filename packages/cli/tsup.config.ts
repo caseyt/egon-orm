@@ -18,7 +18,10 @@ export default defineConfig({
   // tsup 8 injects the deprecated `baseUrl` option into its declaration build, which
   // TypeScript 6 reports as TS5101 unless deprecations are silenced. Build-only; the
   // type-check configs do not carry this.
-  dts: { entry: { index: "src/index.ts" }, compilerOptions: { ignoreDeprecations: "6.0" } },
+  dts: {
+    entry: { index: "src/index.ts" },
+    compilerOptions: { ignoreDeprecations: "6.0", stripInternal: true },
+  },
   sourcemap: true,
   clean: true,
   splitting: false,

@@ -98,8 +98,9 @@ export interface DatabaseAdapter extends Adapter {
 }
 
 /**
- * What a dialect package gives {@link createAdapter}: everything that differs between
- * databases. Applications do not write one; they call `postgres(...)` and the like.
+ * What a dialect package gives {@link createAdapter}, internal to the Egon packages like
+ * `createAdapter`, and not a supported extension point. It holds everything that differs
+ * between databases. Applications do not write one; they call `postgres(...)` and the like.
  *
  * @example
  * ```ts
@@ -525,8 +526,11 @@ async function* cursorRows(
 }
 
 /**
- * Creates an adapter from a dialect's definition. This is how the dialect packages build
- * theirs; an application calls `postgres(...)` (from `@egon-orm/postgres`) instead.
+ * Creates an adapter from a dialect's definition, internal to the Egon packages. It is how
+ * `@egon-orm/postgres`, `@egon-orm/sqlite` and `@egon-orm/mysql` build their adapters, and
+ * it is exported only for them. An application calls `postgres(...)` and the like instead.
+ * It is not a supported way to write a third-party dialect: the driver contract its
+ * definition takes is not exported, and it may change in any release.
  *
  * Nothing connects until the adapter is first used.
  *

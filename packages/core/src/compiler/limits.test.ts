@@ -52,3 +52,53 @@ describe("a set operation whose second query has a limit of its own", () => {
     );
   });
 });
+
+describe("set operations: grouping, and the branches SQLite reads from a subquery", () => {
+  const a = from(User, "a")
+    .where(({ a }) => a.id.gt(0))
+    .select(({ a }) => a.id);
+  const b = from(User, "b")
+    .where(({ b }) => b.id.gt(0))
+    .select(({ b }) => b.id);
+  const c = from(User, "c")
+    .where(({ c }) => c.id.gt(0))
+    .select(({ c }) => c.id);
+  const w = from(User, "w")
+    .where(({ w }) => w.id.gt(0))
+    .select(({ w }) => w.id);
+  const branch = (alias: string) =>
+    `select "${alias}"."id" as "c0" from "users" as "${alias}" where "${alias}"."id" > `;
+
+  test("an INTERSECT after a UNION or an EXCEPT applies to the whole, so that whole is grouped", () => {
+    expect(sql(postgresDialect, a.union(b).intersect(c))).toBe(
+      `(${branch("a")}$1 union (${branch("b")}$2)) intersect (${branch("c")}$3)`,
+    );
+    expect(sql(postgresDialect, a.except(b).intersect(c))).toBe(
+      `(${branch("a")}$1 except (${branch("b")}$2)) intersect (${branch("c")}$3)`,
+    );
+    expect(sql(postgresDialect, a.intersect(b).intersect(c))).toBe(
+      `${branch("a")}$1 intersect (${branch("b")}$2) intersect (${branch("c")}$3)`,
+    );
+    expect(sql(postgresDialect, a.union(b).union(c))).toBe(
+      `${branch("a")}$1 union (${branch("b")}$2) union (${branch("c")}$3)`,
+    );
+  });
+
+  test("SQLite applies set operations left to right, without parentheses", () => {
+    expect(sql(sqliteDialect, a.union(b).intersect(c))).toBe(
+      `${branch("a")}? union ${branch("b")}? intersect ${branch("c")}?`,
+    );
+  });
+
+  test("SQLite reads a branch with an order, an offset, a CTE or set operations of its own from a subquery", () => {
+    const sub = (inner: string) => `${branch("a")}? union select * from (${inner})`;
+    expect(sql(sqliteDialect, a.union(b.orderBy(({ b: x }) => x.id)))).toBe(
+      sub(`${branch("b")}? order by "b"."id" asc`),
+    );
+    expect(sql(sqliteDialect, a.union(b.offset(1)))).toBe(sub(`${branch("b")}? limit -1 offset ?`));
+    expect(sql(sqliteDialect, a.union(b.withCte("x", w)))).toBe(
+      sub(`with "x" as (${branch("w")}?) ${branch("b")}?`),
+    );
+    expect(sql(sqliteDialect, a.union(b.union(c)))).toBe(sub(`${branch("b")}? union ${branch("c")}?`));
+  });
+});

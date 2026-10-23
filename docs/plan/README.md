@@ -103,8 +103,8 @@ errors.ts
 index.ts       the public entry point; everything else is internal
 ```
 
-Public entry points for the first release are exactly two: `egon-orm` and
-`egon-orm/testing` (step 16). `egon-orm/migration` arrives with step 18.
+Public entry points of `egon-orm` for the first release are `egon-orm`, `egon-orm/testing`
+(step 16), `egon-orm/migration` (step 18) and `egon-orm/messages` (step 21a).
 
 Each step file lists the paths it **owns**. Do not edit files outside your owned paths
 except to add an export line to `index.ts`. If you need a change elsewhere, write it in
@@ -394,7 +394,8 @@ Definition of done, common to all steps:
 2. **Database tiers:** Postgres first (D13 stands). SQLite and MySQL follow in step 17.
 3. **Migrations and CLI:** wanted, but as a **follow-up**. Step 18 is not part of the first
    release; it starts after step 21. Until then tests and examples use plain SQL fixtures.
-   Superseded: step 18 was brought forward and merged on 2026-10-20 (#34).
+   Superseded: step 18 was brought forward and merged on 2026-10-20 (#34), and
+   `@egon-orm/cli` ships in the first release like the other packages (owner, 2026-10-20, #52).
 4. **Nullable default (D3):** confirmed 2026-10-13: non-null by default.
 
 ---

@@ -110,5 +110,8 @@ Requests that the (now removed) status notes of steps 01 and 02 addressed to thi
 
 - Run the CommonJS `require()` consumer on Node 22.12 exactly, not only on the latest 22.x.
 - Public packages have no `README.md` yet.
+- Migrations and the CLI are in `0.1.0`: `egon-orm/migration` and `@egon-orm/cli` (no longer
+  `private`; owner, 2026-10-20, #52) go through the audit, the API report and the release
+  workflow like the other packages. This answers the publishing question in `status/18.md`.
 - Decide whether to move to TypeScript 7 (it needs a different declaration bundler than tsup's).
 - Owner: enable branch protection on `main` (one approval and the `ci` check; squash merges only).

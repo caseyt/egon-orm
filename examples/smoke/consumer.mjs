@@ -37,15 +37,6 @@
 //                                the same major as the Node running this script, since
 //                                better-sqlite3's native module is installed for that one.
 //   --typescript <version>       use this TypeScript instead of the workspace's pinned one.
-//   --allow-lib-errors <pkg,…>   accept type errors located only inside these third-party
-//                                packages' declarations, and print them (CI's TypeScript 5.5
-//                                job: pg 8.23's pg-protocol writes `Buffer<…>`, which
-//                                @types/node has from TypeScript 5.7 on). An error with no
-//                                location, or located anywhere else, still fails
-//                                (scripts/allowed-lib-errors.mjs).
-//   --no-cjs-types               skip the CommonJS (`.cts`) type check, and say so. For a
-//                                TypeScript before 5.8, which cannot type a `require()` of an
-//                                ES module (TS1479); CI's TypeScript 5.5 job passes it.
 //   --drivers                    also run drivers.mjs (needs Postgres; MySQL with EGON_TEST_TIER2=1).
 //   --no-types, --no-runtime     skip a part.
 //   --keep                       leave the project directory and print where it is.
@@ -54,7 +45,6 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { disallowedErrors } from "../../scripts/allowed-lib-errors.mjs";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -77,8 +67,6 @@ const runTypes = !args.includes("--no-types");
 const runRuntime = !args.includes("--no-runtime");
 const runDrivers = args.includes("--drivers");
 const tsVersion = values("--typescript").at(-1);
-const allowedLibs = values("--allow-lib-errors").flatMap((list) => list.split(","));
-const skipCjsTypes = args.includes("--no-cjs-types");
 const nodes = [process.execPath, ...values("--node")];
 const peerMode = values("--peers").at(-1) ?? "pinned";
 if (!["pinned", "lower", "upper"].includes(peerMode)) throw new Error(`--peers: unknown mode ${peerMode}`);
@@ -260,26 +248,14 @@ try {
     const tsc = join(typescriptDir, typeof bin === "string" ? bin : bin.tsc);
     const version = run(process.execPath, [tsc, "--version"], project).trim();
     for (const program of programs) {
-      if (skipCjsTypes && program.name === "commonjs") {
-        console.log(`consumer: skip types: ${version}, commonjs (--no-cjs-types)`);
-        continue;
-      }
       const config = join(project, `tsconfig.${program.name}.json`);
       writeJson(config, {
         compilerOptions: { ...base, ...program.options, outDir: `out-${program.name}` },
         files: program.files,
       });
-      attempt(`types: ${version}, ${program.name} (${program.files.join(", ")})`, () => {
-        try {
-          return run(process.execPath, [tsc, "-p", config], project);
-        } catch (error) {
-          const output = `${error.stdout ?? ""}${error.stderr ?? ""}`;
-          if (allowedLibs.length === 0 || !output.includes("error TS")) throw error;
-          if (disallowedErrors(output, allowedLibs).length > 0) throw error;
-          console.log(`consumer: errors only in ${allowedLibs.join(", ")} (allowed):\n${output}`);
-          return output;
-        }
-      });
+      attempt(`types: ${version}, ${program.name} (${program.files.join(", ")})`, () =>
+        run(process.execPath, [tsc, "-p", config], project),
+      );
     }
   }
 } finally {

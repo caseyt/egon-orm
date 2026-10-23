@@ -81,7 +81,7 @@ report a vulnerability is in
 | | Supported | Tested in CI |
 |---|---|---|
 | Node.js | 22.12 or later (22 LTS and 24 LTS) | 22.12.0 (the consumer checks), the latest 22 and the latest 24 |
-| TypeScript | 5.5 or later for an ES module project, 5.8 or later for a CommonJS one (provisional, see below) | 5.5.4, the newest 5.8.x, the latest release and 6.0 (the workspace's version), with the consumer checks |
+| TypeScript | 5.8 or later (owner decision, 2026-10-22) | the newest 5.8.x, the latest release and 6.0 (the workspace's version), with the consumer checks |
 | Module formats | ES modules; CommonJS through `require()` of the ES modules (Node.js 22.12 or later) | both, from installed packages |
 | TypeScript `moduleResolution` | `nodenext`, `node16`, `bundler` | all three, and a CommonJS file under `nodenext` |
 | PostgreSQL | 14 or later | 16 |
@@ -99,11 +99,8 @@ The drivers are peer dependencies, installed by you:
 | `@egon-orm/mysql` | `mysql2` | `^3.11.0` | 3.11.0 and the newest 3.x |
 | `@egon-orm/zod` | `zod` | `^4.3.0` | 4.3.0 and the newest 4.x |
 
-The TypeScript minimums are provisional until the maintainers confirm them. Egon's own
-declarations compile on 5.5. A CommonJS project, which `require()`s the packages, needs 5.8:
-earlier releases cannot type a `require()` of an ES module (TS1479). With `skipLibCheck: false`, 5.5 and 5.6
-also report errors inside `pg-protocol`'s declarations (a dependency of `pg`) with current
-`@types/node`; use `skipLibCheck: true` there, or TypeScript 5.7 or later.
+TypeScript 5.8 is the minimum for ES module and CommonJS projects alike: it is the first
+release that types a `require()` of an ES module, which a CommonJS project does.
 
 `better-sqlite3` 13 needs Node-API 10, which Node.js 22.14 and later have; on 22.12 and
 22.13 use `better-sqlite3` 12 (the adapter says so instead of crashing).

@@ -47,7 +47,7 @@ test("latest is the latest tag, not a patch to an older line published after it"
   assert.equal(pickVersion("latest", tags, young, Date.parse("2026-10-22T09:00:00Z")), "7.0.2");
 });
 
-test("commonjs-minimum is the highest old-enough 5.8 patch, by version", () => {
+test("minimum is the highest old-enough 5.8 patch, by version", () => {
   const withLine = {
     ...times,
     "5.8.2": "2025-02-28T16:52:08.252Z",
@@ -55,15 +55,9 @@ test("commonjs-minimum is the highest old-enough 5.8 patch, by version", () => {
     "5.8.10": "2026-10-22T10:00:00.000Z",
     "5.80.0": "2025-01-01T00:00:00.000Z",
   };
-  assert.equal(
-    pickVersion("commonjs-minimum", distTags, withLine, Date.parse("2026-10-22T09:00:00Z")),
-    "5.8.3",
-  );
-  assert.equal(
-    pickVersion("commonjs-minimum", distTags, withLine, Date.parse("2026-10-22T12:00:00Z")),
-    "5.8.10",
-  );
-  assert.throws(() => pickVersion("commonjs-minimum", distTags, times, Date.now()), /no 5\.8\.x release/);
+  assert.equal(pickVersion("minimum", distTags, withLine, Date.parse("2026-10-22T09:00:00Z")), "5.8.3");
+  assert.equal(pickVersion("minimum", distTags, withLine, Date.parse("2026-10-22T12:00:00Z")), "5.8.10");
+  assert.throws(() => pickVersion("minimum", distTags, times, Date.now()), /no 5\.8\.x release/);
 });
 
 test("refuses an unknown name", () => {

@@ -12,9 +12,8 @@ recorded for it.
 The first release: a TypeScript ORM for Postgres, SQLite and MySQL with schemas,
 changesets, composable queries and a repo, typed end to end with no code generation.
 
-**Requirements:** Node.js 22.12 or later; TypeScript 5.5 or later, or 5.8 or later in a
-CommonJS project (provisional: to be confirmed by the maintainers; 5.5 and 5.6 need
-`skipLibCheck: true` with current `@types/node`). The packages are ES
+**Requirements:** Node.js 22.12 or later; TypeScript 5.8 or later (owner decision,
+2026-10-22). The packages are ES
 modules only; a CommonJS project loads them with `require()`. Postgres 14 or later, SQLite
 3.39 or later, MySQL 8.0.31 or later
 ([supported versions](https://egon-orm.github.io/egon-orm/reference/upgrading#supported-versions)).

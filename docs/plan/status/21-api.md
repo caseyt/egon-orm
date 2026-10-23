@@ -8,10 +8,10 @@ silicon), Node 22.23.1, TypeScript 6.0.3, against the shared Compose Postgres 16
 
 | Item | State |
 |---|---|
-| API review | Done. Four types exported (a user had to name them and could not); TSDoc fixed. Nine renames, removals or additions are listed for the owner below, none made. |
+| API review | Done. Four types exported (a user had to name them and could not); TSDoc fixed. Nine renames, removals or additions were proposed; the owner approved all nine as recommended (2026-10-22), to be built in a follow-up PR. |
 | API report | `api-report/*.api.md` for all nine entry points, written by API Extractor 7.59.4; `pnpm api:check` in CI's build job fails on any difference. |
-| Type health | Measured and recorded below. **Two budgets are not met:** (1) the first query a program checks takes 54 to 63 ms, a one-time cost; every other statement is at most 29 ms. (2) **The 200 ms completions gate is not met once about 150 to 200 schemas are connected through associations.** Completion time after an edit follows the number of schemas the edited query's schema reaches through associations, at about 1.1 to 1.2 ms each, whatever the shape: 242 to 314 ms (median) with 200 reachable (chain, binary tree or hub), and 47 ms when only ten are reachable. The per-schema work is identified (section 3): for every reachable schema the checker infers the type of each static member, the user's `changeset` methods included. Which library type triggers that is likely, but not confirmed. |
-| TypeScript matrix | CI checks the packed packages with TypeScript 5.5.4 (the minimum, decision D14) and the latest release (7.0.2 today). `next` runs as information only, and **fails today** (see below). |
+| Type health | Measured and recorded below. **Two budgets are not met:** (1) the first query a program checks takes 54 to 63 ms, a one-time cost; every other statement is at most 29 ms. (2) **The 200 ms completions gate is not met once about 150 to 200 schemas are connected through associations; the owner accepted it as not met for 0.1.0, with the fix on the roadmap (PR #70).** Completion time after an edit follows the number of schemas the edited query's schema reaches through associations, at about 1.1 to 1.2 ms each, whatever the shape: 242 to 314 ms (median) with 200 reachable (chain, binary tree or hub), and 47 ms when only ten are reachable. The per-schema work is identified (section 3): for every reachable schema the checker infers the type of each static member, the user's `changeset` methods included. Which library type triggers that is likely, but not confirmed. |
+| TypeScript matrix | CI checks the packed packages, every program the CommonJS one included, with the newest 5.8.x (the minimum: TypeScript 5.8 or later, owner decision, 2026-10-22) and the latest release (7.0.2 today). `next` runs as information only, and **fails today** (see below). |
 | Error review | Done. Every error class was triggered (12 tests). Twelve messages or advice entries were reworded, with no identifier changed. Four type errors were added to the FAQ, so it now covers the 12 likeliest. |
 | Seam tests | 5 tests in `packages/postgres/test/seams.itest.ts`, all passing. The full million-row stream runs by default, in about 3 s. |
 
@@ -47,7 +47,23 @@ generated API reports, which show the whole surface with every signature expande
   `repo.preload(rows, "posts", …)`. The guide, which takes precedence, writes the schema
   first, and so does the code.
 
-### Needs the owner's decision (not changed)
+### Owner's decisions (2026-10-22): approved as recommended, built in a follow-up PR
+
+The owner approved items 1 to 9 below as recommended. None is built in this PR; a follow-up
+PR builds them:
+
+1. Remove `normalizePgError`, `normalizeMysqlError` and `normalizeSqliteError` from the
+   public exports.
+2. Document `createAdapter` as internal to the Egon packages.
+3. Keep the `Adapter` contract's internal types unexported.
+4. Turn on `stripInternal` for the declaration build.
+5. Rename `ConstraintOptions` in `egon-orm/migration` to `AddConstraintOptions`.
+6. Add `applyActionOrThrow`.
+7. Add `repo.firstOrThrow`.
+8. Keep `SqlOptions` unexported.
+9. Keep the forgotten-export helper types in the API reports.
+
+The proposals as I wrote them, for the record:
 
 1. **`normalizePgError`, `normalizeMysqlError`, `normalizeSqliteError`** are exported from
    the dialect packages. No page documents them, and the adapters use them internally. The names
@@ -216,8 +232,10 @@ What this shows:
   only linearly (414k, then 806k). With the same 200 schemas the tree takes 3.3 s, the hub
   2.3 s and the clusters 1.1 s. Depth drives the superlinear check time; the reachable count
   drives the editor time.
-- The owner keeps these type-health checks as a gate for `0.1.0` (owner decision,
+- The owner kept these type-health checks as a gate for `0.1.0` (owner decision,
   2026-10-22). **The completions budget is not met for about 150 to 200 connected schemas.**
+  Later the same day the owner accepted that gate as not met for `0.1.0`, and put the fix on
+  the roadmap (PR #70) instead of fixing it before the release.
 
 To reproduce: `pnpm build && node scripts/type-health/measure.mjs [--topology
 chain|tree|hub|clusters] [--schemas N] [--runs 5] [--completions-only] [--annotate-assocs]
@@ -225,20 +243,18 @@ chain|tree|hub|clusters] [--schemas N] [--runs 5] [--completions-only] [--annota
 
 ### Minimum supported TypeScript, and the CI matrix
 
-- **Decision: TypeScript 5.5 or later**, as decision D14 already says, for ES module
-  projects. It is checked at 5.5.4. The workspace builds with 6.0.3. The getting-started page
-  and `CONTRIBUTING.md` now say so.
-- **A CommonJS project needs TypeScript 5.8 or later.** `consumer.mjs` from #65 adds a
-  CommonJS (`.cts`) type check, and with it 5.5.4 and 5.7.3 fail with TS1479 ("the referenced
-  file is an ECMAScript module and cannot be imported with 'require'"); 5.8.3 passes. That is
-  TypeScript's own limit, the first release that types `require()` of an ES module, not
-  something in the packages. The 5.5 job therefore passes `--no-cjs-types`, which skips that
-  one program and prints that it did. The CommonJS minimum is checked by a matrix entry of
-  its own, `types (typescript commonjs-minimum)` (inside the `ci` gate), which runs every
-  program, the CommonJS one included, on the newest 5.8.x old enough for the release age
-  (5.8.3 today; `scripts/typescript-version.mjs commonjs-minimum`). The `latest` and `next`
-  jobs run it too. Both minimums stay provisional: the owner has not decided between this
-  split and 5.8 for everyone.
+- **Decision: TypeScript 5.8 or later, for ES module and CommonJS projects alike (owner
+  decision, 2026-10-22).** It is not provisional. 5.8 is the first release that types a
+  `require()` of an ES module: the CommonJS (`.cts`) program of `consumer.mjs` fails on 5.5.4
+  and 5.7.3 with TS1479, and passes on 5.8.3. The owner chose a single minimum over the split
+  I first proposed (5.5 for ES modules, 5.8 for CommonJS).
+- Decision D14 in the plan README still says "TypeScript >= 5.5". The plan files are not mine
+  to edit; see Requests.
+- History: before the decision, CI checked 5.5.4. It needed two exemptions there: errors in
+  pg-protocol's declarations were allowed (`--allow-lib-errors`), and the CommonJS program
+  was skipped (`--no-cjs-types`). The decision removes both options and
+  `scripts/allowed-lib-errors.mjs` with its tests. On 5.8 no check is skipped and no error
+  is allowed; pg-protocol's declarations need 5.7.
 - I checked a consumer of the packed packages (`examples/smoke/check-types.mjs --typescript …`:
   `declaration: true`, `skipLibCheck: false`) against these versions:
 
@@ -249,26 +265,17 @@ chain|tree|hub|clusters] [--schemas N] [--runs 5] [--completions-only] [--annota
   | 7.1.0-dev.20261021.1 (`next`) | **Fails.** `TS5115` in zod 4.6.5's own declarations (`Instantiations … appear infinitely circular`), and `TS5088` on `export const errors = newUser.errorMessages()` in `consumer.ts:173` ("references a type with a cyclic structure which cannot be trivially serialized"). The second one is ours: `ErrorTreeOf` / `errorMessages()` under the next TypeScript. See Requests. |
 
 - CI: `types (typescript minimum)` and `types (typescript latest)` are matrix entries of a new
-  `typescript` job, which the `ci` check now waits for. `scripts/typescript-version.mjs` picks
+  `typescript` job, which the `ci` check now waits for. Each runs every program of
+  `consumer.mjs` (`nodenext`, `node16`, `bundler`, CommonJS, `json-return`) with
+  `skipLibCheck: false`, and no option relaxes them. `scripts/typescript-version.mjs` picks
   the versions, and every one it picks is older than pnpm's minimum release age, so the
   strict policy of the consumer install still holds:
-  - the minimum is pinned;
+  - `minimum` is the highest 5.8.x that is old enough (5.8.3 today);
   - `latest` is the `latest` dist-tag when that is old enough, and otherwise the highest
     stable version that is (by version number, not by publish date);
   - `next` is the most recent build of the `next` tag's line that is old enough.
   `types (typescript next, informational)` has `continue-on-error: true` and the `ci` check
   does not wait for it. It is a heads-up about the next TypeScript, not a gate.
-- **Exemption, stated plainly.** In the minimum job only, an error is accepted (and
-  printed) when its **location**, the file before `(line,col)`, lies inside
-  `node_modules/.pnpm/pg-protocol@<version>/node_modules/pg-protocol/`
-  (`consumer.mjs --allow-lib-errors pg-protocol`; before PR #65 renamed it, `check-types.mjs`; filter in
-  `scripts/allowed-lib-errors.mjs`, with node tests). These still fail:
-  - an error with no location, such as TS2688 for a bad `types` entry (review round 1 found
-    that the first version let one through);
-  - an error elsewhere whose text merely mentions pg-protocol;
-  - an error in a package whose name only starts with `pg-protocol`;
-  - any error in Egon's own declarations. The existing smoke check (workspace TypeScript, no
-  allowance) is unchanged.
 
 ## 4. Error-message review
 
@@ -359,8 +366,8 @@ No seam test exposed a bug.
 
 - API reports live in `api-report/` at the root. `reports/` is in `.gitignore`.
 - The reports include the forgotten-export helper types (see owner item 9).
-- The minimum supported TypeScript stays at 5.5 (D14). CI checks it at 5.5.4, with the
-  pg-protocol allowance described in section 3.
+- The minimum supported TypeScript is 5.8 (owner decision, 2026-10-22), checked at its
+  newest patch with no exemption.
 - The `next` TypeScript job is informational and not part of the `ci` check.
 - The synthetic project's default topology is the chain, which is the worst case for check
   time. For editor time all connected shapes cost about the same. All four topologies
@@ -388,17 +395,16 @@ No seam test exposed a bug.
   `src/index.ts`, but `@egon-orm/cli` declares it in `src/version.ts`
   (`index.ts` re-exports it), so `pnpm version-packages` reports
   "no `export const VERSION` line" for the CLI. I did not run it.
-- **To 21-packaging:** the support policy should state TypeScript 5.5 or later (5.7 or later
-  for `skipLibCheck: false` with `@egon-orm/postgres`, because of `pg`'s declarations; 5.8 or
-  later for a CommonJS project). That is what CI now checks: 5.5.4 without the CommonJS
-  program, and the newest 5.8.x with it. (21-packaging has finished; I made the change
-  myself, see "Files outside my paths".)
+- **To the owner (plan files):** decision D14 in `docs/plan/README.md` still says
+  "TypeScript >= 5.5". The owner's 2026-10-22 decision makes it 5.8. That is a §2 decision,
+  so the README says it needs an ADR; I have neither edited the plan nor written one.
 - **To 21-audit:** the API report check, the TypeScript jobs and the measurements above are
   the evidence for §1. **The 200 ms completions gate is not met for about 150 to 200
   connected schemas** (242 to 314 ms median at 200 reachable schemas, in chain, tree and hub
-  shapes; met at 47 ms when ten are reachable). It is a `0.1.0` gate (owner decision,
-  2026-10-22), so the readiness report should list it as not met until the request above
-  is resolved. Also not met by the letter: the first query a program checks takes 54 to
+  shapes; met at 47 ms when ten are reachable). **The owner accepts the `0.1.0` gate as not
+  met (owner decision, 2026-10-22)**: the fix is a roadmap item (PR #70), not a fix before
+  `0.1.0`. The readiness report should list it as "not met, accepted by the owner, tracked on
+  the roadmap". Also not met by the letter: the first query a program checks takes 54 to
   63 ms, a one-time cost.
 
 ## Acceptance (this part)
@@ -407,10 +413,23 @@ No seam test exposed a bug.
   (`pnpm api:check` in the build job). I verified that it fails on a changed report.
 - [x] Type-health results are recorded, with instantiation counts (section 3). **Two
   budgets are not met**: the first query a program checks is over 50 ms, and completions
-  are over 200 ms once about 150 to 200 schemas are connected (any shape). Both are listed
-  under Requests, for the owner and for 21-audit.
+  are over 200 ms once about 150 to 200 schemas are connected (any shape). The owner accepted
+  the completions gate as not met for `0.1.0` (2026-10-22), with the fix on the roadmap (PR #70).
 - [x] The error review is done (section 4).
 - [x] The seam tests pass (section 5), locally against the Compose Postgres.
+
+## Owner decisions, 2026-10-22 (after review round 3)
+
+- **TypeScript 5.8 or later, for everyone.** The split minimum is dropped. The `minimum` CI job
+  is the newest old-enough 5.8.x, running the full consumer check, the CommonJS program
+  included, with no option relaxing it. The `commonjs-minimum` entry is folded into it.
+  `--no-cjs-types`, `--allow-lib-errors` and `scripts/allowed-lib-errors.mjs` (with its tests)
+  are removed; nothing else used them, and `consumer.mjs` is again as #65 left it. The
+  getting-started page, `upgrading.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, the `ci.yml`
+  comments and this note say "TypeScript 5.8 or later (owner decision, 2026-10-22)", no
+  longer provisional.
+- **API items 1 to 9** are approved as recommended, for a follow-up PR (section 1).
+- **Completions gate** accepted as not met for `0.1.0`, with the fix on the roadmap (PR #70).
 
 ## Review round 1 (PR #69)
 
@@ -464,8 +483,8 @@ No seam test exposed a bug.
 
 These are changed in this PR because their owner (21-packaging) has finished:
 
-- `docs/site/reference/upgrading.md`: the TypeScript row and note give the split minimum,
-  5.5 for ES modules and 5.8 for CommonJS, still marked provisional.
+- `docs/site/reference/upgrading.md`: the TypeScript row and note give TypeScript 5.8 or
+  later (owner decision, 2026-10-22). Round 3 had the split minimum there.
 - `CHANGELOG.md`: its requirements line says the same.
 - `CONTRIBUTING.md`, `.github/workflows/ci.yml`, `examples/smoke/consumer.mjs`: the TypeScript
   jobs and their options, as described above.

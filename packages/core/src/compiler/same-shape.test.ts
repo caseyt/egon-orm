@@ -13,6 +13,7 @@ import {
   jsonPathNode,
   listNode,
   literalNode,
+  namedParamNode,
   naryNode,
   orderNode,
   paramNode,
@@ -26,6 +27,9 @@ import { meta } from "../schema/index.js";
 import { sameShape } from "./same-shape.js";
 import { ALL_CASES } from "./sql-cases.js";
 import { col, frag, rebuild, tableOf, typeOf, value } from "./sql-fixtures.js";
+
+const INTEGER = typeOf(t.integer());
+const TEXT = typeOf(t.string());
 
 /** A deep copy of an AST: every node and array is a new object, types and schema metadata are shared. */
 function copy<T>(node: T): T {
@@ -325,6 +329,133 @@ describe("sameShape", () => {
     ],
     ["query clause", from(User, "u").ast, from(User, "u").limit(1).ast],
     ["query schema", from(User, "u").ast, from(User, "u").schema("archive").ast],
+    ["param type", paramNode(1, INTEGER, false), paramNode(1, TEXT, false)],
+    ["list type", listNode([1], INTEGER, false), listNode([1], TEXT, false)],
+    ["list redact", listNode([1], undefined, false), listNode([1], undefined, true)],
+    ["named param type", namedParamNode("a", INTEGER, false), namedParamNode("a", TEXT, false)],
+    ["named param redact", namedParamNode("a", undefined, false), namedParamNode("a", undefined, true)],
+    [
+      "between operand",
+      betweenNode(col("u", "age"), value(1), value(2)),
+      betweenNode(col("u", "id"), value(1), value(2)),
+    ],
+    [
+      "between low",
+      betweenNode(col("u", "age"), value(1), value(2)),
+      betweenNode(col("u", "age"), col("u", "id"), value(2)),
+    ],
+    ["fn args", fnNode("lower", [col("u", "email")]), fnNode("lower", [col("u", "name")])],
+    [
+      "aggregate name",
+      aggregateNode("count", [STAR], false, undefined, undefined),
+      aggregateNode("sum", [STAR], false, undefined, undefined),
+    ],
+    [
+      "aggregate window or none",
+      aggregateNode("count", [STAR], false, undefined, undefined),
+      aggregateNode("count", [STAR], false, undefined, windowNode([], [], undefined)),
+    ],
+    ["table source", tableOf(User, "u"), { ...tableOf(User, "u"), source: "people" }],
+    ["table schema metadata", tableOf(User, "u"), { ...tableOf(User, "u"), meta: meta(Post) }],
+    [
+      "cte source schema",
+      { kind: "cteSource", name: "a", meta: undefined, alias: "x" },
+      { kind: "cteSource", name: "a", meta: meta(User), alias: "x" },
+    ],
+    [
+      "cte source alias",
+      { kind: "cteSource", name: "a", meta: undefined, alias: "x" },
+      { kind: "cteSource", name: "a", meta: undefined, alias: "y" },
+    ],
+    [
+      "values alias",
+      { kind: "values", columns: ["a"], rows: [[value(1)]], alias: "v" },
+      { kind: "values", columns: ["a"], rows: [[value(1)]], alias: "w" },
+    ],
+    [
+      "values column count",
+      { kind: "values", columns: ["a"], rows: [[value(1)]], alias: "v" },
+      { kind: "values", columns: ["a", "b"], rows: [[value(1)]], alias: "v" },
+    ],
+    [
+      "fragment source alias",
+      { kind: "fragmentSource", fragment: frag`f()`, columns: ["a"], alias: "g" },
+      { kind: "fragmentSource", fragment: frag`f()`, columns: ["a"], alias: "h" },
+    ],
+    [
+      "fragment source fragment",
+      { kind: "fragmentSource", fragment: frag`f()`, columns: ["a"], alias: "g" },
+      { kind: "fragmentSource", fragment: frag`g()`, columns: ["a"], alias: "g" },
+    ],
+    [
+      "combination op",
+      { kind: "combination", op: "union", all: false, query: from(User, "u").ast },
+      { kind: "combination", op: "except", all: false, query: from(User, "u").ast },
+    ],
+    [
+      "combination query",
+      { kind: "combination", op: "union", all: false, query: from(User, "u").ast },
+      { kind: "combination", op: "union", all: false, query: from(User, "u").limit(1).ast },
+    ],
+    [
+      "cte name",
+      {
+        kind: "cte",
+        name: "c",
+        query: from(User, "u").ast,
+        operation: "all",
+        recursive: false,
+        materialized: undefined,
+      },
+      {
+        kind: "cte",
+        name: "d",
+        query: from(User, "u").ast,
+        operation: "all",
+        recursive: false,
+        materialized: undefined,
+      },
+    ],
+    [
+      "cte operation",
+      {
+        kind: "cte",
+        name: "c",
+        query: from(User, "u").ast,
+        operation: "all",
+        recursive: false,
+        materialized: undefined,
+      },
+      {
+        kind: "cte",
+        name: "c",
+        query: from(User, "u").ast,
+        operation: "deleteAll",
+        recursive: false,
+        materialized: undefined,
+      },
+    ],
+    [
+      "preload association",
+      { kind: "preload", assoc: "posts", from: undefined, query: undefined, nested: [] },
+      { kind: "preload", assoc: "comments", from: undefined, query: undefined, nested: [] },
+    ],
+    [
+      "update field",
+      { kind: "update", field: "a", column: "a", value: value(1) },
+      { kind: "update", field: "b", column: "a", value: value(1) },
+    ],
+    [
+      "update value",
+      { kind: "update", field: "a", column: "a", value: value(1) },
+      { kind: "update", field: "a", column: "a", value: col("u", "id") },
+    ],
+    [
+      "query shape hash",
+      from(User, "u").ast,
+      { ...from(User, "u").ast, shape: from(User, "u").ast.shape + 1 },
+    ],
+    ["query database schema", from(User, "u").ast, { ...from(User, "u").ast, schema: "archive" }],
   ];
 
   test.each(differing)("a different %s is a different shape", (_name, a, b) => {
@@ -387,6 +518,36 @@ describe("sameShape", () => {
   test.each(selects)("a select with a different %s is a different shape", (_name, a, b) => {
     const node = (shape: SelectShape): QueryNode => ({ kind: "select", shape, constants: [] });
     expect(sameShape(node(a), node(b))).toBe(false);
+    expect(sameShape(node(b), node(a))).toBe(false);
+  });
+
+  test("selects of different kinds are different shapes, in either order", () => {
+    const node = (shape: SelectShape): QueryNode => ({ kind: "select", shape, constants: [] });
+    const kinds: readonly SelectShape[] = [
+      { kind: "expr", expr: value(1), type: undefined },
+      { kind: "binding", binding: "u", meta: meta(User) },
+      { kind: "constant", index: 0 },
+      { kind: "object", keys: [], values: [] },
+      { kind: "tuple", items: [] },
+    ];
+    for (const a of kinds) {
+      for (const b of kinds) expect(sameShape(node(a), node(b)), `${a.kind} and ${b.kind}`).toBe(a === b);
+    }
+  });
+
+  test("a node of each kind equals a copy of itself", () => {
+    const nodes: readonly QueryNode[] = [
+      windowNode([col("u", "id")], [orderNode(col("u", "id"), "asc", undefined)], frag`rows 1 preceding`),
+      { kind: "star" },
+      listNode([1, 2], INTEGER, false),
+      namedParamNode("a", INTEGER, false),
+      fnNode("lower", [col("u", "email")]),
+      { kind: "values", columns: ["a"], rows: [[value(1)], [value(2)]], alias: "v" },
+      { kind: "fragmentSource", fragment: frag`f(${value(1)})`, columns: ["a"], alias: "g" },
+      { kind: "combination", op: "union", all: false, query: from(User, "u").ast },
+      { kind: "update", field: "a", column: "a", value: value(1) },
+    ];
+    for (const node of nodes) expect(sameShape(node, copy(node)), node.kind).toBe(true);
   });
 
   test("an unknown node kind is never the same", () => {

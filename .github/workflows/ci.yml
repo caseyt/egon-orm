@@ -220,6 +220,36 @@ jobs:
       - if: failure()
         run: docker compose logs --no-color
 
+  # The built packages on Node 22 and 24, each doing a round trip against Postgres and SQLite
+  # (examples/runtime): an ES module, CommonJS through require(), and esbuild bundles of both;
+  # and a Next.js app built with `next build` and served with `next start` (examples/next-app).
+  # Required through the ci job below (owner decision, 2026-10-23); Bun runs best effort in
+  # runtime.yml.
+  runtime:
+    name: runtime (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          node-version: ${{ matrix.node }}
+      - run: pnpm db:up
+      - run: pnpm build
+      # The consumer matrix of examples/smoke (ESM and require() from the packed packages,
+      # installed outside the workspace) on this Node; the build job runs it on 22 and 22.12.0.
+      - run: node examples/smoke/consumer.mjs --no-types
+      - run: pnpm --filter @egon-orm/example-runtime run check
+      - run: pnpm --filter @egon-orm/example-next-app run check
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+      - if: failure()
+        run: docker compose logs --no-color
+
   docs:
     name: docs:build
     runs-on: ubuntu-latest
@@ -241,7 +271,7 @@ jobs:
   ci:
     name: ci
     if: always()
-    needs: [lint, typecheck, test, integration, integration-tier2, build, peers, typescript, release, edge-worker, docs]
+    needs: [lint, typecheck, test, integration, integration-tier2, build, peers, typescript, release, edge-worker, runtime, docs]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

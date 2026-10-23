@@ -225,8 +225,15 @@ chain|tree|hub|clusters] [--schemas N] [--runs 5] [--completions-only] [--annota
 
 ### Minimum supported TypeScript, and the CI matrix
 
-- **Decision: TypeScript 5.5 or later**, as decision D14 already says. It is checked at 5.5.4.
-  The workspace builds with 6.0.3. The getting-started page and `CONTRIBUTING.md` now say so.
+- **Decision: TypeScript 5.5 or later**, as decision D14 already says, for ES module
+  projects. It is checked at 5.5.4. The workspace builds with 6.0.3. The getting-started page
+  and `CONTRIBUTING.md` now say so.
+- **A CommonJS project needs TypeScript 5.8 or later.** `consumer.mjs` from #65 adds a
+  CommonJS (`.cts`) type check, and with it 5.5.4 and 5.7.3 fail with TS1479 ("the referenced
+  file is an ECMAScript module and cannot be imported with 'require'"); 5.8.3 passes. That is
+  TypeScript's own limit, the first release that types `require()` of an ES module, not
+  something in the packages. The 5.5 job therefore passes `--no-cjs-types`, which skips that
+  one program and prints that it did. The `latest` and `next` jobs run it.
 - I checked a consumer of the packed packages (`examples/smoke/check-types.mjs --typescript …`:
   `declaration: true`, `skipLibCheck: false`) against these versions:
 
@@ -249,7 +256,7 @@ chain|tree|hub|clusters] [--schemas N] [--runs 5] [--completions-only] [--annota
 - **Exemption, stated plainly.** In the minimum job only, an error is accepted (and
   printed) when its **location**, the file before `(line,col)`, lies inside
   `node_modules/.pnpm/pg-protocol@<version>/node_modules/pg-protocol/`
-  (`check-types.mjs --allow-lib-errors pg-protocol`, filter in
+  (`consumer.mjs --allow-lib-errors pg-protocol`; before PR #65 renamed it, `check-types.mjs`; filter in
   `scripts/allowed-lib-errors.mjs`, with node tests). These still fail:
   - an error with no location, such as TS2688 for a bad `types` entry (review round 1 found
     that the first version let one through);
@@ -377,8 +384,8 @@ No seam test exposed a bug.
   (`index.ts` re-exports it), so `pnpm version-packages` reports
   "no `export const VERSION` line" for the CLI. I did not run it.
 - **To 21-packaging:** the support policy should state TypeScript 5.5 or later (5.7 or later
-  for `skipLibCheck: false` with `@egon-orm/postgres`, because of `pg`'s declarations). That is
-  what CI now checks.
+  for `skipLibCheck: false` with `@egon-orm/postgres`, because of `pg`'s declarations; 5.8 or
+  later for a CommonJS project). That is what CI now checks.
 - **To 21-audit:** the API report check, the TypeScript jobs and the measurements above are
   the evidence for §1. **The 200 ms completions gate is not met for about 150 to 200
   connected schemas** (242 to 314 ms median at 200 reachable schemas, in chain, tree and hub
@@ -424,6 +431,19 @@ No seam test exposed a bug.
 7. **FAQ:** the update twin of the insert entry is TS2345 under plain `strict`, and TS2379
    only with `exactOptionalPropertyTypes`. I checked both by compiling.
 8. **FAQ:** `hasMany` and `hasOne` take `{ foreignKey }` or `{ through }`.
+
+## Review round 2 (PR #69), and the merge of #65
+
+- The CI paragraph in section 3 now says how `latest` and `next` are picked.
+- `main` (with #65, which renamed `examples/smoke/check-types.mjs` to `consumer.mjs`) is
+  merged in. `--allow-lib-errors` is now an option of `consumer.mjs`; it uses the same
+  `scripts/allowed-lib-errors.mjs` filter on each type-check program. The `typescript` and
+  `typescript-next` jobs run `consumer.mjs --no-runtime --typescript <v>`. The `ci` check
+  waits for `peers`, `typescript` and `release`, not for `typescript-next`. The measurements
+  in section 3 were taken with `check-types.mjs`, before the rename.
+- New with the merge: the CommonJS check fails on TypeScript before 5.8 (section 3), so the
+  5.5 job passes `--no-cjs-types` (a new, explicit option of `consumer.mjs`). This is a
+  skipped check, stated here: only that one program, only in that job.
 
 ## Verification (local)
 

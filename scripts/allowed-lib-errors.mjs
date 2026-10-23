@@ -1,5 +1,5 @@
 // Which errors of a tsc run are not covered by `--allow-lib-errors` in
-// examples/smoke/check-types.mjs. Every line with `error TS<n>` is an error. One is allowed
+// examples/smoke/consumer.mjs. Every line with `error TS<n>` is an error. One is allowed
 // only when its location (the file before `(line,col)`) lies inside one of the allowed
 // packages as pnpm installs them: `node_modules/.pnpm/<name>@<version>/node_modules/<name>/`.
 // An error without a location (a bad option, a missing type library) is never allowed, nor

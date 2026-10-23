@@ -28,7 +28,8 @@ protocol and the pull request and review loop that every change follows.
 | `pnpm build` | ESM + declarations for every package (`tsup`). There is no CommonJS build (decision D14). |
 | `pnpm lint:packages` | `publint --strict` and `@arethetypeswrong/cli` on the built packages. attw runs with `--profile esm-only`: the packages have no CommonJS build, so its two CommonJS resolution modes (`node10`, `node16-cjs`) are reported but not failed. The ESM and bundler modes must be clean. |
 | `pnpm api:report` / `pnpm api:check` | Build and rewrite / check the API report in `api-report/` (see [The API report](#the-api-report)) |
-| `pnpm smoke` | Loads the built packages from an ES module and, with `require()`, from a CommonJS script; then packs them, installs the tarballs with their peer dependencies outside the workspace, and type-checks a consumer project with `declaration: true` and `skipLibCheck: false` (`examples/smoke`). `node examples/smoke/check-types.mjs --typescript <version>` runs that check on another TypeScript. |
+| `pnpm smoke` | Loads the built packages from an ES module and, with `require()`, from a CommonJS script; then runs the consumer matrix (`examples/smoke/consumer.mjs`): packs the packages, installs the tarballs with their peer dependencies in a project outside the workspace, runs both consumers there, and type-checks a consumer under `moduleResolution` `nodenext`, `node16` and `bundler` and a CommonJS `.cts` file, with `declaration: true` and `skipLibCheck: false`. Options go to `consumer.mjs`: `--node <path>` also runs the consumers on another Node of the same major (CI: 22.12.0), `--typescript <version>` type-checks with another TypeScript, `--peers lower\|upper` installs every peer at the bottom or the top of its range, `--drivers` runs each adapter against its database (`examples/smoke/drivers.mjs`). |
+| `pnpm release:dry-run` | The release workflow end to end against a local registry (verdaccio), from a clean clone of `HEAD`: see [Releases](#releases). |
 | `pnpm bench [filter]` | Builds, runs the benchmarks, writes `benchmarks/results/<git-sha>.json` |
 | `pnpm docs:dev` / `pnpm docs:build` | VitePress site in `docs/site`; both generate the API reference first (`pnpm docs:api`) |
 | `pnpm docs:check` | The documentation checks (part of `pnpm lint`): see [Documentation](#documentation) |
@@ -170,10 +171,12 @@ does not work with TypeScript 7. `packages/core` has
 no runtime dependency (ADR 0003); Kysely is a dependency of the step 02 spike only.
 
 Users need TypeScript 5.5 or later (decision D14), whatever the workspace builds with. CI's
-`types (typescript …)` jobs type-check the consumer project of `examples/smoke` against the
-packed packages with 5.5.4 and with the latest release, and, as information only, with the
+`types (typescript …)` jobs type-check the consumer project of `examples/smoke/consumer.mjs`
+against the packed packages with 5.5.4 and with the latest release, and, as information only, with the
 `next` build (`scripts/typescript-version.mjs` picks the versions). A declaration that needs
-a newer TypeScript fails the 5.5 job.
+a newer TypeScript fails the 5.5 job. The 5.5 job skips the CommonJS (`.cts`) check
+(`--no-cjs-types`): TypeScript types a `require()` of an ES module only from 5.8 on, so a
+CommonJS project needs 5.8 or later.
 
 ### The API report
 
@@ -293,9 +296,9 @@ stored in the repo):
   approvals when new commits are pushed.
 - Require status checks to pass, branch up to date: require the **`ci`** check, which is
   green only when every CI job (`lint`, `typecheck`, `unit+types` on Node 22 and 24,
-  `integration`, `integration (tier 2)`, `build+publint+attw`, `types (typescript minimum)`,
-  `types (typescript latest)`, `edge worker`, `docs:build`) is green. `types (typescript
-  next, informational)` is not part of it.
+  `integration`, `integration (tier 2)`, `build+publint+attw`, `peer bounds` (lower and upper),
+  `types (typescript minimum)`, `types (typescript latest)`, `release dry run`, `edge worker`,
+  `docs:build`) is green. `types (typescript next, informational)` is not part of it.
 - Allow squash merging only; delete head branches automatically.
 - No force pushes and no deletion of `main`.
 
@@ -307,5 +310,41 @@ affected work waits until the ADR is accepted.
 
 ## Releases
 
-Versions and changelogs are managed with changesets (`.changeset/`); every `egon-orm` and
-`@egon-orm/*` package shares one version. Nothing is published yet (step 21).
+Versions and changelogs are managed with [Changesets](https://github.com/changesets/changesets)
+(`.changeset/`). Every `egon-orm` and `@egon-orm/*` package is in one `fixed` group and
+shares one version; private packages (examples, the docs site, benchmarks) are never
+versioned. The versioning and support policy is in
+[`reference/upgrading.md`](docs/site/reference/upgrading.md).
+
+1. **A pull request that changes a published package adds a changeset**: `pnpm changeset`,
+   with the bump the policy calls for (before 1.0: `minor` for a breaking change, `patch`
+   for everything else). A breaking change also adds a section to `reference/upgrading.md`.
+2. **The version pull request.** `.github/workflows/release.yml` runs on every push to
+   `main`. While changesets are pending it opens or updates "Version packages", made by
+   `pnpm version-packages`: every package's new version, its `CHANGELOG.md` entry, and the
+   `VERSION` constants (`scripts/sync-version.mjs`). Before merging it, write the release's
+   entry in the root [`CHANGELOG.md`](CHANGELOG.md) for people (what changed and why, with
+   links), and replace "unreleased" with the date.
+3. **Publish.** Merging the version pull request makes the publish plan non-empty
+   (`changeset publish-plan`). The `pack` job, which holds no credential, builds, runs
+   publint and attw, packs the packages (`changeset pack`), and then runs the consumer
+   matrix, so that nothing it installs can touch what was packed. Then
+   the `publish` job (after an approval, if the `npm` environment has required reviewers)
+   publishes those tarballs with npm provenance (`changeset publish --from-pack-dir`). It
+   runs no install script. It pushes a tag `<name>@<version>` per package and creates a
+   GitHub release per tag from its `CHANGELOG.md` section.
+
+The workflow does nothing until the repository variable `RELEASE` is `on`, and runs only
+for `main`. Authentication
+to npm is trusted publishing (OIDC) once each package has this repository and
+`release.yml` as its trusted publisher on npmjs.com; the first publish of a package that
+does not exist yet needs an `NPM_TOKEN` secret, which the job uses only when it is set.
+
+`pnpm release:dry-run` (`scripts/release-dry-run.mjs`, also the `release dry run` CI job)
+runs steps 2 and 3 against a local verdaccio registry from a clean clone of `HEAD`: it
+versions, checks the publish plan, packs, publishes from the pack directory, checks the
+published manifests (no `workspace:` ranges, the README) and that the plan is then empty,
+the tags and the release notes, installs the packages from that registry with npm and loads
+every entry point, then checks that a patch to one package versions all of them. It
+publishes nothing anywhere else and needs no secret; provenance is off, since it needs a
+GitHub Actions token. `--keep` leaves the temporary directory.

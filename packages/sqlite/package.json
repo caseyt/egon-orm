@@ -40,7 +40,7 @@
     "lint:package": "publint --strict && attw --pack . --profile esm-only"
   },
   "peerDependencies": {
-    "better-sqlite3": "^12.4.0 || ^13.0.0",
+    "better-sqlite3": "^12.4.1 || ^13.0.0",
     "egon-orm": "workspace:^"
   },
   "devDependencies": {

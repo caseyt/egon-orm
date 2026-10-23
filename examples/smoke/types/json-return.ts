@@ -1,5 +1,5 @@
 // JsonReturn of handlers with declared return types, compiled against the packed packages
-// by check-types.mjs in a program of its own, so that nothing checked before it warms
+// by consumer.mjs in a program of its own, so that nothing checked before it warms
 // TypeScript's caches: it must not hit "Type instantiation is excessively deep" (TS2589).
 import type { JsonReturn, Loaded } from "egon-orm";
 import { belongsTo, Schema, t } from "egon-orm";

@@ -1,5 +1,5 @@
 // A consumer project's own code, compiled against the packed and installed packages by
-// check-types.mjs with `declaration: true` and `skipLibCheck: false`. Everything here is
+// consumer.mjs with `declaration: true` and `skipLibCheck: false`. Everything here is
 // exported with an inferred type on purpose: emitting its declarations needs every type
 // those inferred types mention to be reachable from a public entry point (TS2883 when
 // one is not), and checking the libraries' own .d.ts finds what tsc rejects there.

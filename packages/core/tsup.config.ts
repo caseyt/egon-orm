@@ -51,7 +51,7 @@ export default defineConfig({
   // and its `export * as expr` made the declaration bundler write namespace aliases such
   // as `type expr_Expr<out T, in P> = Expr<T, P>`: variance annotations on an alias of a
   // class, which tsc rejects with TS2637 in a consumer that checks libraries
-  // (`skipLibCheck: false`). examples/smoke/check-types.mjs runs that check.
+  // (`skipLibCheck: false`). examples/smoke/consumer.mjs runs that check.
   dts: {
     entry: {
       index: "src/index.ts",

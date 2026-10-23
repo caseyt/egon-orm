@@ -551,7 +551,12 @@ class SharedAdapter implements DatabaseAdapter {
   private readonly definition: AdapterDefinition;
   private readonly compiler: StatementCompiler;
   private readonly telemetry = new Telemetry();
-  private driver: DriverWrapper | undefined = undefined;
+  /**
+   * The driver wrapper, once started. An ES private field: the wrapper holds the driver's
+   * pool and its configuration (a connection string, a password), which `util.inspect` and
+   * `JSON.stringify` of the adapter, the repo or a transaction must not reach.
+   */
+  #driver: DriverWrapper | undefined = undefined;
   /** Pooled executions, streams and checked-out connections that have not finished. */
   private active = 0;
   private whenIdle: (() => void) | undefined = undefined;
@@ -641,7 +646,7 @@ class SharedAdapter implements DatabaseAdapter {
   }
 
   poolStats(): PoolStats {
-    const driver = this.driver;
+    const driver = this.#driver;
     return driver === undefined ? { size: 0, idle: 0, waiting: 0 } : driver.stats();
   }
 
@@ -842,7 +847,7 @@ class SharedAdapter implements DatabaseAdapter {
   /** The driver, created on first use; throws once the adapter is closing. */
   private open(sql: string | undefined): DriverWrapper {
     if (this.closing !== undefined) throw closedError(sql);
-    let driver = this.driver;
+    let driver = this.#driver;
     if (driver === undefined) {
       const hooks: DriverHooks = {
         connected: () => {
@@ -854,7 +859,7 @@ class SharedAdapter implements DatabaseAdapter {
       };
       driver = this.definition.driver(hooks);
       driver.init();
-      this.driver = driver;
+      this.#driver = driver;
     }
     return driver;
   }
@@ -925,7 +930,7 @@ class SharedAdapter implements DatabaseAdapter {
         this.whenIdle = resolve;
       });
     }
-    const driver = this.driver;
+    const driver = this.#driver;
     if (driver !== undefined) await driver.destroy();
   }
 }
@@ -942,11 +947,19 @@ class SharedConnection implements Connection {
   /** Whether the connection is still checked out; read by its streams before each fetch. */
   private readonly isOpen = (): boolean => this.state === "open";
 
+  // ES private fields, as SharedAdapter's driver: the driver's connection and its pool hold
+  // the connection's configuration, which inspecting a transaction must not reach.
+  readonly #driver: DriverWrapper;
+  readonly #connection: DriverConnection;
+
   constructor(
     private readonly adapter: SharedAdapter,
-    private readonly driver: DriverWrapper,
-    private readonly connection: DriverConnection,
-  ) {}
+    driver: DriverWrapper,
+    connection: DriverConnection,
+  ) {
+    this.#driver = driver;
+    this.#connection = connection;
+  }
 
   execute(sql: string, params: readonly unknown[], options?: ExecuteOptions): Promise<RawResult> {
     const promise = this.run(sql, params, options);
@@ -955,7 +968,7 @@ class SharedConnection implements Connection {
   }
 
   inTransaction(): boolean {
-    return this.connection.inTransaction();
+    return this.#connection.inTransaction();
   }
 
   stream(
@@ -1054,7 +1067,7 @@ class SharedConnection implements Connection {
     this.state = state;
     await this.last;
     const destroy = state === "destroyed" || this.broken || this.openStreams > 0;
-    await this.adapter.checkin(this.driver, this.connection, destroy);
+    await this.adapter.checkin(this.#driver, this.#connection, destroy);
     this.adapter.finished();
   }
 
@@ -1070,7 +1083,7 @@ class SharedConnection implements Connection {
         { code: "connection", sql },
       );
     }
-    if (cancelFailed.has(this.connection)) {
+    if (cancelFailed.has(this.#connection)) {
       throw new DatabaseError(
         "database.cancelFailed",
         "A cancel request for this connection failed, and it may still reach the server and cancel whatever runs next.",
@@ -1096,7 +1109,7 @@ class SharedConnection implements Connection {
     const start = timed ? now() : 0;
     try {
       const name = options?.statementName;
-      const connection = this.connection;
+      const connection = this.#connection;
       const pending =
         signal === undefined && timeoutMs === undefined
           ? connection.query(sql, params, name)
@@ -1127,7 +1140,7 @@ class SharedConnection implements Connection {
     let failure: unknown;
     this.openStreams++;
     try {
-      yield* cursorRows(this.connection, sql, params, batchSize, signal, timeoutMs, tally, this.isOpen);
+      yield* cursorRows(this.#connection, sql, params, batchSize, signal, timeoutMs, tally, this.isOpen);
     } catch (error) {
       failure = this.adapter.normalize(error, sql);
       throw failure;

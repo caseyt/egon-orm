@@ -25,6 +25,7 @@ import {
   indexOfKey,
   indexOfRow,
   isItem,
+  keyFinder,
   keyOf,
   leaves,
   type Relation,
@@ -456,10 +457,11 @@ export function castRelation(
     const children: AnyChangeset[] = [];
     const matched: number[] = [];
     const taken = new Set<number>();
+    const find = keyFinder(current, relation.key);
     for (let i = 0; i < raw.length; i++) {
       const item = raw[i] as Values;
       const key = keyOf(relation.key, item, true);
-      const at = key === undefined ? -1 : indexOfKey(current, relation.key, key);
+      const at = key === undefined ? -1 : find(key);
       if (at >= 0 && taken.has(at)) {
         // The same row twice: the parent is invalid, and the item is kept in its place.
         extra.push({ message: "is invalid", validation: "duplicate", meta: { index: i } });
@@ -499,6 +501,7 @@ export function castRelation(
 function putItem(
   relation: Relation,
   current: readonly object[],
+  find: (key: readonly unknown[]) => number,
   value: unknown,
   fn: string,
 ): { readonly child: AnyChangeset; readonly at: number } {
@@ -522,7 +525,7 @@ function putItem(
   }
   if (isItem(value)) {
     const key = keyOf(relation.key, value, false);
-    const at = key === undefined ? -1 : indexOfKey(current, relation.key, key);
+    const at = key === undefined ? -1 : find(key);
     const target = at >= 0 ? current[at] : relation.target;
     return { child: withAction(fromValues(relation, target, value, fn), at >= 0 ? "update" : "insert"), at };
   }
@@ -599,8 +602,9 @@ export function putRelation(
     const children: AnyChangeset[] = [];
     const matched: number[] = [];
     const rows: object[] = [];
+    const find = keyFinder(current, relation.key);
     for (const each of value) {
-      const { child, at } = putItem(relation, current, each, fn);
+      const { child, at } = putItem(relation, current, find, each, fn);
       const data = child.data as object | null;
       if (data !== null) {
         // The same row twice, whether the parent has it or not.
@@ -619,7 +623,7 @@ export function putRelation(
   }
   const existing = current[0];
   if (value === null) return finishOne(parent, relation, existing, null, false, extra, fn);
-  const { child, at } = putItem(relation, current, value, fn);
+  const { child, at } = putItem(relation, current, keyFinder(current, relation.key), value, fn);
   // "update" reuses the row there for a new value given as a plain object.
   const next =
     at < 0 && existing !== undefined && relation.onReplace === "update" && isItem(value)

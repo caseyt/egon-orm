@@ -27,6 +27,7 @@ protocol and the pull request and review loop that every change follows.
 | `pnpm test:watch` | Unit tests in watch mode |
 | `pnpm build` | ESM + declarations for every package (`tsup`). There is no CommonJS build (decision D14). |
 | `pnpm lint:packages` | `publint --strict` and `@arethetypeswrong/cli` on the built packages. attw runs with `--profile esm-only`: the packages have no CommonJS build, so its two CommonJS resolution modes (`node10`, `node16-cjs`) are reported but not failed. The ESM and bundler modes must be clean. |
+| `pnpm api:report` / `pnpm api:check` | Build and rewrite / check the API report in `api-report/` (see [The API report](#the-api-report)) |
 | `pnpm smoke` | Loads the built packages from an ES module and, with `require()`, from a CommonJS script; then packs them, installs the tarballs with their peer dependencies outside the workspace, and type-checks a consumer project with `declaration: true` and `skipLibCheck: false` (`examples/smoke`). `node examples/smoke/check-types.mjs --typescript <version>` runs that check on another TypeScript. |
 | `pnpm bench [filter]` | Builds, runs the benchmarks, writes `benchmarks/results/<git-sha>.json` |
 | `pnpm docs:dev` / `pnpm docs:build` | VitePress site in `docs/site`; both generate the API reference first (`pnpm docs:api`) |
@@ -168,6 +169,22 @@ release, with one exception: TypeScript is held at `6` because tsup's declaratio
 does not work with TypeScript 7. `packages/core` has
 no runtime dependency (ADR 0003); Kysely is a dependency of the step 02 spike only.
 
+Users need TypeScript 5.5 or later (decision D14), whatever the workspace builds with. CI's
+`types (typescript …)` jobs type-check the consumer project of `examples/smoke` against the
+packed packages with 5.5.4 and with the latest release, and, as information only, with the
+`next` build (`scripts/typescript-version.mjs` picks the versions). A declaration that needs
+a newer TypeScript fails the 5.5 job.
+
+### The API report
+
+`api-report/` holds the public API of every entry point, written by
+[API Extractor](https://api-extractor.com/) from the built declarations. CI's build job runs
+`pnpm api:check`, which fails when the declarations no longer match the committed report.
+After a change to a public signature, run `pnpm api:report` (it builds first), read the diff
+of `api-report/`, and commit it with the change: the reviewer reviews it as an API change. A
+type that the API uses but no entry point exports is marked `ae-forgotten-export` in the
+report; export it if a user has to name it.
+
 ## Documentation
 
 The site is VitePress, in `docs/site`. Read plan README §8 before writing for it: pages are
@@ -276,7 +293,9 @@ stored in the repo):
   approvals when new commits are pushed.
 - Require status checks to pass, branch up to date: require the **`ci`** check, which is
   green only when every CI job (`lint`, `typecheck`, `unit+types` on Node 22 and 24,
-  `integration`, `integration (tier 2)`, `build+publint+attw`, `docs:build`) is green.
+  `integration`, `integration (tier 2)`, `build+publint+attw`, `types (typescript minimum)`,
+  `types (typescript latest)`, `edge worker`, `docs:build`) is green. `types (typescript
+  next, informational)` is not part of it.
 - Allow squash merging only; delete head branches automatically.
 - No force pushes and no deletion of `main`.
 

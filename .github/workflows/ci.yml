@@ -106,6 +106,47 @@ jobs:
       # regression gating is step 19.
       - run: pnpm bench
 
+  # The consumer project of examples/smoke, type-checked against the packed packages with
+  # the oldest supported TypeScript (decision D14: 5.5) and with the latest release; the
+  # workspace's own TypeScript is covered by `pnpm smoke` in the build job.
+  # scripts/typescript-version.mjs picks the versions. On 5.5 the declarations of
+  # pg-protocol (a dependency of the pg peer) do not compile with skipLibCheck: false, so
+  # errors in that package alone are allowed and printed; any other error fails.
+  typescript:
+    name: types (typescript ${{ matrix.typescript }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        typescript: [minimum, latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: pnpm build
+      - name: Type-check a consumer
+        run: |
+          version="$(node scripts/typescript-version.mjs "$WHICH")"
+          allow=()
+          if [ "$WHICH" = minimum ]; then allow=(--allow-lib-errors pg-protocol); fi
+          node examples/smoke/check-types.mjs --typescript "$version" "${allow[@]}"
+        env:
+          WHICH: ${{ matrix.typescript }}
+
+  # The same check with TypeScript's `next` build (published daily). Informational: a
+  # failure here is a heads-up about the next TypeScript release and does not fail the `ci`
+  # check, which does not wait for this job.
+  typescript-next:
+    name: types (typescript next, informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: pnpm build
+      - run: node examples/smoke/check-types.mjs --typescript "$(node scripts/typescript-version.mjs next)"
+
   # The reference app as a Cloudflare Worker (examples/edge-worker), built with wrangler and
   # run in workerd (Miniflare) against Postgres: three requests, with code generation refused
   # at request time. Never deployed; wrangler is not logged in and sends no telemetry.
@@ -148,7 +189,7 @@ jobs:
   ci:
     name: ci
     if: always()
-    needs: [lint, typecheck, test, integration, integration-tier2, build, edge-worker, docs]
+    needs: [lint, typecheck, test, integration, integration-tier2, build, typescript, edge-worker, docs]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

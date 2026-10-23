@@ -16,7 +16,14 @@
 //   resolve with nothing installed beyond the packages, their declared peers and @types/node.
 //
 // tsc is the workspace's pinned TypeScript. `--typescript <version>` installs and uses that
-// version instead (for a manual check on another major); `--keep` leaves the directory.
+// version instead (CI runs the oldest supported version, the latest and `next`);
+// `--keep` leaves the directory.
+//
+// `--allow-lib-errors <package>[,<package>]` accepts errors that lie only in the
+// declarations of those third-party packages, and prints them. It exists for the oldest
+// supported TypeScript: a peer's own dependency may need a newer one when libraries are
+// checked (pg 8.23's pg-protocol writes `Buffer<…>`, which @types/node has from TypeScript
+// 5.7 on). An error anywhere else, in the Egon packages' declarations included, still fails.
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,6 +35,14 @@ const args = process.argv.slice(2);
 const keep = args.includes("--keep");
 const tsIndex = args.indexOf("--typescript");
 const tsVersion = tsIndex === -1 ? undefined : args[tsIndex + 1];
+const allowIndex = args.indexOf("--allow-lib-errors");
+const allowedLibs = allowIndex === -1 ? [] : args[allowIndex + 1].split(",");
+
+/** The errors in tsc's output that are not in the declarations of an allowed package. */
+function disallowedErrors(output) {
+  const errors = output.split("\n").filter((line) => /\): error TS\d+:/.test(line));
+  return errors.filter((line) => !allowedLibs.some((name) => line.includes(`node_modules/.pnpm/${name}@`)));
+}
 const packages = ["core", "postgres", "mysql", "sqlite", "zod", "cli"];
 
 // pnpm, as the script that started this one ran it (`pnpm smoke` sets npm_execpath).
@@ -129,18 +144,19 @@ try {
   const { bin } = readJson(join(typescriptDir, "package.json"));
   const tsc = join(typescriptDir, typeof bin === "string" ? bin : bin.tsc);
   const version = execFileSync(process.execPath, [tsc, "--version"], { encoding: "utf8" }).trim();
-  try {
-    execFileSync(process.execPath, [tsc, "-p", project], { cwd: project, encoding: "utf8", stdio: "pipe" });
-    execFileSync(process.execPath, [tsc, "-p", join(project, "tsconfig.json-return.json")], {
-      cwd: project,
-      encoding: "utf8",
-      stdio: "pipe",
-    });
-  } catch (error) {
-    console.error(
-      `types: tsc (${version}) failed in a consumer of the packed packages:\n${error.stdout}${error.stderr}`,
-    );
-    process.exitCode = 1;
+  for (const config of [project, join(project, "tsconfig.json-return.json")]) {
+    try {
+      execFileSync(process.execPath, [tsc, "-p", config], { cwd: project, encoding: "utf8", stdio: "pipe" });
+    } catch (error) {
+      const output = `${error.stdout}${error.stderr}`;
+      if (allowedLibs.length > 0 && output.includes("error TS") && disallowedErrors(output).length === 0) {
+        console.log(`types: tsc (${version}) errors only in ${allowedLibs.join(", ")} (allowed):\n${output}`);
+        continue;
+      }
+      console.error(`types: tsc (${version}) failed in a consumer of the packed packages:\n${output}`);
+      process.exitCode = 1;
+      break;
+    }
   }
   if (process.exitCode !== 1) {
     console.log(

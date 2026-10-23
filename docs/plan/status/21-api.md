@@ -238,8 +238,12 @@ chain|tree|hub|clusters] [--schemas N] [--runs 5] [--completions-only] [--annota
 
 - CI: `types (typescript minimum)` and `types (typescript latest)` are matrix entries of a new
   `typescript` job, which the `ci` check now waits for. `scripts/typescript-version.mjs` picks
-  the versions: the minimum is pinned, and `latest` and `next` are the newest releases older
-  than pnpm's minimum release age, so the strict policy of the consumer install still holds.
+  the versions, and every one it picks is older than pnpm's minimum release age, so the
+  strict policy of the consumer install still holds:
+  - the minimum is pinned;
+  - `latest` is the `latest` dist-tag when that is old enough, and otherwise the highest
+    stable version that is (by version number, not by publish date);
+  - `next` is the most recent build of the `next` tag's line that is old enough.
   `types (typescript next, informational)` has `continue-on-error: true` and the `ci` check
   does not wait for it. It is a heads-up about the next TypeScript, not a gate.
 - **Exemption, stated plainly.** In the minimum job only, an error is accepted (and

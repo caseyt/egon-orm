@@ -12,6 +12,6 @@ Release notes and version bumps are managed with [changesets](https://github.com
   equal to the set of published packages.
 - `pnpm version-packages` applies pending changesets and then runs
   `scripts/sync-version.mjs`, which updates the `VERSION` constant in each package.
-- `pnpm release` publishes; `.github/workflows/release.yml` runs both, and
-  `pnpm release:dry-run` rehearses them against a local registry. See "Releases" in
-  `CONTRIBUTING.md`.
+- `.github/workflows/release.yml` versions, then packs (`changeset pack`) and publishes the
+  tarballs (`changeset publish --from-pack-dir`); `pnpm release:dry-run` rehearses the same
+  commands against a local registry. See "Releases" in `CONTRIBUTING.md`.

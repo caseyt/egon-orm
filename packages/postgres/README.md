@@ -10,9 +10,9 @@ feature, every test.
 npm install egon-orm @egon-orm/postgres pg
 ```
 
-`pg` 8.23 or later is a peer dependency. Two optional peers: `pg-cursor` (2.22 or later),
+`pg` 8.21 or later is a peer dependency. Two optional peers: `pg-cursor` (2.12 or later),
 which `repo.stream` loads on its first use, and, in a TypeScript project, `@types/pg`
-(8.23 or later), since the adapter's options can take a `pg.Pool` of your own.
+(8.21 or later), since the adapter's options can take a `pg.Pool` of your own.
 
 ## Example
 

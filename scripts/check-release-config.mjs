@@ -19,7 +19,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { fencedBlocks, regionText } from "./check-docs.mjs";
+import { CHECKED_LANGUAGES, fencedBlocks, regionText } from "./check-docs.mjs";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 // Spelled in two parts so that this file does not match itself.
@@ -70,8 +70,6 @@ export function findReleaseProblems(config, packages) {
   return problems;
 }
 
-const CODE = new Set(["ts", "typescript", "tsx", "js", "javascript", "mjs", "cjs", "mts", "cts"]);
-
 /** `text` without the indentation its lines share. */
 export function dedent(text) {
   const lines = text.split("\n");
@@ -88,8 +86,7 @@ export function dedent(text) {
  */
 export function findReadmeProblems(file, markdown, readSource) {
   const problems = [];
-  const lines = markdown.split("\n");
-  for (const block of fencedBlocks(markdown).filter(({ language }) => CODE.has(language))) {
+  for (const block of fencedBlocks(markdown).filter(({ language }) => CHECKED_LANGUAGES.has(language))) {
     const marker = /^<!-- example: (\S+)#([\w-]+) -->$/.exec(block.previous);
     if (marker === null) {
       problems.push(
@@ -103,9 +100,11 @@ export function findReadmeProblems(file, markdown, readSource) {
       problems.push(`${file}:${block.line}: ${marker[1]} has no region ${marker[2]}.`);
       continue;
     }
-    const end = lines.findIndex((line, index) => index >= block.line && /^\s*(`{3,}|~{3,})\s*$/.test(line));
-    const body = lines.slice(block.line, end).join("\n");
-    if (body !== dedent(region).replace(/\n\s*$/, ""))
+    if (block.end === undefined) {
+      problems.push(`${file}:${block.line}: the block is never closed.`);
+      continue;
+    }
+    if (block.body !== dedent(region).replace(/\n\s*$/, ""))
       problems.push(
         `${file}:${block.line}: the block is not ${marker[1]}#${marker[2]} as it is (copy it again).`,
       );

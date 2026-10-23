@@ -40,7 +40,6 @@
     "clean": "node scripts/clean.mjs",
     "changeset": "changeset",
     "version-packages": "changeset version && node scripts/sync-version.mjs",
-    "release": "changeset publish",
     "release:dry-run": "node scripts/release-dry-run.mjs"
   },
   "devDependencies": {

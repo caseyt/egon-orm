@@ -6,8 +6,8 @@ queries and a repo, typed end to end with no code generation.
 - **Typed from the schema.** Row types, preloaded associations and `select` results are
   inferred from your classes. No generate step.
 - **Changes are values.** A changeset filters and validates input and turns a violated
-  unique index into a field error. Writes return `{ success, data }` or
-  `{ success: false, error }`.
+  unique index into a field error. Writes return `{ success: true, data }`
+  or `{ success: false, error }`.
 - **Queries are values.** Build them in one place, extend them in another; every value is
   a bound parameter.
 - **Nothing implicit.** No lazy loading, no `save()` on rows, no transaction you did not open.

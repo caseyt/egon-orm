@@ -72,7 +72,7 @@ the next major removes it.
 | | Supported | Tested in CI |
 |---|---|---|
 | Node.js | 22.12 or later (22 LTS and 24 LTS) | 22.12.0 (the consumer checks), the latest 22 and the latest 24 |
-| TypeScript | 5.5 or later | 6.0 (the workspace's version) |
+| TypeScript | 5.5 or later (provisional, see below) | 6.0 (the workspace's version) and the consumer checks |
 | Module formats | ES modules; CommonJS through `require()` of the ES modules (Node.js 22.12 or later) | both, from installed packages |
 | TypeScript `moduleResolution` | `nodenext`, `node16`, `bundler` | all three, and a CommonJS file under `nodenext` |
 | PostgreSQL | 14 or later | 16 |
@@ -83,12 +83,17 @@ The drivers are peer dependencies, installed by you:
 
 | Package | Peer | Supported range | Tested in CI |
 |---|---|---|---|
-| `@egon-orm/postgres` | `pg` | `^8.23.0` | 8.23.0 and the newest 8.x |
-| | `pg-cursor` (optional, for `repo.stream`) | `^2.22.0` | 2.22.0 and the newest 2.x |
-| | `@types/pg` (optional, for TypeScript) | `^8.23.0` | 8.23.0 and the newest 8.x |
+| `@egon-orm/postgres` | `pg` | `^8.21.0` | 8.21.0 and the newest 8.x |
+| | `pg-cursor` (optional, for `repo.stream`) | `^2.12.0` | 2.12.0 and the newest 2.x |
+| | `@types/pg` (optional, for TypeScript) | `^8.21.0` | 8.21.0 and the newest 8.x |
 | `@egon-orm/sqlite` | `better-sqlite3` | `^12.4.1 \|\| ^13.0.0` | 12.4.1 and the newest 13.x |
 | `@egon-orm/mysql` | `mysql2` | `^3.11.0` | 3.11.0 and the newest 3.x |
 | `@egon-orm/zod` | `zod` | `^4.3.0` | 4.3.0 and the newest 4.x |
+
+The TypeScript minimum is provisional until the TypeScript CI matrix and the maintainers
+confirm it. Egon's own declarations compile on 5.5. With `skipLibCheck: false`, 5.5 and 5.6
+also report errors inside `pg-protocol`'s declarations (a dependency of `pg`) with current
+`@types/node`; use `skipLibCheck: true` there, or TypeScript 5.7 or later.
 
 `better-sqlite3` 13 needs Node-API 10, which Node.js 22.14 and later have; on 22.12 and
 22.13 use `better-sqlite3` 12 (the adapter says so instead of crashing).
@@ -115,10 +120,15 @@ The constructors of the errors that take a message now take the identifier befor
 | Before | From 0.1.0 |
 |---|---|
 | `new DatabaseError(message, details)` | `new DatabaseError(id, message, details)` |
-| `new QueryError(message, details)` | `new QueryError(id, message, details)` |
-| `new CastError(message, details)` | `new CastError(id, message, details)` |
-| `new SchemaDefinitionError(message, details)` | `new SchemaDefinitionError(id, message, details)` |
 | `new MigrationError(message, details)` | `new MigrationError(id, message, details)` |
+| `new QueryError(message, cause)` | `new QueryError(id, message, { cause })` |
+| `new CastError(message, cause)` | `new CastError(id, message, { cause })` |
+| `new SchemaDefinitionError(message, cause)` | `new SchemaDefinitionError(id, message, { cause })` |
+
+`QueryError`, `CastError` and `SchemaDefinitionError` used to take the underlying error as
+their second argument. Now the second argument is the message, and the underlying error
+moves into the details object, as `{ cause }`. The same holds for a class of your own that
+extends `EgonError`: its `super(message, cause)` becomes `super(id, message, { cause })`.
 
 `ConstraintError` and `RollbackError` keep their one `details` argument, which takes
 optional `id`, `message` and `params`.

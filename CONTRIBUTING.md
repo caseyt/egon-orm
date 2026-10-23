@@ -305,20 +305,24 @@ versioned. The versioning and support policy is in
    `VERSION` constants (`scripts/sync-version.mjs`). Before merging it, write the release's
    entry in the root [`CHANGELOG.md`](CHANGELOG.md) for people (what changed and why, with
    links), and replace "unreleased" with the date.
-3. **Publish.** Merging the version pull request starts the `publish` job (after an approval,
-   if the `npm` environment has required reviewers): it builds, runs publint, attw and the
-   consumer matrix, then `pnpm release` (`changeset publish`) publishes every package with
-   npm provenance, pushes a tag `<name>@<version>` per package, and creates a GitHub release
-   per tag from its `CHANGELOG.md` section.
+3. **Publish.** Merging the version pull request makes the publish plan non-empty
+   (`changeset publish-plan`). The `pack` job, which holds no credential, builds, runs
+   publint, attw and the consumer matrix, and packs the packages (`changeset pack`). Then
+   the `publish` job (after an approval, if the `npm` environment has required reviewers)
+   publishes those tarballs with npm provenance (`changeset publish --from-pack-dir`). It
+   runs no install script. It pushes a tag `<name>@<version>` per package and creates a
+   GitHub release per tag from its `CHANGELOG.md` section.
 
-The workflow does nothing until the repository variable `RELEASE` is `on`. Authentication
+The workflow does nothing until the repository variable `RELEASE` is `on`, and runs only
+for `main`. Authentication
 to npm is trusted publishing (OIDC) once each package has this repository and
 `release.yml` as its trusted publisher on npmjs.com; the first publish of a package that
 does not exist yet needs an `NPM_TOKEN` secret, which the job uses only when it is set.
 
 `pnpm release:dry-run` (`scripts/release-dry-run.mjs`, also the `release dry run` CI job)
 runs steps 2 and 3 against a local verdaccio registry from a clean clone of `HEAD`: it
-versions, publishes, checks the published manifests (no `workspace:` ranges, the README),
+versions, checks the publish plan, packs, publishes from the pack directory, checks the
+published manifests (no `workspace:` ranges, the README) and that the plan is then empty,
 the tags and the release notes, installs the packages from that registry with npm and loads
 every entry point, then checks that a patch to one package versions all of them. It
 publishes nothing anywhere else and needs no secret; provenance is off, since it needs a

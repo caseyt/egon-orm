@@ -8,11 +8,14 @@
 //    fixed group), get a CHANGELOG.md entry and its VERSION constant; no private package
 //    may change; the pending changesets are consumed. The result is committed, as merging
 //    the version pull request would.
-// 3. Publish: `pnpm release` (`changeset publish`), what the publish job runs, with the
-//    registry pointed at verdaccio. Provenance is off: it needs the OIDC token of a GitHub
-//    Actions run. Every package must be in the registry at the new version, with no
-//    `workspace:` range left in its manifest and its README as the readme; a git tag
-//    `<name>@<version>` must exist for each.
+// 3. Publish, as the release workflow does it, with the registry pointed at verdaccio:
+//    `changeset publish-plan` (what select-mode runs to choose "publish") must list every
+//    package at the new version; `changeset pack --from-publish-plan` (the pack job) packs
+//    them; `changeset publish --from-pack-dir` (the publish job) publishes the tarballs.
+//    Provenance is off: it needs the OIDC token of a GitHub Actions run. Every package must
+//    then be in the registry at the new version, with no `workspace:` range left in its
+//    manifest and its README as the readme; a git tag `<name>@<version>` must exist for
+//    each; and the publish plan must be empty (select-mode's "none").
 // 4. Release notes: each package's CHANGELOG section for the version, which the publish job
 //    posts as the GitHub release of its tag, is written out (and the core one printed).
 // 5. Install: a fresh project installs every package from the registry with npm, then
@@ -102,6 +105,13 @@ function changelogSection(markdown, version) {
     .slice(start + 1, end === -1 ? undefined : end)
     .join("\n")
     .trim();
+}
+
+/** The entries of a publish plan written by `changeset publish-plan --output`. */
+function publishPlanEntries(file) {
+  const { version, plan } = readJson(file);
+  check(version === 1 && Array.isArray(plan), `unexpected publish plan format in ${file}`);
+  return plan.flat().map(({ kind, name, version: v }) => ({ kind, name, version: v }));
 }
 
 async function waitForRegistry(child) {
@@ -246,7 +256,29 @@ try {
   check(typeof token === "string", `verdaccio gave no token (${user.status})`);
   const npmrc = `registry=${REGISTRY}\n//127.0.0.1:${PORT}/:_authToken=${token}\n`;
   writeFileSync(join(clone, ".npmrc"), npmrc);
-  const publishOutput = pnpm(["release"], clone, { NPM_CONFIG_PROVENANCE: "false" });
+  const plan = join(dir, "publish-plan.json");
+  pnpm(["exec", "changeset", "publish-plan", "--output", plan], clone);
+  const planned = publishPlanEntries(plan);
+  check(
+    JSON.stringify(planned.map((entry) => `${entry.kind} ${entry.name}@${entry.version}`).sort()) ===
+      JSON.stringify(
+        after
+          .filter((p) => p.published)
+          .map((p) => `publish ${p.manifest.name}@${version}`)
+          .sort(),
+      ),
+    `the publish plan is not the six packages at ${version}: ${JSON.stringify(planned)}`,
+  );
+  ok(
+    `publish plan (select-mode "publish"): ${planned.map((entry) => `${entry.name}@${entry.version}`).join(", ")}`,
+  );
+  const packDir = join(dir, "pack");
+  console.log(
+    pnpm(["exec", "changeset", "pack", "--from-publish-plan", plan, "--out-dir", packDir], clone).trim(),
+  );
+  const publishOutput = pnpm(["exec", "changeset", "publish", "--from-pack-dir", packDir], clone, {
+    NPM_CONFIG_PROVENANCE: "false",
+  });
   console.log(publishOutput.trim());
 
   for (const pkg of after.filter((p) => p.published)) {
@@ -278,6 +310,14 @@ try {
   ok(
     `${published.length} packages at ${version} in the registry, no workspace: ranges, READMEs shown, git tags ${tags.join(" ")}`,
   );
+  const afterPlan = join(dir, "publish-plan-after.json");
+  pnpm(["exec", "changeset", "publish-plan", "--output", afterPlan], clone);
+  const remaining = publishPlanEntries(afterPlan);
+  check(
+    remaining.length === 0,
+    `after publishing, the publish plan is not empty: ${JSON.stringify(remaining)}`,
+  );
+  ok('after publishing, the publish plan is empty (select-mode "none")');
 
   step("GitHub release notes (one release per tag, from its CHANGELOG section)");
   mkdirSync(join(dir, "release-notes"));

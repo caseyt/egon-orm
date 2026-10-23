@@ -134,6 +134,16 @@ describe("findReadmeProblems", () => {
     assert.match(findReadmeProblems("R.md", readme("Some prose.", "a"), read)[0], /hand-written `ts` block/);
   });
 
+  test("checks every language check-docs checks, jsx included", () => {
+    const jsx = `# x\n\nProse.\n${fence}jsx\n<App />\n${fence}\n`;
+    assert.match(findReadmeProblems("R.md", jsx, read)[0], /hand-written `jsx` block/);
+  });
+
+  test("rejects a block that is never closed instead of dropping its last line", () => {
+    const unclosed = `# x\n\n${marker}\n${fence}ts\nconst a = 1;\n  a;`;
+    assert.match(findReadmeProblems("R.md", unclosed, read)[0], /never closed/);
+  });
+
   test("dedent removes the shared indentation only", () => {
     assert.equal(dedent("  a\n\n    b"), "a\n\n  b");
   });

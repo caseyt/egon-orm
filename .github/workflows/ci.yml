@@ -96,12 +96,20 @@ jobs:
       - run: node scripts/check-node-specifiers.mjs
       - run: pnpm lint:packages
       # Node 22.12.0, the first release that can require() an ES module (decision D14): the
-      # consumers below run on it as well as on the latest 22. The tarball's checksum is pinned.
+      # consumers below run on it as well as on the latest 22. The tarball's checksum is pinned,
+      # and the tarball is cached under that checksum, so a run needs nodejs.org only on a miss.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/node-cache/node-v22.12.0-linux-x64.tar.xz
+          key: node-v22.12.0-linux-x64-22982235e1b71fa8850f82edd09cdae7e3f32df1764a9ec298c72d25ef2c164f
       - name: Node 22.12.0
         run: |
-          curl -fsSL -o "$RUNNER_TEMP/node.tar.xz" https://nodejs.org/dist/v22.12.0/node-v22.12.0-linux-x64.tar.xz
-          echo "22982235e1b71fa8850f82edd09cdae7e3f32df1764a9ec298c72d25ef2c164f  $RUNNER_TEMP/node.tar.xz" | sha256sum --check
-          tar -xJf "$RUNNER_TEMP/node.tar.xz" -C "$RUNNER_TEMP"
+          mkdir -p ~/node-cache
+          if [ ! -f ~/node-cache/node-v22.12.0-linux-x64.tar.xz ]; then
+            curl -fsSL -o ~/node-cache/node-v22.12.0-linux-x64.tar.xz https://nodejs.org/dist/v22.12.0/node-v22.12.0-linux-x64.tar.xz
+          fi
+          echo "22982235e1b71fa8850f82edd09cdae7e3f32df1764a9ec298c72d25ef2c164f  $HOME/node-cache/node-v22.12.0-linux-x64.tar.xz" | sha256sum --check
+          tar -xJf ~/node-cache/node-v22.12.0-linux-x64.tar.xz -C "$RUNNER_TEMP"
           "$RUNNER_TEMP/node-v22.12.0-linux-x64/bin/node" --version
       # An ESM consumer and a CommonJS consumer that require()s the ES modules, in the
       # workspace; then the consumer matrix (examples/smoke/consumer.mjs): a project outside

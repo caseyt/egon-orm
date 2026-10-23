@@ -12,7 +12,9 @@ recorded for it.
 The first release: a TypeScript ORM for Postgres, SQLite and MySQL with schemas,
 changesets, composable queries and a repo, typed end to end with no code generation.
 
-**Requirements:** Node.js 22.12 or later; TypeScript 5.5 or later. The packages are ES
+**Requirements:** Node.js 22.12 or later; TypeScript 5.5 or later (provisional: to be
+confirmed by the TypeScript CI matrix; 5.5 and 5.6 need `skipLibCheck: true` with current
+`@types/node`). The packages are ES
 modules only; a CommonJS project loads them with `require()`. Postgres 14 or later, SQLite
 3.39 or later, MySQL 8.0.31 or later
 ([supported versions](https://egon-orm.github.io/egon-orm/reference/upgrading#supported-versions)).
@@ -73,8 +75,8 @@ error constructors take an identifier first, and error messages are short by def
 
 - `createRepo({ adapter })`: reads (`all`, `one`, `get`, `getBy`, `count`, `aggregate`,
   `exists`, `stream`), writes (`insert`, `update`, `delete`, upserts, `insertAll`,
-  `updateAll`, `deleteAll`), each returning `{ success, data }` or `{ success: false,
-  error }` with an `OrThrow` twin.
+  `updateAll`, `deleteAll`), each returning `{ success: true, data }` or
+  `{ success: false, error }` with an `OrThrow` twin.
 - Preloads, in one query per association or through a join.
 - Explicit transactions with savepoints, `tx.rollback(reason)`, and `createBatch` for a
   sequence of dependent steps that commits or rolls back as one.

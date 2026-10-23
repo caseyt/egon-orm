@@ -26,7 +26,7 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SITE = join(ROOT, "docs/site");
 
 /** Languages whose fenced blocks must come from checked files. */
-const CHECKED_LANGUAGES = new Set([
+export const CHECKED_LANGUAGES = new Set([
   "ts",
   "typescript",
   "tsx",
@@ -64,7 +64,11 @@ export function walk(dir, keep) {
   return out;
 }
 
-/** The fenced code blocks of a Markdown text: language, opening line (1-based), and the line before. */
+/**
+ * The fenced code blocks of a Markdown text: language, opening line (1-based), the line
+ * before, the closing line (1-based; `undefined` for a block that is never closed, which
+ * runs to the end of the text) and the body between the fences.
+ */
 export function fencedBlocks(markdown) {
   const lines = markdown.split("\n");
   const blocks = [];
@@ -82,10 +86,11 @@ export function fencedBlocks(markdown) {
         previous: lines[before]?.trim() ?? "",
       };
     } else if (match[1][0] === open.fence[0] && match[1].length >= open.fence.length && match[2] === "") {
-      blocks.push(open);
+      blocks.push({ ...open, end: i + 1, body: lines.slice(open.line, i).join("\n") });
       open = undefined;
     }
   }
+  if (open !== undefined) blocks.push({ ...open, end: undefined, body: lines.slice(open.line).join("\n") });
   return blocks;
 }
 

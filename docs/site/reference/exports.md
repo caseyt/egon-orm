@@ -357,10 +357,10 @@ Guide: [Errors](/reference/errors).
 | [`DatabaseError`](/api/reference/egon-orm/classes/DatabaseError) | class | The database or its driver failed. |
 | [`DatabaseErrorCode`](/api/reference/egon-orm/type-aliases/DatabaseErrorCode) | type | The codes of a `DatabaseError`. |
 | [`EgonError`](/api/reference/egon-orm/classes/EgonError) | class | The base class of every error Egon throws. |
+| [`ErrorCatalog`](/api/reference/egon-orm/type-aliases/ErrorCatalog) | type | A catalog of full messages. |
 | [`ErrorCode`](/api/reference/egon-orm/type-aliases/ErrorCode) | type | The stable codes of the error classes. |
 | [`ErrorDetails`](/api/reference/egon-orm/interfaces/ErrorDetails) | interface | What an error's constructor takes besides the identifier and the short sentence. |
 | [`ErrorId`](/api/reference/egon-orm/type-aliases/ErrorId) | type | The identifier of every message Egon throws, such as `"query.aliasTaken"`. |
-| [`ErrorMessages`](/api/reference/egon-orm/type-aliases/ErrorMessages) | type | A catalog of full messages. |
 | [`ErrorParams`](/api/reference/egon-orm/type-aliases/ErrorParams) | type | The values named by `{{name}}` in an identifier's catalog entry. |
 | [`InvalidChangesetError`](/api/reference/egon-orm/classes/InvalidChangesetError) | class | An `…OrThrow` write was given an invalid changeset. |
 | [`isEgonError`](/api/reference/egon-orm/functions/isEgonError) | function | Whether `value` is an error thrown by Egon, optionally with a given code. |

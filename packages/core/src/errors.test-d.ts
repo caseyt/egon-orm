@@ -7,9 +7,9 @@ import {
   DatabaseError,
   type DatabaseErrorCode,
   type EgonError,
+  type ErrorCatalog,
   type ErrorCode,
   type ErrorId,
-  type ErrorMessages,
   InvalidChangesetError,
   isEgonError,
   MultipleResultsError,
@@ -162,7 +162,7 @@ describe("identifiers and full messages", () => {
   test("useFullErrorMessages takes a catalog of identifiers, or null", () => {
     useFullErrorMessages(null);
     useFullErrorMessages({ noResults: "Check the id." });
-    const catalog: ErrorMessages = { "query.aliasTaken": "Rename it." };
+    const catalog: ErrorCatalog = { "query.aliasTaken": "Rename it." };
     useFullErrorMessages(catalog);
     // @ts-expect-error not an identifier
     useFullErrorMessages({ nope: "x" });

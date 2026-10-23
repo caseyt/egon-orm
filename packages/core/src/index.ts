@@ -173,10 +173,10 @@ export type {
 export type {
   ConstraintViolationType,
   DatabaseErrorCode,
+  ErrorCatalog,
   ErrorCode,
   ErrorDetails,
   ErrorId,
-  ErrorMessages,
   ErrorParams,
 } from "./errors.js";
 export {

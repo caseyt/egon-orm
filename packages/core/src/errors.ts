@@ -81,10 +81,10 @@ export type ErrorId = keyof typeof messages;
  *
  * @example
  * ```ts
- * const mine: ErrorMessages = { noResults: "Check the id the client sent." };
+ * const mine: ErrorCatalog = { noResults: "Check the id the client sent." };
  * ```
  */
-export type ErrorMessages = Readonly<Partial<Record<ErrorId, string>>>;
+export type ErrorCatalog = Readonly<Partial<Record<ErrorId, string>>>;
 
 /**
  * The values named by `{{name}}` in an identifier's catalog entry. They are values the
@@ -145,7 +145,7 @@ export function docsLink(id: ErrorId): string {
 }
 
 /** The catalog set by {@link useFullErrorMessages}; `null` for short messages (the default). */
-let catalog: ErrorMessages | null = null;
+let catalog: ErrorCatalog | null = null;
 
 /**
  * Makes every error constructed from now on carry its full message: the short sentence,
@@ -170,7 +170,7 @@ let catalog: ErrorMessages | null = null;
  *
  * @throws TypeError when `messages` is neither an object nor `null`.
  */
-export function useFullErrorMessages(messages: ErrorMessages | null): void {
+export function useFullErrorMessages(messages: ErrorCatalog | null): void {
   if (messages !== null && (typeof messages !== "object" || Array.isArray(messages))) {
     throw new TypeError(
       "useFullErrorMessages() takes a catalog of messages, such as the one of egon-orm/messages, or null.",
@@ -191,7 +191,7 @@ function compose(
   id: ErrorId,
   short: string,
   params: ErrorParams | undefined,
-  from: ErrorMessages | null = catalog,
+  from: ErrorCatalog | null = catalog,
 ): string {
   const gap = short.includes("\n") ? "\n\n" : " ";
   const advice = from !== null && Object.hasOwn(from, id) ? from[id] : undefined;
@@ -282,7 +282,7 @@ export function shortMessageOf(error: EgonError): string {
  * fullMessageOf(error, messages) ?? error.message;
  * ```
  */
-export function fullMessageOf(error: EgonError, messages: ErrorMessages): string | undefined {
+export function fullMessageOf(error: EgonError, messages: ErrorCatalog): string | undefined {
   const own = parts.get(error);
   if (own === undefined || !Object.hasOwn(messages, error.id)) return undefined;
   return compose(error.id, own.short, own.params, messages);

@@ -43,6 +43,14 @@ test("a fence inside a longer fence does not end it", () => {
   );
 });
 
+test("a block carries its closing line and body; an unclosed block runs to the end", () => {
+  const [closed, unclosed] = fencedBlocks("```ts\na\nb\n```\n\n```js\nc\nd");
+  assert.equal(closed.end, 4);
+  assert.equal(closed.body, "a\nb");
+  assert.equal(unclosed.end, undefined);
+  assert.equal(unclosed.body, "c\nd");
+});
+
 test("snippet includes are read with their path and region", () => {
   const page =
     "<<< @/examples/a.ts#one\n\ntext\n\n<<< ../../examples/blog/src/db.ts\n<<< @/examples/b.tsx#two{2}\n";

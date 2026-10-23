@@ -95,13 +95,70 @@ jobs:
       # Edge runtimes resolve Node built-ins only as node:… (step 21a).
       - run: node scripts/check-node-specifiers.mjs
       - run: pnpm lint:packages
-      # An ESM consumer, a CommonJS consumer that require()s the ES modules, and a consumer
-      # project type-checked against the packed packages (examples/smoke). The type check
-      # installs the tarballs and their pinned peers from the registry, so it needs network access.
-      - run: pnpm smoke
+      # Node 22.12.0, the first release that can require() an ES module (decision D14): the
+      # consumers below run on it as well as on the latest 22. The tarball's checksum is pinned,
+      # and the tarball is cached under that checksum, so a run needs nodejs.org only on a miss.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/node-cache/node-v22.12.0-linux-x64.tar.xz
+          key: node-v22.12.0-linux-x64-22982235e1b71fa8850f82edd09cdae7e3f32df1764a9ec298c72d25ef2c164f
+      - name: Node 22.12.0
+        run: |
+          mkdir -p ~/node-cache
+          if [ ! -f ~/node-cache/node-v22.12.0-linux-x64.tar.xz ]; then
+            curl -fsSL -o ~/node-cache/node-v22.12.0-linux-x64.tar.xz https://nodejs.org/dist/v22.12.0/node-v22.12.0-linux-x64.tar.xz
+          fi
+          echo "22982235e1b71fa8850f82edd09cdae7e3f32df1764a9ec298c72d25ef2c164f  $HOME/node-cache/node-v22.12.0-linux-x64.tar.xz" | sha256sum --check
+          tar -xJf ~/node-cache/node-v22.12.0-linux-x64.tar.xz -C "$RUNNER_TEMP"
+          "$RUNNER_TEMP/node-v22.12.0-linux-x64/bin/node" --version
+      # An ESM consumer and a CommonJS consumer that require()s the ES modules, in the
+      # workspace; then the consumer matrix (examples/smoke/consumer.mjs): a project outside
+      # the workspace installs the packed packages with their pinned peers, runs both consumers
+      # (on this Node and on 22.12.0) and type-checks a consumer under nodenext, node16,
+      # bundler and CommonJS. The install fetches from the registry, so it needs network access.
+      - run: pnpm smoke --node "$RUNNER_TEMP/node-v22.12.0-linux-x64/bin/node"
       # Keeps the benchmark harness working. Numbers from shared runners are not meaningful;
       # regression gating is step 19.
       - run: pnpm bench
+
+  # The peer-dependency ranges at both ends: the consumer matrix with every peer (pg,
+  # pg-cursor, @types/pg, better-sqlite3, mysql2, zod) at the lowest version its declared
+  # range allows, then at the newest release the range resolves to; each adapter runs against
+  # its database and @egon-orm/zod against Zod (examples/smoke/drivers.mjs).
+  peers:
+    name: peer bounds (${{ matrix.peers }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        peers: [lower, upper]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: pnpm db:up:tier2
+      - run: pnpm build
+      - run: node examples/smoke/consumer.mjs --peers ${{ matrix.peers }} --drivers --no-runtime
+        env:
+          EGON_TEST_TIER2: "1"
+      - if: failure()
+        run: docker compose --profile tier2 logs --no-color
+
+  # The release workflow (release.yml) end to end against a local registry (verdaccio), from
+  # a clean clone of this commit: version, publish, tags, release notes, install, and the next
+  # version. Publishes nothing anywhere else and needs no secret.
+  release:
+    name: release dry run
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Full history: `changeset version` looks up the commit that added each changeset (for
+      # the changelog entry), and fails in a shallow clone, as release.yml's jobs would.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - run: pnpm release:dry-run
 
   # The reference app as a Cloudflare Worker (examples/edge-worker), built with wrangler and
   # run in workerd (Miniflare) against Postgres: three requests, with code generation refused
@@ -145,7 +202,7 @@ jobs:
   ci:
     name: ci
     if: always()
-    needs: [lint, typecheck, test, integration, integration-tier2, build, edge-worker, docs]
+    needs: [lint, typecheck, test, integration, integration-tier2, build, peers, release, edge-worker, docs]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

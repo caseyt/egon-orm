@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/streetsidesoftware/cspell/main/cspell.schema.json",
   "version": "0.2",
   "language": "en,en-GB",
-  "files": ["docs/site/**/*.md", "README.md", "CONTRIBUTING.md"],
+  "files": ["docs/site/**/*.md", "README.md", "CONTRIBUTING.md", "CHANGELOG.md", "packages/*/README.md"],
   "ignorePaths": ["**/node_modules/**", "docs/site/api/reference/**", "docs/site/reference/exports.md"],
   "dictionaryDefinitions": [{ "name": "egon", "path": "./docs/site/words.txt", "addWords": true }],
   "dictionaries": ["egon", "typescript", "node", "softwareTerms", "sql", "npm"],

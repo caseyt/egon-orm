@@ -12,6 +12,13 @@ changeset or a schema that shows it), and what an attacker gains. We confirm the
 work on a fix in a private advisory, and credit you when it is published unless you ask us
 not to. Please keep the details private until a fixed release is out.
 
+## Supported versions
+
+Security fixes ship in a patch release of the latest minor line (before 1.0, the latest
+`0.y`). The versioning and support policy, including the supported Node.js, TypeScript and
+database versions, is in the
+[upgrade guide](https://egon-orm.github.io/egon-orm/reference/upgrading#security-fixes).
+
 ## Threat model
 
 Egon builds SQL and runs it for an application. **Trusted:** the application's code (its

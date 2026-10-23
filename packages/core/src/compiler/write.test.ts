@@ -1,7 +1,8 @@
-import { Tag } from "@egon-orm/test-support";
+import { Membership, Org, Tag, User } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
 import type { OnConflict } from "../contracts/adapter.js";
 import type { FieldMeta } from "../contracts/schema.js";
+import { from, Schema, t } from "../index.js";
 import { meta } from "../schema/index.js";
 import { createCompiler } from "./compiler.js";
 import { mysqlDialect, POSTGRES_CAPABILITIES } from "./dialect.js";
@@ -63,6 +64,98 @@ describe("upserts on MySQL (ON DUPLICATE KEY UPDATE)", () => {
   test('"nothing" sets the key to itself', () => {
     expect(compile("nothing")).toBe(
       "insert into `tags` (`name`) values (?) on duplicate key update `id` = `id`",
+    );
+  });
+});
+
+describe("upserts on MySQL: which columns are set, and the generated key", () => {
+  const users = meta(User);
+  const user = (name: string) => users.fieldsByName.get(name) as FieldMeta;
+  const insert = (
+    schema: typeof users,
+    columns: readonly FieldMeta[],
+    onConflict: OnConflict,
+    source: "values" | "query" = "values",
+  ) =>
+    createCompiler(mysqlDialect).compileInsert(
+      schema,
+      columns,
+      {
+        source:
+          source === "values"
+            ? { kind: "values", rows: 1 }
+            : { kind: "query", query: from(User, "u").select(({ u }) => [u.email, u.name]).ast },
+        returning: [],
+        onConflict,
+      },
+      undefined,
+    ).sql;
+  const columns = [user("email"), user("name")];
+
+  test('"all" sets every inserted column from the excluded row, after the key', () => {
+    expect(insert(users, columns, { target: undefined, update: "all" })).toBe(
+      "insert into `users` (`email`, `name`) values (?, ?) as `excluded` on duplicate key update `id` = last_insert_id(`id`), `email` = `excluded`.`email`, `name` = `excluded`.`name`",
+    );
+  });
+
+  test("{ except } sets the inserted columns it does not list", () => {
+    expect(insert(users, columns, { target: undefined, update: { except: [user("name")] } })).toBe(
+      "insert into `users` (`email`, `name`) values (?, ?) as `excluded` on duplicate key update `id` = last_insert_id(`id`), `email` = `excluded`.`email`",
+    );
+  });
+
+  test("a key in the update list is set from the excluded row, not through last_insert_id", () => {
+    expect(insert(users, columns, { target: undefined, update: [user("id"), user("email")] })).toBe(
+      "insert into `users` (`email`, `name`) values (?, ?) as `excluded` on duplicate key update `id` = `excluded`.`id`, `email` = `excluded`.`email`",
+    );
+  });
+
+  test("last_insert_id only for a single generated integer key", () => {
+    const orgs = meta(Org);
+    const memberships = meta(Membership);
+    const orgName = orgs.fieldsByName.get("name") as FieldMeta;
+    expect(insert(orgs, [orgName], { target: undefined, update: "all" })).toBe(
+      "insert into `orgs` (`name`) values (?) as `excluded` on duplicate key update `name` = `excluded`.`name`",
+    );
+    const keys = memberships.primaryKey;
+    expect(insert(memberships, keys, { target: undefined, update: "all" })).toBe(
+      "insert into `memberships` (`org_id`, `user_id`) values (?, ?) as `excluded` on duplicate key update `org_id` = `excluded`.`org_id`, `user_id` = `excluded`.`user_id`",
+    );
+    expect(insert(memberships, keys, "nothing")).toBe(
+      "insert into `memberships` (`org_id`, `user_id`) values (?, ?) on duplicate key update `org_id` = `org_id`",
+    );
+  });
+
+  test("no last_insert_id for a key the database does not generate, or for a key of two columns", () => {
+    class Counter extends Schema("counters", {
+      id: t.integer().primaryKey(),
+      hits: t.integer(),
+    }) {}
+    class Pair extends Schema("pairs", {
+      id: t.bigint({ mode: "number" }).primaryKey().dbGenerated(),
+      part: t.integer().primaryKey(),
+      hits: t.integer(),
+    }) {}
+    for (const schema of [meta(Counter), meta(Pair)]) {
+      const hits = schema.fieldsByName.get("hits") as FieldMeta;
+      expect(insert(schema, [hits], { target: undefined, update: "all" })).toBe(
+        `insert into \`${schema.source}\` (\`hits\`) values (?) as \`excluded\` on duplicate key update \`hits\` = \`excluded\`.\`hits\``,
+      );
+    }
+  });
+
+  test("refuses a conflict target, an update from a query, an update of nothing and a malformed onConflict", () => {
+    expect(() => insert(users, columns, { target: [user("email")], update: "all" })).toThrow(
+      "An onConflict target is not supported by mysql.",
+    );
+    expect(() => insert(users, columns, { target: undefined, update: "all" }, "query")).toThrow(
+      "onConflict with update on an insert from a query is not supported by mysql.",
+    );
+    expect(() => insert(users, columns, { target: undefined, update: { except: columns } })).toThrow(
+      "onConflict's update leaves no column to update.",
+    );
+    expect(() => insert(users, columns, 42 as unknown as OnConflict)).toThrow(
+      'onConflict is "nothing" or { target, update }.',
     );
   });
 });

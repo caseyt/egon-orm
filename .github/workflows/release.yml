@@ -1,0 +1,108 @@
+name: Release
+
+# Releases with Changesets, in two steps (CONTRIBUTING.md, "Releases"):
+#
+# 1. While changesets are pending on main, the `version` job opens (or updates) the
+#    "Version packages" pull request: `pnpm version-packages` bumps every package to one
+#    version (the fixed group in .changeset/config.json), writes each package's
+#    CHANGELOG.md and the VERSION constants, and removes the changesets.
+# 2. When that pull request is merged, no changeset is pending and the versions are not on
+#    npm yet, so the `publish` job runs: `pnpm release` (`changeset publish`) publishes every
+#    package with provenance, then the job pushes a git tag `<name>@<version>` per package
+#    and creates a GitHub release for each tag from its CHANGELOG section.
+#
+# Off until the owner turns it on: every job is skipped unless the repository variable
+# RELEASE is "on" (Settings > Secrets and variables > Actions > Variables). So this
+# workflow publishes nothing and needs no secret until then. `pnpm release:dry-run` (and the
+# `release dry run` job of ci.yml) runs the same two scripts against a local registry.
+#
+# npm authentication: trusted publishing (OIDC, the `id-token: write` permission below)
+# once each package is configured on npmjs.com with this repository and this workflow file;
+# until then (the first publish of a package that does not exist yet), an NPM_TOKEN secret,
+# which the job writes to ~/.npmrc only when it is set.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One release at a time, and never cancelled halfway through a publish.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  mode:
+    name: select mode
+    if: vars.RELEASE == 'on' && github.repository == 'egon-orm/egon-orm'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      mode: ${{ steps.select.outputs.mode }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      # "version" while changesets are pending, "publish" when the versions in the
+      # manifests are not on npm yet, "none" otherwise.
+      - id: select
+        uses: changesets/action/select-mode@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+
+  version:
+    name: version pull request
+    needs: mode
+    if: needs.mode.outputs.mode == 'version'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      - uses: changesets/action/version@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          script: pnpm version-packages
+          commit-message: Version packages
+          pr-title: Version packages
+
+  publish:
+    name: publish
+    needs: mode
+    if: needs.mode.outputs.mode == 'publish'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Required reviewers on this environment make every publish wait for an approval.
+    environment: npm
+    env:
+      # Whether the secret is set (a secret cannot be tested in a step's `if`).
+      HAS_NPM_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
+    permissions:
+      contents: write # git tags and GitHub releases
+      id-token: write # npm provenance and trusted publishing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup
+      # What is published is what CI checks: the build, publint and attw, and the consumer
+      # matrix on the packed packages.
+      - run: pnpm build
+      - run: pnpm lint:packages
+      - run: pnpm smoke
+      - name: npm token (only when the NPM_TOKEN secret is set)
+        if: env.HAS_NPM_TOKEN == 'true'
+        run: echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" >> ~/.npmrc
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - uses: changesets/action/publish@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          script: pnpm release
+          create-github-releases: true
+        env:
+          NPM_CONFIG_PROVENANCE: "true"

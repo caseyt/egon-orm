@@ -41,12 +41,15 @@ describe("createRepo", () => {
 });
 
 describe("result types", () => {
-  test("all, one, oneOrThrow and first", async () => {
+  test("all, one, oneOrThrow, first and firstOrThrow", async () => {
     expectTypeOf(await repo.all(User)).toEqualTypeOf<User[]>();
     expectTypeOf(await repo.all(emails)).toEqualTypeOf<{ id: number; email: string }[]>();
     expectTypeOf(await repo.one(User)).toEqualTypeOf<User | null>();
     expectTypeOf(await repo.oneOrThrow(emails)).toEqualTypeOf<{ id: number; email: string }>();
     expectTypeOf(await repo.first(from(Post, "p"))).toEqualTypeOf<Post | null>();
+    expectTypeOf(await repo.firstOrThrow(from(Post, "p"))).toEqualTypeOf<Post>();
+    expectTypeOf(await repo.firstOrThrow(emails)).toEqualTypeOf<{ id: number; email: string }>();
+    expectTypeOf(await repo.firstOrThrow(User)).not.toBeAny();
     expectTypeOf(await repo.all(from(Post, "p").select(({ p }) => p.title))).toEqualTypeOf<string[]>();
     expectTypeOf(await repo.all(User)).not.toBeAny();
   });
@@ -115,6 +118,7 @@ describe("named parameters and options", () => {
       context: { requestId: "r" },
     });
     await repo.one(adults, { minAge: 1 });
+    await repo.firstOrThrow(adults, { minAge: 1 }, { timeoutMs: 500 });
     await repo.count(adults, { minAge: 1 });
     await repo.exists(adults, { minAge: 1 });
     await repo.aggregate(adults, "max", "age", { minAge: 1 });
@@ -133,6 +137,8 @@ describe("named parameters and options", () => {
     await repo.all(adults, { minAge: "18" });
     // @ts-expect-error options come third: { timeoutMs } is not the params
     await repo.all(adults, { timeoutMs: 5 });
+    // @ts-expect-error minAge is required by firstOrThrow too
+    await repo.firstOrThrow(adults);
     // @ts-expect-error a fragment's named parameter is required too
     await repo.raw(fragment`select ${param("n", t.integer())}`);
   });

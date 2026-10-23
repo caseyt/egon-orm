@@ -185,6 +185,9 @@ export type AppliedData<S> = S extends SchemalessTarget<infer F, infer D> ? Simp
 export function applyAction<S extends ChangesetSource, New extends boolean>(changeset: Changeset<S, New> & NotNewRecord<New>, action: Action): Result<AppliedData<S>, Changeset<S, New>>;
 
 // @public
+export function applyActionOrThrow<S extends ChangesetSource, New extends boolean>(changeset: Changeset<S, New> & NotNewRecord<New>, action: Action): AppliedData<S>;
+
+// @public
 export type AppTypeOf<T> = T extends FieldType<infer TApp, infer _TDb> ? TApp : never;
 
 // Warning: (ae-forgotten-export) The symbol "ValueOf" needs to be exported by the entry point index.d.ts
@@ -3544,9 +3547,6 @@ export interface PlanCacheStats {
 }
 
 // @public
-type PlanSource = Pick<Adapter, "compile">;
-
-// @public
 export interface PoolEvent {
     readonly idle: number;
     readonly size: number;
@@ -3639,14 +3639,10 @@ export class PreparedQuery<R, P> implements QueryLike {
         readonly params: (params: P) => void;
         readonly root: string;
     };
+    // Warning: (ae-forgotten-export) The symbol "PreparedFrom" needs to be exported by the entry point index.d.ts
     constructor(query: PreparedFrom);
     readonly ast: QueryAst;
-    get named(): readonly NamedParamNode[];
     namedParams(): readonly string[];
-    // Warning: (ae-forgotten-export) The symbol "PlanSource" needs to be exported by the entry point index.d.ts
-    plan(source: PlanSource, operation?: QueryOperation, schema?: string | undefined): CompiledQuery;
-    // Warning: (ae-forgotten-export) The symbol "PreparedFrom" needs to be exported by the entry point index.d.ts
-    readonly query: PreparedFrom;
     toString(): string;
 }
 
@@ -4012,6 +4008,7 @@ export interface Repo {
     // (undocumented)
     explain<Q extends Queryable>(queryable: Q, ...args: ReadArgs<Q, ExplainReadOptions>): Promise<string>;
     first<Q extends Queryable>(queryable: Q, ...args: ReadArgs<Q, ReadOptions>): Promise<ResultOf<Q> | null>;
+    firstOrThrow<Q extends Queryable>(queryable: Q, ...args: ReadArgs<Q, ReadOptions>): Promise<ResultOf<Q>>;
     get<S extends AnySchema>(schema: S, id: PrimaryKeyOf<S>, options?: ReadOptions): Promise<Row<S> | null>;
     // Warning: (ae-forgotten-export) The symbol "ClausesOf" needs to be exported by the entry point index.d.ts
     getBy<Q extends Queryable>(queryable: Q, clauses: ClausesOf<Q>, ...args: ReadArgs<Q, ReadOptions>): Promise<ResultOf<Q> | null>;

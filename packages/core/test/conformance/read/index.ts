@@ -788,7 +788,7 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
       });
     });
 
-    describe("one, oneOrThrow and first over 0, 1 and many rows", () => {
+    describe("one, oneOrThrow, first and firstOrThrow over 0, 1 and many rows", () => {
       const none = from(User, "u").where({ email: "nobody@example.com" });
       const exactly = from(User, "u").where({ email: "ada@example.com" });
       const several = from(User, "u").where({ role: "member" });
@@ -869,6 +869,27 @@ export function runReadConformance(profile: ReadConformanceProfile): void {
             )
           )?.id,
         ).toBe(3);
+      });
+
+      test("firstOrThrow", async () => {
+        const r = repo();
+        await expect(r.firstOrThrow(none)).rejects.toThrow(NoResultsError);
+        expect((await r.firstOrThrow(exactly)).id).toBe(1);
+        expect((await r.firstOrThrow(several.orderBy(({ u }) => u.id.desc()))).id).toBe(4);
+        expect(
+          (
+            await r.firstOrThrow(
+              several
+                .orderBy(({ u }) => u.id)
+                .limit(3)
+                .offset(1),
+            )
+          ).id,
+        ).toBe(3);
+        // An offset past the last row: the query runs and finds nothing.
+        await expect(r.firstOrThrow(several.orderBy(({ u }) => u.id).offset(100))).rejects.toThrow(
+          NoResultsError,
+        );
       });
     });
 

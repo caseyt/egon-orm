@@ -15,8 +15,11 @@ not to. Please keep the details private until a fixed release is out.
 ## Supported versions
 
 Security fixes ship in a patch release of the latest minor line (before 1.0, the latest
-`0.y`). The versioning and support policy, including the supported Node.js, TypeScript and
-database versions, is in the
+`0.y`). There are no backports before 1.0. From 1.0, the previous major also gets security
+fixes for six months after the next major is released. A supported database version stays
+supported until at least its own end of life. (All three are owner decisions of
+2026-10-22.) The versioning and support policy, including the supported Node.js,
+TypeScript and database versions, is in the
 [upgrade guide](https://egon-orm.github.io/egon-orm/reference/upgrading#security-fixes).
 
 ## Threat model
@@ -35,7 +38,7 @@ values; it cannot defend an application against its own code.
 | Prototype pollution | Params are never merged into a prototype: `__proto__`, `constructor` and `prototype` keys are inert data, no field can be named `__proto__` or `constructor`, and JSON output keeps a `__proto__` key as an own property. | |
 | Resource use | Work grows linearly with the size of the input: integer, float, uuid, date, time and timestamp text is length-checked before it is parsed, decimal text has no length limit and is parsed in one pass, JSON documents are limited to 500 levels, and nested items are matched to loaded rows through an index (for integer, text and uuid keys). The built-in regular expressions cannot backtrack catastrophically. | Limit the size of request bodies. A changeset function that calls itself for a self-referential embed or association recurses once per level of the input, and fails with a stack overflow on a very deep one. `validateFormat` runs your regular expression. |
 | Secrets | A `.redact()` field's value is left out of `util.inspect` of rows and changesets, `toJSON`, log lines (`log: { params: true }` shows `**redacted**`), query events, and the messages of every error Egon throws. Connection strings and passwords are in no error message and cannot be reached by inspecting a repo, an adapter or a transaction. `JSON.stringify(error)` is `{ name, code, id }`. | The database's own text is kept as it is: `ConstraintError.detail` and `error.cause` (the driver's error) may quote the conflicting value, which `util.inspect(error)` shows. Log errors by `message` or `toJSON()`, not by inspecting the object. `changeset.params` and `repo.toSql()` hold values as given. |
-| Code generation | Row factories, validator inputs and row decoders may be generated with `new Function`. The generated source holds names only as JSON string literals, never values. `codegen: false` on `Schema()`, `EmbeddedSchema()` and `createRepo()` turns it off; where the runtime refuses it (a Content Security Policy, a Cloudflare Worker handling a request), the same work is done without it. | A changeset without a schema class (`cast({ data, types }, …)`) has no such option: its `validate()` tries `new Function` once, which a strict Content Security Policy reports, and then falls back. |
+| Code generation | Row factories, validator inputs and row decoders may be generated with `new Function`. The generated source holds names only as JSON string literals, never values. `codegen: false` on `Schema()`, `EmbeddedSchema()` and `createRepo()` turns it off; where the runtime refuses it (a Content Security Policy, a Cloudflare Worker handling a request), the same work is done without it. A changeset without a schema class (`cast({ data, types }, …)`) never generates code (owner decision, 2026-10-22). | Under a strict Content Security Policy, pass `codegen: false` to every `Schema()`, `EmbeddedSchema()` and `createRepo()`, so that the policy has no attempt to report. |
 | Dependencies | `egon-orm` has no runtime dependency. The adapters' drivers (`pg`, `mysql2`, `better-sqlite3`) and Zod are peer dependencies that you install and update. | Keep the drivers up to date. |
 
 Out of scope: the database server's own security (authentication, TLS settings, row-level

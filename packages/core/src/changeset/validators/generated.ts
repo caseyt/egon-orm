@@ -5,9 +5,9 @@
  *
  * Workers allow code generation while a script starts and refuse it while the script
  * handles a request. A schema is usually defined at startup, so its builders are made
- * then; a field table met later (a schemaless changeset, a schema defined inside a
- * handler) is generated when it is first validated, or built from loops where the runtime
- * refuses.
+ * then; a schema defined later (inside a handler) is generated when it is first
+ * validated, or built from loops where the runtime refuses. The field table of a
+ * changeset without a schema class is never generated: it always uses loops.
  *
  * @module
  */
@@ -34,12 +34,13 @@ export interface GeneratedBuilders {
 }
 
 const generated = /* @__PURE__ */ new WeakMap<ReadonlyMap<string, FieldMeta>, GeneratedBuilders>();
-/** Field tables of schemas declared with `codegen: false`: never generated, always loops. */
+/** Field tables of schemas declared with `codegen: false`, and of changesets without a schema class: never generated, always loops. */
 const loopsOnly = /* @__PURE__ */ new WeakSet<ReadonlyMap<string, FieldMeta>>();
 
 /**
- * Marks the field table of a schema declared with `codegen: false`: its validator
- * builders are never generated, so `new Function` is never called for it.
+ * Marks the field table of a schema declared with `codegen: false`, or of a changeset
+ * without a schema class: its validator builders are never generated, so `new Function`
+ * is never called for it.
  *
  * @example
  * ```ts
@@ -53,8 +54,8 @@ export function refuseGeneration(fields: ReadonlyMap<string, FieldMeta>): void {
 /**
  * The generated builders of a field table, made now if they were not made before.
  * `undefined` when the runtime refuses to generate code, or the table is of a schema
- * declared with `codegen: false`. A changeset without a schema class has no such option:
- * its table is generated when it is first validated, where the runtime allows it.
+ * declared with `codegen: false` or of a changeset without a schema class (which has no
+ * `codegen` option, so it never generates code).
  *
  * The builders store one field at a time with its name as a literal, which is several
  * times faster than storing under computed names. A change is never `undefined`, so

@@ -1039,14 +1039,44 @@ function wrappedColumn(ast: QueryAst, field: FieldMeta, reason: string): FieldMe
 // The read operations
 // ---------------------------------------------------------------------------
 
-/** `repo.first`: the first row of the query with `LIMIT 1`, or `null`. */
+/**
+ * `repo.first`: the first row of the query, or `null`. It reads at most one row: `LIMIT 1`,
+ * or the query's own limit when smaller, with its offset kept ({@link firstAst}).
+ */
 export async function first(
   core: ReadCore,
   input: QueryInput,
   named: Readonly<Record<string, unknown>> | undefined,
   options: ReadOptions | undefined,
 ): Promise<unknown> {
-  const rows = await load(
+  const rows = await firstRows(core, input, named, options);
+  return rows.length === 0 ? null : rows[0];
+}
+
+/**
+ * `repo.firstOrThrow`: the first row of the query, read as `first` reads it; {@link NoResultsError},
+ * with the query's rendering, when there is none. It counts the rows rather than testing
+ * the row for `null`, so a selected value that is `null` is returned, not refused.
+ */
+export async function firstOrThrow(
+  core: ReadCore,
+  input: QueryInput,
+  named: Readonly<Record<string, unknown>> | undefined,
+  options: ReadOptions | undefined,
+): Promise<unknown> {
+  const rows = await firstRows(core, input, named, options);
+  if (rows.length === 0) throw new NoResultsError({ query: render(input.ast) });
+  return rows[0];
+}
+
+/** The rows of the query of `first` (at most one), reported as the operation `"first"`. */
+function firstRows(
+  core: ReadCore,
+  input: QueryInput,
+  named: Readonly<Record<string, unknown>> | undefined,
+  options: ReadOptions | undefined,
+): Promise<readonly unknown[]> {
+  return load(
     core,
     "first",
     firstAst(input.ast, core.adapter.capabilities.limitExpressions),
@@ -1055,7 +1085,6 @@ export async function first(
     sourceOf(input.ast),
     input.names,
   );
-  return rows.length === 0 ? null : rows[0];
 }
 
 /** `repo.exists`. */

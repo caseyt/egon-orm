@@ -36,9 +36,6 @@ export interface MysqlPoolOptions {
 }
 
 // @public
-export function normalizeMysqlError(error: unknown, sql: string | undefined): unknown;
-
-// @public
 export const VERSION: string;
 
 // (No @packageDocumentation comment for this package)

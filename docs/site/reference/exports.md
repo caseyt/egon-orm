@@ -117,6 +117,7 @@ Guide: [Changesets and validation](/guide/changesets).
 | [`AnyChildChangeset`](/api/reference/egon-orm/type-aliases/AnyChildChangeset) | type | A changeset of `T` of either kind, as a `with` function may return it. |
 | [`AppliedData`](/api/reference/egon-orm/type-aliases/AppliedData) | type | What `applyChanges()` returns. |
 | [`applyAction`](/api/reference/egon-orm/functions/applyAction) | function | Applies the changes if the changeset is valid, without the database. |
+| [`applyActionOrThrow`](/api/reference/egon-orm/functions/applyActionOrThrow) | function | Applies the changes if the changeset is valid, without the database, as `applyAction` does, and returns the updated row (or plain data object). |
 | [`AssocChange`](/api/reference/egon-orm/type-aliases/AssocChange) | type | The change of association `K` of `S` in `changeset.changes`. |
 | [`AssocName`](/api/reference/egon-orm/type-aliases/AssocName) | type | The association names of `S`. |
 | [`AssocTarget`](/api/reference/egon-orm/type-aliases/AssocTarget) | type | The target class of association `K` of `S`, or `never` when the types do not know it (a changeset made from a row alone). |
@@ -329,12 +330,12 @@ Guide: [Adapters](/guide/adapters).
 | Export | Kind | Summary |
 |---|---|---|
 | [`Adapter`](/api/reference/egon-orm/interfaces/Adapter) | interface | A database, as the repo sees it. |
-| [`AdapterDefinition`](/api/reference/egon-orm/interfaces/AdapterDefinition) | interface | What a dialect package gives `createAdapter`. |
+| [`AdapterDefinition`](/api/reference/egon-orm/interfaces/AdapterDefinition) | interface | What a dialect package gives `createAdapter`, internal to the Egon packages like `createAdapter`, and not a supported extension point. |
 | [`AdapterEvents`](/api/reference/egon-orm/interfaces/AdapterEvents) | interface | The events an adapter emits, by name. |
 | [`BeginOptions`](/api/reference/egon-orm/interfaces/BeginOptions) | interface | Options for starting a transaction. |
 | [`Capabilities`](/api/reference/egon-orm/interfaces/Capabilities) | interface | What a dialect supports. |
 | [`Connection`](/api/reference/egon-orm/interfaces/Connection) | interface | One checked-out database connection. |
-| [`createAdapter`](/api/reference/egon-orm/functions/createAdapter) | function | Creates an adapter from a dialect's definition. |
+| [`createAdapter`](/api/reference/egon-orm/functions/createAdapter) | function | Creates an adapter from a dialect's definition, internal to the Egon packages. |
 | [`DatabaseAdapter`](/api/reference/egon-orm/interfaces/DatabaseAdapter) | interface | An adapter as the dialect packages create it. |
 | [`Dialect`](/api/reference/egon-orm/type-aliases/Dialect) | type | The SQL dialects. |
 | [`DriverCodec`](/api/reference/egon-orm/interfaces/DriverCodec) | interface | How one driver's values for a column kind differ from the canonical driver values the types expect. |
@@ -402,7 +403,7 @@ Guide: [The package](/guide/).
 | [`ColumnBuilder`](/api/reference/egon-orm/migration/interfaces/ColumnBuilder) | class, as a type | One column being defined. |
 | [`ColumnKind`](/api/reference/egon-orm/migration/type-aliases/ColumnKind) | type | The column types that have a name of their own. |
 | [`ColumnType`](/api/reference/egon-orm/migration/type-aliases/ColumnType) | type | The type of a column, as a migration names it. |
-| [`ConstraintOptions`](/api/reference/egon-orm/migration/interfaces/ConstraintOptions) | interface | Options of `MigrationBuilder.createConstraint`. |
+| [`CreateConstraintOptions`](/api/reference/egon-orm/migration/interfaces/CreateConstraintOptions) | interface | Options of `MigrationBuilder.createConstraint`. |
 | [`createDatabase`](/api/reference/egon-orm/migration/functions/createDatabase) | function | Runs `CREATE DATABASE name` through `adapter`, which must be connected to another database of the same server (on Postgres, usually `postgres`). |
 | [`createMigrator`](/api/reference/egon-orm/migration/functions/createMigrator) | function | Creates a migration runner over an adapter. |
 | [`CreateTableOptions`](/api/reference/egon-orm/migration/interfaces/CreateTableOptions) | interface | Options of `MigrationBuilder.createTable`. |
@@ -446,7 +447,6 @@ Guide: [The package](/guide/).
 
 | Export | Kind | Summary |
 |---|---|---|
-| [`normalizePgError`](/api/reference/@egon-orm/postgres/functions/normalizePgError) | function | Maps an error thrown by `pg` to an Egon error, keeping it as `cause` and attaching the statement's `sql` when it is known (never the parameter values). |
 | [`postgres`](/api/reference/@egon-orm/postgres/functions/postgres) | function | Creates a Postgres adapter. |
 | [`PostgresOptions`](/api/reference/@egon-orm/postgres/interfaces/PostgresOptions) | interface | The options of {@link postgres }. |
 | [`PostgresPoolOptions`](/api/reference/@egon-orm/postgres/interfaces/PostgresPoolOptions) | interface | Pool settings for the pool the adapter creates. |
@@ -456,7 +456,6 @@ Guide: [The package](/guide/).
 
 | Export | Kind | Summary |
 |---|---|---|
-| [`normalizeSqliteError`](/api/reference/@egon-orm/sqlite/functions/normalizeSqliteError) | function | Maps an error thrown by `better-sqlite3` to an Egon error, keeping it as `cause` and attaching the statement's `sql` when it is known (never the parameter values). |
 | [`PragmaValue`](/api/reference/@egon-orm/sqlite/type-aliases/PragmaValue) | type | A pragma's value. |
 | [`sqlite`](/api/reference/@egon-orm/sqlite/functions/sqlite) | function | Creates a SQLite adapter over `better-sqlite3`. |
 | [`SqliteOptions`](/api/reference/@egon-orm/sqlite/interfaces/SqliteOptions) | interface | The options of {@link sqlite }. |
@@ -469,7 +468,6 @@ Guide: [The package](/guide/).
 | [`mysql`](/api/reference/@egon-orm/mysql/functions/mysql) | function | Creates a MySQL adapter over `mysql2`. |
 | [`MysqlOptions`](/api/reference/@egon-orm/mysql/interfaces/MysqlOptions) | interface | The options of {@link mysql }. |
 | [`MysqlPoolOptions`](/api/reference/@egon-orm/mysql/interfaces/MysqlPoolOptions) | interface | Pool settings for the pool the adapter creates. |
-| [`normalizeMysqlError`](/api/reference/@egon-orm/mysql/functions/normalizeMysqlError) | function | Maps an error thrown by `mysql2` to an Egon error, keeping it as `cause` and attaching the statement's `sql` when it is known (never the parameter values). |
 | [`VERSION`](/api/reference/@egon-orm/mysql/variables/VERSION) | constant | The version of the `@egon-orm/mysql` package. |
 
 ## `@egon-orm/zod`

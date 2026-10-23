@@ -95,6 +95,7 @@ const TIMESTAMP: AnyFieldType = /* @__PURE__ */ timestampType();
 /** `count` and `sum` over integers: the database returns a 64-bit integer, read as a `number`. */
 const BIG_COUNT: AnyFieldType = /* @__PURE__ */ bigintType({ mode: "number" });
 
+/** `null` when `T` admits it. */
 type NullOf<T> = null extends T ? null : never;
 
 type Last<A extends readonly unknown[]> = A extends readonly [...unknown[], infer L] ? L : never;

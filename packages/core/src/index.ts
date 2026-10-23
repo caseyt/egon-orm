@@ -10,10 +10,10 @@
  */
 export const VERSION: string = "0.0.0";
 
-// Step 11: the shared adapter. `createAdapter` is how the dialect packages build their
-// adapters; the driver wrapper it takes stays unnamed here (it is not public API). The
-// contract types a developer names when running SQL or listening to events are public
-// with it.
+// Step 11: the shared adapter. `createAdapter` and `AdapterDefinition` are internal to the
+// Egon packages (owner decision, 2026-10-22): they are exported only so that the dialect
+// packages can build their adapters, and the driver wrapper they take stays unnamed here.
+// The contract types a developer names when running SQL or listening to events are public.
 export type { AdapterDefinition, DatabaseAdapter, PoolStats } from "./adapter/adapter.js";
 export { createAdapter } from "./adapter/adapter.js";
 export type { DriverCodec, DriverCodecs } from "./adapter/codecs.js";
@@ -55,7 +55,14 @@ export type {
   UniqueAsyncOptions,
   ValidationEntry,
 } from "./changeset/index.js";
-export { applyAction, Changeset, cast, change, traverseErrors } from "./changeset/index.js";
+export {
+  applyAction,
+  applyActionOrThrow,
+  Changeset,
+  cast,
+  change,
+  traverseErrors,
+} from "./changeset/index.js";
 // Step 15: nested changesets. The methods are on `Changeset`; `buildAssoc` and the types
 // of nested changes are public with them.
 export { buildAssoc } from "./changeset/nested/index.js";

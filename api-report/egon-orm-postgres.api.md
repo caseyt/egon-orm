@@ -8,9 +8,6 @@ import { DatabaseAdapter } from 'egon-orm';
 import pg from 'pg';
 
 // @public
-export function normalizePgError(error: unknown, sql: string | undefined): unknown;
-
-// @public
 export function postgres(options?: PostgresOptions): DatabaseAdapter;
 
 // @public

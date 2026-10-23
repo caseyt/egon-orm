@@ -40,6 +40,7 @@ import {
   param,
   parameterized,
   prepare,
+  Query,
   rowNumber,
   Schema,
   scalar,
@@ -52,7 +53,7 @@ import {
   tuple,
   val,
 } from "egon-orm";
-import { createMigrator, defineMigration } from "egon-orm/migration";
+import { createMigrator, defineMigration, MigrationBuilder } from "egon-orm/migration";
 import { createSandbox } from "egon-orm/testing";
 import { z } from "zod";
 
@@ -331,3 +332,16 @@ export const moreSteps = createBatch()
     from(Post, "p").where({ authorId: found.id }).set({ published: true }),
   )
   .put("source", "admin");
+
+// The classes that are public as types only keep their constructors in the declarations,
+// so `new` on them does not compile (a stripped constructor would leave a default one that
+// takes no arguments). This file is only type-checked, never run: the packages export no
+// such values.
+export function internalConstructors(): readonly unknown[] {
+  return [
+    // @ts-expect-error a query is made with from()
+    new Query(),
+    // @ts-expect-error a migration receives its builder as the m of up(m)
+    new MigrationBuilder(),
+  ];
+}

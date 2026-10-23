@@ -70,10 +70,10 @@ the next major removes it.
 ### Security fixes
 
 A security fix ships in a patch release of the latest minor line (before 1.0, the latest
-`0.y`), so `^` ranges pick it up. Earlier lines get no fixes before 1.0. From 1.0, the
-previous major is to get them for a period after the next major is released (provisional:
-six months is proposed, pending the maintainers' decision). How to
-report a vulnerability is in
+`0.y`), so `^` ranges pick it up. There are no backports before 1.0: earlier `0.y` lines
+get no fixes. From 1.0, the previous major also gets security fixes for six months after
+the next major is released. (Both are owner decisions of 2026-10-22.) How to report a
+vulnerability is in
 [SECURITY.md](https://github.com/egon-orm/egon-orm/blob/main/SECURITY.md).
 
 ## Supported versions
@@ -107,12 +107,12 @@ release that types a `require()` of an ES module, which a CommonJS project does.
 
 Each package states its Node.js range in `engines` and its drivers as peer ranges, so a
 package manager warns about a combination outside them. A Node.js, database or driver
-version stays supported until its own end of life at least; dropping one is a breaking
-change (above).
+version stays supported until its own end of life at least (for the databases, an owner
+decision of 2026-10-22); dropping one is a breaking change (above).
 
 ## 0.1.0
 
-The first release. If you used the packages from this repository before it, two things
+The first release. If you used the packages from this repository before it, three things
 changed that compile or behave differently.
 
 ### Error constructors take an identifier first
@@ -159,3 +159,19 @@ full text back on once, at start-up:
 <<< @/examples/errors.ts#full-messages
 
 The `egon` command prints full messages.
+
+### Removed and renamed exports
+
+A few names that were exported before 0.1.0 are gone or renamed (owner decisions,
+2026-10-22). Nothing replaces the removed functions: the adapters call them for you.
+
+| Before | From 0.1.0 |
+|---|---|
+| `normalizePgError` from `@egon-orm/postgres` | Not exported. |
+| `normalizeSqliteError` from `@egon-orm/sqlite` | Not exported. |
+| `normalizeMysqlError` from `@egon-orm/mysql` | Not exported. |
+| `ConstraintOptions` from `egon-orm/migration` (the options of `m.createConstraint`) | `CreateConstraintOptions`. The `ConstraintOptions` of `egon-orm`, a changeset's constraint options, is unchanged. |
+| `plan()`, `named` and `query` of a `PreparedQuery`; `operations` of the migration builder; the protected `context` and `added` of the migration builders | Not in the published declarations. They were for the library's own use. |
+
+`createAdapter` stays exported, but it is internal to the Egon packages: its driver
+contract is not exported, and it may change in any release.

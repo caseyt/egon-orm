@@ -52,6 +52,10 @@ export default defineConfig({
   // as `type expr_Expr<out T, in P> = Expr<T, P>`: variance annotations on an alias of a
   // class, which tsc rejects with TS2637 in a consumer that checks libraries
   // (`skipLibCheck: false`). examples/smoke/consumer.mjs runs that check.
+  //
+  // `stripInternal` leaves members tagged `@internal` out of the published declarations
+  // (owner decision, 2026-10-22); every package's config sets it. The API report shows
+  // what is left.
   dts: {
     entry: {
       index: "src/index.ts",
@@ -59,7 +63,7 @@ export default defineConfig({
       testing: "src/testing.ts",
       messages: "src/messages/index.ts",
     },
-    compilerOptions: { ignoreDeprecations: "6.0" },
+    compilerOptions: { ignoreDeprecations: "6.0", stripInternal: true },
   },
   sourcemap: true,
   clean: true,

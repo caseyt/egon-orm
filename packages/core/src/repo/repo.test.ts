@@ -353,7 +353,7 @@ describe("database schemas", () => {
   });
 });
 
-describe("one, oneOrThrow, first", () => {
+describe("one, oneOrThrow, first, firstOrThrow", () => {
   test("one: null, the row, or MultipleResultsError with the query's rendering", async () => {
     let rows: Record<string, unknown>[] = [];
     const { repo } = fake(() => rows);
@@ -391,6 +391,28 @@ describe("one, oneOrThrow, first", () => {
     expect(await repo.first(q)).toBeNull();
     // The derived query is made once per query.
     expect(statements[1]?.sql).toBe(statements[0]?.sql);
+  });
+
+  test("firstOrThrow: the first row with a limit of 1, NoResultsError with the query's rendering for none", async () => {
+    let rows: Record<string, unknown>[] = [ADA, GRACE];
+    const { repo, statements } = fake(() => rows);
+    const q = from(User, "u").orderBy(({ u }) => u.id);
+    expect((await repo.firstOrThrow(q)).id).toBe(1);
+    expect(statements[0]?.sql).toMatch(/order by "u"\."id" asc limit \$1$/);
+    expect(statements[0]?.params).toEqual([1]);
+    rows = [];
+    const error = await rejection(repo.firstOrThrow(q));
+    expect(error).toBeInstanceOf(NoResultsError);
+    expect((error as NoResultsError).id).toBe("noResults");
+    expect((error as NoResultsError).query).toBe("from users as u order by u.id");
+    // The same statement as first(): the derived query is shared.
+    expect(statements[1]?.sql).toBe(statements[0]?.sql);
+  });
+
+  test("firstOrThrow returns a selected null: it counts rows, it does not test the value", async () => {
+    const { repo } = fake(() => [{ c0: null }]);
+    const names = from(User, "u").select(({ u }) => u.name);
+    expect(await repo.firstOrThrow(names)).toBeNull();
   });
 
   test("first keeps a smaller limit of the query's own, and its offset", async () => {
@@ -1155,13 +1177,24 @@ describe("events", () => {
     repo.on("query", (event) => operations.push(event.operation));
     const [ada] = await repo.all(User);
     await repo.first(User);
+    await repo.firstOrThrow(User);
     await repo.get(User, 1);
     await repo.getBy(User, { id: 1 });
     await repo.exists(User);
     await repo.count(User);
     await repo.reload(ada as User);
     await repo.explain(User);
-    expect(operations).toEqual(["all", "first", "get", "getBy", "exists", "aggregate", "reload", "explain"]);
+    expect(operations).toEqual([
+      "all",
+      "first",
+      "first",
+      "get",
+      "getBy",
+      "exists",
+      "aggregate",
+      "reload",
+      "explain",
+    ]);
   });
 
   test("a statement-level read that fails is reported, and so is a result it cannot read", async () => {

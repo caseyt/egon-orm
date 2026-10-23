@@ -1,8 +1,14 @@
 # Step 21 — Release hardening
 
-**Depends on:** all other steps, including 21a (edge readiness) and 21b (JSON responses).
+**Depends on:** every other step except 19 (performance), including 21a (edge readiness) and
+21b (JSON responses).
 **Owns:** release configuration, `SECURITY.md`, `CHANGELOG.md`, `docs/site/guide/upgrading.md`,
 `docs/plan/status/21-audit.md`. Fixes found here go to the owning area as normal PRs.
+
+> **Owner decisions, 2026-10-22:** step 21 does not wait for step 19, which stays postponed
+> until the owner decides where benchmarks run; the readiness report notes that the published
+> benchmark has not run yet. The soak test, mutation testing and the type-health checks on the
+> 200-schema project stay gates for `0.1.0`; they are not moved to the `1.0` gate.
 
 ## Goal
 
@@ -20,8 +26,10 @@ before `1.0`), and make publishing a one-command, repeatable act.
 - **Type health.** Type-check time of `examples/blog` and of a synthetic 200-schema project
   (`tsc --extendedDiagnostics`); budget: no single query expression over 50 ms of check
   time, instantiation counts recorded. Editor responsiveness check (tsserver completions in
-  a `where` callback under 200 ms on the 200-schema project). Test against the minimum
-  supported TypeScript version and the latest, plus `next`, in CI.
+  a `where` callback under 200 ms on the 200-schema project). These are compile-time
+  measurements taken once during the audit and recorded in the report, not a CI timing gate
+  (plan README §7). Test against the minimum supported TypeScript version and the latest,
+  plus `next`, in CI.
 - **Error-message review.** Trigger every error class deliberately; each message must say
   what happened, the offending name, and the fix (the fix in the full text that step 21a
   makes opt-in; the default short message must still name what failed and link its entry). Do the same for the ten most likely
@@ -63,6 +71,9 @@ before `1.0`), and make publishing a one-command, repeatable act.
 
 - `publint` and `attw` clean for every package; `exports` verified from real consumer
   projects (ESM, CommonJS via `require()` of the ES module on Node >= 22.12, TS `moduleResolution` `node16` and `bundler`).
+- Migrations and the CLI are in `0.1.0`: `egon-orm/migration` and `@egon-orm/cli` (no longer
+  `private`; owner, 2026-10-20, #52) go through the audit, the API report and the release
+  workflow like the other packages. This answers the publishing question in `status/18.md`.
 - Peer dependency ranges tested at their lower and upper bounds (`pg`, Zod, `better-sqlite3`, `mysql2`).
 - The package name is decided: `egon-orm` / `@egon-orm/*` (plan README §11). Confirm the
   npm scope is claimed and verify nothing still references `ectype`.
@@ -75,9 +86,11 @@ before `1.0`), and make publishing a one-command, repeatable act.
 ### 5. Readiness report
 
 `docs/plan/status/21-audit.md`: for each area a verdict (ready / ready with caveats /
-not ready) with evidence links; every acceptance box from steps 01–20 re-verified
-(not copied from the status notes); open issues ranked; an explicit recommendation —
-publish `0.1.0` now, or fix a named list first — and the proposed gate for `1.0`.
+not ready) with evidence links; every acceptance box from steps 01–20, 21a and 21b
+re-verified (not copied from the status notes). Step 19's boxes, and every box another
+step marked "deferred to step 19", are reported as not run and do not count against
+readiness. Open issues ranked; an explicit recommendation — publish `0.1.0` now, or fix a
+named list first — and the proposed gate for `1.0`.
 
 ## Acceptance
 
@@ -85,6 +98,8 @@ publish `0.1.0` now, or fix a named list first — and the proposed gate for `1.
 - [ ] Security review complete; all findings fixed or documented with severity.
 - [ ] Soak, fault-injection and runtime-matrix results recorded; zero connection leaks.
 - [ ] Mutation score target met for the three core areas.
+- [ ] Type-health budgets met on `examples/blog` and the 200-schema project (50 ms per query
+  expression, completions under 200 ms), with instantiation counts recorded.
 - [ ] Release dry run succeeds end to end from a clean clone.
 - [ ] API report committed and enforced in CI.
 

@@ -6,6 +6,9 @@
 
 **Follow-up step:** per the owner's decision (plan README §10) this runs after step 21 and
 is not part of the first release. It is isolated from the rest of the library.
+Superseded: step 18 was brought forward and merged on 2026-10-20 (#34), and the owner decided
+the same day that `@egon-orm/cli` ships like the other packages (#52). Migrations and the CLI
+are part of the first release.
 
 ## Goal
 

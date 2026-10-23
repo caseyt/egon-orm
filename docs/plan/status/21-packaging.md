@@ -311,7 +311,7 @@ Both are under "Needs the owner's decision" / "Owner actions" below.
   `CHECKED_LANGUAGES`; `fencedBlocks` returns `end` and `body` and keeps an unclosed block)
   and its test, root `package.json` (`lint`, `release:dry-run`, `verdaccio`),
   `pnpm-lock.yaml`, `cspell.json`, `docs/site/reference/changelog.md` (rewritten as an
-  `@include` of the root `CHANGELOG.md`), `CONTRIBUTING.md`
+  `@include` of the root `CHANGELOG.md`), `SECURITY.md` (a "Supported versions" section, at 21-security's request), `CONTRIBUTING.md`
   (smoke row, `release:dry-run` row, CI job list, "Releases"),
   `packages/{cli,sqlite}/package.json`, a comment in `packages/core/tsup.config.ts` (the
   renamed script), new `docs/site/examples/readme/*.ts` and `docs/site/examples/upgrading.ts`.
@@ -368,6 +368,11 @@ in "Peer dependency bounds". The earlier runs:
    21-api's PR #69 measures (5.5.4 passes except `pg-protocol`'s own `.d.ts` under
    `skipLibCheck: false`). If the owner prefers a minimum that also passes
    `skipLibCheck: false` with today's `@types/node`, that is 5.7.
+4. **Security-fix policy** (asked for by 21-security). Written in `upgrading.md`
+   ("Security fixes") and linked from a new "Supported versions" section of `SECURITY.md`:
+   fixes ship as a patch of the latest minor line. Before 1.0 there are no backports. From
+   1.0, the previous major also gets fixes for six months after the next major is released.
+   The six months is my proposal: confirm or change it.
 
 ## Owner actions (cannot be done from a PR)
 
@@ -389,6 +394,24 @@ in "Peer dependency bounds". The earlier runs:
 - At release: change "0.1.0 (unreleased)" in `CHANGELOG.md` to the date in the version PR.
 
 ## Requests
+
+- **From 21-security (#68, merged; main merged into this branch at `43ef4d1`):**
+  - *Link the support policy from SECURITY.md:* done. There is a "Supported versions"
+    section in `SECURITY.md`, which is 21-security's file, plus "Security fixes" in
+    `upgrading.md`.
+  - *Bump the flagged dev dependencies (F10):* not done, because none fits yet:
+    - `vitepress` 1.6.4 is the newest 1.x. It pins `vite` 5, so the fix needs vitepress 2,
+      which is a pre-release.
+    - The `esbuild` 0.27 that vite and vitest resolve comes from `tsup` 8.5.1, the newest
+      8.x. The fix is tsup 9.0.0, a major released on 2026-10-14, whose declaration build
+      would need its own verification.
+    - `wrangler` and `miniflare` are held where step 21a put them, because Miniflare 5 is
+      an alpha with a different options shape.
+  - *New advisory from this branch:* `pnpm audit` now reports 28 advisories instead of 27.
+    The new one is `braces` 3.0.3 (GHSA-vfj7-8cjw-p6xm, high, no patched release), reached
+    through the new dev dependency `verdaccio`
+    (`@verdaccio/local-storage-legacy > globby > fast-glob > micromatch`). It is used only
+    by the release dry run, with glob patterns from our own config, and ships in no package.
 
 - **21-api** asked for `scripts/sync-version.mjs` to update the CLI's `VERSION` in
   `src/version.ts`: done on this branch (it looks in `src/index.ts`, then `src/version.ts`,

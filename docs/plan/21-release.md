@@ -26,8 +26,10 @@ before `1.0`), and make publishing a one-command, repeatable act.
 - **Type health.** Type-check time of `examples/blog` and of a synthetic 200-schema project
   (`tsc --extendedDiagnostics`); budget: no single query expression over 50 ms of check
   time, instantiation counts recorded. Editor responsiveness check (tsserver completions in
-  a `where` callback under 200 ms on the 200-schema project). Test against the minimum
-  supported TypeScript version and the latest, plus `next`, in CI.
+  a `where` callback under 200 ms on the 200-schema project). These are compile-time
+  measurements taken once during the audit and recorded in the report, not a CI timing gate
+  (plan README §7). Test against the minimum supported TypeScript version and the latest,
+  plus `next`, in CI.
 - **Error-message review.** Trigger every error class deliberately; each message must say
   what happened, the offending name, and the fix (the fix in the full text that step 21a
   makes opt-in; the default short message must still name what failed and link its entry). Do the same for the ten most likely
@@ -82,8 +84,10 @@ before `1.0`), and make publishing a one-command, repeatable act.
 
 `docs/plan/status/21-audit.md`: for each area a verdict (ready / ready with caveats /
 not ready) with evidence links; every acceptance box from steps 01–20, 21a and 21b
-re-verified (not copied from the status notes; step 19's are reported as not run); open
-issues ranked; an explicit recommendation — publish `0.1.0` now, or fix a named list first — and the proposed gate for `1.0`.
+re-verified (not copied from the status notes). Step 19's boxes, and every box another
+step marked "deferred to step 19", are reported as not run and do not count against
+readiness. Open issues ranked; an explicit recommendation — publish `0.1.0` now, or fix a
+named list first — and the proposed gate for `1.0`.
 
 ## Acceptance
 
@@ -91,6 +95,8 @@ issues ranked; an explicit recommendation — publish `0.1.0` now, or fix a name
 - [ ] Security review complete; all findings fixed or documented with severity.
 - [ ] Soak, fault-injection and runtime-matrix results recorded; zero connection leaks.
 - [ ] Mutation score target met for the three core areas.
+- [ ] Type-health budgets met on `examples/blog` and the 200-schema project (50 ms per query
+  expression, completions under 200 ms), with instantiation counts recorded.
 - [ ] Release dry run succeeds end to end from a clean clone.
 - [ ] API report committed and enforced in CI.
 

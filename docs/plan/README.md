@@ -211,7 +211,7 @@ Naming is camelCase throughout; a throwing twin is `funOrThrow`; a predicate is
 | 15 Nested changesets and embeds | `15-nested-changesets.md` | 13, 14 | 16 |
 | 16 Transactions, Batch, sandbox | `16-transactions-batch.md` | 13 | 14, 15 |
 | 17 SQLite and MySQL | `17-dialects.md` | 12–16 | 18 |
-| 18 Migrations and CLI (**follow-up, after 21**) | `18-migrations-cli.md` | 11, 21 | — |
+| 18 Migrations and CLI (brought forward; merged in #34, 2026-10-20) | `18-migrations-cli.md` | 11 | 12–17 |
 | 19 Performance | `19-performance.md` | harness after 01; final pass after 16 | — |
 | 20 Documentation | `20-documentation.md` | skeleton after 01; final pass after 17 | — |
 | 21a Edge readiness (owner decision, 2026-10-20) | `21a-edge-readiness.md` | 17, 18, 20 | 19 |
@@ -219,7 +219,7 @@ Naming is camelCase throughout; a throwing twin is `funOrThrow`; a predicate is
 | 21 Release hardening | `21-release.md` | all except 19 (owner decision, 2026-10-22) | — |
 
 Suggested waves: **A** 01 → **B** 02 → **C** 03, 07, 11 → **D** 04, 10 → **E** 05, 08 →
-**F** 06, 12 → **G** 09, 13, 14 → **H** 15, 16 → **I** 17 → **J** 19, 20, 21 → **follow-up** 18.
+**F** 06, 12 → **G** 09, 13, 14 → **H** 15, 16 → **I** 17, 18 → **J** 19, 20, 21.
 Step 21a (edge readiness) was added on 2026-10-20 and step 21b (JSON responses) on
 2026-10-21; both run before 21, in parallel with each other. Step 19 is postponed until the
 owner decides where benchmarks run; it is a one-off published run, not a CI gate
@@ -394,6 +394,7 @@ Definition of done, common to all steps:
 2. **Database tiers:** Postgres first (D13 stands). SQLite and MySQL follow in step 17.
 3. **Migrations and CLI:** wanted, but as a **follow-up**. Step 18 is not part of the first
    release; it starts after step 21. Until then tests and examples use plain SQL fixtures.
+   Superseded: step 18 was brought forward and merged on 2026-10-20 (#34).
 4. **Nullable default (D3):** confirmed 2026-10-13: non-null by default.
 
 ---

@@ -419,7 +419,7 @@ describe("bulk update and delete errors", () => {
   test("a query with assignments cannot run as a select", () => {
     expect(() =>
       createCompiler(postgresDialect).compile(rebuild(posts.ast, { updates: set }), "all", undefined),
-    ).toThrow("query.updateWithAll: The query has set(…) assignments.");
+    ).toThrow("query.updateWithAll: A query with set(…) assignments, an update, was run as a read.");
   });
 
   test("a bulk write joins only with inner and cross joins", () => {

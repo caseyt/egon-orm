@@ -1491,7 +1491,10 @@ function query(
     throw new QueryError("query.astOperation", `Unknown query operation "${String(operation)}".`);
   }
   if (operation === "all" && ast.updates.length > 0) {
-    throw new QueryError("query.updateWithAll", "The query has set(…) assignments.");
+    throw new QueryError(
+      "query.updateWithAll",
+      "A query with set(…) assignments, an update, was run as a read.",
+    );
   }
   const withClause =
     ast.ctes.length === 0 ? "" : at(ctx, start[CTES] as number, () => ctes(ctx, frame, ast.ctes));

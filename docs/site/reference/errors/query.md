@@ -628,7 +628,7 @@ Pass the schema class of its rows, cte("&#123;name&#125;", Category), or the CTE
 
 > withCte("&#123;name&#125;", …): this query already has a CTE named "&#123;name&#125;".
 
-Give each its own name.
+Give each CTE its own name.
 
 ## `query.cteUndefined` {#query-cteundefined}
 
@@ -676,7 +676,7 @@ The delete plan is malformed: the repo always finds the row by its primary key.
 
 > distinct() was called on a query that already has a distinct.
 
-A query has one.
+A query has one distinct: call distinct() once, with every expression it needs.
 
 ## `query.dynamicBinding` {#query-dynamicbinding}
 
@@ -836,7 +836,7 @@ Name a stored field of the embedded schema.
 
 ## `query.fieldValidatorPromise` {#query-fieldvalidatorpromise}
 
-> The field validator returned a Promise.
+> The field validator of "&#123;field&#125;" returned a Promise.
 
 An async validator runs with validateFieldAsync(); validateField() is synchronous.
 
@@ -1214,9 +1214,9 @@ Give the field a default, such as t.integer().default(1).
 
 ## `query.lockNotNumber` {#query-locknotnumber}
 
-> optimisticLock(): the field is not a number.
+> optimisticLock(): "&#123;field&#125;" is not a number, so it has no default increment.
 
-Pass a function that makes the next value.
+Only a number or a bigint has a default increment: pass a function that makes the next value as the second argument of optimisticLock().
 
 ## `query.lockOptions` {#query-lockoptions}
 
@@ -1600,7 +1600,7 @@ Pass the schema class of the outer binding: outerRef("&#123;alias&#125;", &#123;
 
 > over() takes the name of a window, or &#123; partitionBy, orderBy, frame &#125;.
 
-Pass the name of a window declared with window(), or &#123; partitionBy, orderBy, frame &#125;.
+Pass the name of a window declared with windows(), or &#123; partitionBy, orderBy, frame &#125;.
 
 ## `query.overFrame` {#query-overframe}
 
@@ -1612,7 +1612,7 @@ Pass a fragment, such as fragment\`ROWS BETWEEN 1 PRECEDING AND CURRENT ROW\`.
 
 > over() takes the name of a window declared on the query, an identifier (/^\[A-Za-z\_\]\[A-Za-z0-9\_$\]\*$/), or a window.
 
-The name given does not match, so it was refused.
+Declare the window with windows(&#123; w: (&#123; p &#125;) =\> (&#123; partitionBy: \[p.authorId\] &#125;) &#125;) and pass its name, over("w"), or pass the window itself.
 
 ## `query.overTwice` {#query-overtwice}
 
@@ -2134,7 +2134,7 @@ Pass an object of field values, or a callback that returns one: set(&#123; publi
 
 > set() was given no field.
 
-Set at least one.
+Set at least one field: set(&#123; published: true &#125;).
 
 ## `query.setNotTable` {#query-setnottable}
 
@@ -2284,7 +2284,7 @@ Pass a query built with from(), with a select() of one expression.
 
 > A query with set(…) assignments, an update, was used as a subquery.
 
-Only a query that reads can be one.
+Only a query that reads can be a subquery: leave out set(…), or run the update on its own with repo.updateAll().
 
 ## `query.subqueryWithPreloads` {#query-subquerywithpreloads}
 
@@ -2480,9 +2480,9 @@ The update plan is malformed: the repo runs no statement for a changeset without
 
 ## `query.updateWithAll` {#query-updatewithall}
 
-> The query has set(…) assignments.
+> A query with set(…) assignments, an update, was run as a read.
 
-Run it with repo.updateAll(q).
+Run it with repo.updateAll(q), or leave out set(…) to read.
 
 ## `query.upsertUnreadable` {#query-upsertunreadable}
 
@@ -2656,7 +2656,7 @@ Return a window from the callback: &#123; partitionBy, orderBy, frame &#125;.
 
 > windows() declares "&#123;name&#125;", which this query already declares.
 
-Each window has one name.
+Give each window its own name.
 
 ## `query.windowUndeclared` {#query-windowundeclared}
 
@@ -2674,7 +2674,7 @@ A window takes partitionBy, orderBy and frame.
 
 > windows() was given no window.
 
-Name at least one.
+Name at least one window: windows(&#123; w: (&#123; p &#125;) =\> (&#123; partitionBy: \[p.authorId\] &#125;) &#125;).
 
 ## `query.windowsObject` {#query-windowsobject}
 

@@ -144,7 +144,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # Full history: `changeset version` looks up the commit that added each changeset (for
+      # the changelog entry), and fails in a shallow clone, as release.yml's jobs would.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup
       - run: pnpm release:dry-run
 

@@ -124,6 +124,12 @@ let verdaccio;
 try {
   step(`clone ${ref} of ${ROOT}`);
   const sha = run("git", ["rev-parse", ref], ROOT).trim();
+  // `changeset version` looks up the commit that added each changeset; in a shallow clone
+  // it fails with a bare "Error" (CI checks out with fetch-depth: 0 for this).
+  check(
+    run("git", ["rev-parse", "--is-shallow-repository"], ROOT).trim() === "false",
+    "this repository is a shallow clone; fetch its full history first (git fetch --unshallow)",
+  );
   run("git", ["clone", "--quiet", "--no-hardlinks", ROOT, clone], dir);
   git(["checkout", "--quiet", "-B", "main", sha], clone);
   check(git(["status", "--porcelain"], clone).trim() === "", "the clone is not clean");

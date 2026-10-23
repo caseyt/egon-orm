@@ -177,6 +177,11 @@ ok: a patch to @egon-orm/zod alone moves all 6 packages to 0.1.1 (not published)
 release dry run: passed (cea8fb2, 0.1.0)
 ```
 
+The first CI run of the job failed: `changeset version` needs the commit that added each
+changeset (for the changelog line) and fails with a bare `Error` in a shallow checkout.
+The job now checks out with `fetch-depth: 0` (as `release.yml`'s jobs already did), and
+the script refuses a shallow repository with a clear message.
+
 A separate trial (scratch clone, not committed) confirmed that a later `minor` changeset
 for `egon-orm` alone gives 0.2.0 for all six, with no major cascade through the
 `workspace:^` peer ranges (Changesets 3.0.3).

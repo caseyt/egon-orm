@@ -14,7 +14,7 @@
  *
  * @module
  */
-import { type ErrorMessages, fullMessageOf, isEgonError } from "../errors.js";
+import { type ErrorCatalog, fullMessageOf, isEgonError } from "../errors.js";
 import { messages } from "./catalog.js";
 
 export { messages } from "./catalog.js";
@@ -44,7 +44,7 @@ export { messages } from "./catalog.js";
  * }
  * ```
  */
-export function explain(error: unknown, catalog: ErrorMessages = messages): string {
+export function explain(error: unknown, catalog: ErrorCatalog = messages): string {
   if (isEgonError(error)) return fullMessageOf(error, catalog) ?? error.message;
   if (error instanceof Error) return `${error.name}: ${error.message}`;
   return String(error);

@@ -48,5 +48,8 @@
     "@egon-orm/postgres": "workspace:*",
     "egon-orm": "workspace:*",
     "pg": "8.23.1"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

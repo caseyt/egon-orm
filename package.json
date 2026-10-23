@@ -12,7 +12,7 @@
   },
   "scripts": {
     "check": "pnpm lint && pnpm typecheck && pnpm test:unit && pnpm test:types && pnpm build",
-    "lint": "biome ci --error-on-warnings . && node scripts/check-workspace-policy.mjs && node scripts/check-dialect-conditionals.mjs && node scripts/check-pure-annotations.mjs && tsx scripts/dialect-support.ts --check && pnpm docs:check",
+    "lint": "biome ci --error-on-warnings . && node scripts/check-workspace-policy.mjs && node scripts/check-release-config.mjs && node scripts/check-dialect-conditionals.mjs && node scripts/check-pure-annotations.mjs && tsx scripts/dialect-support.ts --check && pnpm docs:check",
     "format": "biome check --write .",
     "typecheck": "tsc -b && pnpm typecheck:spikes",
     "typecheck:spikes": "tsc -p tsconfig.spikes.json && node scripts/check-rejected-spike.mjs",
@@ -39,7 +39,8 @@
     "db:reset": "pnpm db:down && pnpm db:up",
     "clean": "node scripts/clean.mjs",
     "changeset": "changeset",
-    "version-packages": "changeset version && node scripts/sync-version.mjs"
+    "version-packages": "changeset version && node scripts/sync-version.mjs",
+    "release:dry-run": "node scripts/release-dry-run.mjs"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
@@ -53,6 +54,7 @@
     "tsup": "8.5.1",
     "tsx": "4.23.15",
     "typescript": "6.0.3",
+    "verdaccio": "6.10.6",
     "vite": "8.3.4",
     "vitest": "5.0.3"
   }

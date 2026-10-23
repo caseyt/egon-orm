@@ -248,8 +248,7 @@ chain|tree|hub|clusters] [--schemas N] [--runs 5] [--completions-only] [--annota
   `require()` of an ES module: the CommonJS (`.cts`) program of `consumer.mjs` fails on 5.5.4
   and 5.7.3 with TS1479, and passes on 5.8.3. The owner chose a single minimum over the split
   I first proposed (5.5 for ES modules, 5.8 for CommonJS).
-- Decision D14 in the plan README still says "TypeScript >= 5.5". The plan files are not mine
-  to edit; see Requests.
+- Decision D14 in the plan README now says 5.8 too: the plan PR #71 updated it.
 - History: before the decision, CI checked 5.5.4. It needed two exemptions there: errors in
   pg-protocol's declarations were allowed (`--allow-lib-errors`), and the CommonJS program
   was skipped (`--no-cjs-types`). The decision removes both options and
@@ -395,9 +394,8 @@ No seam test exposed a bug.
   `src/index.ts`, but `@egon-orm/cli` declares it in `src/version.ts`
   (`index.ts` re-exports it), so `pnpm version-packages` reports
   "no `export const VERSION` line" for the CLI. I did not run it.
-- **To the owner (plan files):** decision D14 in `docs/plan/README.md` still says
-  "TypeScript >= 5.5". The owner's 2026-10-22 decision makes it 5.8. That is a §2 decision,
-  so the README says it needs an ADR; I have neither edited the plan nor written one.
+- **Done: to the owner (plan files):** decision D14 in `docs/plan/README.md` said
+  "TypeScript >= 5.5". The merged plan PR #71 updated it to the owner's 5.8.
 - **To 21-audit:** the API report check, the TypeScript jobs and the measurements above are
   the evidence for §1. **The 200 ms completions gate is not met for about 150 to 200
   connected schemas** (242 to 314 ms median at 200 reachable schemas, in chain, tree and hub
@@ -486,8 +484,7 @@ These are changed in this PR because their owner (21-packaging) has finished:
 - `docs/site/reference/upgrading.md`: the TypeScript row and note give TypeScript 5.8 or
   later (owner decision, 2026-10-22). Round 3 had the split minimum there.
 - `CHANGELOG.md`: its requirements line says the same.
-- `CONTRIBUTING.md`, `.github/workflows/ci.yml`, `examples/smoke/consumer.mjs`: the TypeScript
-  jobs and their options, as described above.
+- `CONTRIBUTING.md`, `.github/workflows/ci.yml`: the TypeScript jobs, as described above.
 
 ## Verification (local)
 

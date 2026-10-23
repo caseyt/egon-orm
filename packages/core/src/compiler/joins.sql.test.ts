@@ -2,6 +2,7 @@ import { Post, Profile, User } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
 import type { OutputPlan } from "../contracts/adapter.js";
 import type { JoinNode } from "../contracts/query.js";
+import { QueryError } from "../errors.js";
 import { from } from "../index.js";
 import { binaryNode, literalNode } from "../query/ast.js";
 import { meta } from "../schema/index.js";
@@ -100,6 +101,70 @@ describe("which bindings a join makes nullable", () => {
       },
     });
     expect(rows(ast).map((row) => row.nullable)).toEqual([true, true, false]);
+  });
+
+  /** `from users u <type> join (select … from posts p where p.author_id = u.id) s`, selecting u and s. */
+  const lateral = (type: JoinNode["type"]) =>
+    rebuild(from(User, "u").ast, {
+      joins: [
+        {
+          kind: "join",
+          type,
+          source: {
+            kind: "subquerySource",
+            query: rebuild(from(Post, "p").ast, {
+              wheres: [
+                { kind: "bool", op: "and", expr: binaryNode("eq", col("p", "author_id"), col("u", "id")) },
+              ],
+            }),
+            alias: "s",
+          },
+          on: literalNode(true),
+        },
+      ],
+      select: {
+        kind: "select",
+        shape: {
+          kind: "tuple",
+          items: [
+            { kind: "binding", binding: "u", meta: meta(User) },
+            { kind: "binding", binding: "s", meta: meta(Post) },
+          ],
+        },
+        constants: [],
+      },
+    });
+
+  test("a lateral subquery sees the bindings before it; an inner lateral join keeps its rows, a left one makes them nullable", () => {
+    expect(rows(lateral("innerLateral")).map((row) => row.nullable)).toEqual([false, false]);
+    expect(rows(lateral("leftLateral")).map((row) => row.nullable)).toEqual([false, true]);
+  });
+
+  test("a subquery that selects a nullable row makes its source nullable, even through an inner join", () => {
+    const ast = rebuild(from(User, "u").ast, {
+      joins: [
+        {
+          kind: "join",
+          type: "inner",
+          source: {
+            kind: "subquerySource",
+            query: from(User, "x")
+              .leftJoin(Post, "p", ({ x, p }) => p.authorId.eq(x.id))
+              .select(({ p }) => p).ast,
+            alias: "s",
+          },
+          on: literalNode(true),
+        },
+      ],
+      select: selectBinding("s", meta(Post)),
+    });
+    const output = createCompiler(postgresDialect).compile(ast, "all", undefined).output;
+    expect(output).toMatchObject({ kind: "row", nullable: true });
+  });
+
+  test("a subquery that is not lateral does not see the bindings before it", () => {
+    expect(() => rows(lateral("inner"))).toThrow(QueryError);
+    expect(() => rows(lateral("left"))).toThrow(QueryError);
   });
 });
 

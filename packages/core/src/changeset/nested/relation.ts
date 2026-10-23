@@ -226,7 +226,9 @@ export function keyOf(key: readonly FieldMeta[], item: Values, cast: boolean): u
   if (key.length === 0) return undefined;
   const out: unknown[] = [];
   for (const field of key) {
-    const value = item[field.name];
+    // Own properties only, as cast() reads params: a key inherited from a polluted
+    // Object.prototype must not match an existing row.
+    const value = !cast || hasOwn(item, field.name) ? item[field.name] : undefined;
     if (value === undefined || value === null || value === "") return undefined;
     if (!cast) {
       out.push(value);
@@ -264,6 +266,69 @@ export function indexOfKey(
     if (match) return i;
   }
   return -1;
+}
+
+/** Below this many rows a scan is as quick as building an index. */
+const INDEX_MIN_ROWS = 16;
+
+/** A key value a `Map` finds exactly as `Object.is` compares it (only `-0` differs). */
+function mapsExactly(value: unknown): boolean {
+  return !Object.is(value, -0);
+}
+
+/**
+ * A function giving the position in `rows` of the row whose key is `values`, or -1: what
+ * {@link indexOfKey} gives. Matching many items against many rows one scan at a time is
+ * quadratic, and the number of items comes from the params, so where every key field
+ * compares values with `Object.is` (integers, strings, uuids, ...) the rows are indexed
+ * once. Other key types, and few rows, are scanned.
+ *
+ * @example
+ * ```ts
+ * const find = keyFinder(current, relation.key);
+ * const at = find([42]); // the position of the row whose key is 42, or -1
+ * ```
+ */
+export function keyFinder(
+  rows: readonly object[],
+  key: readonly FieldMeta[],
+): (values: readonly unknown[]) => number {
+  const scan = (values: readonly unknown[]): number => indexOfKey(rows, key, values);
+  if (rows.length < INDEX_MIN_ROWS || key.length === 0) return scan;
+  for (const field of key) if (field.type.equal !== Object.is) return scan;
+  // One Map per key field, nested; a leaf holds the position of the first row with that key.
+  const root = new Map<unknown, unknown>();
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i] as Values;
+    let level = root;
+    for (let k = 0; k < key.length; k++) {
+      const value = row[(key[k] as FieldMeta).name];
+      // A missing key never matches (see `same`); -0 is not told apart from 0 by a Map.
+      if (value === null || value === undefined) break;
+      if (!mapsExactly(value)) return scan;
+      if (k === key.length - 1) {
+        if (!level.has(value)) level.set(value, i);
+      } else {
+        let next = level.get(value) as Map<unknown, unknown> | undefined;
+        if (next === undefined) {
+          next = new Map();
+          level.set(value, next);
+        }
+        level = next;
+      }
+    }
+  }
+  return (values) => {
+    let level: unknown = root;
+    for (let k = 0; k < key.length; k++) {
+      const value = values[k];
+      if (!mapsExactly(value)) return scan(values);
+      const next = (level as Map<unknown, unknown>).get(value);
+      if (next === undefined) return -1;
+      level = next;
+    }
+    return level as number;
+  };
 }
 
 /** The position in `rows` of the row with the key of `row`, or -1 (always -1 without a key). */

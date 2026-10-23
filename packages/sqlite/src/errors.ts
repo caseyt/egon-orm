@@ -29,12 +29,16 @@ const CONSTRAINT_CODES: ReadonlyMap<string, ConstraintViolationType> = /* @__PUR
   ["SQLITE_CONSTRAINT_NOTNULL", "notNull"],
 ]);
 
-/** `UNIQUE constraint failed: users.email, users.org_id` and `NOT NULL constraint failed: users.email`. */
-const COLUMNS_FAILED = /constraint failed: (.+)$/;
+/**
+ * `UNIQUE constraint failed: users.email, users.org_id` and `NOT NULL constraint failed: users.email`.
+ * Anchored at the kind of constraint that starts the message: unanchored, a message holding
+ * the words many times would be tried at each of them (quadratic).
+ */
+const COLUMNS_FAILED = /^[A-Z]+(?: [A-Z]+)* constraint failed: (.+)$/;
 /** One `table.column` of such a message. */
 const TABLE_COLUMN = /^([^.]+)\.(.+)$/;
 /** `UNIQUE constraint failed: index 'users_lower_email'`: a unique index on an expression, by its name. */
-const INDEX_FAILED = /constraint failed: index '([^']+)'$/;
+const INDEX_FAILED = /^[A-Z]+(?: [A-Z]+)* constraint failed: index '([^']+)'$/;
 /** A check constraint's name; an unnamed one is reported by its expression instead. */
 const NAME = /^[A-Za-z_][A-Za-z0-9_$]*$/;
 

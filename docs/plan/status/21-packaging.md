@@ -180,7 +180,12 @@ release dry run: passed (cea8fb2, 0.1.0)
 The first CI run of the job failed: `changeset version` needs the commit that added each
 changeset (for the changelog line) and fails with a bare `Error` in a shallow checkout.
 The job now checks out with `fetch-depth: 0` (as `release.yml`'s jobs already did), and
-the script refuses a shallow repository with a clear message.
+the script refuses a shallow repository with a clear message. The second CI run then
+found a real release bug: `changeset publish` makes annotated tags, which need a committer
+identity; on a runner without one git refuses, and changesets still prints "Created git
+tags" (it ignores the exit code). The dry run's tag check caught it. `release.yml`'s
+publish job now sets the `github-actions[bot]` identity before publishing, and the dry run
+sets one in its clone.
 
 A separate trial (scratch clone, not committed) confirmed that a later `minor` changeset
 for `egon-orm` alone gives 0.2.0 for all six, with no major cascade through the

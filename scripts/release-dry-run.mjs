@@ -132,6 +132,11 @@ try {
   );
   run("git", ["clone", "--quiet", "--no-hardlinks", ROOT, clone], dir);
   git(["checkout", "--quiet", "-B", "main", sha], clone);
+  // `changeset publish` makes annotated tags, which need a committer identity; without one
+  // (a CI runner) git refuses and changesets still reports "Created git tags". release.yml
+  // sets one before publishing.
+  run("git", ["config", "user.name", "Egon release dry run"], clone);
+  run("git", ["config", "user.email", "release@example.invalid"], clone);
   check(git(["status", "--porcelain"], clone).trim() === "", "the clone is not clean");
   ok(`clean clone at ${sha}`);
   pnpm(["install", "--frozen-lockfile", "--prefer-offline"], clone);

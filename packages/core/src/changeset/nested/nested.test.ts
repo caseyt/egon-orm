@@ -991,3 +991,59 @@ describe("review round 1: more branches", () => {
     ).toEqual(["lines"]);
   });
 });
+
+describe("new embedded rows: defaults, shared timestamps, stored nulls", () => {
+  test("a new row takes each field's default, given as a value or as a function, and none is missing", () => {
+    class Badge extends EmbeddedSchema({
+      label: t.string().default("new"),
+      level: t.integer().default(() => 3),
+    }) {}
+    class Member extends Schema("members", {
+      id: t.integer().primaryKey(),
+      badge: t.embedOne(() => Badge).nullable(),
+    }) {}
+    const cs = change(Member).putEmbed("badge", {} as never);
+    const row = embedValue(cs.changes.badge, "built") as Badge;
+    expect([row.label, row.level]).toEqual(["new", 3]);
+    expect(missingEmbedded(cs as AnyCs)).toBeUndefined();
+  });
+
+  test("the timestamps of one new row are one value, even when the clock moves between them", () => {
+    let tick = 0;
+    const clock = () => new Date(Date.UTC(2026, 0, 1, 0, 0, tick++));
+    class Note extends EmbeddedSchema({
+      text: t.string(),
+      createdAt: t.timestamp().autogenerate(clock),
+      updatedAt: t.timestamp().autogenerate(clock),
+    }) {}
+    class Board extends Schema("boards", {
+      id: t.integer().primaryKey(),
+      notes: t.embedMany(() => Note),
+    }) {}
+    const built = embedValue(change(Board).putEmbed("notes", [{ text: "n" }]).changes.notes, "built");
+    const [row] = built as Note[];
+    expect(row?.createdAt.getTime()).toBe(row?.updatedAt.getTime());
+  });
+
+  test("an empty string is no key: the item is a new row, even beside a stored row keyed by it", () => {
+    class Code extends EmbeddedSchema({ code: t.string().primaryKey(), label: t.string() }) {}
+    class Catalog extends Schema("catalogs", {
+      id: t.integer().primaryKey(),
+      codes: t.embedMany(() => Code, { onReplace: "delete" }),
+    }) {}
+    const stored = loaded(Code, { code: "", label: "a" });
+    const catalog = loaded(Catalog, { id: 1, codes: [stored] });
+    const items = change(catalog).putEmbed("codes", [{ code: "", label: "b" }] as never).changes
+      .codes as AnyCs[];
+    const matched = items.filter((item) => item.data === stored);
+    expect(matched.map((item) => item.action)).toEqual(["delete"]);
+    expect(items.filter((item) => item.data === null)).toHaveLength(1);
+  });
+
+  test("a stored row that holds null in a required field is reported when it changes", () => {
+    const slot = loaded(Slot, { id: "00000000-0000-4000-8000-000000000001", label: null, at: null });
+    const event = loaded(Event, { id: 1, venue: null, slots: [slot], strictSlots: [], taglines: [] });
+    const cs = change(event).putEmbed("slots", [change(slot, { at: new Date(0) })] as never);
+    expect(missingEmbedded(cs as AnyCs)?.errorMessages()).toEqual({ slots: [{ label: ["can't be blank"] }] });
+  });
+});

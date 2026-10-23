@@ -186,6 +186,27 @@ describe("validate: what the validator receives", () => {
     expect(Object.keys(seen[0] as object)).toEqual(["email", "name"]);
   });
 
+  test("only keeps a nested change of a listed embed, and leaves out one that is not listed", () => {
+    const withSettings = () => change(ada()).putEmbed("settings", { theme: "dark" } as never);
+    const listed = recording();
+    withSettings().validate(listed.schema, { only: ["settings"] });
+    expect(listed.seen[0]).toMatchObject({ settings: { theme: "dark" } });
+    const other = recording();
+    withSettings().validate(other.schema, { only: ["email"] });
+    expect(other.seen[0]).toEqual({ email: "ada@engine.example" });
+  });
+
+  test("a validator whose output is not an object writes nothing", () => {
+    for (const value of [null, "x", 5]) {
+      const cs = cast(ada(), { name: "Countess" }, ["name"]).validate(
+        standard(() => ({ value })),
+        { apply: true },
+      );
+      expect(cs.changes).toEqual({ name: "Countess" });
+      expect(cs.valid).toBe(true);
+    }
+  });
+
   test("only leaves out a listed field that has no value", () => {
     const { schema, seen } = recording();
     cast(User, { name: "Lin" }, ["name"]).validate(schema, { only: ["email", "name", "role"] });

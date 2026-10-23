@@ -403,6 +403,14 @@ describe("applyAction", () => {
     }
   });
 
+  test("takes each of the five actions, and records it on a failure", () => {
+    for (const action of ["insert", "update", "delete", "replace", "ignore"] as const) {
+      const result = applyAction(change(margaret()).addError("name", "x"), action);
+      expect(result.success).toBe(false);
+      if (!result.success) expect(result.error.action).toBe(action);
+    }
+  });
+
   test("throws for an unknown action or a new record, valid or not", () => {
     expect(() => applyAction(change(margaret()), "save" as never)).toThrow(QueryError);
     const fresh = change(User) as unknown as Changeset<typeof User, false>;

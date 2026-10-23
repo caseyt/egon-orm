@@ -95,7 +95,29 @@ type AgreedParams<U> = Simplify<{
 }>;
 
 // @public
+type AlterChange = {
+    readonly change: "add";
+    readonly column: ColumnDef;
+} | {
+    readonly change: "modify";
+    readonly column: string;
+    readonly type: TypeSpec;
+    readonly notNull: boolean | undefined;
+    readonly default: DefaultSpec | null | undefined;
+} | {
+    readonly change: "remove";
+    readonly column: string;
+} | {
+    readonly change: "rename";
+    readonly column: string;
+    readonly to: string;
+};
+
+// @public
 export class AlterTableBuilder extends ColumnAdder {
+    // Warning: (ae-forgotten-export) The symbol "TableContext" needs to be exported by the entry point migration.d.ts
+    // Warning: (ae-forgotten-export) The symbol "AlterChange" needs to be exported by the entry point migration.d.ts
+    constructor(context: TableContext, changes: AlterChange[]);
     modify(name: string, type: ColumnType, options?: ModifyOptions): void;
     remove(name: string): void;
     rename(from: string, to: string): void;
@@ -331,6 +353,7 @@ interface Codec {
 
 // @public
 export class ColumnAdder {
+    constructor(context: TableContext, added: (column: ColumnDef) => void);
     add(name: string, type: ColumnType): ColumnBuilder;
     array(name: string, of: ColumnType): ColumnBuilder;
     bigint(name: string): ColumnBuilder;
@@ -368,6 +391,7 @@ export class ColumnAdder {
 
 // @public
 export class ColumnBuilder {
+    constructor(column: ColumnDef, context: TableContext);
     default(value: DefaultValue): this;
     notNull(): this;
     nullable(): this;
@@ -375,6 +399,30 @@ export class ColumnBuilder {
     unique(options?: {
         readonly name?: string;
     }): this;
+}
+
+// @public
+interface ColumnDef {
+    check: {
+        readonly name: string;
+        readonly values: readonly string[];
+    } | undefined;
+    // (undocumented)
+    default: DefaultSpec | undefined;
+    // (undocumented)
+    readonly name: string;
+    // (undocumented)
+    notNull: boolean;
+    // (undocumented)
+    primaryKey: boolean;
+    // Warning: (ae-forgotten-export) The symbol "ReferenceSpec" needs to be exported by the entry point migration.d.ts
+    //
+    // (undocumented)
+    references: ReferenceSpec | undefined;
+    readonly serial: boolean;
+    // (undocumented)
+    readonly type: TypeSpec;
+    unique: string | undefined;
 }
 
 // Warning: (ae-forgotten-export) The symbol "DbType" needs to be exported by the entry point migration.d.ts
@@ -542,6 +590,17 @@ interface DefaultFieldFlags {
 }
 
 // @public
+type DefaultSpec = {
+    readonly kind: "value";
+    readonly value: unknown;
+} | {
+    readonly kind: "sql";
+    readonly node: FragmentNode;
+} | {
+    readonly kind: "now";
+};
+
+// @public
 export type DefaultValue = string | number | bigint | boolean | null | JsonValue | SqlFragment;
 
 // @public
@@ -707,6 +766,7 @@ class Expr<out T, in P = NoParams> {
         readonly type: T;
         readonly params: (params: P) => void;
     };
+    constructor(node: ExprNode, type: AnyFieldType | undefined, redact: boolean, params: readonly unknown[], lists: readonly number[], named: readonly NamedParamNode[], shape: number);
     // Warning: (ae-forgotten-export) The symbol "Calculable" needs to be exported by the entry point migration.d.ts
     // Warning: (ae-forgotten-export) The symbol "Numeric" needs to be exported by the entry point migration.d.ts
     add<S extends number | bigint | null, O extends Operand<S>, X extends Expr<S, SomeParams>>(this: X & Expr<S, SomeParams>, other: O & Checked<P, O> & Calculable<X, O>): Expr<Numeric<S> | NullOf<S> | NullOf<ValueOf<O>>, MergeParams<P, ParamsOf<O>>>;
@@ -1763,6 +1823,7 @@ export interface Migration {
 
 // @public
 export class MigrationBuilder {
+    constructor(maxBytes: number | undefined);
     alterTable(name: string, define: (t: AlterTableBuilder) => void, options?: {
         readonly schema?: string;
     }): void;
@@ -1957,6 +2018,7 @@ class OrderExpr<in P = NoParams> {
     readonly "~order": {
         readonly params: (params: P) => void;
     };
+    constructor(node: OrderNode, params: readonly unknown[], lists: readonly number[], named: readonly NamedParamNode[], shape: number, exprShape: number);
     readonly exprShape: number;
     readonly lists: readonly number[];
     readonly named: readonly NamedParamNode[];
@@ -2189,6 +2251,22 @@ export interface ReferencesOptions {
 }
 
 // @public
+interface ReferenceSpec {
+    // (undocumented)
+    readonly column: string;
+    // (undocumented)
+    readonly name: string;
+    // (undocumented)
+    readonly onDelete: ReferenceAction | undefined;
+    // (undocumented)
+    readonly onUpdate: ReferenceAction | undefined;
+    // Warning: (ae-forgotten-export) The symbol "TableRef" needs to be exported by the entry point migration.d.ts
+    //
+    // (undocumented)
+    readonly table: TableRef;
+}
+
+// @public
 type RowDecoder = (row: Readonly<Record<string, unknown>>, constants: readonly unknown[]) => unknown;
 
 // @public
@@ -2339,6 +2417,22 @@ export class TableBuilder extends ColumnAdder {
 }
 
 // @public
+interface TableContext {
+    readonly maxBytes: number | undefined;
+    // (undocumented)
+    readonly table: TableRef;
+    readonly where: string;
+}
+
+// @public
+interface TableRef {
+    // (undocumented)
+    readonly name: string;
+    // (undocumented)
+    readonly schema: string | undefined;
+}
+
+// @public
 interface TableSourceNode {
     readonly alias: string;
     // (undocumented)
@@ -2372,6 +2466,20 @@ interface TupleNode {
 
 // @public
 type TypesAt<U, K> = U extends unknown ? (K extends keyof U ? U[K] : never) : never;
+
+// @public
+interface TypeSpec {
+    // (undocumented)
+    readonly kind: ColumnKind | "array" | "custom";
+    // (undocumented)
+    readonly of: TypeSpec | undefined;
+    // (undocumented)
+    readonly precision: number | undefined;
+    // (undocumented)
+    readonly scale: number | undefined;
+    // (undocumented)
+    readonly sql: string | undefined;
+}
 
 // @public
 interface UnaryNode {
@@ -2490,6 +2598,9 @@ type Writable = "always" | "insert" | "never";
 // (ae-forgotten-export) The symbol "ConflictTarget" needs to be exported by the entry point migration.d.ts
 // (ae-forgotten-export) The symbol "ConflictUpdate" needs to be exported by the entry point migration.d.ts
 // (ae-forgotten-export) The symbol "InsertCell" needs to be exported by the entry point migration.d.ts
+// (ae-forgotten-export) The symbol "ColumnDef" needs to be exported by the entry point migration.d.ts
+// (ae-forgotten-export) The symbol "TypeSpec" needs to be exported by the entry point migration.d.ts
+// (ae-forgotten-export) The symbol "DefaultSpec" needs to be exported by the entry point migration.d.ts
 
 // (No @packageDocumentation comment for this package)
 

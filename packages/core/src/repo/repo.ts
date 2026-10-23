@@ -303,8 +303,9 @@ export interface Repo {
   oneOrThrow<Q extends Queryable>(queryable: Q, ...args: ReadArgs<Q, ReadOptions>): Promise<ResultOf<Q>>;
 
   /**
-   * The first row of the query with `LIMIT 1` (replacing a limit of its own), or `null`.
-   * It never throws for extra rows; give the query an order to say which row is first.
+   * The first row of the query, or `null`. It reads at most one row: `LIMIT 1`, or the
+   * query's own limit when that is smaller (`limit(0)` gives `null`); the query's offset is
+   * kept. It never throws for extra rows; give the query an order to say which row is first.
    *
    * @example
    * ```ts
@@ -314,9 +315,9 @@ export interface Repo {
   first<Q extends Queryable>(queryable: Q, ...args: ReadArgs<Q, ReadOptions>): Promise<ResultOf<Q> | null>;
 
   /**
-   * The first row of the query with `LIMIT 1` (replacing a limit of its own), as
-   * {@link Repo.first} reads it. Like `first`, it never throws for extra rows; it throws
-   * when there is no row.
+   * The first row of the query, read as {@link Repo.first} reads it: `LIMIT 1`, or the
+   * query's own limit when that is smaller, with the query's offset kept. Like `first`, it
+   * never throws for extra rows; it throws when there is no row (also for `limit(0)`).
    *
    * @example
    * ```ts

@@ -171,7 +171,7 @@ A few names that were exported before 0.1.0 are gone or renamed (owner decisions
 | `normalizeSqliteError` from `@egon-orm/sqlite` | Not exported. |
 | `normalizeMysqlError` from `@egon-orm/mysql` | Not exported. |
 | `ConstraintOptions` from `egon-orm/migration` (the options of `m.createConstraint`) | `AddConstraintOptions`. The `ConstraintOptions` of `egon-orm`, a changeset's constraint options, is unchanged. |
-| `plan()`, `named` and `query` of a `PreparedQuery`; `operations` of the migration builder; the constructors of `Query`, `PreparedQuery`, `Expr`, `Col`, `OrderExpr`, `Case`, `Tuple`, the subquery and CTE sources and the migration builders | Not in the published declarations. They were for the library's own use. |
+| `plan()`, `named` and `query` of a `PreparedQuery`; `operations` of the migration builder; the protected `context` and `added` of the migration builders | Not in the published declarations. They were for the library's own use. |
 
 `createAdapter` stays exported, but it is internal to the Egon packages: its driver
 contract is not exported, and it may change in any release.

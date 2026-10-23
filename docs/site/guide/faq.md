@@ -282,9 +282,10 @@ After an edit, the editor checks the types again before it can offer completions
 a query callback, such as `where(({ u }) => u.)`, that takes about 40 ms plus 1.1 to 1.2 ms
 for every schema reachable from the query's schema through associations. On the machine
 measured, completions passed 200 ms at about 140 to 170 connected schemas, and they cross
-it sooner on a slower one. A model of a few dozen schemas does not notice. The cause is
-that the checker infers every static member of each reachable schema, the `changeset`
-methods above all; the fix is on the [roadmap](/reference/roadmap).
+it sooner on a slower one. A model of a few dozen schemas does not notice. The likely
+cause is that the association and preload types make the checker infer every static
+member of each reachable schema, the `changeset` methods above all; the fix is on the
+[roadmap](/reference/roadmap).
 
 Until then, declare the return type of your `changeset` methods. In one measurement with
 200 schemas, that brought completions down to about 114 ms. Include in the type the error

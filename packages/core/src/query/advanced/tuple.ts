@@ -81,8 +81,6 @@ export class Tuple<V extends readonly unknown[], P = NoParams> {
    * ```ts
    * new Tuple([p.createdAt, p.id]);
    * ```
-   *
-   * @internal
    */
   constructor(items: readonly unknown[]) {
     this.items = items;

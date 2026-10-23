@@ -732,8 +732,6 @@ export class Case<T, P = NoParams> extends Expr<T | null, P> {
    * ```ts
    * new Case(node, type, false, params, lists, named, shape, branchesShape);
    * ```
-   *
-   * @internal
    */
   constructor(
     node: ExprNode,

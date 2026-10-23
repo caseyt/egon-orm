@@ -74,8 +74,6 @@ export class PreparedQuery<R, P> implements QueryLike {
    * ```ts
    * new PreparedQuery(query);
    * ```
-   *
-   * @internal
    */
   constructor(query: PreparedFrom) {
     this.query = query;

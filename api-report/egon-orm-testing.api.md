@@ -651,6 +651,7 @@ type ClausesOf<Q> = RootSchemaOf<Q> extends infer S extends AnySchema ? WhereObj
 //
 // @public
 class Col<T> extends Expr<T, NoParams> {
+    constructor(binding: string, field: FieldMeta);
     readonly binding: string;
     // Warning: (ae-forgotten-export) The symbol "FieldMeta" needs to be exported by the entry point testing.d.ts
     readonly fieldMeta: FieldMeta;
@@ -910,6 +911,22 @@ type EmbedTarget<S, K> = K extends keyof SourceFields<S> ? SchemaOfInfo<EmbedInf
 type Empty = Record<never, never>;
 
 // @public
+interface Entry {
+    // (undocumented)
+    readonly alias: string;
+    readonly binding: object | undefined;
+    readonly internal: boolean;
+    // (undocumented)
+    readonly meta: SchemaMeta | undefined;
+    // (undocumented)
+    readonly schema: AnySchema | undefined;
+    readonly via: {
+        readonly from: string;
+        readonly assoc: string;
+    } | undefined;
+}
+
+// @public
 type ErrorKeys<S, E extends string> = FieldName<S> | (string extends AssocName<S> ? never : AssocName<S>) | E | "$base";
 
 // Warning: (ae-forgotten-export) The symbol "TypedErrorTree" needs to be exported by the entry point testing.d.ts
@@ -969,6 +986,7 @@ class Expr<out T, in P = NoParams> {
         readonly type: T;
         readonly params: (params: P) => void;
     };
+    constructor(node: ExprNode, type: AnyFieldType | undefined, redact: boolean, params: readonly unknown[], lists: readonly number[], named: readonly NamedParamNode[], shape: number);
     // Warning: (ae-forgotten-export) The symbol "Calculable" needs to be exported by the entry point testing.d.ts
     // Warning: (ae-forgotten-export) The symbol "Numeric" needs to be exported by the entry point testing.d.ts
     add<S extends number | bigint | null, O extends Operand<S>, X extends Expr<S, SomeParams>>(this: X & Expr<S, SomeParams>, other: O & Checked<P, O> & Calculable<X, O>): Expr<Numeric<S> | NullOf<S> | NullOf<ValueOf<O>>, MergeParams<P, ParamsOf<O>>>;
@@ -1750,6 +1768,7 @@ class OrderExpr<in P = NoParams> {
     readonly "~order": {
         readonly params: (params: P) => void;
     };
+    constructor(node: OrderNode, params: readonly unknown[], lists: readonly number[], named: readonly NamedParamNode[], shape: number, exprShape: number);
     readonly exprShape: number;
     readonly lists: readonly number[];
     readonly named: readonly NamedParamNode[];
@@ -1947,6 +1966,8 @@ class Query<B, R, P = NoParams, A extends string = string, W extends string = ne
     };
     [AS_SUBQUERY](): Expr<R, P>;
     [INSPECT](): string;
+    // Warning: (ae-forgotten-export) The symbol "Scope" needs to be exported by the entry point testing.d.ts
+    constructor(token: typeof TOKEN, ast: QueryAst, counts: readonly number[], lists: readonly number[], shapes: readonly number[], named: readonly NamedParamNode[], preloadNamed: readonly NamedParamNode[], scope: Scope);
     readonly ast: QueryAst;
     crossJoin<Q0 extends QueryLike, const A2 extends string, Src extends Source>(this: Q0, source: Src, alias: A2 & NewAlias<A2, B>): Next<Q0, BindingsOf<Q0> & {
         readonly [K in A2]: BindingOfSource<Src>;
@@ -2536,6 +2557,16 @@ interface SchemaStatic<F extends FieldsShape = FieldsShape> {
     readonly fields: F;
 }
 
+// @public
+interface Scope {
+    readonly arg: Readonly<Record<string, object>>;
+    // Warning: (ae-forgotten-export) The symbol "Entry" needs to be exported by the entry point testing.d.ts
+    //
+    // (undocumented)
+    readonly entries: readonly Entry[];
+    readonly root: Entry;
+}
+
 // Warning: (ae-forgotten-export) The symbol "Opaque" needs to be exported by the entry point testing.d.ts
 //
 // @public
@@ -2868,6 +2899,9 @@ type Target<S, K extends keyof S> = S[K] extends Assoc<AssocKind, infer T extend
 
 // @public
 type TextOperand = string | Expr<string | null, SomeParams>;
+
+// @public
+const TOKEN: unique symbol;
 
 // @public
 interface TransactionOptions {

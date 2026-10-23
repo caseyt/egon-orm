@@ -346,7 +346,14 @@ export class ColumnBuilder {
   readonly #column: ColumnDef;
   readonly #context: TableContext;
 
-  /** @internal */
+  /**
+   * Internal: column builders are made by the column methods of a table builder.
+   *
+   * @example
+   * ```ts
+   * t.string("email").notNull();
+   * ```
+   */
   constructor(column: ColumnDef, context: TableContext) {
     this.#column = column;
     this.#context = context;
@@ -475,7 +482,14 @@ export class ColumnAdder {
   /** @internal */
   protected readonly added: (column: ColumnDef) => void;
 
-  /** @internal */
+  /**
+   * Internal: a migration receives its table builders from `m.createTable` and `m.alterTable`.
+   *
+   * @example
+   * ```ts
+   * m.createTable("users", (t) => t.string("email"));
+   * ```
+   */
   constructor(context: TableContext, added: (column: ColumnDef) => void) {
     this.context = context;
     this.added = added;
@@ -760,7 +774,14 @@ export interface ModifyOptions {
 export class AlterTableBuilder extends ColumnAdder {
   readonly #changes: AlterChange[];
 
-  /** @internal */
+  /**
+   * Internal: a migration receives it from `m.alterTable`.
+   *
+   * @example
+   * ```ts
+   * m.alterTable("users", (t) => t.remove("nickname"));
+   * ```
+   */
   constructor(context: TableContext, changes: AlterChange[]) {
     super(context, (column) => changes.push({ change: "add", column }));
     this.#changes = changes;
@@ -961,7 +982,14 @@ export class MigrationBuilder {
   readonly #operations: Operation[] = [];
   readonly #maxBytes: number | undefined;
 
-  /** @internal */
+  /**
+   * Internal: a migration receives it as the `m` of `up(m)` and `down(m)`.
+   *
+   * @example
+   * ```ts
+   * defineMigration({ up: (m) => m.dropTable("drafts"), down: () => {} });
+   * ```
+   */
   constructor(maxBytes: number | undefined) {
     this.#maxBytes = maxBytes;
   }

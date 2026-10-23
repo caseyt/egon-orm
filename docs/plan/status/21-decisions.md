@@ -40,23 +40,24 @@ decisions of 2026-10-22, `status/21-api.md` §1 (API items 1 to 9) and `status/2
    `InsertPlanOptions`, `QueryAst`): still unexported. Nothing to change.
 4. **`stripInternal: true`** in the `dts.compilerOptions` of every package's `tsup.config.ts`.
    tsup's declaration build works with it (TypeScript 6). What it strips:
-   - the members that were already tagged `@internal`: the migration builders' constructors,
-     `ColumnAdder.context` and `added`, `MigrationBuilder.operations`;
-   - newly tagged, as `status/21-api.md` listed them: `PreparedQuery.plan`, `named` and
-     `query`, and the constructors of `Expr`, `Query` and `PreparedQuery`;
-   - also newly tagged, for the same reason: the constructors of `Col`, `OrderExpr`, `Case`,
-     `Tuple` and `SourceWrapper`, whose TSDoc already said "Internal: made by …".
+   - `ColumnAdder.context` and `added` and `MigrationBuilder.operations` (already tagged);
+   - `PreparedQuery.plan`, `named` and `query` (newly tagged, as `status/21-api.md` listed).
+   - **Not stripped: constructors** (review round 1). The bundled declarations export every
+     class as a value (`export { … as Query }`), whatever `export type` said in the sources,
+     so a stripped constructor left a default one that takes no arguments: `new Query()` and
+     `new MigrationBuilder()` compiled in a consumer and failed at run time. In round 0 I
+     wrote that the type-only exports made this safe; that was wrong. The migration builders'
+     constructors, tagged `@internal` before this PR, now have prose TSDoc ("Internal: …")
+     instead, like the query classes' constructors. The smoke consumer's type check
+     (`examples/smoke/types/consumer.ts`, `internalConstructors`) has `@ts-expect-error` on
+     `new Query()` and `new MigrationBuilder()`. Checked: with the `Query` constructor tagged
+     again, the three `consumer.ts` programs fail with TS2578 (unused directive).
    - **Not stripped:** `PreparedQuery.ast` and `Query.ast`. `QueryLike` requires `ast`, so
      without it a `PreparedQuery` would no longer be a queryable in a consumer's types. Its
      TSDoc now says so.
-   - **Why stripping a constructor is safe here:** with `stripInternal`, a class whose
-     constructor is stripped shows the default, argument-free constructor in its
-     declarations. Every one of these classes is exported as a type only (`export type`), so
-     no consumer has a value to call `new` on.
    - Verified on the built `dist/`: no `@internal` left in any published `.d.ts`; the
-     members above are gone, and the types they alone used (`Scope`, `Entry`, `TOKEN`,
-     `PreparedFrom`, `PlanSource`, the migration `Operation` types and `TableContext`)
-     drop out of the reports. `pnpm lint:packages` (publint, attw): no new finding (only the
+     members above are gone, and the types only they used (`PlanSource`, the migration
+     `Operation` types) drop out of the reports. `pnpm lint:packages` (publint, attw): no new finding (only the
      CommonJS modes the esm-only profile ignores, as before). `pnpm smoke`: the packed
      packages pass every consumer program with `skipLibCheck: false`, on TypeScript 6.0.3 and
      on 5.8.3, the minimum (`consumer.mjs --no-runtime --typescript 5.8.3`).
@@ -132,14 +133,12 @@ its replacement for the readiness report):
 
 Every change is intended:
 
-- `egon-orm`: `+ applyActionOrThrow`, `+ Repo.firstOrThrow`; the stripped constructors and
-  `PreparedQuery` members; `Scope`, `Entry`, `TOKEN`, `PreparedFrom`, `PlanSource` gone (only
-  the stripped members used them); `NamedParamNode`'s forgotten-export warning moves to
-  `Expr.named`, its next use.
+- `egon-orm`: `+ applyActionOrThrow`, `+ Repo.firstOrThrow`; the stripped `PreparedQuery`
+  members, and `PlanSource`, which only `plan()` used.
 - `egon-orm/testing`: the same, through the types it repeats.
 - `egon-orm/migration`: `ConstraintOptions` → `AddConstraintOptions` (and in
   `createConstraint`); the stripped builder members, and the internal types only they used
-  (`TableContext`, `ColumnDef`, `AlterChange`, `Operation` and its parts).
+  (`Operation` and its parts). The constructors stay.
 - The three dialect reports: the `normalize…Error` function removed.
 - One change that is not an API change: `functions.ts`'s private `NullOf` helper had no
   TSDoc, and API Extractor had been attributing to it the `@module` comment that preceded it in
@@ -151,9 +150,7 @@ Every change is intended:
 - `createAdapter` and `AdapterDefinition` are documented as internal in prose, not with the
   `@internal` tag, which would strip them from the declarations the dialect packages build
   against and drop them from TypeDoc.
-- Constructors whose TSDoc already said "Internal" are tagged `@internal` too (`Col`,
-  `OrderExpr`, `Case`, `Tuple`, `SourceWrapper`), beyond the three that `status/21-api.md`
-  named: the same reasoning applies, and all are type-only exports.
+- No constructor is stripped (review round 1, above): it would make `new` compile.
 - `PreparedQuery.ast` stays (required by `QueryLike`).
 - `firstOrThrow`'s `NoResultsError.query` renders the query the caller gave, as `oneOrThrow`'s
   does, not the derived `LIMIT 1` query.
@@ -202,3 +199,19 @@ guide and reference pages above, and the packages' sources, tests and `tsup.conf
 
 - CI has not run yet at the time of writing; see the PR.
 - No benchmarks (deferred to step 19).
+
+## Review round 1 (PR #72)
+
+1. **Stripped constructors made `new Query()` compile.** Fixed: no constructor is tagged
+   `@internal` (the eight I tagged are untagged; the four migration builder constructors get
+   prose TSDoc). `consumer.ts` checks `new Query()` and `new MigrationBuilder()` with
+   `@ts-expect-error`, verified to fail when a constructor is stripped. API reports
+   regenerated: the constructors and the types they name (`Scope`, `TOKEN`, `PreparedFrom`,
+   `TableContext`, …) are back as on `main`.
+2. **`first` / `firstOrThrow` TSDoc** said a limit of the query's own is replaced. It is not:
+   `firstAst` (`repo/read.ts`) reads at most one row, `LIMIT 1` or the query's own limit
+   when smaller (`limit(0)` reads none), and keeps the offset. Both comments now say so.
+3. **FAQ:** the cause of slow completions is "likely", as on the roadmap.
+4. **CHANGELOG.md:** the 0.1.0 paragraph lists the type members left out of the
+   declarations; `upgrading.md`'s table no longer lists constructors.
+

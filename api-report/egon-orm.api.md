@@ -553,6 +553,8 @@ export interface Capabilities {
 
 // @public
 export class Case<T, P = NoParams> extends Expr<T | null, P> {
+    // Warning: (ae-forgotten-export) The symbol "NamedParamNode" needs to be exported by the entry point index.d.ts
+    constructor(node: ExprNode, type: AnyFieldType | undefined, redact: boolean, params: readonly unknown[], lists: readonly number[], named: readonly NamedParamNode[], shape: number, branchesShape: number);
     readonly branchesShape: number;
     else<V extends Value>(value: V & Compatible<P, V>): Expr<T | CaseValue<V>, MergeParams<P, ParamsOf<V>>> & CaseMark<this, V>;
     // Warning: (ae-forgotten-export) The symbol "Value" needs to be exported by the entry point index.d.ts
@@ -867,6 +869,7 @@ export interface Codec {
 
 // @public
 export class Col<T> extends Expr<T, NoParams> {
+    constructor(binding: string, field: FieldMeta);
     readonly binding: string;
     readonly fieldMeta: FieldMeta;
 }
@@ -1397,6 +1400,22 @@ export type EmbedTarget<S, K> = K extends keyof SourceFields<S> ? SchemaOfInfo<E
 type Empty = Record<never, never>;
 
 // @public
+interface Entry {
+    // (undocumented)
+    readonly alias: string;
+    readonly binding: object | undefined;
+    readonly internal: boolean;
+    // (undocumented)
+    readonly meta: SchemaMeta | undefined;
+    // (undocumented)
+    readonly schema: AnySchema | undefined;
+    readonly via: {
+        readonly from: string;
+        readonly assoc: string;
+    } | undefined;
+}
+
+// @public
 export type EnumMapping = Readonly<Record<string, string>> | Readonly<Record<string, number>>;
 
 // @public
@@ -1500,6 +1519,7 @@ export class Expr<out T, in P = NoParams> {
         readonly type: T;
         readonly params: (params: P) => void;
     };
+    constructor(node: ExprNode, type: AnyFieldType | undefined, redact: boolean, params: readonly unknown[], lists: readonly number[], named: readonly NamedParamNode[], shape: number);
     // Warning: (ae-forgotten-export) The symbol "Calculable" needs to be exported by the entry point index.d.ts
     // Warning: (ae-forgotten-export) The symbol "Numeric" needs to be exported by the entry point index.d.ts
     add<S extends number | bigint | null, O extends Operand<S>, X extends Expr<S, SomeParams>>(this: X & Expr<S, SomeParams>, other: O & Checked<P, O> & Calculable<X, O>): Expr<Numeric<S> | NullOf<S> | NullOf<ValueOf<O>>, MergeParams<P, ParamsOf<O>>>;
@@ -1542,7 +1562,6 @@ export class Expr<out T, in P = NoParams> {
     lte<S extends AnyExpr, O extends Operand<T>>(this: S, other: O & Checked<P, O> & Comparable<S, O>): Expr<boolean, MergeParams<P, ParamsOf<O>>>;
     mod<S extends number | bigint | null, O extends Operand<S>, X extends Expr<S, SomeParams>>(this: X & Expr<S, SomeParams>, other: O & Checked<P, O> & Calculable<X, O>): Expr<Numeric<S> | NullOf<S> | NullOf<ValueOf<O>>, MergeParams<P, ParamsOf<O>>>;
     mul<S extends number | bigint | null, O extends Operand<S>, X extends Expr<S, SomeParams>>(this: X & Expr<S, SomeParams>, other: O & Checked<P, O> & Calculable<X, O>): Expr<Numeric<S> | NullOf<S> | NullOf<ValueOf<O>>, MergeParams<P, ParamsOf<O>>>;
-    // Warning: (ae-forgotten-export) The symbol "NamedParamNode" needs to be exported by the entry point index.d.ts
     readonly named: readonly NamedParamNode[];
     // Warning: (ae-forgotten-export) The symbol "Negatable" needs to be exported by the entry point index.d.ts
     neg<S extends number | bigint | null, X extends Expr<S, SomeParams>>(this: X & Expr<S, SomeParams> & Negatable<X>): Expr<Numeric<S> | NullOf<S>, P>;
@@ -3374,6 +3393,7 @@ export class OrderExpr<in P = NoParams> {
     readonly "~order": {
         readonly params: (params: P) => void;
     };
+    constructor(node: OrderNode, params: readonly unknown[], lists: readonly number[], named: readonly NamedParamNode[], shape: number, exprShape: number);
     readonly exprShape: number;
     readonly lists: readonly number[];
     readonly named: readonly NamedParamNode[];
@@ -3600,6 +3620,18 @@ export type PreloadSpec<S> = AssocKeys<S> | {
 export function prepare<Q extends QueryLike>(query: Q): PreparedQuery<QueryResult<Q>, QueryParams<Q>>;
 
 // @public
+interface PreparedFrom {
+    // (undocumented)
+    readonly ast: QueryAst;
+    // (undocumented)
+    readonly named: readonly NamedParamNode[];
+    // (undocumented)
+    namedParams(): readonly string[];
+    // (undocumented)
+    toString(): string;
+}
+
+// @public
 export class PreparedQuery<R, P> implements QueryLike {
     readonly "~query": {
         readonly bindings: unknown;
@@ -3607,6 +3639,8 @@ export class PreparedQuery<R, P> implements QueryLike {
         readonly params: (params: P) => void;
         readonly root: string;
     };
+    // Warning: (ae-forgotten-export) The symbol "PreparedFrom" needs to be exported by the entry point index.d.ts
+    constructor(query: PreparedFrom);
     readonly ast: QueryAst;
     namedParams(): readonly string[];
     toString(): string;
@@ -3663,6 +3697,8 @@ export class Query<B, R, P = NoParams, A extends string = string, W extends stri
     };
     [AS_SUBQUERY](): Expr<R, P>;
     [INSPECT](): string;
+    // Warning: (ae-forgotten-export) The symbol "Scope" needs to be exported by the entry point index.d.ts
+    constructor(token: typeof TOKEN, ast: QueryAst, counts: readonly number[], lists: readonly number[], shapes: readonly number[], named: readonly NamedParamNode[], preloadNamed: readonly NamedParamNode[], scope: Scope);
     readonly ast: QueryAst;
     crossJoin<Q0 extends QueryLike, const A2 extends string, Src extends Source_2>(this: Q0, source: Src, alias: A2 & NewAlias<A2, B>): Next<Q0, BindingsOf<Q0> & {
         readonly [K in A2]: BindingOfSource<Src>;
@@ -4354,6 +4390,16 @@ interface SchemaStatic<F extends FieldsShape = FieldsShape> {
     readonly fields: F;
 }
 
+// @public
+interface Scope {
+    readonly arg: Readonly<Record<string, object>>;
+    // Warning: (ae-forgotten-export) The symbol "Entry" needs to be exported by the entry point index.d.ts
+    //
+    // (undocumented)
+    readonly entries: readonly Entry[];
+    readonly root: Entry;
+}
+
 // Warning: (ae-forgotten-export) The symbol "Opaque" needs to be exported by the entry point index.d.ts
 //
 // @public
@@ -4811,6 +4857,9 @@ export interface TimestampsOptions<C extends string | false, U extends string | 
 type ToDb = (value: unknown) => unknown;
 
 // @public
+const TOKEN: unique symbol;
+
+// @public
 export interface TransactionOptions {
     // (undocumented)
     readonly isolation?: IsolationLevel | undefined;
@@ -4831,6 +4880,7 @@ export class Tuple<V extends readonly unknown[], P = NoParams> {
         readonly values: V;
         readonly params: (params: P) => void;
     };
+    constructor(items: readonly unknown[]);
     // Warning: (ae-forgotten-export) The symbol "Operands" needs to be exported by the entry point index.d.ts
     // Warning: (ae-forgotten-export) The symbol "NoNullItems" needs to be exported by the entry point index.d.ts
     eq<V2 extends Operands<V>, P2>(other: Tuple<V2, P2> & CompatibleParams<P, P2> & NoNullItems<V> & NoNullItems<V2>): Expr<boolean, MergeParams<P, P2>>;

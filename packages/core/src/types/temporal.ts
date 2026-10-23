@@ -310,21 +310,27 @@ function parseTimestamp(text: string): ParsedTimestamp | undefined {
 }
 
 /**
- * The precision of a timestamp type.
+ * The precision of a timestamp field: `"s"`, `"ms"` (the default) or `"us"`.
  *
  * @example
  * ```ts
+ * import { type TimestampPrecision, t } from "egon-orm";
+ *
  * const precision: TimestampPrecision = "s";
+ * const loggedAt = t.timestamp({ precision });
  * ```
  */
 export type TimestampPrecision = "s" | "ms" | "us";
 
 /**
- * Options of {@link timestampType} and {@link localTimestampType}.
+ * Options of `t.timestamp()` and `t.localTimestamp()`.
  *
  * @example
  * ```ts
- * const options: TimestampOptions = { precision: "s" };
+ * import { type TimestampOptions, t } from "egon-orm";
+ *
+ * const seconds: TimestampOptions = { precision: "s" };
+ * const publishedAt = t.timestamp(seconds);
  * ```
  */
 export interface TimestampOptions {

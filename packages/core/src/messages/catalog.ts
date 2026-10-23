@@ -84,7 +84,8 @@ export const messages = {
   "database.connectionFailed":
     "Check that the database is running and that the connection settings are right; the cause is the driver's error.",
   "database.connectionReleased": "Acquire a new connection.",
-  "database.locked": "Retrying can succeed.",
+  "database.locked":
+    "Another connection holds the lock. Retry the statement or the transaction (the error is retryable), or let SQLite wait for the lock with the busy_timeout pragma.",
   "database.openFailed":
     "Check the filename and its directory's permissions; the cause is the driver's error.",
   "database.rejected":
@@ -302,7 +303,7 @@ export const messages = {
   "query.cteSourceName": 'Pass the CTE\'s name first, a non-empty string: cte("tree", Category).',
   "query.cteSourceShape":
     'Pass the schema class of its rows, cte("{{name}}", Category), or the CTE\'s query.',
-  "query.cteTwice": "Give each its own name.",
+  "query.cteTwice": "Give each CTE its own name.",
   "query.cteUndefined": 'Define it on the query with withCte("{{name}}", query), or read another source.',
   "query.cteUnknownOption": "withCte() takes recursive and materialized.",
   "query.cteWithPreloads": "Preload in the query that reads the CTE.",
@@ -311,7 +312,7 @@ export const messages = {
     'Give the custom type a plain SQL type name, such as "citext", "numeric(10, 2)" or "public.mood[]".',
   "query.deferrableUnsupported": "Leave deferrable out on {{dialect}}.",
   "query.deleteNoKey": "The delete plan is malformed: the repo always finds the row by its primary key.",
-  "query.distinctTwice": "A query has one.",
+  "query.distinctTwice": "A query has one distinct: call distinct() once, with every expression it needs.",
   "query.dynamicBinding":
     'Use the dynamic expression in a query that has the binding "{{alias}}" of {{schema}}, or build it for this query\'s bindings.',
   "query.dynamicCallback": "Pass a callback that receives the bindings: dynamic(({ u }) => u.age.gte(18)).",
@@ -434,7 +435,8 @@ export const messages = {
     'Pass a function that makes the next value, as in optimisticLock("version", (v) => v + 1).',
   "query.lockMode":
     'Pass "update", "share", "noKeyUpdate" or "keyShare", optionally with { skipLocked: true } or { noWait: true }, or a fragment for any other lock clause.',
-  "query.lockNotNumber": "Pass a function that makes the next value.",
+  "query.lockNotNumber":
+    "Only a number or a bigint has a default increment: pass a function that makes the next value as the second argument of optimisticLock().",
   "query.lockNoValue": "Give the field a default, such as t.integer().default(1).",
   "query.lockOptions": "Pass the options as an object: { skipLocked: true } or { noWait: true }.",
   "query.lockSkipAndNoWait": "Choose one: a lock either skips locked rows or fails on them.",
@@ -514,9 +516,10 @@ export const messages = {
   "query.outerRefWrongSchema":
     'Pass the schema class of the outer binding: outerRef("{{alias}}", {{found}}).',
   "query.overArgument":
-    "Pass the name of a window declared with window(), or { partitionBy, orderBy, frame }.",
+    "Pass the name of a window declared with windows(), or { partitionBy, orderBy, frame }.",
   "query.overFrame": "Pass a fragment, such as fragment`ROWS BETWEEN 1 PRECEDING AND CURRENT ROW`.",
-  "query.overName": "The name given does not match, so it was refused.",
+  "query.overName":
+    'Declare the window with windows({ w: ({ p }) => ({ partitionBy: [p.authorId] }) }) and pass its name, over("w"), or pass the window itself.',
   "query.overTwice": "Call over() once per aggregate; declare the window with all its parts in that call.",
   "query.paramArguments": 'Pass a name and a field type, as in param("minAge", t.integer()).',
   "query.paramNotWholeNumber": "Give a fraction a float type, val(2.5, t.float()), or round it.",
@@ -622,7 +625,7 @@ export const messages = {
     "Preloaded associations are attached to whole rows: select ({ {{this}} }) => {{this}}, or preload in a separate query.",
   "query.setArgument":
     "Pass an object of field values, or a callback that returns one: set({ published: true }), set(({ p }) => ({ views: p.views.add(1) })).",
-  "query.setEmpty": "Set at least one.",
+  "query.setEmpty": "Set at least one field: set({ published: true }).",
   "query.setNotTable": 'Update a query rooted at a schema class: from(Post, "p").set({ published: true }).',
   "query.setNullNotNullable":
     "Set the field to a value, or make it .nullable() in the schema (and the column nullable in the database).",
@@ -657,7 +660,8 @@ export const messages = {
     "Stream the parents without preload, or read them in batches with repo.all(query.limit(n).offset(…)) and preload each batch.",
   "query.subqueryArgument": 'Pass a query: subquery(from(Post, "p").select(…)).',
   "query.subqueryExpected": "Pass a query built with from(), with a select() of one expression.",
-  "query.subqueryIsUpdate": "Only a query that reads can be one.",
+  "query.subqueryIsUpdate":
+    "Only a query that reads can be a subquery: leave out set(…), or run the update on its own with repo.updateAll().",
   "query.subqueryWithPreloads":
     'A subquery returns values to its enclosing query, and cannot run preloads: exclude("preload") first.',
   "query.subsetValues": 'Pass the values as an array, as in validateSubset("tags", ["a", "b"]).',
@@ -708,7 +712,7 @@ export const messages = {
   "query.updateNoKey": "The update plan is malformed: the repo always finds the row by its primary key.",
   "query.updateNoSet":
     "The update plan is malformed: the repo runs no statement for a changeset without changes.",
-  "query.updateWithAll": "Run it with repo.updateAll(q).",
+  "query.updateWithAll": "Run it with repo.updateAll(q), or leave out set(…) to read.",
   "query.upsertUnreadable":
     "Nothing was written. Upsert by the key, or read the row by the conflicting field and update it.",
   "query.validateApply": "Pass apply: true or false, or leave it out.",
@@ -745,11 +749,12 @@ export const messages = {
     "Give each window a name that is an identifier: a letter or underscore, then letters, digits, underscores or $.",
   "query.windowOrder": "Put expressions or order items in orderBy, as in orderBy: [p.createdAt.desc()].",
   "query.windowPartition": "Put expressions in partitionBy, as in partitionBy: [p.authorId].",
-  "query.windowsEmpty": "Name at least one.",
+  "query.windowsEmpty":
+    "Name at least one window: windows({ w: ({ p }) => ({ partitionBy: [p.authorId] }) }).",
   "query.windowShape": "Return a window from the callback: { partitionBy, orderBy, frame }.",
   "query.windowsObject":
     "Pass an object of named windows: windows({ w: ({ p }) => ({ partitionBy: [p.authorId] }) }).",
-  "query.windowTwice": "Each window has one name.",
+  "query.windowTwice": "Give each window its own name.",
   "query.windowUndeclared": "Declare it first: windows({ {{over}}: ({ p }) => ({ … }) }).",
   "query.windowUnknownKey": "A window takes partitionBy, orderBy and frame.",
   "query.withCteQuery":
@@ -902,7 +907,8 @@ export const messages = {
     'A field cannot be named "constructor", "__proto__" or "toJSON", or start with "$". Rename it, and keep the column with .column("{{name}}").',
   "schema.schemaOption":
     "Pass the database schema's name, as in { schema: \"tenant_1\" }, or leave the option out for the connection's default.",
-  "schema.stateNotRow": "A plain object has no state.",
+  "schema.stateNotRow":
+    "Pass a row returned by a query or a write: a plain object or a changeset has no state.",
   "schema.tableName": 'Pass the table name as a non-empty string: Schema("users", { ... }).',
   "schema.throughCombined":
     "Remove the other options: the associations through follows already say how the rows are found.",

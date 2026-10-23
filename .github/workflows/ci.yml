@@ -92,6 +92,9 @@ jobs:
       # Before anything is built: the benchmark runner must refuse to run without dist/.
       - run: node scripts/check-bench-dist-guard.mjs
       - run: pnpm build
+      # The public API of every entry point (api-report/, written by api-extractor from the
+      # built declarations) must match the committed report: an API change is reviewed as one.
+      - run: pnpm api:check
       # Edge runtimes resolve Node built-ins only as node:… (step 21a).
       - run: node scripts/check-node-specifiers.mjs
       - run: pnpm lint:packages
@@ -120,6 +123,42 @@ jobs:
       # Keeps the benchmark harness working. Numbers from shared runners are not meaningful;
       # regression gating is step 19.
       - run: pnpm bench
+
+  # The consumer project of examples/smoke/consumer.mjs, type-checked against the packed
+  # packages, every program (nodenext, node16, bundler, CommonJS, json-return), with the
+  # oldest supported TypeScript, the newest 5.8.x (TypeScript 5.8 or later: owner decision,
+  # 2026-10-22), and with the latest release; the workspace's own TypeScript is covered by
+  # `pnpm smoke` in the build job. scripts/typescript-version.mjs picks the versions.
+  typescript:
+    name: types (typescript ${{ matrix.typescript }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        typescript: [minimum, latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: pnpm build
+      - name: Type-check a consumer
+        run: node examples/smoke/consumer.mjs --no-runtime --typescript "$(node scripts/typescript-version.mjs "$WHICH")"
+        env:
+          WHICH: ${{ matrix.typescript }}
+
+  # The same check with TypeScript's `next` build (published daily). Informational: a
+  # failure here is a heads-up about the next TypeScript release and does not fail the `ci`
+  # check, which does not wait for this job.
+  typescript-next:
+    name: types (typescript next, informational)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: pnpm build
+      - run: node examples/smoke/consumer.mjs --no-runtime --typescript "$(node scripts/typescript-version.mjs next)"
 
   # The peer-dependency ranges at both ends: the consumer matrix with every peer (pg,
   # pg-cursor, @types/pg, better-sqlite3, mysql2, zod) at the lowest version its declared
@@ -202,7 +241,7 @@ jobs:
   ci:
     name: ci
     if: always()
-    needs: [lint, typecheck, test, integration, integration-tier2, build, peers, release, edge-worker, docs]
+    needs: [lint, typecheck, test, integration, integration-tier2, build, peers, typescript, release, edge-worker, docs]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -85,8 +85,66 @@ The changeset was made from a loaded row, so it describes an update:
 
 <<< @/examples/faq.ts#update
 
+The reverse mistake, `repo.update(change(User, values))`, names the other case:
+
+```text
+error TS2345: … Property '"update and delete take a changeset of a loaded row; this one is of a new record: use insert() or insertOrUpdate()"' is missing …
+```
+
+With `exactOptionalPropertyTypes` on, the same error is `TS2379`.
+
 The same kind of message, `"a new record has no row: applyChanges() and applyAction() need a changeset of a loaded row"`,
 appears when `applyChanges()` is called on a changeset of a class.
+
+### `Argument of type 'typeof User' is not assignable to parameter of type 'Changeset<…>'`
+
+```text
+error TS2769: No overload matches this call.
+  …
+    Argument of type 'typeof User' is not assignable to parameter of type 'Changeset<AnySchema, boolean, never>'.
+```
+
+You wrote `repo.insert(User, { email })`, as you would with `create` elsewhere. A write
+takes one changeset, which says what changes and validates it:
+`repo.insert(change(User, { email }))` for trusted values, or
+`repo.insert(User.changeset(User, params))` for input. See
+[Creating a changeset](/guide/changesets#creating-a-changeset).
+
+### `Expected 2-3 arguments, but got 1` on `repo.all(q)`
+
+```text
+error TS2554: Expected 2-3 arguments, but got 1.
+```
+
+The query has a [named parameter](/guide/queries#named-parameters), `param("email", t.string())`,
+and the call gives it no value. Pass the values as the second argument, before the options:
+`repo.all(q, { email })`. A misspelt name is reported on the object instead
+(`TS2561: Object literal may only specify known properties, but 'emial' does not exist in type '{ email: string; }'`).
+
+### `Argument of type '"postz"' is not assignable to parameter of type 'never'` on `preload`
+
+```text
+error TS2345: Argument of type '"postz"' is not assignable to parameter of type 'never'.
+```
+
+`preload` takes the names of the schema's associations, the `static` members made with
+`hasMany`, `belongsTo` and the like; anything else is refused, and the compiler reports the
+refusal as `never` rather than listing the names. Check the spelling against the class. The
+same goes for `Loaded<typeof Post, "autor">`, which reports
+`TS2344: Type '"autor"' does not satisfy the constraint 'PreloadSpec<typeof Post>'`.
+
+### `Expected 2 arguments, but got 1` on `hasMany`
+
+```text
+error TS2554: Expected 2 arguments, but got 1.
+```
+
+`hasMany` and `hasOne` need their options: either `{ foreignKey }`, the field of the
+**other** schema that holds this one's key, as in `hasMany(() => Post, { foreignKey: "authorId" })`,
+or `{ through }`, a chain of associations to follow, as in
+`hasMany(() => Comment, { through: ["posts", "comments"] })`. The key is not derived from
+the class name, which a minifier may change. `belongsTo` has a default (`<property name>Id`).
+See [Defining associations](/guide/associations#defining-associations).
 
 ### `Type '"emial"' is not assignable to type 'FieldName<typeof User>'`
 
@@ -110,6 +168,14 @@ column's type; there is no implicit conversion. Convert the value, or compare wi
 `cast(...)` on the column.
 
 ### `Type 'Col<string>' is not assignable to type 'Condition'`
+
+```text
+error TS2769: No overload matches this call.
+  …
+    Type 'Col<string>' is not assignable to type 'Condition'.
+      The types of '"~expr".type' are incompatible between these types.
+        Type 'string' is not assignable to type 'boolean | null'.
+```
 
 A `where` callback returned a column instead of a condition, for example
 `.where(({ u }) => u.email)`. Return a comparison: `u.email.eq(email)`, or for a boolean

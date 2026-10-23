@@ -138,7 +138,9 @@ describe("set", () => {
 
   test("an update with assignments cannot run as a select, nor a delete", () => {
     const q = from(Post, "p").set({ views: 0 });
-    expect(() => compiled(q)).toThrow("query.updateWithAll: The query has set(…) assignments.");
+    expect(() => compiled(q)).toThrow(
+      "query.updateWithAll: A query with set(…) assignments, an update, was run as a read.",
+    );
     expect(() => compiled(q, "deleteAll")).toThrow(/deleteAll cannot run a query with set/);
   });
 });

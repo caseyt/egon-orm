@@ -850,7 +850,10 @@ export function validateFieldOf<C extends AnyChangeset>(changeset: C, field: str
   const result = callField(changeset, dispatched, value);
   if (isThenable(result)) {
     discard(result);
-    throw new QueryError("query.fieldValidatorPromise", "The field validator returned a Promise.");
+    throw new QueryError(
+      "query.fieldValidatorPromise",
+      `The field validator of "${field}" returned a Promise.`,
+    );
   }
   return finishField(changeset, field, dispatched.standard !== undefined, result, validator, "validateField");
 }

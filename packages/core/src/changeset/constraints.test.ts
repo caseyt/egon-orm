@@ -206,7 +206,7 @@ describe("optimisticLock", () => {
   test("throws without a value to compare, a bad incrementer, or a value that cannot be incremented", () => {
     expect(() => change(User).optimisticLock("age")).toThrow(/has no value/);
     expect(() => change(row()).optimisticLock("lockVersion", 1 as never)).toThrow(QueryError);
-    expect(() => change(row()).optimisticLock("email" as never)).toThrow(/not a number/);
+    expect(() => change(row()).optimisticLock("email" as never)).toThrow(/"email" is not a number/);
   });
 });
 

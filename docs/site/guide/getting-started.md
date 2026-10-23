@@ -1,7 +1,7 @@
 # Getting started
 
 From an empty directory to a first query in about five minutes. You need Node.js 22.12 or
-later and a Postgres server (14 or later).
+later, TypeScript 5.8 or later, and a Postgres server (14 or later).
 
 ## Create the project
 

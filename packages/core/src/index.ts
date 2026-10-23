@@ -1,8 +1,6 @@
 /**
  * The version of the `egon-orm` package.
  *
- * Placeholder export from step 01 (foundation); the public API arrives in later steps.
- *
  * @example
  * ```ts
  * import { VERSION } from "egon-orm";
@@ -332,5 +330,9 @@ export {
 } from "./schema/index.js";
 // Step 21b: the types of JSON responses. Type-only.
 export type { Json, JsonReturn } from "./schema/json-types.js";
+export type { EnumMapping } from "./types/composite.js";
 export type { TypeDefinition } from "./types/define.js";
 export { defineType, parameterized } from "./types/define.js";
+// The options of the field builder's types, for code that passes them around.
+export type { DecimalOptions } from "./types/scalars.js";
+export type { TimestampOptions, TimestampPrecision } from "./types/temporal.js";

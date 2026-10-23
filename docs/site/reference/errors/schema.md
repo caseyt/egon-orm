@@ -468,7 +468,7 @@ Pass the database schema's name, as in &#123; schema: "tenant\_1" &#125;, or lea
 
 > stateOf() expects a row: an object returned by a query or a write.
 
-A plain object has no state.
+Pass a row returned by a query or a write: a plain object or a changeset has no state.
 
 ## `schema.tableName` {#schema-tablename}
 

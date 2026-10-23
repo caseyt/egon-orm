@@ -24,6 +24,7 @@ Egon ORM is under construction: nothing is published to npm yet.
 
 | Feature | Notes |
 |---|---|
+| Faster editor completions in large models | After an edit, completions inside a query callback take about 40 ms plus 1.1–1.2 ms per schema reachable through associations, so they pass 200 ms at about 140–170 connected schemas on the machine measured, sooner on slower ones. The likely cause is that the association and preload types infer every static member of each reachable schema; the plan is to make them read the schema's association metadata and expand only where `preload` is used. Until then, declaring the return type of `changeset` methods lowers the cost (to about 114 ms at 200 schemas in one measurement); include in it the error keys the validations add, as in `Changeset<typeof User, boolean, "passwordConfirmation">`, or `errorMessages()` loses them. |
 | Lateral joins | `joinLateral`, `leftJoinLateral`. |
 | `VALUES` lists as a query source | `from(values(...), "v")`. |
 | Table-valued fragments | Such as `generate_series` as a source. |

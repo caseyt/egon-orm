@@ -366,11 +366,14 @@ const DECIMAL = /* @__PURE__ */ defineType<string>({
 });
 
 /**
- * Options of {@link decimalType}.
+ * Options of `t.decimal()`: the column's precision and scale.
  *
  * @example
  * ```ts
- * const price: DecimalOptions = { precision: 10, scale: 2 };
+ * import { type DecimalOptions, t } from "egon-orm";
+ *
+ * const money: DecimalOptions = { precision: 10, scale: 2 };
+ * const price = t.decimal(money);
  * ```
  */
 export interface DecimalOptions {

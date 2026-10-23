@@ -241,6 +241,8 @@ describe("the connection's password", () => {
     expect(error).toBeInstanceOf(Error);
     expect(`${String((error as Error).message)}\n${String((error as Error).stack)}`).not.toContain(PASSWORD);
     expect(JSON.stringify(error)).not.toContain(PASSWORD);
+    // The whole error as inspect shows it, with its cause (the driver's error).
+    expect(shown(error)).not.toContain(PASSWORD);
     // The driver is started now: its pool holds the connection string.
     expect(shown(repo)).not.toContain(PASSWORD);
     expect(shown(a)).not.toContain(PASSWORD);

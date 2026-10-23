@@ -1,7 +1,7 @@
 // The security review of step 21: the regular expressions of @egon-orm/postgres, given
-// input made to make a backtracking engine work hard. The bound is wide on purpose (see
-// packages/core/test/security/redos.test.ts): linear patterns take well under a
-// millisecond here, a quadratic one tens of seconds.
+// input made to make a backtracking engine work hard. Every pattern here is anchored at the
+// start, so it is tried once; the one-second bound (see
+// packages/core/test/security/redos.test.ts) catches an exponential one.
 import { expect, test } from "vitest";
 import { normalizePgError } from "./errors.js";
 import { parseTimestamp } from "./values.js";

@@ -113,6 +113,8 @@ describe.runIf(tier2Enabled())("mysql secrets", () => {
     expect(error).toBeInstanceOf(Error);
     expect(`${(error as Error).message}\n${String((error as Error).stack)}`).not.toContain(PASSWORD);
     expect(JSON.stringify(error)).not.toContain(PASSWORD);
+    // The whole error as inspect shows it, with its cause (the driver's error).
+    expect(shown(error)).not.toContain(PASSWORD);
     expect(shown(repo)).not.toContain(PASSWORD);
     expect(shown(adapter)).not.toContain(PASSWORD);
     expect(lines.join("")).not.toContain(PASSWORD);

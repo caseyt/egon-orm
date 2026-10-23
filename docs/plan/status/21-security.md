@@ -6,7 +6,7 @@ they belong to, each with a test that fails without it.
 
 ## Summary
 
-The review is complete. Ten findings: three fixed (one Medium, two Low), two that need the
+The review is complete. Eleven findings: four fixed (one Medium, three Low; F11 in review round 1), two that need the
 owner's decision (one Medium, one Low), five informational and documented. None is an
 injection: every site that writes SQL text was read and holds.
 
@@ -22,6 +22,7 @@ injection: every site that writes SQL text was read and holds.
 | F8 | Info | `changeset.params` and `repo.toSql()` hold values unredacted | By design; documented |
 | F9 | Info | Statements without parameters may be statement lists on Postgres and SQLite | By design; documented |
 | F10 | Info | `pnpm audit` reports 27 advisories, all in development tools | Request below |
+| F11 | Low | SQLite's constraint-message pattern was unanchored: quadratic on a message repeating its words | **Fixed** (review round 1) |
 
 ## 1. Injection
 
@@ -35,6 +36,14 @@ property: a JSON path key is one quoted member of the path text, or refused when
 `"` or `\` (`jsonPathStep`). `EGON_PROPERTY_RUNS=<n>` runs every property `n` times and
 stretches the timeouts to match; CI leaves it unset, so CI's run counts are as before
 (10,000 for the main injection property, 500 to 2,000 for the others).
+
+Review round 1: the values and names are drawn from `hostileText`, which weights in the
+characters that end or escape a quoted name or string in some dialect (`"`, `` ` ``, `'`,
+`\`, `[`, `]`) and the starts of comments and placeholders. With plain binary strings a
+name seldom held a quote, and dropping the doubling of MySQL's backtick passed 1 run in 3 at
+the default counts; with `hostileText` that mutation fails 3 runs out of 3. The table below
+is the first run, before this change. A second run at 100,000, with `hostileText`, passed
+too: 19 of 19 in 134.8 s.
 
 `EGON_PROPERTY_RUNS=100000 pnpm vitest run --project core:unit packages/core/src/compiler/property.test.ts`,
 on 2026-10-22 (Node 22, this machine): **19 tests, 19 passed, 100,000 runs each, 108.8 s.**
@@ -141,11 +150,20 @@ limit bounds it.
 Every regular expression in the published packages' sources (found with a grep for regex
 literals, `RegExp`, `.test`, `.exec`, `.match`, `.replace(/` and `.split(/`) is tested with
 input built to make a backtracking engine work hard: long runs of what a quantifier accepts,
-ending in what the pattern refuses. The bound is one second for an input of 100,000
-characters, where a linear pattern takes well under a millisecond and a quadratic one tens
-of seconds, so the test does not depend on the machine's speed. I checked that the bound
-catches a real case: the float grammar without its length check takes 65 ms at 10,000
-characters and 574 ms at 30,000 (quadratic), so about 6 s at 100,000.
+ending in what the pattern refuses. Two kinds of check:
+
+- **Growth** (`expectLinear`, in `@egon-orm/test-support`): the work is timed on an input
+  of 50,000 characters and on one of 400,000 (the fastest of three runs each, after a warm
+  up), and the larger must take less than 16 times the smaller plus 50 ms. Linear work grows
+  8 times, quadratic 64 times, so this separates them whatever the machine's speed. Used for
+  every pattern that is not anchored at the start, and for the one parse of unbounded text
+  (decimals). Mutation-checked on the old SQLite pattern (F11): 81 ms at 50,000, 5.2 s at
+  400,000, failed.
+- **A one-second bound on 100,000 characters**, for anchored patterns and length-checked
+  input. It catches an exponential pattern and a costly quadratic one, but not every
+  quadratic one: the old SQLite pattern took 296 ms there, inside the bound (review round 1).
+  The float grammar without its length check takes about 6 s there, so its length check is
+  caught.
 
 - `packages/core/test/security/redos.test.ts`: integer, bigint, float, decimal, uuid,
   date, time, timestamp and local-timestamp casts; a bigint read from an embedded document;
@@ -156,12 +174,23 @@ characters and 574 ms at 30,000 (quadratic), so about 6 s at 100,000.
   key, check and column patterns, with a quoted value that holds the pattern's own words),
   `packages/sqlite/src/redos.test.ts` (timestamp text, which SQLite stores as any text; the
   constraint patterns; pragma names and values), `packages/cli/src/redos.test.ts`
-  (migration names).
+  (migration names). The MySQL and SQLite files use `expectLinear` throughout.
+
+**F11 (Low, fixed in review round 1).** SQLite's `COLUMNS_FAILED`
+(`/constraint failed: (.+)$/`) was not anchored: on a message that repeats `constraint
+failed: ` and ends in a line break, it was tried at each repetition and read to the end
+each time, quadratic (18 ms at 25,000 characters, 73 ms at 50,000, 296 ms at 100,000). The
+message comes from SQLite, and can quote a user's value (`CHECK constraint failed:` an
+expression). `COLUMNS_FAILED` and `INDEX_FAILED` are now anchored at the constraint's kind
+that starts every such message (`^[A-Z]+(?: [A-Z]+)* constraint failed: …`), so each is
+tried once; the SQLite conformance suites still read the real messages.
 
 Verdicts: the only ambiguous pattern is the float grammar (`\d+\.?\d*`), which runs only
 on text of at most 400 characters; integer and bigint text is limited to 40, time to 15,
-timestamps to 64, uuids to 36. The others have no overlapping quantifiers, or are anchored
-with disjoint classes. Patterns not reachable with outside input, and quadratic at worst on
+timestamps to 64, uuids to 36. The other patterns have no overlapping quantifiers. Most are
+anchored at the start; the ones that are not are MySQL's constraint patterns
+(`DUPLICATE_KEY`, `FOREIGN_KEY`), where each try stops at the next quote or backtick so the
+tries together read the message once (checked with `expectLinear`). Patterns not reachable with outside input, and quadratic at worst on
 text bounded elsewhere, were read and not given a test: MySQL's `ROWS_MATCHED` (the
 server's info line) and `UPDATE` (our SQL), the `/0+$/` that trims a MySQL decimal (at most
 65 digits), the error-path tidy-up in `preload()` (program text), the CLI's path and number
@@ -201,6 +230,9 @@ of 2 it did not. Fixed in `adapter/adapter.ts`: `SharedAdapter`'s driver and
 `#connection`), which neither `util.inspect` (even with `showHidden`) nor `JSON.stringify`
 reaches. This covers all three adapters, which store their configuration behind these
 objects. Mutation-checked: with `adapter.ts` from `main`, the six password tests fail.
+A visible consequence: calling an adapter's (or a connection's) methods through a `Proxy`
+of it, or on `Object.create(adapter)`, now throws `TypeError`, since an ES private field is
+reachable only from the object itself. Nothing in the library or its tests does that.
 
 **F4 (Medium, needs the owner's decision).** Egon's messages, `toJSON()`, log lines and
 the JSON of query events never hold a value. The database's own text does: Postgres puts
@@ -303,15 +335,17 @@ nothing to reporters.
 
 - Tests live in `packages/core/test/security/` (core), and beside the sources or in `test/`
   of the dialect packages and the CLI, named for the concern (`redos`, `secrets`).
-- ReDoS tests bound time with a one-second limit on 100,000-character inputs, chosen to
-  separate linear from quadratic by two orders of magnitude on any machine. This is a
-  correctness bound, not a benchmark or a speed gate (plan README §7): nothing is measured
+- ReDoS tests check growth between two sizes (`expectLinear`) for unanchored patterns and
+  unbounded input, and a one-second bound on 100,000 characters for the rest (§3). These are
+  correctness checks, not benchmarks or speed gates (plan README §7): nothing is measured
   against a budget. The size tests of §2 count work instead of timing it.
 - `EGON_PROPERTY_RUNS` is the name of the override; it applies to every property in
   `compiler/property.test.ts` only.
 - F1 was fixed with ES private fields rather than a custom inspect on the adapter, so that
-  `JSON.stringify` and debuggers that walk properties are covered too, and nothing visible
-  changes.
+  `JSON.stringify` and debuggers that walk properties are covered too. One visible change
+  follows from it: an adapter method called through a `Proxy` of the adapter, or on
+  `Object.create(adapter)`, now throws `TypeError` (an ES private field is reachable only
+  from the object itself). The same holds for a connection.
 
 ## Needs the owner's decision
 

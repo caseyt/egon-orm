@@ -76,6 +76,23 @@ function everyValuePosition(v: readonly string[]): { ast: QueryAst; named: Recor
 
 const marked = (s: string, i: number) => `⟦${i}:${s}⟧`;
 
+/**
+ * Text for values and names: any code point, with the characters that end or escape a
+ * quoted name or string in some dialect (`"`, `` ` ``, `'`, `\`, `[`, `]`) and the start
+ * of a comment or a placeholder weighted in, so that every run sees them often. Without
+ * the weight a binary string seldom holds a quote, and losing the doubling of one
+ * dialect's quote passed some runs.
+ */
+const hostileText = fc.string({
+  unit: fc.oneof(
+    {
+      arbitrary: fc.constantFrom('"', "`", "'", "\\", "[", "]", ";", "--", "/*", "$1", "?", "\u0000"),
+      weight: 1,
+    },
+    { arbitrary: fc.string({ unit: "binary", minLength: 1, maxLength: 1 }), weight: 2 },
+  ),
+});
+
 /** Every dialect the emitter writes; each property runs against all three. */
 const DIALECTS: readonly SqlDialect[] = [postgresDialect, mysqlDialect, sqliteDialect];
 
@@ -116,7 +133,7 @@ describe.each(DIALECTS)("injection on $name: a value never reaches the SQL text"
       // refuse a key holding `"` or `\` (a property below): position 8 is that key.
       const pathSteps = dialect.jsonPath === "pathOperators" || dialect.jsonPath === "pathFunctions";
       fc.assert(
-        fc.property(fc.array(fc.string({ unit: "binary" }), { minLength: 18, maxLength: 18 }), (strings) => {
+        fc.property(fc.array(hostileText, { minLength: 18, maxLength: 18 }), (strings) => {
           const values = strings.map((s, i) => marked(pathSteps && i === 8 ? s.replace(/["\\]/g, "") : s, i));
           const { ast, named } = everyValuePosition(values);
           const plan = createCompiler(dialect).compile(ast, "all", undefined);
@@ -139,7 +156,7 @@ describe.each(DIALECTS)("injection on $name: a value never reaches the SQL text"
       const email = users.fieldsByName.get("email") as FieldMeta;
       const name = users.fieldsByName.get("name") as FieldMeta;
       fc.assert(
-        fc.property(fc.array(fc.string({ unit: "binary" }), { minLength: 8, maxLength: 8 }), (strings) => {
+        fc.property(fc.array(hostileText, { minLength: 8, maxLength: 8 }), (strings) => {
           const v = strings.map(marked);
           const ast = rebuild(
             bareQuery({ kind: "values", columns: ["a"], rows: [[value(v[0])], [value(v[1])]], alias: "x" }),
@@ -205,7 +222,7 @@ describe("JSON path steps: a key cannot leave its step of the path text", () => 
     "a key is one quoted member, or refused when it holds a double quote or a backslash",
     () => {
       fc.assert(
-        fc.property(fc.string({ unit: "binary" }), (key) => {
+        fc.property(hostileText, (key) => {
           if (key.includes('"') || key.includes("\\")) {
             expect(() => jsonPathStep(key)).toThrow(QueryError);
           } else {
@@ -234,7 +251,7 @@ describe.each(DIALECTS)("identifiers on $name: a name from the AST is always quo
     "arbitrary names in every identifier position appear only inside quotes",
     () => {
       fc.assert(
-        fc.property(fc.array(fc.string({ unit: "binary" }), { minLength: 12, maxLength: 12 }), (strings) => {
+        fc.property(fc.array(hostileText, { minLength: 12, maxLength: 12 }), (strings) => {
           const n = strings.map((s, i) => `«${i}:${s}»`);
           const name = (i: number) => n[i] as string;
           const inner = rebuild(bareQuery(tableSource(name(0), name(1), undefined, name(2))), {
@@ -288,7 +305,7 @@ describe.each(DIALECTS)("identifiers on $name: a name from the AST is always quo
     "names in a row-level write and a bulk update are quoted",
     () => {
       fc.assert(
-        fc.property(fc.string({ unit: "binary" }), fc.string({ unit: "binary" }), (a, b) => {
+        fc.property(hostileText, hostileText, (a, b) => {
           const column = `«${a}»`;
           const schema = `«${b}»`;
           const ast = rebuild(from(Post, "p").ast, {
@@ -385,7 +402,7 @@ describe.each(DIALECTS)("identifiers on $name: a name from the AST is always quo
       ]);
       fc.assert(
         fc.property(
-          fc.string({ unit: "binary" }).filter((s) => !known.has(s)),
+          hostileText.filter((s) => !known.has(s)),
           fc.integer({ min: 0, max: positions.length - 1 }),
           (s, i) => {
             const build = positions[i] as (s: string) => QueryAst;

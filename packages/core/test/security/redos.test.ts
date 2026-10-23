@@ -3,9 +3,12 @@
 // in what the pattern refuses). Each pattern either has no ambiguity to backtrack over or
 // runs only on input whose length was checked first.
 //
-// The bound is wide on purpose: an input of 100,000 characters takes a linear pattern well
-// under a millisecond, a quadratic one tens of seconds, an exponential one forever. One
-// second separates them on any machine without making the test depend on its speed.
+// The one-second bound on 100,000 characters catches an exponential pattern, and a
+// quadratic one whose steps are costly, but not every quadratic one (a cheap one can take a
+// few hundred milliseconds there). It is enough here because each pattern reached with this
+// input runs on length-checked text or has no overlapping quantifiers; the one parse of
+// unbounded text (decimals) is also checked for its growth with `expectLinear`.
+import { expectLinear } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
 import type { FieldMeta } from "../../src/contracts/schema.js";
 import { CUSTOM_SQL_TYPE } from "../../src/contracts/type.js";
@@ -67,6 +70,12 @@ describe("field type casts", () => {
       expect(fast("decimal scaled", () => scaled.cast(input).success)).toBe(false);
     }
     expect(fast("decimal", () => plain.cast(`${run("1")}.${run("9")}`).success)).toBe(true);
+    // Unbounded input, so its growth is checked too, not only one size.
+    expectLinear(
+      "decimal",
+      (n) => `${run("1", n)}.${run("1", n)}.`,
+      (input) => expect(scaled.cast(input).success).toBe(false),
+    );
   });
 
   test("uuid text: only 36 characters are read", () => {

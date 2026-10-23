@@ -32,6 +32,8 @@ Egon ORM is under construction: nothing is published to npm yet.
 | Named server-side prepared statements | For [`prepare`](/guide/queries-advanced#prepared-queries). |
 | Form helpers for nested changesets | Sort and drop parameters, and index-keyed objects in place of arrays. |
 | Other databases through a custom dialect | |
+| Built-in multi-tenancy | Support in the repo for what the [multi-tenancy recipe](/recipes/multi-tenancy) does by hand: the tenant chosen per repo or per request, as a database schema or a tenant column. |
+| Built-in soft deletes | Support for what the [soft-deletes recipe](/recipes/soft-deletes) does by hand: a schema option for the deleted-at field, soft delete and restore in the repo, and an explicit way to include or leave out deleted rows. |
 | Query observability | Built on the `query` event of [`repo.on`](/guide/repo#logging-and-events), which already reports each statement's SQL and timings: slow-query detection, OpenTelemetry tracing and warnings for N+1 query patterns. |
 | A browser entry point | `egon-orm/client`, with `cast` and the validations, so a form can run the same casts and field validations in the browser, without bundling the query builder or the repo. Constraints and checks that ask the database stay on the server. |
 | Test factories | Beside the [test sandbox](/guide/testing): build valid rows for a schema, override single fields, create association graphs, and generate deterministic test data. For integration tests in large applications. |

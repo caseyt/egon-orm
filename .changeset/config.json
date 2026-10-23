@@ -16,9 +16,9 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["@egon-orm/benchmarks", "@egon-orm/docs-site", "@egon-orm/example-smoke"],
+  "ignore": [],
   "privatePackages": {
-    "version": true,
+    "version": false,
     "tag": false
   }
 }

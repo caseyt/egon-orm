@@ -24,6 +24,8 @@ protocol and the pull request and review loop that every change follows.
 | `pnpm test:unit` | Unit tests (`*.test.ts`) with coverage; fails under 95% lines or branches in `packages/core` or `packages/postgres` |
 | `pnpm test:types` | Type tests (`*.test-d.ts`) |
 | `pnpm test:integration` | Integration tests (`*.itest.ts`) against real databases |
+| `pnpm test:soak` | Opt-in soak test: a mixed workload against Postgres with random backend kills through a pool of 5 (`EGON_SOAK_MINUTES`, default 2; the release gate is 30). Not run on pull requests; `.github/workflows/robustness.yml` runs it by hand and weekly. |
+| `pnpm test:mutation [area...]` | Stryker over `packages/core` `changeset`, `query` and `compiler` (target 80% each), two test processes at a time; several hours. Reports in `reports/mutation/`. Not run on pull requests. Do not run it beside the soak test. |
 | `pnpm test:watch` | Unit tests in watch mode |
 | `pnpm build` | ESM + declarations for every package (`tsup`). There is no CommonJS build (decision D14). |
 | `pnpm lint:packages` | `publint --strict` and `@arethetypeswrong/cli` on the built packages. attw runs with `--profile esm-only`: the packages have no CommonJS build, so its two CommonJS resolution modes (`node10`, `node16-cjs`) are reported but not failed. The ESM and bundler modes must be clean. |
@@ -56,6 +58,8 @@ benchmarks/          micro/<area>.bench.ts, harness in src/
 examples/smoke       an ESM consumer, a CommonJS consumer (require of the ES module), and a type-checked consumer
 examples/blog        the tutorial's application, with its own test suite (blog:integration)
 examples/react-form  the React form of the form-errors recipe, type-checked on its own
+examples/runtime     the runtime matrix: one round trip from ESM, require() and esbuild bundles (Node, Bun)
+examples/next-app    the same through a Next.js build (next build, next start)
 docs/plan            the plan (frozen; workers add only status/NN.md)
 docs/adr             architecture decision records
 docs/site            VitePress site; docs/site/examples holds the type-checked example sources

@@ -1,11 +1,21 @@
 // Step 21 (changeset gaps): behaviours that mutation testing showed no test covered, each
 // checked against the mutant it kills. Grouped by the function they exercise.
-import { Post, User, UserSettings } from "@egon-orm/test-support";
+import { Post, Profile, User, UserSettings } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
 import type { AnySchema, Row } from "../contracts/schema.js";
 import { QueryError } from "../errors.js";
-import { belongsTo, hasMany, meta, Schema, stateOf, t } from "../schema/index.js";
+import { belongsTo, EmbeddedSchema, hasMany, meta, Schema, stateOf, t } from "../schema/index.js";
 import { cast, change, rebuild, withAction } from "./changeset.js";
+import { buildAssoc } from "./nested/build.js";
+import { embedChanges, embedValue, missingEmbedded } from "./nested/embed.js";
+
+/** The parts of a changeset these tests read, untyped. */
+interface AnyCsLike {
+  readonly changes: Readonly<Record<string, unknown>>;
+  readonly errors: Readonly<Record<string, unknown>>;
+  readonly valid: boolean;
+  readonly action: string | null;
+}
 
 /** A row of `schema` as a query would return it. */
 function loaded<S extends AnySchema>(schema: S, values: Readonly<Record<string, unknown>>): Row<S> {
@@ -253,6 +263,128 @@ describe("change()", () => {
   test("refuses an embed field, which putEmbed changes", () => {
     const user = loaded(User, { id: 1, email: "a@b.c", role: "member", lockVersion: 1 });
     expect(() => change(user, { settings: { theme: "dark" } } as never)).toThrow(/^query\.changeEmbed: /);
+  });
+});
+
+describe("changesets without a schema class", () => {
+  test("two changesets of the same data and types are of the same record, and merge", () => {
+    const source = { data: { q: "a" }, types: { q: t.string(), page: t.integer() } };
+    const merged = change(source, { q: "b" }).merge(change(source, { page: 2 }));
+    expect(merged.changes).toEqual({ q: "b", page: 2 });
+  });
+
+  test("an unknown field name is refused with a QueryError", () => {
+    const search = change({ data: {}, types: { q: t.string() } });
+    expect(() => search.putChange("nope" as never, "x" as never)).toThrow(QueryError);
+  });
+});
+
+describe("buildAssoc", () => {
+  test("builds the child of a has-one association, pointing at the parent", () => {
+    const user = loaded(User, { id: 4, email: "a@b.c", role: "member", lockVersion: 1 });
+    const profile = buildAssoc(User, user, "profile");
+    expect(profile.changes).toMatchObject({ userId: 4 });
+  });
+});
+
+class Badge extends EmbeddedSchema({
+  label: t.string(),
+  shown: t.string().virtual(),
+  code: t.uuid().primaryKey().autogenerate(),
+}) {}
+class Member extends Schema("members", {
+  id: t.integer().primaryKey(),
+  title: t.string(),
+  badge: t.embedOne(() => Badge, { onReplace: "delete" }).nullable(),
+  badges: t.embedMany(() => Badge, { onReplace: "delete" }),
+}) {}
+const member = (badge: Badge | null, badges: readonly Badge[] = []) =>
+  loaded(Member, { id: 1, title: "M", badge, badges });
+const badge = (label: string | null, code: string | null = "00000000-0000-4000-8000-000000000001") =>
+  loaded(Badge, { label, code });
+
+describe("embedded rows", () => {
+  test("an unchanged stored item is the stored row; a changed one is a new built row", () => {
+    const [kept, edited] = [badge("a"), badge("b", "00000000-0000-4000-8000-000000000002")];
+    const cs = change(member(null, [kept as Badge, edited as Badge])).putEmbed("badges", [
+      change(kept as Badge),
+      change(edited as Badge, { label: "c" }),
+    ] as never);
+    const rows = embedValue(cs.changes.badges, "built") as Badge[];
+    expect(rows[0]).toBe(kept);
+    expect(stateOf(rows[1] as object)).toBe("built");
+  });
+
+  test("a virtual field is kept from the stored row, and a new row without it has none", () => {
+    const stored = badge("a");
+    (stored as unknown as { shown: string }).shown = "yes";
+    const changed = embedValue(
+      change(member(stored)).putEmbed("badge", change(stored, { label: "b" }) as never).changes.badge,
+      "built",
+    );
+    expect((changed as Badge).shown).toBe("yes");
+    const fresh = embedValue(
+      change(member(null)).putEmbed("badge", { label: "n" } as never).changes.badge,
+      "built",
+    );
+    expect((fresh as Badge).shown).toBeUndefined();
+  });
+});
+
+describe("missingEmbedded", () => {
+  test("keeps the other changes, marks the parent and the child invalid, with the required validation", () => {
+    const cs = change(member(null), { title: "N" }).putEmbed("badge", {} as never) as unknown as AnyCsLike;
+    const checked = missingEmbedded(cs as never) as unknown as AnyCsLike;
+    expect(Object.keys(checked.changes)).toEqual(["title", "badge"]);
+    expect(checked.valid).toBe(false);
+    const child = checked.changes.badge as AnyCsLike;
+    expect(child.valid).toBe(false);
+    expect(child.errors.label).toStrictEqual([
+      { message: "can't be blank", validation: "required", meta: {} },
+    ]);
+  });
+
+  test("in a list: keeps the other changes, leaves the earlier list alone, and skips deleted items", () => {
+    const broken = badge(null);
+    const cs = change(member(null, [broken as Badge]), { title: "N" }).putEmbed("badges", [
+      { label: "x", code: "00000000-0000-4000-8000-000000000009" },
+      {},
+    ] as never) as unknown as AnyCsLike;
+    const itemBefore = (cs.changes.badges as readonly unknown[])[1];
+    const checked = missingEmbedded(cs as never) as unknown as AnyCsLike;
+    expect(Object.keys(checked.changes)).toEqual(["title", "badges"]);
+    expect((cs.changes.badges as readonly unknown[])[1]).toBe(itemBefore);
+    const items = checked.changes.badges as readonly AnyCsLike[];
+    // The stored row left out is deleted: its null label is not reported.
+    expect(items.map((item) => [item.action, Object.keys(item.errors)])).toEqual([
+      ["insert", []],
+      ["insert", ["label"]],
+      ["delete", []],
+    ]);
+  });
+
+  test("a null embed change, and a stored row with null in its generated key, are checked without fault", () => {
+    expect(missingEmbedded(change(member(badge("a"))).putEmbed("badge", null) as never)).toBeUndefined();
+    const keyless = loaded(Badge, { label: "a", code: null });
+    const cs = change(member(keyless)).putEmbed("badge", change(keyless, { label: "b" }) as never);
+    const checked = missingEmbedded(cs as never) as unknown as AnyCsLike;
+    expect(Object.keys((checked.changes.badge as AnyCsLike).errors)).toEqual(["code"]);
+  });
+
+  test("a second embed with nothing missing keeps its change", () => {
+    const cs = change(member(null))
+      .putEmbed("badge", {} as never)
+      .putEmbed("badges", [{ label: "x", code: "00000000-0000-4000-8000-000000000009" }] as never);
+    const checked = missingEmbedded(cs as never) as unknown as AnyCsLike;
+    expect(Array.isArray(checked.changes.badges)).toBe(true);
+  });
+});
+
+describe("embedChanges", () => {
+  test("an association change is left as it is; only embeds become rows", () => {
+    const cs = change(Profile).putAssoc("user", { email: "e@x" } as never);
+    const changes = embedChanges(cs as never, "built") as Record<string, unknown>;
+    expect(changes.user).toBe((cs.changes as Record<string, unknown>).user);
   });
 });
 

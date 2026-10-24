@@ -1,8 +1,10 @@
 # Step 21 (robustness): soak, fault injection, runtime matrix, mutation testing, status
 
 Branch `step/21-robustness`, 2026-10-22, from `main` at `e6ea502`, with `main` merged at
-`37853d9` (#68, security), `baecd60` (#65, packaging) and `2eff98a` (#69, audit; #71,
-TypeScript 5.8 minimum). Spec: `docs/plan/21-release.md` §3. The owner decided on 2026-10-22 that all four items stay gates for `0.1.0`.
+`37853d9` (#68, security), `baecd60` (#65, packaging), `2eff98a` (#69, audit; #71,
+TypeScript 5.8 minimum) and `8b1aeea` (#72, owner decisions). After the last merge:
+`pnpm check`, `pnpm api:check` and `pnpm test:integration --maxWorkers=2` with
+`EGON_TEST_TIER2=1` (51 files, 1,801 tests) pass. Spec: `docs/plan/21-release.md` §3. The owner decided on 2026-10-22 that all four items stay gates for `0.1.0`.
 
 ## Summary
 

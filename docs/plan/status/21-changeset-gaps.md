@@ -232,19 +232,26 @@ None. No configuration changed, no Stryker patch, no TypeScript checker for Stry
 - **For the owner: options objects inherit keys planted on `Object.prototype`.** Found by
   the reviewer in rounds 4 and 5. Every option is read as a plain property, so any option
   key planted on `Object.prototype` reaches an options object the developer passes (even
-  `{}`); without an options object the defaults are right. Confirmed by the reviewer with
-  scratch tests:
+  `{}`); without an options object the defaults are right, except where the default is
+  itself an object (below). Confirmed by the reviewer with scratch tests:
   - `message`: `validateRequired(["email"], {})` reports the planted text instead of
     "can't be blank";
   - `emptyValues: ["a@b.c"]`: `cast(User, { email: "a@b.c" }, ["email"], {})` reports
     "can't be blank";
-  - `forceChanges: true`: casting the same value again records a change.
+  - `forceChanges: true`: casting the same value again records a change;
+  - an exception to "without an options object the defaults are right": `castAssoc` and
+    `castEmbed` read `options ?? EMPTY`, and `EMPTY` (`Object.freeze({})`,
+    `nested/change.ts:37`) still inherits from `Object.prototype`, so with `required: true`
+    planted, `castAssoc("leaves")` with no options reports "can't be blank".
 
   Found by reading the source, not run: `trim` (`validateRequired`), `required`
-  (`castAssoc`/`castEmbed`), `errorKey`, `name` and `match` (the constraint declarations),
+  (`castAssoc`/`castEmbed`, and `validateConfirmation`'s `options?.required` at
+  `changeset.ts:1178`), `errorKey`, `name` and `match` (the constraint declarations),
   `codegen` (schema and repo options), and the options of `castAssoc`/`castEmbed` (`with`)
-  and of `validate()` (`scope`, `apply`, `only`). The fix is to read options as own
-  properties only, everywhere they are read: a source change outside this tests-only step.
+  and of `validate()` (`scope`, `apply`, `only`). This list may not be complete: the
+  follow-up fix has to check every read of an option, including frozen defaults that still
+  inherit from `Object.prototype`. The fix is to read options as own properties only,
+  everywhere they are read: a source change outside this tests-only step.
 - **For the owner: seeding the fast-check properties in mutation runs.** A property without
   a fixed seed can kill a mutant in one run and not the next (`nested/relation.ts:310`
   above), so a mutation run cannot be repeated exactly. The reviewer's suggestion: a setup

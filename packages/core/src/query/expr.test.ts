@@ -415,6 +415,12 @@ describe("array operators", () => {
     expect(p.tagList.append("ts").type).toBe(p.tagList.type);
   });
 
+  test("on an expression of no known type, the element has no type either", () => {
+    const untyped = val(["a", "b"]);
+    expect(shown(untyped.remove("a" as never))).toBe('arrayRemove($["a","b"], $"a")');
+    expect(shown(untyped.append("c" as never))).toBe('arrayAppend($["a","b"], $"c")');
+  });
+
   test("append and remove take null (a null element)", () => {
     expect(shown(p.tagList.remove(null))).toMatchInlineSnapshot(`"arrayRemove(p.tags, $null:string)"`);
   });

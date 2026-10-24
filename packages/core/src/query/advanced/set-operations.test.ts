@@ -51,6 +51,18 @@ describe("set operations", () => {
     ).toEqual([]);
   });
 
+  test('exclude("setOperations") also drops the values of the queries it removes', () => {
+    const left = from(User, "u")
+      .where(({ u }) => u.age.gt(18))
+      .select(({ u }) => ({ id: u.id }));
+    const right = from(Post, "p")
+      .where(({ p }) => p.views.gt(100))
+      .select(({ p }) => ({ id: p.authorId }));
+    const back = left.union(right).exclude("setOperations");
+    expect(back.ast.params).toEqual(left.ast.params);
+    expect(canonical(back)).toEqual(canonical(left));
+  });
+
   test("a side with an order, a limit, an offset or a lock is refused", () => {
     expect(() => ids.orderBy(({ u }) => u.id).union(authors)).toThrow(
       /union\(\) was called on a query with an orderBy\(\)/,

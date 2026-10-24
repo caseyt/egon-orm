@@ -350,6 +350,33 @@ describe("separate-query preloads", () => {
     expect(authors.map((author) => author.bio?.text ?? null)).toEqual(["Mathematician", null, null]);
   });
 
+  test("manyToMany through a join schema: a joinWhere value has its column's type", async () => {
+    // `note` comes first so that a value typed by the wrong column would be text.
+    class BookRank extends Schema("book_ranks", {
+      note: t.string(),
+      bookId: t.integer().primaryKey(),
+      labelId: t.integer().primaryKey(),
+      rank: t.integer(),
+    }) {}
+    class Ranked extends Schema("books", {
+      id: t.integer().primaryKey(),
+      authorId: t.integer().nullable(),
+      title: t.string(),
+      printedAt: t.timestamp().nullable(),
+    }) {
+      static ranked = manyToMany(() => Label, {
+        joinThrough: () => BookRank,
+        joinKeys: { owner: "bookId", target: "labelId" },
+        joinWhere: { rank: 1.5 },
+      });
+    }
+    const { repo } = fake();
+    // rank is an integer column: a fraction is refused when bound, as any integer value is.
+    await expect(repo.all(from(Ranked, "b").preload("ranked" as never))).rejects.toThrow(
+      /not a whole number/,
+    );
+  });
+
   test("manyToMany: the join table and its condition, the target's where, the owner key read beside the row", async () => {
     const { repo, driver } = fake();
     const books = await repo.all(from(Book, "b").preload("labels"));

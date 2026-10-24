@@ -57,6 +57,11 @@ export const PG_RUNTIME: PgRuntime = {
 /** Ignores the error an idle client reports: pg-pool has already removed that client. */
 const ignore = (): void => undefined;
 
+/** The error a cursor close fails with when its connection has ended. */
+function cursorOnEndedConnection(): Error {
+  return new Error("Connection terminated: the connection ended before the cursor was closed.");
+}
+
 /** How long a cancel request may take when the pool sets no `connectionTimeoutMs`. */
 const DEFAULT_CANCEL_TIMEOUT_MS = 10_000;
 
@@ -74,6 +79,15 @@ class PgConnection implements DriverConnection {
    * which would end the process, so each checkout listens itself until it is released.
    */
   readonly onError: () => void;
+  /** Set when the client's connection has ended: the server closed it, or the socket failed. */
+  ended = false;
+  /**
+   * Cursor closes waiting for an answer. pg-cursor's close() resolves on the connection's
+   * next readyForQuery, which a connection that has ended never sends, so each waiting
+   * close is failed when the connection ends instead of waiting forever.
+   */
+  private readonly closing = new Set<() => void>();
+  readonly onEnd: () => void;
 
   constructor(
     readonly client: pg.PoolClient,
@@ -82,7 +96,14 @@ class PgConnection implements DriverConnection {
     this.onError = () => {
       this.broken = true;
     };
+    this.onEnd = () => {
+      this.ended = true;
+      this.broken = true;
+      for (const fail of this.closing) fail();
+      this.closing.clear();
+    };
     client.on("error", this.onError);
+    client.on("end", this.onEnd);
   }
 
   async query(
@@ -106,8 +127,27 @@ class PgConnection implements DriverConnection {
     const cursor = this.client.query(new CursorConstructor(sql, params as unknown[], { types: PG_TYPES }));
     return {
       read: (count) => cursor.read(count) as Promise<Record<string, unknown>[]>,
-      close: () => cursor.close(),
+      close: () => this.closeCursor(cursor),
     };
+  }
+
+  /** Closes a cursor; fails, rather than waiting forever, when the connection has ended. */
+  private closeCursor(cursor: Cursor): Promise<void> {
+    if (this.ended) return Promise.reject(cursorOnEndedConnection());
+    return new Promise<void>((resolve, reject) => {
+      const fail = (): void => reject(cursorOnEndedConnection());
+      this.closing.add(fail);
+      cursor.close().then(
+        () => {
+          this.closing.delete(fail);
+          resolve();
+        },
+        (error: unknown) => {
+          this.closing.delete(fail);
+          reject(error);
+        },
+      );
+    });
   }
 
   cancel(): Promise<void> {
@@ -159,6 +199,7 @@ export class PgDriver implements DriverWrapper {
   async release(connection: DriverConnection, destroy: boolean): Promise<void> {
     const checkedOut = connection as PgConnection;
     checkedOut.client.off("error", checkedOut.onError);
+    checkedOut.client.off("end", checkedOut.onEnd);
     checkedOut.client.release(destroy || checkedOut.broken);
   }
 
@@ -167,10 +208,12 @@ export class PgDriver implements DriverWrapper {
     if (pool === undefined) return;
     pool.off("connect", this.onConnect);
     pool.off("remove", this.onRemove);
-    if (this.source.owned) {
-      await pool.end();
-      pool.off("error", ignore);
-    }
+    // The error listener of an owned pool stays: pg-pool's end() resolves as soon as it has
+    // asked its idle clients to end, before their sockets have closed, and a client that
+    // reports an error meanwhile (the server terminated its session: a restart,
+    // pg_terminate_backend, DROP DATABASE ... WITH (FORCE)) makes the pool emit "error",
+    // which would end the process with no listener. The pool is discarded either way.
+    if (this.source.owned) await pool.end();
   }
 
   stats(): PoolEvent {

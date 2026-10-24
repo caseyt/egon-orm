@@ -7,6 +7,7 @@ import {
   firstValue,
   fragment,
   from,
+  jsonAgg,
   lag,
   lastValue,
   lead,
@@ -118,6 +119,13 @@ describe("named windows", () => {
     expect(() => byAuthor.select(() => ({ n: rowNumber().over("v") }) as never)).toThrow(/\(it declares w\)/);
     expect(() => byAuthor.orderBy(() => sum(val(1, t.integer())).over("x") as never)).toThrow(/over\("x"\)/);
     expect(byAuthor.select(() => ({ n: rowNumber().over("w") })).ast.select).toBeDefined();
+  });
+
+  test("a window named inside a JSON path is checked too", () => {
+    expect(() => posts.select(({ p }) => ({ first: jsonAgg(p.id).over("v").path(0) }) as never)).toThrow(
+      /over\("v"\) names a window this query does not declare/,
+    );
+    expect(byAuthor.select(({ p }) => ({ first: jsonAgg(p.id).over("w").path(0) })).ast.select).toBeDefined();
   });
 
   test("names in inline windows' parts are checked too", () => {

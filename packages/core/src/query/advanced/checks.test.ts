@@ -278,6 +278,23 @@ describe("cte(name, query) against the withCte body", () => {
     expect(() => compiled(rows)).toThrow(/returns something else/);
   });
 
+  test("a body that differs in one place only is refused: a key more, a key's name, the second key", () => {
+    const pair = from(Post, "p").select(({ p }) => ({ id: p.id, title: p.title }));
+    const extra = from(cte("x", idsOf), "t").withCte("x", pair);
+    expect(() => compiled(extra)).toThrow(/returns \{ id: bigint\(number\), title: string \}/);
+    const renamed = from(cte("x", idsOf), "t").withCte(
+      "x",
+      from(Post, "p").select(({ p }) => ({ key: p.id })),
+    );
+    expect(() => compiled(renamed)).toThrow(/returns \{ key: bigint\(number\) \}/);
+    const second = from(cte("x", pair), "t").withCte(
+      "x",
+      from(Post, "p").select(({ p }) => ({ id: p.id, title: p.id })),
+    );
+    expect(() => compiled(second)).toThrow(/returns \{ id: bigint\(number\), title: bigint\(number\) \}/);
+    expect(compiled(from(cte("x", pair), "t").withCte("x", pair)).sql).toMatch(/^with "x" as \(/);
+  });
+
   test("the same keys and types compile, from another query too", () => {
     const authors = from(Comment, "c").select(({ c }) => ({ id: c.postId }));
     expect(compiled(from(cte("x", idsOf), "t").withCte("x", authors)).sql).toMatch(/^with "x" as \(/);

@@ -150,14 +150,24 @@ describe("the pool", () => {
     expect(driver.saturated()).toBe(true);
   });
 
-  test("is ended by destroy when the adapter created it, and its listeners are removed", async () => {
+  test("is ended by destroy when the adapter created it, and its event listeners are removed", async () => {
     const { driver, pool } = setup();
     driver.init();
     await driver.destroy();
     expect(pool.ended).toBe(1);
-    expect(pool.listenerCount("connect") + pool.listenerCount("remove") + pool.listenerCount("error")).toBe(
-      0,
-    );
+    expect(pool.listenerCount("connect") + pool.listenerCount("remove")).toBe(0);
+  });
+
+  test("an error a closing connection reports after destroy does not end the process", async () => {
+    // pg-pool's end() resolves before its clients' sockets have closed; a session the server
+    // terminates in that window (DROP DATABASE ... WITH (FORCE)) is reported as a pool error.
+    const { driver, pool } = setup();
+    driver.init();
+    await driver.destroy();
+    expect(pool.listenerCount("error")).toBe(1);
+    expect(() =>
+      pool.emit("error", new Error("terminating connection due to administrator command")),
+    ).not.toThrow();
   });
 
   test("a pool you bring gets no error listener and is not ended, only unsubscribed from", async () => {
@@ -373,7 +383,47 @@ describe("a checked-out client that fails between statements", () => {
     driver.init();
     await driver.release(await driver.acquire(), false);
     expect(pool.client.listenerCount("error")).toBe(0);
+    expect(pool.client.listenerCount("end")).toBe(0);
     expect(pool.client.releases).toEqual([false]);
+  });
+});
+
+describe("a cursor whose connection ends", () => {
+  // pg-cursor's close() resolves on the next readyForQuery, which an ended connection never sends.
+  const hangingClose = () =>
+    vi.spyOn(FakeCursor.prototype, "close").mockReturnValue(new Promise(() => undefined));
+
+  test("fails a close that is waiting when the connection ends, and is closed on release", async () => {
+    const { driver, pool } = setup();
+    driver.init();
+    const connection = await driver.acquire();
+    const cursor = await connection.cursor("select n", []);
+    hangingClose();
+    const closing = cursor.close();
+    pool.client.emit("end");
+    await expect(closing).rejects.toThrow(/connection ended before the cursor was closed/);
+    await driver.release(connection, false);
+    expect(pool.client.releases).toEqual([true]);
+    expect(pool.client.listenerCount("end")).toBe(0);
+  });
+
+  test("fails a close at once when the connection has already ended", async () => {
+    const { driver, pool } = setup();
+    driver.init();
+    const connection = await driver.acquire();
+    const cursor = await connection.cursor("select n", []);
+    pool.client.emit("end");
+    const close = hangingClose();
+    await expect(cursor.close()).rejects.toThrow(/connection ended/);
+    expect(close).not.toHaveBeenCalled();
+  });
+
+  test("passes on a close that fails by itself", async () => {
+    const { driver } = setup();
+    driver.init();
+    const cursor = await (await driver.acquire()).cursor("select n", []);
+    vi.spyOn(FakeCursor.prototype, "close").mockRejectedValue(new Error("portal gone"));
+    await expect(cursor.close()).rejects.toThrow("portal gone");
   });
 });
 

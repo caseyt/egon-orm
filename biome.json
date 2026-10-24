@@ -52,6 +52,14 @@
     {
       "includes": ["examples/edge-worker/src/worker.ts", "docs/site/examples/edge.ts"],
       "linter": { "rules": { "style": { "noDefaultExport": "off" } } }
+    },
+    {
+      "includes": [
+        "examples/next-app/next.config.mjs",
+        "examples/next-app/app/layout.jsx",
+        "examples/next-app/app/page.jsx"
+      ],
+      "linter": { "rules": { "style": { "noDefaultExport": "off" } } }
     }
   ]
 }

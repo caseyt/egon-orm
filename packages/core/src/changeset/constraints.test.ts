@@ -171,6 +171,30 @@ describe("constraint declarations", () => {
     expect(() => cs.foreignKeyConstraint("nope" as never)).toThrow(QueryError);
     expect(() => cs.exclusionConstraint("nope" as never)).toThrow(QueryError);
   });
+
+  test("options that are not an object, a name that is not a string, an empty check name are refused", () => {
+    const cs = change(User);
+    // A string's own `match` method would fail the match check; a number or null has none.
+    expect(() => cs.uniqueConstraint("email", 5 as never)).toThrow("the options must be an object");
+    expect(() => cs.uniqueConstraint("email", null as never)).toThrow("the options must be an object");
+    expect(() => cs.uniqueConstraint("email", { name: 5 as never })).toThrow(
+      "name must be a non-empty string",
+    );
+    expect(() => cs.checkConstraint("age", { name: "" })).toThrow(
+      "checkConstraint() needs the constraint's name.",
+    );
+  });
+
+  test("each match mode is accepted", () => {
+    for (const match of ["exact", "suffix", "prefix"] as const) {
+      expect(change(User).uniqueConstraint("email", { match }).constraints[0]?.match).toBe(match);
+    }
+  });
+
+  test("a changeset without a schema class has no associations to constrain", () => {
+    const schemaless = change({ data: {}, types: { q: t.string() } });
+    expect(() => schemaless.assocConstraint("posts" as never)).toThrow(QueryError);
+  });
 });
 
 describe("optimisticLock", () => {

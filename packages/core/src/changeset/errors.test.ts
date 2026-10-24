@@ -135,7 +135,7 @@ describe("validations list", () => {
       .validateConfirmation("password")
       .validateAcceptance("terms")
       .validateChange("name", () => undefined);
-    expect(cs.validations).toEqual([
+    expect(cs.validations).toStrictEqual([
       ["email", { validation: "required" }],
       ["name", { validation: "required" }],
       ["email", { validation: "format", pattern }],
@@ -206,6 +206,26 @@ describe("inspect and toJSON", () => {
     const text = inspect(parent);
     expect(text).not.toContain("inner secret");
     expect(text).toContain("**redacted**");
+  });
+
+  test("nested changesets, alone or in a list, are shown as plain values beside the other changes", () => {
+    const child = cast(User, { email: "c@x", passwordHash: "inner secret" }, ["email", "passwordHash"]);
+    const parent = rebuild(change(loaded(Post, { id: 1, authorId: 1, title: "T" }), { title: "U" }), {
+      changes: { title: "U", author: child, comments: [child] },
+    });
+    expect(inspect(parent)).toBe(
+      'Changeset<Post> { action: null, changes: { title: "U", author: { action: null, changes: { email: "c@x", passwordHash: "**redacted**" }, errors: {}, valid: true }, comments: [{ action: null, changes: [Object], errors: [Object], valid: true }] }, errors: {}, valid: true }',
+    );
+    expect(JSON.parse(JSON.stringify(parent))).toEqual({
+      action: null,
+      changes: {
+        title: "U",
+        author: { action: null, changes: { email: "c@x" }, errors: {}, valid: true },
+        comments: [{ action: null, changes: { email: "c@x" }, errors: {}, valid: true }],
+      },
+      errors: {},
+      valid: true,
+    });
   });
 
   test("toJSON leaves out redacted fields", () => {

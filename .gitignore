@@ -5,6 +5,9 @@ node_modules/
 dist/
 # wrangler's local state (examples/edge-worker)
 .wrangler/
+# Next.js build output (examples/next-app)
+.next/
+next-env.d.ts
 .tsbuild/
 *.tsbuildinfo
 
@@ -13,6 +16,8 @@ coverage/
 .vitest/
 .stryker-tmp/
 reports/
+# The soak test's report (pnpm test:soak)
+soak-report.json
 # Vitest typecheck scratch files
 tsconfig.vitest-temp.json
 

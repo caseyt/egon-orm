@@ -1,0 +1,21 @@
+{
+  "name": "@egon-orm/example-next-app",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The runtime matrix's framework build (step 21): a Next.js app whose route handler runs a round trip through egon-orm and @egon-orm/postgres, built with `next build` and served with `next start` against Postgres.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "check": "node check.mjs"
+  },
+  "dependencies": {
+    "@egon-orm/postgres": "workspace:*",
+    "egon-orm": "workspace:*",
+    "next": "16.4.2",
+    "pg": "8.23.1",
+    "pg-cursor": "2.22.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  }
+}

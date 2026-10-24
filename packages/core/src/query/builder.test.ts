@@ -399,6 +399,33 @@ describe("joinAssoc", () => {
     expectConsistent(q);
   });
 
+  test("a joinWhere value takes its column's type from the join schema; an array value on an array column is equality", () => {
+    class AuthorLabel extends Schema("authors_labels", {
+      authorId: t.integer().primaryKey(),
+      labelId: t.integer().primaryKey(),
+      kind: t.string(),
+    }) {}
+    class Shelf extends Schema("shelves", {
+      id: t.integer().primaryKey(),
+      authorId: t.integer(),
+      tags: t.array(t.string()),
+    }) {}
+    class Author extends Schema("authors", { id: t.integer().primaryKey() }) {
+      static labels = manyToMany(() => Label, {
+        joinThrough: () => AuthorLabel,
+        joinKeys: { owner: "authorId", target: "labelId" },
+        joinWhere: { kind: "main" },
+      });
+      static shelves = hasMany(() => Shelf, { foreignKey: "authorId", where: { tags: ["a", "b"] } });
+    }
+    const q = from(Author, "a")
+      .joinAssoc("a", "labels" as never, "l")
+      .joinAssoc("a", "shelves" as never, "s");
+    const conditions = on(q as never);
+    expect(conditions[0]).toContain('(eq $l_join.kind $"main":string)');
+    expect(conditions[2]).toMatch(/\(eq s\.tags \$\["a","b"\]/);
+  });
+
   test("refuses an unknown binding, association or alias", () => {
     expect(() => from(User, "u").joinAssoc("x" as never, "posts" as never, "p")).toThrow(
       /joinAssoc\("x", …\) starts from a binding this query does not have\. Its bindings are: u/,

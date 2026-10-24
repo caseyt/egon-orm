@@ -2,7 +2,7 @@ import { Comment, Membership, Post, Profile, Tag, User, UserSettings } from "@eg
 import { afterEach, describe, expect, test } from "vitest";
 import type { AnySchema, Row } from "../contracts/schema.js";
 import { QueryError } from "../errors.js";
-import { meta, Schema, t } from "../schema/index.js";
+import { belongsTo, hasMany, meta, Schema, t } from "../schema/index.js";
 import { cast, change, provideValidateUniqueAsync, withRepo } from "./changeset.js";
 
 function loaded<S extends AnySchema>(schema: S, values: Readonly<Record<string, unknown>>): Row<S> {
@@ -273,5 +273,39 @@ describe("repo", () => {
     expect(cs.repo).toBeNull();
     const repo = {};
     expect(withRepo(cs, repo).repo).toBe(repo);
+  });
+});
+
+describe("constraint default names: a key of two columns", () => {
+  class Pair extends Schema("pairs", {
+    orgId: t.uuid().primaryKey(),
+    userId: t.integer().primaryKey(),
+  }) {
+    static grants = hasMany(() => Grant, { foreignKey: ["orgId", "userId"] });
+  }
+  class Grant extends Schema("grants", {
+    id: t.integer().primaryKey(),
+    orgId: t.uuid(),
+    userId: t.integer(),
+  }) {
+    static pair = belongsTo(() => Pair, { foreignKey: ["orgId", "userId"] });
+  }
+
+  test("the columns are joined with underscores", () => {
+    expect(change(Grant).assocConstraint("pair").constraints[0]?.name).toBe("grants_org_id_user_id_fkey");
+    expect(change(Pair).noAssocConstraint("grants").constraints[0]?.name).toBe("grants_org_id_user_id_fkey");
+  });
+});
+
+describe("optimisticLock: no current value, and a custom incrementer", () => {
+  class Ticket extends Schema("tickets", { id: t.integer().primaryKey(), code: t.string().nullable() }) {}
+
+  test("a field with no current value is refused; a custom incrementer works on any type", () => {
+    expect(() => change(Ticket).optimisticLock("id")).toThrow(/has no value to compare/);
+    const locked = change(loaded(Ticket, { id: 1, code: "a" })).optimisticLock(
+      "code",
+      (value) => `${String(value)}x`,
+    );
+    expect(locked.filters).toEqual({ code: "a" });
   });
 });

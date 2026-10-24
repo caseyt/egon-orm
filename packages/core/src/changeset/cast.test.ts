@@ -385,3 +385,53 @@ describe("cast: embedded schema rows", () => {
     expect(cast(UserSettings, { theme: "dark" }, ["theme"]).changes).toEqual({ theme: "dark" });
   });
 });
+
+class Session extends Schema("sessions", {
+  id: t.integer().primaryKey(),
+  startsAt: t.timestamp(),
+  endsAt: t.timestamp().nullable(),
+  tags: t.array(t.string()),
+  mode: t.string().virtual().default("plain"),
+}) {}
+
+const sessionStart = "2026-04-01T09:00:00.000Z";
+const session = () => loaded(Session, { id: 1, startsAt: new Date(sessionStart), endsAt: null, tags: ["a"] });
+
+describe("cast: a value compared with the current value", () => {
+  test("a value over a null or missing current value is a change, whatever the type", () => {
+    expect(cast(session(), { endsAt: sessionStart }, ["endsAt"]).changes).toEqual({
+      endsAt: new Date(sessionStart),
+    });
+    expect(cast(Session, { startsAt: sessionStart }, ["startsAt"]).changes).toEqual({
+      startsAt: new Date(sessionStart),
+    });
+    expect(cast(session(), { startsAt: null }, ["startsAt"]).changes).toEqual({});
+  });
+
+  test("null over a stored value is a change, whatever the type", () => {
+    const ended = loaded(Session, {
+      id: 1,
+      startsAt: new Date(sessionStart),
+      endsAt: new Date(sessionStart),
+      tags: [],
+    });
+    expect(cast(ended, { endsAt: null }, ["endsAt"]).changes).toEqual({ endsAt: null });
+  });
+
+  test("a loaded row's virtual field is compared with the row's value, not with the default", () => {
+    expect(cast(session(), { mode: "plain" }, ["mode"]).changes).toEqual({ mode: "plain" });
+  });
+
+  test("null for a required field, cast twice, is reported once", () => {
+    const first = cast(User, { email: null }, ["email"]);
+    expect(cast(first, { email: null }, ["email"]).errors.email).toHaveLength(1);
+  });
+});
+
+describe("cast: a source that is not one", () => {
+  test("undefined, types of undefined, or types without data are refused with a QueryError", () => {
+    expect(() => cast(undefined as never, {}, [])).toThrow(/^query\.changesetSource: /);
+    expect(() => cast({ data: {}, types: undefined } as never, {}, [])).toThrow(/^query\.schemalessShape: /);
+    expect(() => cast({ types: { q: t.string() } } as never, {}, [])).toThrow(/^query\.schemalessData: /);
+  });
+});

@@ -1,8 +1,9 @@
 // Unit tests for nested changesets: castAssoc, castEmbed, putAssoc, putEmbed and
 // buildAssoc build child changesets with the right actions; rows left out follow
 // onReplace; errors stay on the children and are traversed; nothing touches a database.
+import { Profile, User } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
-import type { AnySchema, OnReplace, Row } from "../../contracts/schema.js";
+import type { AnySchema, FieldMeta, OnReplace, Row } from "../../contracts/schema.js";
 import { NotLoadedError, QueryError } from "../../errors.js";
 import {
   belongsTo,
@@ -12,12 +13,15 @@ import {
   manyToMany,
   meta,
   Schema,
+  stateOf,
   t,
   timestamps,
 } from "../../index.js";
-import { type Changeset, cast, change, rebuild } from "../changeset.js";
+import { defineType } from "../../types/define.js";
+import { type Changeset, cast, change, rebuild, withAction } from "../changeset.js";
 import { buildAssoc } from "./build.js";
 import { embedChanges, embedValue, missingEmbedded } from "./embed.js";
+import { indexOfRow, keyFinder, leaves, relationOf } from "./relation.js";
 
 type AnyCs = Changeset<AnySchema, boolean>;
 
@@ -1099,5 +1103,629 @@ describe("new embedded rows: defaults, shared timestamps, stored nulls", () => {
     const event = loaded(Event, { id: 1, venue: null, slots: [slot], strictSlots: [], taglines: [] });
     const cs = change(event).putEmbed("slots", [change(slot, { at: new Date(0) })] as never);
     expect(missingEmbedded(cs as AnyCs)?.errorMessages()).toEqual({ slots: [{ label: ["can't be blank"] }] });
+  });
+});
+
+/** The parts of a changeset these tests read, untyped. */
+interface AnyCsLike {
+  readonly changes: Readonly<Record<string, unknown>>;
+  readonly errors: Readonly<Record<string, unknown>>;
+  readonly valid: boolean;
+  readonly action: string | null;
+}
+
+describe("nested changes: validity, required, stored rows, keys and leaving rows", () => {
+  class Leaf extends Schema("leaves", {
+    id: t.integer().primaryKey(),
+    bookId: t.integer().nullable(),
+    text: t.string(),
+  }) {
+    static changeset(leaf: Leaf | typeof Leaf, params: unknown) {
+      return cast(leaf, params, ["id", "text"]).validateRequired(["text"]).validateLength("text", { min: 2 });
+    }
+  }
+  class Jacket extends Schema("jackets", {
+    id: t.integer().primaryKey(),
+    bookId: t.integer().nullable(),
+    colour: t.string(),
+  }) {
+    static changeset(jacket: Jacket | typeof Jacket, params: unknown) {
+      return cast(jacket, params, ["colour"]).validateLength("colour", { min: 3 });
+    }
+  }
+  class Sleeve extends Schema("sleeves", { id: t.integer().primaryKey(), bookId: t.integer().nullable() }) {}
+  class Volume extends Schema("volumes", { id: t.integer().primaryKey(), title: t.string() }) {
+    static leaves = hasMany(() => Leaf, { foreignKey: "bookId", onReplace: "invalid" });
+    static jacket = hasOne(() => Jacket, { foreignKey: "bookId", onReplace: "update" });
+    static sleeve = hasOne(() => Sleeve, { foreignKey: "bookId", onReplace: "delete" });
+  }
+
+  const leaf = (id: number, text: string) => loaded(Leaf, { id, bookId: 7, text });
+  const volume = (leaves: readonly Leaf[], jacket: Jacket | null = null, sleeve: Sleeve | null = null) =>
+    loaded(Volume, { id: 7, title: "V" }, { leaves, jacket, sleeve });
+
+  describe("validity of the parent", () => {
+    test("an invalid single child makes the parent invalid", () => {
+      const cs = cast(volume([]), { jacket: { colour: "x" } }, []).castAssoc("jacket");
+      expect((cs.changes as Record<string, AnyCs>).jacket?.valid).toBe(false);
+      expect(cs.valid).toBe(false);
+    });
+  });
+
+  describe("required", () => {
+    test("given children, required is met", () => {
+      const cs = cast(volume([]), { leaves: [{ id: 1, text: "ab" }] }, []).castAssoc("leaves", {
+        required: true,
+      });
+      expect(cs.valid).toBe(true);
+      expect(cs.errors).toEqual({});
+    });
+
+    test("an empty list over an empty list is still blank, with the required validation", () => {
+      const cs = cast(volume([]), { leaves: [] }, []).castAssoc("leaves", { required: true });
+      expect(cs.errors.leaves).toStrictEqual([
+        { message: "can't be blank", validation: "required", meta: {} },
+      ]);
+      // With an error on it, the relation keeps its (empty) change, so the error has its value.
+      expect(Object.keys(cs.changes)).toEqual(["leaves"]);
+    });
+
+    test("a relation keeps both of two errors of its own", () => {
+      // onReplace "invalid" leaves out a stored row (one error); required with no children is the other.
+      const cs = cast(volume([leaf(1, "ab")]), { leaves: [] }, []).castAssoc("leaves", { required: true });
+      expect(cs.errors.leaves).toHaveLength(2);
+    });
+  });
+
+  const children = (cs: { readonly changes: object }, name: string): readonly AnyCs[] =>
+    (cs.changes as Record<string, readonly AnyCs[]>)[name] ?? [];
+  const child = (cs: { readonly changes: object }, name: string): AnyCs | undefined =>
+    (cs.changes as Record<string, AnyCs | undefined>)[name];
+
+  describe("a stored row put back", () => {
+    test("as a changeset, it is an update whatever its action, and with no change it changes nothing", () => {
+      // putAssoc: "changesets (a new record is inserted, one of a loaded row updated)".
+      const stored = volume([leaf(1, "ab")]);
+      const same = change(stored).putAssoc("leaves", [withAction(change(leaf(1, "ab")), "delete")] as never);
+      expect(same.changes).toEqual({});
+      const edited = change(stored).putAssoc("leaves", [
+        withAction(change(leaf(1, "ab"), { text: "cd" }), "delete"),
+      ] as never);
+      expect(children(edited, "leaves").map((item) => item.action)).toEqual(["update"]);
+    });
+
+    test("with an error and no change, the parent is invalid", () => {
+      const row = leaf(1, "ab");
+      const cs = change(volume([row])).putAssoc("leaves", [
+        change(row).addError("text", "is taken"),
+      ] as never);
+      expect(cs.valid).toBe(false);
+    });
+
+    test("a row given as a plain object is matched by its key as given, without casting", () => {
+      const stored = volume([leaf(1, "ab"), leaf(2, "cd")]);
+      const put = change(stored).putAssoc("leaves", [
+        { id: 1, text: "ef" },
+        { id: 2, text: "gh" },
+      ] as never);
+      expect(children(put, "leaves").map((item) => [item.action, (item.data as Leaf | null)?.id])).toEqual([
+        ["update", 1],
+        ["update", 2],
+      ]);
+      const asText = change(stored).putAssoc("leaves", [{ id: "1", text: "ef" }] as never);
+      expect(children(asText, "leaves")[0]?.action).toBe("insert");
+    });
+  });
+
+  describe("the same row twice in a cast", () => {
+    test("is a duplicate, and does not keep another stored row", () => {
+      const stored = volume([leaf(1, "ab"), leaf(2, "cd")]);
+      const cs = cast(
+        stored,
+        {
+          leaves: [
+            { id: 1, text: "xy" },
+            { id: 1, text: "zz" },
+          ],
+        },
+        [],
+      ).castAssoc("leaves");
+      const validations = (cs.errors.leaves ?? []).map((error) => error.validation);
+      expect(validations).toContain("duplicate");
+      // Row 2 is left out, and the relation's onReplace is "invalid".
+      expect(validations).toContain("replace");
+    });
+  });
+
+  describe("a to-one relation", () => {
+    test("required is met by a value; a null over no row is still blank and keeps its change", () => {
+      const given = cast(volume([]), { jacket: { colour: "red" } }, []).castAssoc("jacket", {
+        required: true,
+      });
+      expect(given.valid).toBe(true);
+      const none = cast(volume([]), { jacket: null }, []).castAssoc("jacket", { required: true });
+      expect(none.errors.jacket?.map((error) => error.validation)).toEqual(["required"]);
+      expect(Object.keys(none.changes)).toEqual(["jacket"]);
+    });
+
+    test("onReplace update with no row there inserts", () => {
+      const cs = cast(volume([]), { jacket: { colour: "red" } }, []).castAssoc("jacket");
+      expect(child(cs, "jacket")?.action).toBe("insert");
+    });
+
+    test("putAssoc(null) on an optional relation is no error", () => {
+      const stored = volume([], null, loaded(Sleeve, { id: 3, bookId: 7 }));
+      const cs = change(stored).putAssoc("sleeve", null);
+      expect(cs.errors).toEqual({});
+      expect(cs.valid).toBe(true);
+    });
+  });
+
+  class Spot extends EmbeddedSchema({ id: t.integer().primaryKey(), label: t.string() }) {
+    static changeset(spot: Spot | typeof Spot, params: unknown) {
+      return cast(spot, params, ["id", "label"]);
+    }
+  }
+  class Plate extends EmbeddedSchema({ label: t.string() }) {}
+  class Hall extends Schema("halls", {
+    id: t.integer().primaryKey(),
+    spot: t.embedOne(() => Spot).nullable(),
+    plate: t.embedOne(() => Plate).nullable(),
+  }) {}
+
+  describe("a to-one embed and the stored row", () => {
+    const stored = () =>
+      loaded(Hall, {
+        id: 1,
+        spot: loaded(Spot, { id: 5, label: "a" }),
+        plate: loaded(Plate, { label: "p" }),
+      });
+
+    test("a cast key given as text is cast before it is matched", () => {
+      const cs = cast(stored(), { spot: { id: "5", label: "b" } }, []).castEmbed("spot");
+      expect(child(cs, "spot")?.action).toBe("update");
+    });
+
+    test("a change of a copy with the stored key is that row; without a key, a copy is a replacement", () => {
+      const hall = stored();
+      const copy = loaded(Spot, { id: 5, label: "a" });
+      // onReplace is "error": a replacement would throw.
+      expect(() => change(hall).putEmbed("spot", change(copy, { label: "b" }) as never)).not.toThrow();
+      const plate = loaded(Plate, { label: "p" });
+      expect(() => change(hall).putEmbed("plate", change(plate, { label: "q" }) as never)).toThrow(
+        /leaves out/,
+      );
+    });
+  });
+
+  class Mark extends EmbeddedSchema({
+    text: t.string(),
+    at: t.timestamp().nullable(),
+    tags: t.array(t.string()).nullable(),
+    level: t.integer().default(() => 3),
+  }) {
+    static changeset(mark: Mark | typeof Mark, params: unknown) {
+      return cast(mark, params, ["text", "at", "tags", "level"]).validateLength("text", { min: 2 });
+    }
+  }
+  class Log extends Schema("logs", { id: t.integer().primaryKey(), marks: t.embedMany(() => Mark) }) {}
+
+  describe("a keyless embedded list compared with the stored one", () => {
+    const when = new Date("2026-05-01T00:00:00.000Z");
+    const log = (mark: Readonly<Record<string, unknown>>) =>
+      loaded(Log, { id: 1, marks: [loaded(Mark, mark)] });
+    const recast = (stored: Readonly<Record<string, unknown>>, given: Readonly<Record<string, unknown>>) =>
+      Object.keys(cast(log(stored), { marks: [given] }, []).castEmbed("marks").changes);
+
+    test("equal values, null included, are no change; a default given by a function counts", () => {
+      expect(recast({ text: "ab", at: null, tags: null, level: 3 }, { text: "ab" })).toEqual([]);
+    });
+
+    test("a date replaced by null, null by a date, or a missing required value is a change", () => {
+      expect(recast({ text: "ab", at: when, tags: null, level: 3 }, { text: "ab", at: null })).toEqual([
+        "marks",
+      ]);
+      expect(
+        recast({ text: "ab", at: null, tags: null, level: 3 }, { text: "ab", at: when.toISOString() }),
+      ).toEqual(["marks"]);
+      expect(recast({ text: "ab", at: when, tags: null, level: 3 }, { at: when.toISOString() })).toEqual([
+        "marks",
+      ]);
+    });
+
+    test("a missing value of a required date is a change", () => {
+      class Stamp extends EmbeddedSchema({ text: t.string(), at: t.timestamp() }) {
+        static changeset(stamp: Stamp | typeof Stamp, params: unknown) {
+          return cast(stamp, params, ["text", "at"]);
+        }
+      }
+      class Book extends Schema("books", {
+        id: t.integer().primaryKey(),
+        stamps: t.embedMany(() => Stamp),
+      }) {}
+      const stored = loaded(Book, { id: 1, stamps: [loaded(Stamp, { text: "ab", at: when })] });
+      expect(Object.keys(cast(stored, { stamps: [{ text: "ab" }] }, []).castEmbed("stamps").changes)).toEqual(
+        ["stamps"],
+      );
+    });
+
+    test("an item with a list value is always a change", () => {
+      expect(recast({ text: "ab", at: null, tags: ["x"], level: 3 }, { text: "ab", tags: ["x"] })).toEqual([
+        "marks",
+      ]);
+    });
+
+    test("an invalid item equal to the stored one is still a change, and the parent is invalid", () => {
+      const cs = cast(
+        log({ text: "a", at: null, tags: null, level: 3 }),
+        { marks: [{ text: "a" }] },
+        [],
+      ).castEmbed("marks");
+      expect(cs.valid).toBe(false);
+    });
+  });
+
+  describe("plain objects with nested relations", () => {
+    test("an association key holding undefined is skipped", () => {
+      const cs = change(User).putAssoc("posts", [{ title: "t", comments: undefined }] as never);
+      expect(Object.keys((children(cs, "posts")[0] as AnyCs).changes)).toEqual(["title"]);
+    });
+
+    test("an association of a target without embeds, and of a target with embeds, is put as an association", () => {
+      expect(() => change(User).putAssoc("posts", [{ title: "t", comments: [] }] as never)).not.toThrow();
+      expect(() => change(Profile).putAssoc("user", { email: "e@x", posts: [] } as never)).not.toThrow();
+    });
+  });
+
+  describe("which child changes take a row out of its relation", () => {
+    const relation = (owner: AnyCs, name: string, wanted: "assoc" | "embed") =>
+      relationOf(owner, name, "putAssoc", wanted);
+
+    test("a delete, or a has-many or has-one child whose foreign key is set to null", () => {
+      const owner = change(volume([])) as AnyCs;
+      const many = relation(owner, "leaves", "assoc");
+      const one = relation(owner, "jacket", "assoc");
+      const row = leaf(1, "ab");
+      expect(leaves(many, withAction(change(row), "delete") as AnyCs)).toBe(true);
+      expect(leaves(many, change(row, { bookId: null }) as AnyCs)).toBe(true);
+      expect(leaves(many, change(row, { bookId: 9 }) as AnyCs)).toBe(false);
+      expect(leaves(many, change(row, { text: "cd" }) as AnyCs)).toBe(false);
+      const jacket = loaded(Jacket, { id: 3, bookId: 7, colour: "red" });
+      expect(leaves(one, change(jacket, { bookId: null }) as AnyCs)).toBe(true);
+      expect(leaves(one, change(jacket, { colour: "blue" }) as AnyCs)).toBe(false);
+    });
+
+    test("never an embedded item or a belongs-to parent that is not deleted", () => {
+      const logged = change(loaded(Log, { id: 1, marks: [] })) as AnyCs;
+      expect(leaves(relation(logged, "marks", "embed"), change(Mark, { text: "ab" }) as AnyCs)).toBe(false);
+      const profile = change(Profile) as AnyCs;
+      expect(leaves(relation(profile, "user", "assoc"), change(User, { email: "e@x" }) as AnyCs)).toBe(false);
+    });
+  });
+
+  describe("indexOfRow", () => {
+    test("without a key, a row is found by identity; a row with no key value is found nowhere", () => {
+      const plates = [loaded(Plate, { label: "a" }), loaded(Plate, { label: "a" })];
+      expect(indexOfRow(plates, [], plates[1] as object)).toBe(1);
+      const rows = [leaf(1, "ab"), leaf(2, "cd")];
+      const key = meta(Leaf).primaryKey;
+      expect(indexOfRow(rows, key, leaf(2, "zz"))).toBe(1);
+      expect(indexOfRow(rows, key, loaded(Leaf, { id: null, bookId: 7, text: "new" }))).toBe(-1);
+    });
+  });
+
+  describe("the stored value of a relation", () => {
+    test("a to-one embed stored as null holds no row", () => {
+      const hall = loaded(Hall, { id: 1, spot: null, plate: null });
+      // onReplace is "error": a stored row read from null would be left out and throw.
+      const cs = change(hall).putEmbed("spot", { id: 5, label: "a" } as never);
+      expect(child(cs, "spot")?.action).toBe("insert");
+    });
+
+    test("an association that is not preloaded, or preloaded as plain objects, names itself", () => {
+      const bare = loaded(Volume, { id: 7, title: "V" });
+      const error = (() => {
+        try {
+          change(bare).putAssoc("leaves", []);
+        } catch (thrown) {
+          return thrown;
+        }
+        return undefined;
+      })();
+      expect(error).toBeInstanceOf(NotLoadedError);
+      expect(error).toMatchObject({ schema: "Volume", association: "leaves" });
+      const plain = loaded(Volume, { id: 7, title: "V" }, { leaves: [{ id: 1, bookId: 7, text: "ab" }] });
+      expect(() => change(plain).putAssoc("leaves", [])).toThrow(
+        expect.objectContaining({ schema: "Volume", association: "leaves" }),
+      );
+    });
+  });
+
+  describe("dropping a nested change that changes nothing", () => {
+    test("the other changes stay, and no key is left for the relation", () => {
+      const stored = volume([leaf(1, "ab")]);
+      const first = cast(stored, { title: "W", leaves: [{ id: 1, text: "cd" }] }, ["title"]).castAssoc(
+        "leaves",
+      );
+      expect(Object.keys(first.changes)).toEqual(["title", "leaves"]);
+      const again = cast(first, { leaves: [{ id: 1, text: "ab" }] }, []).castAssoc("leaves");
+      expect(again.changes).toStrictEqual({ title: "W" });
+      expect(Object.keys(again.changes)).toEqual(["title"]);
+    });
+  });
+
+  describe("keyFinder over many rows", () => {
+    test("a key that two rows share finds the first of them, as a scan does", () => {
+      class Tile extends Schema("tiles", { a: t.integer().primaryKey(), b: t.integer().primaryKey() }) {}
+      const key = meta(Tile).primaryKey as readonly FieldMeta[];
+      const rows = Array.from({ length: 20 }, (_, i) => ({ a: i, b: 1 }));
+      rows[15] = { a: 5, b: 1 };
+      expect(keyFinder(rows, key)([5, 1])).toBe(5);
+    });
+  });
+});
+
+describe("embedded rows, missingEmbedded, embedChanges and buildAssoc", () => {
+  describe("buildAssoc", () => {
+    test("builds the child of a has-one association, pointing at the parent", () => {
+      const user = loaded(User, { id: 4, email: "a@b.c", role: "member", lockVersion: 1 });
+      const profile = buildAssoc(User, user, "profile");
+      expect(profile.changes).toMatchObject({ userId: 4 });
+    });
+  });
+
+  class Badge extends EmbeddedSchema({
+    label: t.string(),
+    shown: t.string().virtual(),
+    code: t.uuid().primaryKey().autogenerate(),
+  }) {}
+  class Member extends Schema("members", {
+    id: t.integer().primaryKey(),
+    title: t.string(),
+    badge: t.embedOne(() => Badge, { onReplace: "delete" }).nullable(),
+    badges: t.embedMany(() => Badge, { onReplace: "delete" }),
+  }) {}
+  const member = (badge: Badge | null, badges: readonly Badge[] = []) =>
+    loaded(Member, { id: 1, title: "M", badge, badges });
+  const badge = (label: string | null, code: string | null = "00000000-0000-4000-8000-000000000001") =>
+    loaded(Badge, { label, code });
+
+  describe("embedValue: embedded rows", () => {
+    test("an unchanged stored item is the stored row; a changed one is a new built row", () => {
+      const [kept, edited] = [badge("a"), badge("b", "00000000-0000-4000-8000-000000000002")];
+      const cs = change(member(null, [kept as Badge, edited as Badge])).putEmbed("badges", [
+        change(kept as Badge),
+        change(edited as Badge, { label: "c" }),
+      ] as never);
+      const rows = embedValue(cs.changes.badges, "built") as Badge[];
+      expect(rows[0]).toBe(kept);
+      expect(stateOf(rows[1] as object)).toBe("built");
+    });
+
+    test("a virtual field is kept from the stored row, and a new row without it has none", () => {
+      const stored = badge("a");
+      (stored as unknown as { shown: string }).shown = "yes";
+      const changed = embedValue(
+        change(member(stored)).putEmbed("badge", change(stored, { label: "b" }) as never).changes.badge,
+        "built",
+      );
+      expect((changed as Badge).shown).toBe("yes");
+      const fresh = embedValue(
+        change(member(null)).putEmbed("badge", { label: "n" } as never).changes.badge,
+        "built",
+      );
+      expect((fresh as Badge).shown).toBeUndefined();
+    });
+  });
+
+  describe("missingEmbedded", () => {
+    test("keeps the other changes, marks the parent and the child invalid, with the required validation", () => {
+      const cs = change(member(null), { title: "N" }).putEmbed("badge", {} as never) as unknown as AnyCsLike;
+      const checked = missingEmbedded(cs as never) as unknown as AnyCsLike;
+      expect(Object.keys(checked.changes)).toEqual(["title", "badge"]);
+      expect(checked.valid).toBe(false);
+      const child = checked.changes.badge as AnyCsLike;
+      expect(child.valid).toBe(false);
+      expect(child.errors.label).toStrictEqual([
+        { message: "can't be blank", validation: "required", meta: {} },
+      ]);
+    });
+
+    test("in a list: keeps the other changes, leaves the earlier list alone, and skips deleted items", () => {
+      const broken = badge(null);
+      const cs = change(member(null, [broken as Badge]), { title: "N" }).putEmbed("badges", [
+        { label: "x", code: "00000000-0000-4000-8000-000000000009" },
+        {},
+      ] as never) as unknown as AnyCsLike;
+      const itemBefore = (cs.changes.badges as readonly unknown[])[1];
+      const checked = missingEmbedded(cs as never) as unknown as AnyCsLike;
+      expect(Object.keys(checked.changes)).toEqual(["title", "badges"]);
+      expect((cs.changes.badges as readonly unknown[])[1]).toBe(itemBefore);
+      const items = checked.changes.badges as readonly AnyCsLike[];
+      // The stored row left out is deleted: its null label is not reported.
+      expect(items.map((item) => [item.action, Object.keys(item.errors)])).toEqual([
+        ["insert", []],
+        ["insert", ["label"]],
+        ["delete", []],
+      ]);
+    });
+
+    test("a null embed change, and a stored row with null in its generated key, are checked without fault", () => {
+      expect(missingEmbedded(change(member(badge("a"))).putEmbed("badge", null) as never)).toBeUndefined();
+      const keyless = loaded(Badge, { label: "a", code: null });
+      const cs = change(member(keyless)).putEmbed("badge", change(keyless, { label: "b" }) as never);
+      const checked = missingEmbedded(cs as never) as unknown as AnyCsLike;
+      expect(Object.keys((checked.changes.badge as AnyCsLike).errors)).toEqual(["code"]);
+    });
+
+    test("a second embed with nothing missing keeps its change", () => {
+      const cs = change(member(null))
+        .putEmbed("badge", {} as never)
+        .putEmbed("badges", [{ label: "x", code: "00000000-0000-4000-8000-000000000009" }] as never);
+      const checked = missingEmbedded(cs as never) as unknown as AnyCsLike;
+      expect(Array.isArray(checked.changes.badges)).toBe(true);
+    });
+  });
+
+  describe("embedChanges", () => {
+    test("an association change is left as it is; only embeds become rows", () => {
+      const cs = change(Profile).putAssoc("user", { email: "e@x" } as never);
+      const changes = embedChanges(cs as never, "built") as Record<string, unknown>;
+      expect(changes.user).toBe((cs.changes as Record<string, unknown>).user);
+    });
+  });
+});
+
+describe("nested changes: keyless targets, odd params, custom key types, applied rows", () => {
+  const actions = (cs: { readonly changes: object }, name: string): unknown[] =>
+    ((cs.changes as Record<string, readonly AnyCs[] | undefined>)[name] ?? []).map((item) => item.action);
+
+  test("a has-many to a schema without a primary key deletes a stored row left out", () => {
+    class Note extends Schema(
+      "keyless_notes",
+      { listId: t.integer().nullable(), text: t.string() },
+      { primaryKey: false },
+    ) {}
+    class Board extends Schema("keyless_boards", { id: t.integer().primaryKey() }) {
+      static notes = hasMany(() => Note, { foreignKey: "listId", onReplace: "delete" });
+    }
+    const stored = loaded(Board, { id: 1 }, { notes: [loaded(Note, { listId: 1, text: "a" })] });
+    expect(actions(change(stored).putAssoc("notes", []), "notes")).toEqual(["delete"]);
+  });
+
+  class Leaflet extends Schema("leaflets", {
+    id: t.integer().primaryKey(),
+    folderId: t.integer().nullable(),
+    text: t.string(),
+  }) {
+    static changeset(leaflet: Leaflet | typeof Leaflet, params: unknown) {
+      return cast(leaflet, params, ["id", "text"]);
+    }
+  }
+  class Folder extends Schema("folders", { id: t.integer().primaryKey() }) {
+    static leaflets = hasMany(() => Leaflet, { foreignKey: "folderId", onReplace: "delete" });
+  }
+  const folder = () => loaded(Folder, { id: 1 }, { leaflets: [] });
+
+  test("options given as a list are refused", () => {
+    expect(() => cast(folder(), { leaflets: [] }, []).castAssoc("leaflets", [] as never)).toThrow(
+      /^query\.nestedOptions: /,
+    );
+  });
+
+  test("items of the params that are null, undefined or not plain objects make the list invalid", () => {
+    for (const item of [null, undefined, new Date(0)]) {
+      const cs = cast(folder(), { leaflets: [item] }, []).castAssoc("leaflets");
+      expect(cs.errors.leaflets?.map((error) => error.validation)).toEqual(["cast"]);
+      expect(Object.keys(cs.changes)).toEqual([]);
+    }
+  });
+
+  test("a value given to putAssoc that is not a plain object is refused", () => {
+    expect(() => change(folder()).putAssoc("leaflets", [new Date(0)] as never)).toThrow(
+      /^query\.nestedValue: /,
+    );
+  });
+
+  test("a stored row put back is matched by its key, also for a key type whose cast refuses its own values", () => {
+    const Code = defineType<bigint, string>({
+      name: "code",
+      db: { kind: "text" },
+      cast: (input) =>
+        typeof input === "string" && /^\d+$/.test(input)
+          ? { success: true, data: BigInt(input) }
+          : { success: false, message: "is not a code" },
+      fromDb: (stored) => BigInt(stored),
+      toDb: (value) => value.toString(),
+    });
+    class Coupon extends Schema("coupons", {
+      code: t.type(Code).primaryKey(),
+      shopId: t.integer().nullable(),
+    }) {}
+    class Shop extends Schema("shops", { id: t.integer().primaryKey() }) {
+      static coupons = hasMany(() => Coupon, { foreignKey: "shopId", onReplace: "delete" });
+    }
+    const coupon = loaded(Coupon, { code: 7n, shopId: 1 });
+    const stored = loaded(Shop, { id: 1 }, { coupons: [coupon] });
+    expect(change(stored).putAssoc("coupons", [coupon]).changes).toEqual({});
+  });
+
+  class Pin extends EmbeddedSchema({ id: t.integer().primaryKey(), label: t.string() }) {
+    static changeset(pin: Pin | typeof Pin, params: unknown) {
+      return cast(pin, params, ["id", "label"]);
+    }
+  }
+  class Note extends EmbeddedSchema({ text: t.string(), at: t.timestamp() }) {
+    static changeset(note: Note | typeof Note, params: unknown) {
+      return cast(note, params, ["text", "at"]);
+    }
+  }
+  class Wall extends Schema("walls", {
+    id: t.integer().primaryKey(),
+    pins: t.embedMany(() => Pin, { onReplace: "delete" }),
+    notes: t.embedMany(() => Note),
+  }) {}
+  /** A loaded wall with `changes` applied: its new embedded rows lack what was not given. */
+  const appliedWall = (params: Readonly<Record<string, unknown>>, name: "pins" | "notes") =>
+    cast(loaded(Wall, { id: 1, pins: [], notes: [] }), params, [])
+      .castEmbed(name)
+      .applyChanges();
+
+  test("an applied new embedded row without its key matches no item without a key", () => {
+    const wall = appliedWall({ pins: [{ label: "a" }] }, "pins");
+    expect(actions(change(wall).putEmbed("pins", [{ label: "b" }] as never), "pins")).toEqual([
+      "insert",
+      "delete",
+    ]);
+    expect(actions(cast(wall, { pins: [{ id: "x", label: "b" }] }, []).castEmbed("pins"), "pins")).toEqual([
+      "insert",
+      "delete",
+    ]);
+  });
+
+  test("an applied keyless embedded row without a required date is compared without fault", () => {
+    const wall = appliedWall({ notes: [{ text: "a" }] }, "notes");
+    const cs = cast(wall, { notes: [{ text: "a", at: "2026-01-01T00:00:00.000Z" }] }, []).castEmbed("notes");
+    expect(Object.keys(cs.changes)).toEqual(["notes"]);
+  });
+
+  test("a stored row of a keyless list put back as its own changeset is written again", () => {
+    class Chip extends EmbeddedSchema({ label: t.string().nullable() }) {}
+    class Tray extends Schema("trays", { id: t.integer().primaryKey(), chips: t.embedMany(() => Chip) }) {}
+    const chip = loaded(Chip, { label: null });
+    const cs = change(loaded(Tray, { id: 1, chips: [chip] })).putEmbed("chips", [change(chip)] as never);
+    expect(Object.keys(cs.changes)).toEqual(["chips"]);
+  });
+
+  test("an embedded field with a default and autogenerate takes the default on insert, a value on update", () => {
+    const { updatedAt } = timestamps({ createdAt: false });
+    const epoch = new Date(0);
+    class Tab extends EmbeddedSchema({
+      label: t.string(),
+      code: t
+        .string()
+        .default("dflt")
+        .autogenerate(() => "gen"),
+      updatedAt: updatedAt.default(epoch),
+    }) {}
+    class Strip extends Schema("strips", { id: t.integer().primaryKey(), tabs: t.embedMany(() => Tab) }) {}
+    const fresh = embedValue(
+      (
+        change(loaded(Strip, { id: 1, tabs: [] })).putEmbed("tabs", [{ label: "a" }] as never).changes as {
+          tabs: unknown;
+        }
+      ).tabs,
+      "built",
+    ) as Tab[];
+    expect(fresh[0]?.code).toBe("dflt");
+    const tab = loaded(Tab, { label: "a", code: "c", updatedAt: epoch });
+    const edited = embedValue(
+      (
+        change(loaded(Strip, { id: 1, tabs: [tab] })).putEmbed("tabs", [change(tab, { label: "b" })] as never)
+          .changes as { tabs: unknown }
+      ).tabs,
+      "built",
+    ) as Tab[];
+    expect(edited[0]?.updatedAt).not.toBe(epoch);
   });
 });

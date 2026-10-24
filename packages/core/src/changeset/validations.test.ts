@@ -669,3 +669,126 @@ describe("validations on unknown fields", () => {
     }
   });
 });
+
+class Card extends Schema("cards", {
+  id: t.integer().primaryKey(),
+  code: t.string().nullable(),
+  kind: t.string().nullable(),
+  score: t.integer().nullable(),
+  labels: t.array(t.string()).nullable(),
+  notes: t.array(t.json()).nullable(),
+  pin: t.string().nullable(),
+}) {}
+const card = () =>
+  loaded(Card, { id: 1, code: "a", kind: "x", score: 1, labels: ["a"], notes: [], pin: "1" });
+
+describe("validateRequired: lists and single names", () => {
+  test("an empty list is a value, not blank", () => {
+    expect(cast(card(), { labels: [] }, ["labels"]).validateRequired(["labels"]).valid).toBe(true);
+  });
+
+  test("one message per field: a second failing validation adds none", () => {
+    const twice = cast(User, {}, []).validateRequired(["email"]).validateLength("email", { min: 3 });
+    expect(twice.errors.email).toHaveLength(1);
+  });
+
+  test("a single field name reports one error, not one per character", () => {
+    expect(cast(User, {}, []).validateRequired("email").errors.email).toHaveLength(1);
+  });
+});
+
+describe("validations take null as no value", () => {
+  test("format, inclusion, exclusion, subset, number and length skip a change to null", () => {
+    const cleared = cast(card(), { code: null, kind: null, score: null, labels: null }, [
+      "code",
+      "kind",
+      "score",
+      "labels",
+    ]);
+    const checked = cleared
+      .validateFormat("code", /^[a-z]+$/)
+      .validateInclusion("kind", ["y"])
+      .validateExclusion("kind", ["x"])
+      .validateSubset("labels", ["b"])
+      .validateNumber("score", { greaterThan: 5 })
+      .validateLength("code", { min: 3 });
+    expect(checked.errors).toEqual({});
+    expect(checked.valid).toBe(true);
+  });
+});
+
+describe("validateSubset: values and its entry", () => {
+  test("elements are compared by value, so equal objects are in the set", () => {
+    const cs = cast(card(), { notes: [{ a: 1 }] }, ["notes"]).validateSubset("notes", [{ a: 1 }] as never);
+    expect(cs.valid).toBe(true);
+  });
+
+  test("its entry in validations() names it subset, with its values", () => {
+    const cs = cast(card(), { labels: ["a"] }, ["labels"]).validateSubset("labels", ["a", "b"]);
+    expect(cs.validations).toStrictEqual([["labels", { validation: "subset", values: ["a", "b"] }]]);
+  });
+});
+
+describe("validateLength: is", () => {
+  test("is is checked like min and max", () => {
+    expect(() => cast(card(), {}, []).validateLength("code", { is: -1 })).toThrow(QueryError);
+    expect(() => cast(card(), {}, []).validateLength("code", { is: 1.5 })).toThrow(QueryError);
+  });
+});
+
+describe("validateNumber: equalTo", () => {
+  test("a value above the limit is not equal to it", () => {
+    expect(cast(card(), { score: 11 }, ["score"]).validateNumber("score", { equalTo: 10 }).valid).toBe(false);
+  });
+});
+
+describe("validateConfirmation: no params, and a null confirmation", () => {
+  test("a changeset made by change() has no params, and reports nothing", () => {
+    const cs = change(card(), { pin: "2" }).validateConfirmation("pin");
+    expect(cs.valid).toBe(true);
+    expect(cs.errors).toEqual({});
+  });
+
+  test("a null confirmation does not match, even for a type whose cast turns null into the value", () => {
+    const Lenient = defineType<string>({
+      name: "lenient",
+      db: { kind: "text" },
+      cast: (input) => ({ success: true, data: input === null ? "same" : String(input) }),
+    });
+    const cs = cast({ data: {}, types: { pin: t.type(Lenient) } }, { pin: "same", pinConfirmation: null }, [
+      "pin",
+    ]).validateConfirmation("pin");
+    expect(cs.errorMessages()).toEqual({ pinConfirmation: ["does not match confirmation"] });
+  });
+});
+
+describe("validateChange: outcomes", () => {
+  test("a failing check makes the changeset invalid; each outcome is recorded as change", () => {
+    const failing = cast(card(), { code: "b" }, ["code"]).validateChange("code", () => ["is wrong"]);
+    expect(failing.valid).toBe(false);
+    expect(failing.validations).toStrictEqual([["code", { validation: "change" }]]);
+    const passing = cast(card(), { code: "b" }, ["code"]).validateChange("code", () => []);
+    expect(passing.valid).toBe(true);
+    expect(passing.validations).toStrictEqual([["code", { validation: "change" }]]);
+  });
+
+  test("null and an empty list are no issues", () => {
+    const cs = cast(card(), { code: "b" }, ["code"]);
+    expect(cs.validateChange("code", () => null as never).valid).toBe(true);
+    expect(cs.validateChange("code", () => []).valid).toBe(true);
+  });
+
+  test("an error returned without a validation has no validation key", () => {
+    const cs = cast(card(), { code: "b" }, ["code"]).validateChange("code", () => ({ message: "is odd" }));
+    expect(cs.errors.code).toStrictEqual([{ message: "is odd", meta: {} }]);
+    expect(Object.keys(cs.errors.code?.[0] ?? {})).toEqual(["message", "meta"]);
+  });
+});
+
+describe("validators given a value of the wrong type", () => {
+  test("refuse it with a QueryError", () => {
+    const scored = cast(card(), { score: 5 }, ["score"]);
+    expect(() => scored.validateFormat("score" as never, /x/)).toThrow(QueryError);
+    expect(() => scored.validateLength("score" as never, { min: 1 })).toThrow(QueryError);
+  });
+});

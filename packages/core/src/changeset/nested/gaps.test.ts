@@ -3,11 +3,11 @@
 
 import { Profile, User } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
-import type { AnySchema, Row } from "../../contracts/schema.js";
+import type { AnySchema, FieldMeta, Row } from "../../contracts/schema.js";
 import { NotLoadedError } from "../../errors.js";
 import { EmbeddedSchema, hasMany, hasOne, meta, Schema, t } from "../../index.js";
 import { type Changeset, cast, change, withAction } from "../changeset.js";
-import { indexOfRow, leaves, relationOf } from "./relation.js";
+import { indexOfRow, keyFinder, leaves, relationOf } from "./relation.js";
 
 type AnyCs = Changeset<AnySchema, boolean>;
 
@@ -356,5 +356,15 @@ describe("dropping a nested change that changes nothing", () => {
     const again = cast(first, { leaves: [{ id: 1, text: "ab" }] }, []).castAssoc("leaves");
     expect(again.changes).toStrictEqual({ title: "W" });
     expect(Object.keys(again.changes)).toEqual(["title"]);
+  });
+});
+
+describe("keyFinder over many rows", () => {
+  test("a key that two rows share finds the first of them, as a scan does", () => {
+    class Tile extends Schema("tiles", { a: t.integer().primaryKey(), b: t.integer().primaryKey() }) {}
+    const key = meta(Tile).primaryKey as readonly FieldMeta[];
+    const rows = Array.from({ length: 20 }, (_, i) => ({ a: i, b: 1 }));
+    rows[15] = { a: 5, b: 1 };
+    expect(keyFinder(rows, key)([5, 1])).toBe(5);
   });
 });

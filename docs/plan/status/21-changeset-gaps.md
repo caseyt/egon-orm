@@ -229,12 +229,22 @@ None. No configuration changed, no Stryker patch, no TypeScript checker for Stry
   earlier changeset dedupes. Three mutants turn on it (ids 411, 1526, 1544). They are held
   as low value until the owner says whether two errors are intended (then a test pins it)
   or not (then it is a source change, outside this tests-only step).
-- **For the owner: a validator's options inherit a planted `message`.** Found by the
-  reviewer in round 4: with `message` planted on `Object.prototype`, an options object the
-  developer passes inherits it, so `validateRequired(["email"], {})` reports the planted
-  text instead of "can't be blank" (the validators read `options?.message`, which an
-  inherited key reaches). Without options the message is right. The fix is to read options
-  with `hasOwn`, a source change outside this tests-only step.
+- **For the owner: options objects inherit keys planted on `Object.prototype`.** Found by
+  the reviewer in rounds 4 and 5. Every option is read as a plain property, so any option
+  key planted on `Object.prototype` reaches an options object the developer passes (even
+  `{}`); without an options object the defaults are right. Confirmed by the reviewer with
+  scratch tests:
+  - `message`: `validateRequired(["email"], {})` reports the planted text instead of
+    "can't be blank";
+  - `emptyValues: ["a@b.c"]`: `cast(User, { email: "a@b.c" }, ["email"], {})` reports
+    "can't be blank";
+  - `forceChanges: true`: casting the same value again records a change.
+
+  Found by reading the source, not run: `trim` (`validateRequired`), `required`
+  (`castAssoc`/`castEmbed`), `errorKey`, `name` and `match` (the constraint declarations),
+  `codegen` (schema and repo options), and the options of `castAssoc`/`castEmbed` (`with`)
+  and of `validate()` (`scope`, `apply`, `only`). The fix is to read options as own
+  properties only, everywhere they are read: a source change outside this tests-only step.
 - **For the owner: seeding the fast-check properties in mutation runs.** A property without
   a fixed seed can kill a mutant in one run and not the next (`nested/relation.ts:310`
   above), so a mutation run cannot be repeated exactly. The reviewer's suggestion: a setup

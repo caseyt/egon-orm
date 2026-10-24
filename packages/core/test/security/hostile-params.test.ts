@@ -12,8 +12,8 @@ import { afterEach, describe, expect, test } from "vitest";
 import { embedValue } from "../../src/changeset/nested/embed.js";
 import { indexOfKey, keyFinder } from "../../src/changeset/nested/relation.js";
 import type { AnySchema, FieldMeta, Row } from "../../src/contracts/schema.js";
-import { CastError, QueryError } from "../../src/errors.js";
-import { cast, change, EmbeddedSchema, hasMany, meta, Schema, t } from "../../src/index.js";
+import { CastError, NotLoadedError, QueryError } from "../../src/errors.js";
+import { cast, change, EmbeddedSchema, hasMany, hasOne, meta, Schema, t } from "../../src/index.js";
 
 /** A row as the database would return it, with `assocs` loaded. */
 function loaded<S extends AnySchema>(
@@ -162,17 +162,41 @@ describe("prototype pollution", () => {
       expect(rows[0]).toBe(first);
     });
 
-    test("a validator does not see it, and dropped routed issues leave the parent valid", () => {
+    test("a validator does not see it", () => {
       plant("planted", "x");
       let seen: object = {};
       cast(Owner, { title: "t" }, ["title"]).validate((values) => {
         seen = values as object;
       });
       expect(Object.hasOwn(seen, "planted")).toBe(false);
+    });
+
+    test("routed issues that the child drops leave the parent valid", () => {
+      plant("planted", "x");
       const cs = change(owner())
         .putAssoc("leaves", [{ id: 1, name: "two" }] as never)
         .validate(() => [{ path: ["leaves", 0, "ownerId"], message: "is odd" }], { scope: "changed" });
       expect(cs.valid).toBe(true);
+    });
+
+    test("a field's name planted with the value given is still a change of a new record", () => {
+      plant("title", "x");
+      expect(cast(Owner, { title: "x" }, ["title"]).changes).toEqual({ title: "x" });
+    });
+
+    test("an association's name planted as loaded and empty is still not preloaded", () => {
+      plant("leaves", []);
+      const bare = loaded(Owner, { id: 7, title: null });
+      expect(() => change(bare).putAssoc("leaves", [])).toThrow(NotLoadedError);
+    });
+
+    test("a to-one association's name planted as null is still not preloaded", () => {
+      class Lamp extends Schema("lamps", { id: t.integer().primaryKey(), deskId: t.integer().nullable() }) {}
+      class Desk extends Schema("desks", { id: t.integer().primaryKey() }) {
+        static lamp = hasOne(() => Lamp, { foreignKey: "deskId", onReplace: "delete" });
+      }
+      plant("lamp", null);
+      expect(() => change(loaded(Desk, { id: 1 })).putAssoc("lamp", null)).toThrow(NotLoadedError);
     });
   });
 });

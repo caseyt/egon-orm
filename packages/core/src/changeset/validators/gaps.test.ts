@@ -6,6 +6,7 @@ import type { AnySchema, Row } from "../../contracts/schema.js";
 import type { StandardSchemaV1, StandardSchemaV1Result } from "../../contracts/standard-schema.js";
 import { EmbeddedSchema, hasMany, hasOne, meta, Schema, t } from "../../index.js";
 import { type Changeset, cast, change } from "../changeset.js";
+import { generatedBuilders } from "./generated.js";
 
 type AnyCs = Changeset<AnySchema, boolean>;
 
@@ -195,6 +196,14 @@ describe("apply", () => {
     expect(skipped.changes).toEqual({});
   });
 
+  test("a field of a new record with no value yet takes the output, also for a type that compares dates", () => {
+    const when = new Date("2026-06-01T00:00:00.000Z");
+    const fresh = cast({ data: {}, types: { at: t.timestamp() } }, {}, []);
+    const cs = fresh.validate(output({ at: when.toISOString() }), { apply: true }) as unknown as AnyCs;
+    expect(cs.valid).toBe(true);
+    expect(cs.changes).toEqual({ at: when });
+  });
+
   test("a result with an empty list of issues is a success, and its output is applied", () => {
     const cs = change(book()).validate(
       standard(() => ({ value: { title: "C" }, issues: [] })),
@@ -242,5 +251,16 @@ describe("validateField and validateFieldAsync", () => {
     expect(calls).toBe(0);
     expect(cs.valid).toBe(true);
     expect(cs.validations).toStrictEqual([["doneAt", { schema: validator }]]);
+  });
+});
+
+describe("generated builders", () => {
+  test("a schema class's field table has builders, made once and then kept", () => {
+    class Note extends Schema("notes", { id: t.integer().primaryKey(), body: t.string() }) {}
+    const fields = meta(Note).fieldsByName;
+    const first = generatedBuilders(fields);
+    expect(first).toBeDefined();
+    expect(generatedBuilders(fields)).toBe(first);
+    expect(first?.build({ body: "b" }, { id: 1, body: "a" })).toEqual({ id: 1, body: "b" });
   });
 });

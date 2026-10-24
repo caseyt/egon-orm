@@ -10,6 +10,7 @@ import {
   betweenNode,
   binaryNode,
   caseNode,
+  castNode,
   fnNode,
   fragmentNode,
   literalNode,
@@ -85,6 +86,41 @@ describe("bound values without a SQL type", () => {
     expect(
       selected(postgresDialect, fragmentNode(["f(", ")"], [namedParamNode("n", undefined, false)])),
     ).toBe("f($1)");
+  });
+});
+
+describe("more typing cases from the mutation sample", () => {
+  test("a cast inside a fragment is written once", () => {
+    expect(selected(postgresDialect, fragmentNode(["f(", ")"], [castNode(col("u", "email"), INT)]))).toBe(
+      'f(cast("u"."email" as integer))',
+    );
+  });
+
+  test("notLike of two bound values is treated as like is", () => {
+    const text = (value: string) => paramNode(value, undefined, false);
+    const like = where(binaryNode("like", text("a"), text("a%")));
+    expect(where(binaryNode("notLike", text("a"), text("a%")))).toBe(like.replace(" like ", " not like "));
+  });
+
+  test("a selected CASE gives an untyped nested compound the type of a column result", () => {
+    const node = caseNode(
+      [{ when: literalNode(true), result: col("u", "age") }],
+      fnNode("coalesce", [untyped(1), untyped(2)]),
+    );
+    expect(selected(postgresDialect, node)).toBe(
+      'case when true then "u"."age" else cast(coalesce($1, $2) as integer) end',
+    );
+  });
+
+  test("a cast to an array type is refused where there are no arrays", () => {
+    const tags = typeOf(t.array(t.string()));
+    expect(() => selected(mysqlDialect, castNode(col("u", "email"), tags))).toThrow(
+      "An array type is not supported by mysql.",
+    );
+    expect(() => selected(sqliteDialect, castNode(col("u", "email"), tags))).toThrow(
+      "An array type is not supported by sqlite.",
+    );
+    expect(selected(postgresDialect, castNode(col("u", "email"), tags))).toBe('cast("u"."email" as text[])');
   });
 });
 

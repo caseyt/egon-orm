@@ -11,7 +11,7 @@ TypeScript 5.8 minimum). Spec: `docs/plan/21-release.md` §3. The owner decided 
 | Soak test, 30 min, pool of 5, random `pg_terminate_backend` | **Pass** on the final code: 166,467 operations, 1,007 kills, 0 unexpected failures, 0 unhandled rejections, 0 connections left checked out, 0 backends after `close()`, heap +0.49 MB. Two earlier runs **found a hang** (bug 1 below), now fixed. |
 | Fault injection, every await point | **Pass**: 22 scenarios, 105 await points, 210 faulted runs, no connection left checked out, the injected error surfaces every time. |
 | Runtime matrix | **Pass** on Node 22.12.0, 22.23.1 and 24.14.1 (ESM, `require()`, esbuild ESM and CJS bundles, Next.js 16.4.2 build), Postgres and SQLite. Bun 1.4.2 (best effort): Postgres passes in all four forms; SQLite fails because Bun cannot load `better-sqlite3`. Found bug 3 (SQLite in a CommonJS bundle). |
-| Mutation testing, ≥ 80% per area | MUTATION_SUMMARY |
+| Mutation testing, ≥ 80% per area | **Pass** (Stryker's own scores, `ignoreStatic: false`): compiler 93.04%, query 83.46%, changeset 83.14%. Not fully triaged: sampled real-gap rates are compiler 13%, query 13%, changeset about 20% (about 33-50% in its two largest files); the changeset survivors are a `0.1.0` gate (owner decision 4) and are triaged one by one in `step/21-changeset-gaps`. |
 
 Bugs found and fixed here, each with a test that fails without the fix:
 
@@ -153,7 +153,102 @@ on every Node; before bug 2, one run in three of the Node 24 bundles crashed aft
 
 ## 4. Mutation testing
 
-MUTATION_SECTION
+`pnpm test:mutation [area]` (`scripts/mutation.mjs`) runs Stryker 10 with the Vitest runner
+over the `core:unit` tests (`vitest.mutation.config.ts`), one run per area, concurrency 2,
+`ignoreStatic: false` (see Decisions for why). Local runs on macOS arm64, Node 22.23.1, on
+the branch as of `6f16bc4` (the compiler and changeset runs include this step's new tests;
+the query run started before the query tests of `7bda82b`).
+
+| Area | Files | Mutants | Killed | Timeout | Survived | No coverage | Score | Time |
+|---|---|---|---|---|---|---|---|---|
+| compiler | 11 | 5,317 | 4,748 | 199 | 365 | 5 | **93.04%** | 3 h 32 min |
+| query | 21 | 5,969 | 4,962 | 20 | 982 | 5 | **83.46%** | 4 h 30 min |
+| changeset | 15 | 4,077 | 3,358 | 29 | 662 | 25 | **83.14%** | 32 min |
+
+Score = (killed + timeout) / (killed + timeout + survived + no coverage), as Stryker reports
+it. These are the scores Stryker measured. They count every survivor as a survivor,
+including the classes below that are not test gaps. No adjusted score is given.
+
+Earlier runs, kept for the record and not used above: compiler 80.59% (with
+`ignoreStatic: true`, before this step's compiler tests), query 82.68% (`ignoreStatic:
+true`), changeset 80.71% (`ignoreStatic: false`, before this step's changeset tests).
+
+### Survivors by class
+
+| Area | Error id (`""`) | Error message text | Logic | Total |
+|---|---|---|---|---|
+| compiler | 92 | 14 | 264 | 370 |
+| query | 147 | 42 | 798 | 987 |
+| changeset | 82 | 67 | 538 | 687 |
+
+- **Error id, rejected by tsc (verified by sample).** A `QueryError` id replaced with `""`.
+  Ids are typed `IdsOf<"query">`, so such a mutant does not compile; it survives only
+  because Stryker runs without a TypeScript checker. Checked by hand on five
+  (`write.ts` deleteNoKey, `emit.ts` astJoinKind, `plan.ts` astCteName, `dialect.ts`
+  unsupportedFeature, `bind.ts` namedParamMissing): `tsc -p packages/core` rejects each with
+  TS2345 (`'""' is not assignable to parameter of type 'IdsOf<"query">'`).
+- **Error message text: low value.** The wording of errors for misuse by the developer
+  (an argument of the wrong kind); their ids are typed and their throws are tested. Two that
+  had logic behind them were tested (the constraint `match` modes and non-object options).
+- **Logic: sampled, not all triaged.** A seeded random sample of 30 per area, each mutant
+  classified by hand, each real gap closed with a test checked against the hand-applied
+  mutant:
+
+| Area | Pool | Real gap (now tested) | Equivalent | Low value | Tool artifact | Gap rate (95% interval) | Estimated untested in pool |
+|---|---|---|---|---|---|---|---|
+| compiler | 264 | 4 | 17 | 9 | 0 | 13% (5-30%) | about 35 (13-80) |
+| query | 798 | 4 | 14 | 10 | 2 | 13% (5-30%) | about 105 (40-240) |
+| changeset, all files | 625 (first run) | 6 | 11 | 11 | 0 | 20% (8-39%) | about 125 (50-245) |
+| changeset.ts + nested/change.ts | 305 (first run) | 10 (+5 closed earlier the same day) | 2 | 13 | 0 | 33% (19-51%), 50% counting the 5 | about 100-150 |
+
+  The intervals are Wilson intervals on 30 draws; the estimates scale the rate to the pool.
+  The compiler and query samples were drawn from the runs above; the changeset samples from
+  its first run (80.71%), so some of the gaps they found are closed in the 83.14% run.
+  **The changeset area is not fully triaged**: by the estimate, roughly a hundred untested
+  behaviours remain, most in `changeset.ts` and `nested/change.ts`. They are a `0.1.0`
+  gate (owner decision 4) and are triaged one by one in `step/21-changeset-gaps`.
+  "Equivalent" means the mutant cannot change behaviour (a check that another check already
+  makes, a cache shortcut to the same result, a separator that keeps keys unique without
+  it); "low value" means only a message, its advice parameters, or a malformed AST that the
+  types forbid.
+
+### Before the samples: the compiler survivors of the first run
+
+Most of the tests this step added came from working through the compiler's first-run
+survivors file by file (`dialect.ts`, `registry.ts`, `compiler.ts`, `cache.ts`, `bind.ts`,
+`same-shape.ts`, `plan.ts`, `write.ts`, `emit.ts`), with each test checked against
+hand-applied mutants. Real gaps closed there, among others: `capabilities.test.ts` took
+its expectations from the table it checks, so a wrong capability flag passed it
+(`dialect.test.ts` now pins every table); write-plan cache keys ran field positions
+together (`[1, 0]` and `[10]` would share a plan) and ignored list lengths of insert cells
+on MySQL and SQLite (only the tests were missing: the keys are right); `PlanCache.clear()`
+dropping write plans, MySQL's `delete … from` with joins, INTERSECT grouping after UNION,
+placeholder spacing in fragments, and redaction of named parameters had no test. **No
+production bug was found by mutation testing**; every gap was a missing test.
+
+### Known limitations of the tooling
+
+- **A mutant that breaks a test file at load time is reported as survived.** The Vitest
+  runner builds a mutant's result from the test tasks of each file
+  (`collectTestsFromSuite` in `@stryker-mutator/vitest-runner`); a file whose top-level
+  code throws has no test tasks and the error does not reach `errorsSet`, so nothing fails.
+  This affects static mutants in code that test files run while they are collected (for
+  example `dynamic()` called at a `describe`'s top level). Two in the query sample were of
+  this kind and failed `advanced/small.test.ts` at load when applied by hand. It only
+  understates the scores; it is not patched (owner, 2026-10-23), and static survivors in
+  the samples were checked by hand.
+- No TypeScript checker (owner decision), so mutants that would not compile count as
+  survived (the error-id class above).
+- Timeouts count as detected, as Stryker counts them. The compiler run had 199 (`emit.ts` 114, `plan.ts`
+  37, `cache.ts` 23), mutants that make a loop or a lookup run past the time limit.
+
+### Disk
+
+The coordinator asked for disk use to be logged every 5 minutes during the runs (an earlier
+attempt had filled the disk; what filled it was not found). Over all runs:
+`.stryker-tmp` stayed at 18-19 MB, `reports/` grew to 39 MB (an HTML and a JSON report of
+8-16 MB per area), `node_modules/.vite` 24 KB, no `node_modules/.vitest`. Nothing else in
+the worktree grew.
 
 ## Decisions
 
@@ -205,6 +300,11 @@ MUTATION_SECTION
    only loads a config, layout or page from a default export, so the example cannot be
    written otherwise; the exemption is limited to those three paths, as the existing one
    for the edge worker is.
+4. **The changeset survivors are a `0.1.0` gate.** Reason: the samples put the changeset
+   area's untested behaviour at about 20% of its logic survivors, and 33-50% in
+   `changeset.ts` and `nested/change.ts`, more than the other areas (13%). Their triage, one
+   survivor at a time with a test for each real gap, follows in `step/21-changeset-gaps`,
+   started from this branch.
 
 ## Checks I changed, exempted or worked around
 
@@ -227,6 +327,10 @@ MUTATION_SECTION
 - Bun's results are from a local run; the CI Bun job is best effort and not required.
 - The `runtime` job, the Bun workflow and the robustness workflow have not run on GitHub
   before this PR.
+- Mutation testing: the logic survivors were sampled (30 per area), not all triaged; the
+  estimates above are estimates. The changeset ones are triaged in full in
+  `step/21-changeset-gaps` (owner decision 4). The query run predates the query tests of
+  `7bda82b`, so its score does not include them.
 
 ## Requests
 

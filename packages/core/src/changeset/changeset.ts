@@ -14,7 +14,7 @@ import type { Action, ChangesetError, ChangesetLike, Constraint, Validator } fro
 import type { Failure, Result, Success } from "../contracts/result.js";
 import type { AnyFieldBuilder, AnySchema, AssocMeta, FieldMeta, Row, RowMeta } from "../contracts/schema.js";
 import { ROW } from "../contracts/schema.js";
-import { QueryError } from "../errors.js";
+import { InvalidChangesetError, QueryError } from "../errors.js";
 import { deepEqual } from "../internal/deep-equal.js";
 import { formatStruct, formatValue, redactFields } from "../internal/inspect.js";
 import { meta } from "../schema/index.js";
@@ -2411,6 +2411,30 @@ export function applyAction<S extends ChangesetSource, New extends boolean>(
   if (changeset.valid)
     return { success: true, data: applied(changeset) as AppliedData<S> } satisfies Success<AppliedData<S>>;
   return { success: false, error: withAction(changeset, action) } satisfies Failure<Changeset<S, New>>;
+}
+
+/**
+ * Applies the changes if the changeset is valid, without the database, as
+ * {@link applyAction} does, and returns the updated row (or plain data object). An invalid
+ * changeset throws `InvalidChangesetError`, which carries the changeset with its `action`
+ * set; the error's message lists the errors by field, without their values.
+ *
+ * @example
+ * ```ts
+ * const filters = applyActionOrThrow(cast({ data: {}, types: { q: t.string() } }, params, ["q"]), "insert");
+ * search(filters.q);
+ * ```
+ *
+ * @throws InvalidChangesetError when the changeset is invalid.
+ * @throws QueryError when `action` is not an action, or the changeset is of a new record.
+ */
+export function applyActionOrThrow<S extends ChangesetSource, New extends boolean>(
+  changeset: Changeset<S, New> & NotNewRecord<New>,
+  action: Action,
+): AppliedData<S> {
+  const result = applyAction(changeset, action);
+  if (result.success) return result.data;
+  throw new InvalidChangesetError({ action, changeset: result.error });
 }
 
 // ---------------------------------------------------------------------------

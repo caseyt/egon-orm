@@ -5,7 +5,14 @@ import { describe, expectTypeOf, test } from "vitest";
 import type { Action, ChangesetError, ChangesetLike, Constraint } from "../contracts/changeset.js";
 import type { AnySchema, Row } from "../contracts/schema.js";
 import { t } from "../schema/index.js";
-import { applyAction, type Changeset, cast, change, traverseErrors } from "./changeset.js";
+import {
+  applyAction,
+  applyActionOrThrow,
+  type Changeset,
+  cast,
+  change,
+  traverseErrors,
+} from "./changeset.js";
 import type {
   ChangesetModel,
   ErrorTree,
@@ -271,6 +278,17 @@ describe("applyChanges and applyAction", () => {
     const result = applyAction(change(either, { name: "Ada" }), "update");
     if (result.success) expectTypeOf(result.data).toEqualTypeOf<User>();
     else expectTypeOf(result.error).toEqualTypeOf<Changeset<typeof User, boolean>>();
+  });
+
+  test("applyActionOrThrow returns the applied data", () => {
+    expectTypeOf(applyActionOrThrow(change(either, { name: "Ada" }), "update")).toEqualTypeOf<User>();
+    expectTypeOf(applyActionOrThrow(change(user), "update")).not.toBeAny();
+    const filters = applyActionOrThrow(cast({ data: {}, types: { q: t.string() } }, params, ["q"]), "insert");
+    expectTypeOf(filters.q).toEqualTypeOf<string | undefined>();
+    // @ts-expect-error a new record cannot become a row
+    applyActionOrThrow(change(User, { email: "a@b.c" }), "insert");
+    // @ts-expect-error not an action
+    applyActionOrThrow(change(user), "save");
   });
 
   test("a changeset of a new record has no row to apply to", () => {

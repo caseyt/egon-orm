@@ -2258,6 +2258,7 @@ interface Repo {
     // (undocumented)
     explain<Q extends Queryable>(queryable: Q, ...args: ReadArgs<Q, ExplainReadOptions>): Promise<string>;
     first<Q extends Queryable>(queryable: Q, ...args: ReadArgs<Q, ReadOptions>): Promise<ResultOf<Q> | null>;
+    firstOrThrow<Q extends Queryable>(queryable: Q, ...args: ReadArgs<Q, ReadOptions>): Promise<ResultOf<Q>>;
     // Warning: (ae-forgotten-export) The symbol "PrimaryKeyOf" needs to be exported by the entry point testing.d.ts
     get<S extends AnySchema>(schema: S, id: PrimaryKeyOf<S>, options?: ReadOptions): Promise<Row<S> | null>;
     // Warning: (ae-forgotten-export) The symbol "ClausesOf" needs to be exported by the entry point testing.d.ts

@@ -31,6 +31,7 @@ test("the public entry point exports exactly these values", () => {
     "VERSION",
     "and",
     "applyAction",
+    "applyActionOrThrow",
     "arrayAgg",
     "assoc",
     "avg",

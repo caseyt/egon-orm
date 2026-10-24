@@ -7,9 +7,6 @@
 import { DatabaseAdapter } from 'egon-orm';
 
 // @public
-export function normalizeSqliteError(error: unknown, sql: string | undefined): unknown;
-
-// @public
 export type PragmaValue = string | number | boolean;
 
 // @public

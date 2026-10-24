@@ -145,12 +145,35 @@ describe("codegen: false on every schema and on the repo", () => {
     expect(generated()).toBeGreaterThan(0);
   });
 
-  test("a changeset without a schema class has no codegen option: validate() generates its builders", async () => {
-    // Recorded in docs/plan/status/21-security.md ("Needs the owner's decision"): a strict
-    // Content Security Policy reports the attempt, and the loops are then used.
+  test("a changeset without a schema class never generates code: validate() uses loops", async () => {
+    // It has no codegen option, so it never generates (owner decision, 2026-10-22): a
+    // strict Content Security Policy sees no attempt to report.
     const generated = countGeneration();
     const { cast, t } = await import("../../src/index.js");
-    cast({ data: {}, types: { q: t.string() } }, { q: "x" }, ["q"]).validate(() => undefined);
+    let seen: unknown;
+    const changeset = cast(
+      {
+        data: { page: 1, q: "old" },
+        types: { q: t.string(), page: t.integer(), size: t.integer().nullable() },
+      },
+      { q: "new" },
+      ["q", "size"],
+    ).validate((values: unknown) => {
+      seen = values;
+      return undefined;
+    });
+    expect(changeset.valid).toBe(true);
+    // The values a validator sees: the data with the changes applied, in field order.
+    expect(seen).toEqual({ q: "new", page: 1, size: null });
+    expect(Object.keys(seen as object)).toEqual(["q", "page", "size"]);
+    expect(generated()).toBe(0);
+  });
+
+  test("the same validate() of a schema class does generate (the count above is meaningful)", async () => {
+    const generated = countGeneration();
+    const { cast, Schema, t } = await import("../../src/index.js");
+    class Search extends Schema("searches", { id: t.integer().primaryKey(), q: t.string() }) {}
+    cast(Search, { q: "new" }, ["q"]).validate(() => undefined);
     expect(generated()).toBeGreaterThan(0);
   });
 });

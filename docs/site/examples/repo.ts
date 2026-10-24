@@ -69,11 +69,12 @@ export async function reading() {
   const member = await repo.get(Membership, { orgId, userId }); // composite key
   const ada = await repo.getBy(User, { email: "ada@example.com" });
   const newest = await repo.first(from(Post, "p").orderBy(({ p }) => p.createdAt.desc()));
+  const oldest = await repo.firstOrThrow(from(Post, "p").orderBy(({ p }) => p.createdAt)); // or NoResultsError
   const total = await repo.count(from(Post, "p").where({ published: true })); // number
   const views = await repo.aggregate(Post, "sum", "views"); // number | null
   const latest = await repo.aggregate(Post, "max", "createdAt"); // Date | null
   // #endregion reading
-  return { user, member, ada, newest, total, views, latest };
+  return { user, member, ada, newest, oldest, total, views, latest };
 }
 
 export async function params() {

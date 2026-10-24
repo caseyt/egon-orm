@@ -11,7 +11,6 @@ import { normalizeSqliteError } from "./errors.js";
 import { resolveOptions, type SqliteOptions } from "./options.js";
 import { SQLITE_DRIVER_CODECS } from "./values.js";
 
-export { normalizeSqliteError } from "./errors.js";
 export type { PragmaValue, SqliteOptions } from "./options.js";
 
 /**

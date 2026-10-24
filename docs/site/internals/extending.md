@@ -54,10 +54,11 @@ A dialect is a package like `packages/sqlite`, plus tables in core:
 3. **Migration table** in `migration/dialect.ts`: DDL features, column types, literals,
    the runner's lock.
 4. **The package**: options, a driver wrapper (`driver.ts`), value codecs (`values.ts`),
-   error normalisation into `DatabaseError` and `ConstraintError` (`errors.ts`, exported as
-   `normalizePgError`, `normalizeSqliteError` and `normalizeMysqlError` by the existing
-   packages), the
-   capabilities (`dialect.ts`), and `index.ts`, which calls `createAdapter`.
+   error normalisation into `DatabaseError` and `ConstraintError` (`errors.ts`; the
+   function is internal to the package and passed to `createAdapter` as `normalizeError`),
+   the capabilities (`dialect.ts`), and `index.ts`, which calls `createAdapter`.
+   `createAdapter` is internal to the Egon packages: its driver contract is not exported,
+   so a dialect is written inside this repository, not as a third-party package.
 5. **Conformance.** Each suite in `packages/core/test/conformance/` (adapter, read,
    write, preload, nested, transaction, compiler, migration) runs against the package through a
    profile file in its `test/` directory. A case that needs a missing capability is skipped

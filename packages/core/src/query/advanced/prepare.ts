@@ -55,9 +55,13 @@ export class PreparedQuery<R, P> implements QueryLike {
     readonly params: (params: P) => void;
     readonly root: string;
   };
-  /** The query as data. */
+  /** The query as data. Public because every queryable carries it (`QueryLike`). */
   readonly ast: QueryAst;
-  /** The query that was prepared. */
+  /**
+   * The query that was prepared.
+   *
+   * @internal
+   */
   readonly query: PreparedFrom;
   #pinned: Pinned | undefined;
   /** Plans for any other adapter, operation or database schema, made on first use. */
@@ -85,6 +89,8 @@ export class PreparedQuery<R, P> implements QueryLike {
    * ```ts
    * byEmail.named[0]?.name; // "email"
    * ```
+   *
+   * @internal
    */
   get named(): readonly NamedParamNode[] {
     return this.query.named;
@@ -112,6 +118,8 @@ export class PreparedQuery<R, P> implements QueryLike {
    * ```
    *
    * @throws QueryError (from the adapter) when the query cannot be compiled.
+   *
+   * @internal
    */
   plan(
     source: PlanSource,

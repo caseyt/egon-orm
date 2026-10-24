@@ -8,6 +8,7 @@ import type { AnySchema, FieldMeta, SchemaMeta } from "../contracts/schema.js";
 import { CastError, QueryError } from "../errors.js";
 import { isPlainObject } from "../internal/plain-object.js";
 import { fieldState, isRow, isSchema, meta } from "../schema/index.js";
+import { refuseGeneration } from "./validators/generated.js";
 
 /** The fields of a changeset's target and what is derived from them. */
 export interface Spec {
@@ -110,11 +111,16 @@ function specOfTypes(types: unknown): Spec {
       }),
     );
   }
+  const byName: ReadonlyMap<string, FieldMeta> = new Map(fields.map((field) => [field.name, field]));
+  // A changeset without a schema class never generates code: there is no `codegen` option
+  // to turn it off, and a strict Content Security Policy would report the attempt. Its
+  // validator builders are loops.
+  refuseGeneration(byName);
   spec = Object.freeze({
     name: "schemaless",
     model: null,
     meta: null,
-    fields: new Map(fields.map((field) => [field.name, field])),
+    fields: byName,
     redacted: new Set(fields.filter((field) => field.redact).map((field) => field.name)),
     requiredByDefault: requiredByDefault(fields),
     embeds,

@@ -15,7 +15,7 @@ export type {
   AlterTableBuilder,
   ColumnAdder,
   ColumnBuilder,
-  ConstraintOptions,
+  CreateConstraintOptions,
   CreateTableOptions,
   DropConstraintOptions,
   DropIndexOptions,

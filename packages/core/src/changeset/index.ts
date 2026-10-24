@@ -1,6 +1,6 @@
 /**
  * Changesets: `cast`, `change`, the `Changeset` class with its validations and
- * constraint declarations, `applyAction` and `traverseErrors`.
+ * constraint declarations, `applyAction`, `applyActionOrThrow` and `traverseErrors`.
  *
  * This barrel is internal. `src/index.ts` decides what is public; `withAction`,
  * `withRepo`, `rebuild`, `addValidation`, `withErrors`, `fieldsOf`, `valueBefore` and
@@ -14,6 +14,7 @@ export type { PrepareFunction } from "./changeset.js";
 export {
   addValidation,
   applyAction,
+  applyActionOrThrow,
   Changeset,
   cast,
   change,

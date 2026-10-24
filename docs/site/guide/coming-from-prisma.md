@@ -133,7 +133,7 @@ Prisma: `prisma.post.findMany({ where: { published: true }, orderBy: { views: "d
 
 ### The first match
 
-Prisma: `prisma.post.findFirst({ orderBy: { id: "desc" } })`.
+Prisma: `prisma.post.findFirst({ orderBy: { id: "desc" } })` and `findFirstOrThrow`.
 
 <<< @/examples/coming-from.ts#find-first
 

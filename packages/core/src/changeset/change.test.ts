@@ -2,9 +2,9 @@ import { Post, Tag, User } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
 import type { AnySchema, Row } from "../contracts/schema.js";
 import { ROW } from "../contracts/schema.js";
-import { QueryError } from "../errors.js";
+import { InvalidChangesetError, QueryError } from "../errors.js";
 import { meta, t } from "../schema/index.js";
-import { applyAction, Changeset, cast, change } from "./changeset.js";
+import { applyAction, applyActionOrThrow, Changeset, cast, change } from "./changeset.js";
 
 function loaded<S extends AnySchema>(schema: S, values: Readonly<Record<string, unknown>>): Row<S> {
   const info = meta(schema);
@@ -427,6 +427,47 @@ describe("applyAction", () => {
     const fresh = change(User) as unknown as Changeset<typeof User, false>;
     expect(() => applyAction(fresh, "insert")).toThrow(QueryError);
     expect(() => applyAction(fresh.addError("email", "x"), "insert")).toThrow(QueryError);
+  });
+});
+
+describe("applyActionOrThrow", () => {
+  test("a valid changeset gives the applied data itself", () => {
+    const row = applyActionOrThrow(change(margaret(), { name: "Maggie" }), "update");
+    expect(row).toBeInstanceOf(User);
+    expect(row.name).toBe("Maggie");
+    const data = applyActionOrThrow(
+      cast({ data: {}, types: { q: t.string() } }, { q: "egon" }, ["q"]),
+      "insert",
+    );
+    expect(data).toEqual({ q: "egon" });
+  });
+
+  test("an invalid changeset throws InvalidChangesetError with the changeset and its action", () => {
+    const cs = cast({ data: {}, types: { page: t.integer() } }, { page: "secret-value" }, ["page"]);
+    let thrown: unknown;
+    try {
+      applyActionOrThrow(cs, "insert");
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(InvalidChangesetError);
+    const error = thrown as InvalidChangesetError<typeof cs>;
+    expect(error.id).toBe("invalidChangeset");
+    expect(error.action).toBe("insert");
+    expect(error.changeset.action).toBe("insert");
+    expect(error.changeset.errors).toBe(cs.errors);
+    expect(error.message).toContain("Could not perform insert because the changeset is invalid.");
+    expect(error.message).toContain("page: is invalid");
+    // The listing has the errors, never the values that caused them.
+    expect(error.message).not.toContain("secret-value");
+    expect(cs.action).toBeNull();
+  });
+
+  test("throws QueryError for an unknown action or a new record, as applyAction does", () => {
+    expect(() => applyActionOrThrow(change(margaret()), "save" as never)).toThrow(QueryError);
+    const fresh = change(User) as unknown as Changeset<typeof User, false>;
+    expect(() => applyActionOrThrow(fresh, "insert")).toThrow(QueryError);
+    expect(() => applyActionOrThrow(fresh.addError("email", "x"), "insert")).toThrow(QueryError);
   });
 });
 

@@ -12,7 +12,7 @@ test("VERSION matches the version in package.json", () => {
 
 test("the package exports exactly these values", () => {
   // Adding a public export is a decision: update this list in the same change.
-  expect(Object.keys(api).sort()).toEqual(["VERSION", "normalizePgError", "postgres"]);
+  expect(Object.keys(api).sort()).toEqual(["VERSION", "postgres"]);
 });
 
 describe("postgres", () => {

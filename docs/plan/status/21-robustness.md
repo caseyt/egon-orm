@@ -13,7 +13,7 @@ TypeScript 5.8 minimum) and `8b1aeea` (#72, owner decisions). After the last mer
 | Soak test, 30 min, pool of 5, random `pg_terminate_backend` | **Pass** on the final code: 166,467 operations, 1,007 kills, 0 unexpected failures, 0 unhandled rejections, 0 connections left checked out, 0 backends after `close()`, heap +0.49 MB. Two earlier runs **found a hang** (bug 1 below), now fixed. |
 | Fault injection, every await point | **Pass**: 22 scenarios, 105 await points, 210 faulted runs, no connection left checked out, the injected error surfaces every time. |
 | Runtime matrix | **Pass** on Node 22.12.0, 22.23.1 and 24.14.1 (ESM, `require()`, esbuild ESM and CJS bundles, Next.js 16.4.2 build), Postgres and SQLite. Bun 1.4.2 (best effort): Postgres passes in all four forms; SQLite fails because Bun cannot load `better-sqlite3`. Found bug 3 (SQLite in a CommonJS bundle). |
-| Mutation testing, ≥ 80% per area | **Pass** (Stryker's own scores, `ignoreStatic: false`): compiler 93.04%, query 83.46%, changeset 83.14%. Not fully triaged: sampled real-gap rates are compiler 13%, query 13%, changeset about 27% (50% in its two largest files); the changeset survivors are a `0.1.0` gate (owner decision 4) and are triaged one by one in `step/21-changeset-gaps`. |
+| Mutation testing, ≥ 80% per area | **Pass** (Stryker's own scores, `ignoreStatic: false`): compiler 93.04%, query 83.46%, changeset 83.14%. Not fully triaged: sampled real-gap rates are compiler 13%, query 13%, changeset about 37% (50% in its two largest files; corrected on 2026-10-24, see §4); the changeset survivors are a `0.1.0` gate (owner decision 4) and are triaged one by one in `step/21-changeset-gaps`. |
 
 Bugs found and fixed here, each with a test that fails without the fix:
 
@@ -226,7 +226,7 @@ samples were drawn from.
 |---|---|---|---|---|---|---|---|
 | compiler | 264 | 4 | 17 | 9 | 0 | 13.3% (5.3-29.7%) | about 35 (14-78) |
 | query | 798 | 4 | 14 | 10 | 2 | 13.3% (5.3-29.7%) | about 106 (42-237) |
-| changeset, all files | 625 (first run) | 8 | 11 | 11 | 0 | 26.7% (14.2-44.4%) | about 167 (89-278) |
+| changeset, all files | 625 (first run) | 11 | 6 | 13 | 0 | 36.7% (21.9-54.5%) | about 229 (137-341) |
 | changeset.ts + nested/change.ts | 305 (first run) | 15 | 2 | 13 | 0 | 50.0% (33.2-66.8%) | about 153 (101-204) |
 
   Each interval is the Wilson score interval at 95% (z = 1.96) for k real gaps in 30
@@ -236,8 +236,13 @@ samples were drawn from.
   sample, 2 of the 8 gaps (and in the second, 5 of the 15) had been closed by tests written
   after that run but before the sample was classified; an earlier version of this note
   counted them apart, which made the first row add up to 28. The appendix lists every
-  sampled mutant. **The changeset area is not fully triaged**: by the estimate, between
-  about 90 and 280 untested behaviours remained in its first run, most in `changeset.ts` and
+  sampled mutant. Corrected on 2026-10-24 (review of `step/21-changeset-gaps`, #74): five
+  rows of the first changeset sample were classed wrong. Rows 11, 26 and 27 are real gaps
+  (a has-many to a keyless schema; a symbol in an issue path), and rows 24 and 25 are low
+  value (they change only an error message or whether an empty path is frozen), so that
+  sample has 11 real gaps, not 8, and the row above is recomputed.
+  **The changeset area is not fully triaged**: by the estimate, between
+  about 140 and 340 untested behaviours remained in its first run, most in `changeset.ts` and
   `nested/change.ts`. They are a `0.1.0`
   gate (owner decision 4) and are triaged one by one in `step/21-changeset-gaps`.
   "Equivalent" means the mutant cannot change behaviour (a check that another check already
@@ -334,7 +339,8 @@ the worktree grew.
    written otherwise; the exemption is limited to those three paths, as the existing one
    for the edge worker is.
 4. **The changeset survivors are a `0.1.0` gate.** Reason: the samples put the changeset
-   area's untested behaviour at about 27% of its logic survivors (14-44%), and 50% (33-67%)
+   area's untested behaviour at about 27% of its logic survivors (14-44%; about 37%, 22-54%,
+   after the correction of 2026-10-24 in §4), and 50% (33-67%)
    in `changeset.ts` and `nested/change.ts`, more than the other areas (13%). Their triage, one
    survivor at a time with a test for each real gap, follows in `step/21-changeset-gaps`,
    started from this branch.
@@ -439,7 +445,7 @@ parameters, or a path for misuse or a malformed AST.
 
 `node scripts/mutation-sample.mjs reports/mutation/changeset.json --seed 21`
 
-real gap 8, low value 11, equivalent 11.
+real gap 11, low value 13, equivalent 6 (corrected on 2026-10-24: rows 11, 24, 25, 26, 27).
 
 | # | Location | Mutant | Class | Reason, or the test that kills it now |
 |---|---|---|---|---|
@@ -453,7 +459,7 @@ real gap 8, low value 11, equivalent 11.
 | 8 | `changeset/measure.ts:19` (id 1671) | ConditionalExpression: `code >= 0x80 \|\| code === 0x0d` → `true` | equivalent | always segmenting gives the same count |
 | 9 | `changeset/measure.ts:24` (id 1682) | ConditionalExpression: `simple` → `false` | equivalent | always segmenting gives the same count |
 | 10 | `changeset/measure.ts:53` (id 1730) | EqualityOperator: `code < 0x800` → `code <= 0x800` | real gap | `measure.test.ts` boundary list, U+0800 (4bf2837) |
-| 11 | `changeset/nested/change.ts:284` (id 2082) | ConditionalExpression: `relation.kind === "embed"` → `true` | equivalent | an association's key is never empty |
+| 11 | `changeset/nested/change.ts:284` (id 2082) | ConditionalExpression: `relation.kind === "embed"` → `true` | real gap | a has-many to a schema with `primaryKey: false` has an empty key: `nested.test.ts` "a has-many to a schema without a primary key deletes a stored row left out" (`step/21-changeset-gaps`) |
 | 12 | `changeset/nested/embed.ts:53` (id 2616, no coverage) | EqualityOperator: `fallback.kind === "value"` → `fallback.kind !== "value"` | real gap | `nested.test.ts` "a new row takes each field's default" (bab9417) |
 | 13 | `changeset/nested/embed.ts:83` (id 2659) | ConditionalExpression: `made && value instanceof Date` → `false` | real gap | `nested.test.ts` "the timestamps of one new row are one value" (bab9417) |
 | 14 | `changeset/nested/embed.ts:161` (id 2745, no coverage) | ConditionalExpression: `value === null` → `false` | real gap | `nested.test.ts` "a stored row that holds null in a required field" (bab9417) |
@@ -466,10 +472,10 @@ real gap 8, low value 11, equivalent 11.
 | 21 | `changeset/nested/relation.ts:232` (id 2995) | ConditionalExpression: `value === ""` → `false` | real gap | `nested.test.ts` "an empty string is no key" (bab9417) |
 | 22 | `changeset/spec.ts:185` (id 3340) | StringLiteral: ``a ${typeof params}`` → ```` | low value | wording of an error message |
 | 23 | `changeset/validators/validate.ts:342` (id 3699) | EqualityOperator: `last <= 0xdbff` → `last < 0xdbff` | low value | truncation of a value shown in an error message |
-| 24 | `changeset/validators/validate.ts:411` (id 3794) | ConditionalExpression: `typeof raw !== "object"` → `false` | equivalent | a primitive has no string message and is refused anyway |
-| 25 | `changeset/validators/validate.ts:501` (id 3903) | ConditionalExpression: `path.length === 1` → `false` | equivalent | slice(1) of a one-key path is the same empty path |
-| 26 | `changeset/validators/validate.ts:527` (id 3929) | LogicalOperator: `typeof at === "string" && /^\\d+$/.test(at)` → `typeof at === "string" \|\| /^\\d+$/.tes` | equivalent | a path position that is not a number or digits is -1 either way |
-| 27 | `changeset/validators/validate.ts:527` (id 3930) | ConditionalExpression: `typeof at === "string"` → `true` | equivalent | a path position that is not a number or digits is -1 either way |
+| 24 | `changeset/validators/validate.ts:411` (id 3794) | ConditionalExpression: `typeof raw !== "object"` → `false` | low value | an `undefined` issue is still refused with a TypeError, with another message |
+| 25 | `changeset/validators/validate.ts:501` (id 3903) | ConditionalExpression: `path.length === 1` → `false` | low value | an empty path either way; only whether it is frozen differs, and the path is readonly by type |
+| 26 | `changeset/validators/validate.ts:527` (id 3929) | LogicalOperator: `typeof at === "string" && /^\\d+$/.test(at)` → `typeof at === "string" \|\| /^\\d+$/.tes` | real gap | a symbol in an issue path throws a TypeError: `validate.test.ts` "a symbol where a position would be sends the issue to the parent" (`step/21-changeset-gaps`) |
+| 27 | `changeset/validators/validate.ts:527` (id 3930) | ConditionalExpression: `typeof at === "string"` → `true` | real gap | as row 26 |
 | 28 | `changeset/validators/validate.ts:598` (id 4011, no coverage) | BooleanLiteral: `!only.includes(key)` → `only.includes(key)` | real gap | `validate.test.ts` "only keeps a nested change of a listed embed" (bab9417) |
 | 29 | `changeset/validators/validate.ts:645` (id 4050) | ConditionalExpression: `typeof output !== "object"` → `false` | equivalent | Object.keys of a primitive output names no field |
 | 30 | `changeset/validators/validate.ts:660` (id 4074) | ConditionalExpression: `result.meta === undefined` → `false` | equivalent | spreading undefined meta adds nothing |

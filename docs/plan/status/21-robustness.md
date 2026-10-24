@@ -34,7 +34,11 @@ Bugs found and fixed here, each with a test that fails without the fix:
    sockets have closed. The Postgres adapter removed the pool's `error` listener as soon as
    `end()` resolved, so a session terminated in that window (a restart,
    `pg_terminate_backend`, `DROP DATABASE … WITH (FORCE)`) made the pool emit an
-   unhandled `error` and Node exited. Seen as a crash of the runtime matrix (1 run in 3).
+   unhandled `error` and Node exited. Seen as a crash of the runtime matrix (1 run in 3),
+   and again on `main` at `8b1aeea` (which does not have the fix): CI's tier-2 integration
+   job failed with one unhandled error, a FATAL `57P01` ("terminating connection due to
+   administrator command") from a client already ending (`_ending: true`), on a database
+   of `error-review.itest.ts` dropped with `DROP DATABASE … WITH (FORCE)`.
    Fix: the owned pool keeps its error listener after `end()`. Tests:
    `test/close-race.itest.ts` (fails without the fix), a unit test in `src/driver.test.ts`.
 3. **Medium: `@egon-orm/sqlite` failed when bundled to CommonJS.** `SQLITE_RUNTIME.open`
@@ -337,14 +341,42 @@ the worktree grew.
 - Soak: one 30-minute run on the final code, locally, on Node 22; not run in CI yet (the
   workflow is manual or weekly). Postgres only, as the spec asks; MySQL streams were read
   (their cursor ends on a connection error) but not soaked.
-- The Next.js check ran locally on Node 22.23.1 only; Node 24 runs it in CI.
-- Bun's results are from a local run; the CI Bun job is best effort and not required.
-- The `runtime` job, the Bun workflow and the robustness workflow have not run on GitHub
-  before this PR.
+- CI on this PR (head `d8e4a13`): every required job passed, among them `runtime (node 22)`
+  and `runtime (node 24)` (the consumer matrix, `examples/runtime` and the Next.js build and
+  serve on Node 24 too) and both integration jobs. `runtime (bun, best effort)` passed:
+  Bun 1.4.2 ran the ES module, `require()` and both esbuild bundles against Postgres. On
+  the previous head (`a15c778`) the Bun job had failed with `bun: not found` (fixed in
+  review round 1). `types (typescript next, informational)` failed, as it does on `main`;
+  it is informational and not part of `ci`.
+- The robustness workflow (`workflow_dispatch` and weekly) has not run on GitHub yet; the
+  soak result above is local.
 - Mutation testing: the logic survivors were sampled (30 per area), not all triaged; the
   estimates above are estimates. The changeset ones are triaged in full in
   `step/21-changeset-gaps` (owner decision 4). The query run predates the query tests of
   `7bda82b`, so its score does not include them.
+
+## Review round 1
+
+Findings of https://github.com/egon-orm/egon-orm/pull/73#issuecomment-6380835977, all
+addressed in `d8e4a13` and the commit after it:
+
+1. The Bun job never ran Bun (`bun: not found` after `npm install --global`). It now uses
+   `oven-sh/setup-bun` pinned by SHA (v2.2.0, published 2026-03-14), prints
+   `bun --version`, and passed on GitHub.
+2. The samples could not be reproduced. `scripts/mutation-sample.mjs` draws them; the
+   appendix lists every sampled mutant with its class and, for each real gap, the test
+   that kills it now, with the seeds, the commits the reports came from and the class rule.
+3. The first changeset sample added up to 28: 2 of its real gaps had been counted apart. It
+   is 8 of 30; every interval is now the Wilson interval at 95% and every estimate is the
+   rate and its interval times the pool.
+4. The results table lists the 3 runtime errors (left out of the score), and counts the
+   files with mutants (10, 19, 10).
+5. Each run names the commit it tested: the compiler run ran on `b2beef5`, before
+   `6f16bc4`.
+6. `check:bun` now runs the esbuild bundles too, so the Bun table's bundle columns are
+   checked in CI.
+7. "Gaps and unverified claims" has the CI results; main's tier-2 failure on `8b1aeea` is
+   recorded under bug 2.
 
 ## Requests
 

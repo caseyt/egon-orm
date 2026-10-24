@@ -4,8 +4,10 @@
 import { Profile, User } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
 import type { AnySchema, Row } from "../../contracts/schema.js";
+import { NotLoadedError } from "../../errors.js";
 import { EmbeddedSchema, hasMany, hasOne, meta, Schema, t } from "../../index.js";
 import { type Changeset, cast, change, withAction } from "../changeset.js";
+import { indexOfRow, leaves, relationOf } from "./relation.js";
 
 type AnyCs = Changeset<AnySchema, boolean>;
 
@@ -277,6 +279,70 @@ describe("plain objects with nested relations", () => {
   test("an association of a target without embeds, and of a target with embeds, is put as an association", () => {
     expect(() => change(User).putAssoc("posts", [{ title: "t", comments: [] }] as never)).not.toThrow();
     expect(() => change(Profile).putAssoc("user", { email: "e@x", posts: [] } as never)).not.toThrow();
+  });
+});
+
+describe("which child changes take a row out of its relation", () => {
+  const relation = (owner: AnyCs, name: string, wanted: "assoc" | "embed") =>
+    relationOf(owner, name, "putAssoc", wanted);
+
+  test("a delete, or a has-many or has-one child whose foreign key is set to null", () => {
+    const owner = change(volume([])) as AnyCs;
+    const many = relation(owner, "leaves", "assoc");
+    const one = relation(owner, "jacket", "assoc");
+    const row = leaf(1, "ab");
+    expect(leaves(many, withAction(change(row), "delete") as AnyCs)).toBe(true);
+    expect(leaves(many, change(row, { bookId: null }) as AnyCs)).toBe(true);
+    expect(leaves(many, change(row, { bookId: 9 }) as AnyCs)).toBe(false);
+    expect(leaves(many, change(row, { text: "cd" }) as AnyCs)).toBe(false);
+    const jacket = loaded(Jacket, { id: 3, bookId: 7, colour: "red" });
+    expect(leaves(one, change(jacket, { bookId: null }) as AnyCs)).toBe(true);
+    expect(leaves(one, change(jacket, { colour: "blue" }) as AnyCs)).toBe(false);
+  });
+
+  test("never an embedded item or a belongs-to parent that is not deleted", () => {
+    const logged = change(loaded(Log, { id: 1, marks: [] })) as AnyCs;
+    expect(leaves(relation(logged, "marks", "embed"), change(Mark, { text: "ab" }) as AnyCs)).toBe(false);
+    const profile = change(Profile) as AnyCs;
+    expect(leaves(relation(profile, "user", "assoc"), change(User, { email: "e@x" }) as AnyCs)).toBe(false);
+  });
+});
+
+describe("indexOfRow", () => {
+  test("without a key, a row is found by identity; a row with no key value is found nowhere", () => {
+    const plates = [loaded(Plate, { label: "a" }), loaded(Plate, { label: "a" })];
+    expect(indexOfRow(plates, [], plates[1] as object)).toBe(1);
+    const rows = [leaf(1, "ab"), leaf(2, "cd")];
+    const key = meta(Leaf).primaryKey;
+    expect(indexOfRow(rows, key, leaf(2, "zz"))).toBe(1);
+    expect(indexOfRow(rows, key, loaded(Leaf, { id: null, bookId: 7, text: "new" }))).toBe(-1);
+  });
+});
+
+describe("the stored value of a relation", () => {
+  test("a to-one embed stored as null holds no row", () => {
+    const hall = loaded(Hall, { id: 1, spot: null, plate: null });
+    // onReplace is "error": a stored row read from null would be left out and throw.
+    const cs = change(hall).putEmbed("spot", { id: 5, label: "a" } as never);
+    expect(child(cs, "spot")?.action).toBe("insert");
+  });
+
+  test("an association that is not preloaded, or preloaded as plain objects, names itself", () => {
+    const bare = loaded(Volume, { id: 7, title: "V" });
+    const error = (() => {
+      try {
+        change(bare).putAssoc("leaves", []);
+      } catch (thrown) {
+        return thrown;
+      }
+      return undefined;
+    })();
+    expect(error).toBeInstanceOf(NotLoadedError);
+    expect(error).toMatchObject({ schema: "Volume", association: "leaves" });
+    const plain = loaded(Volume, { id: 7, title: "V" }, { leaves: [{ id: 1, bookId: 7, text: "ab" }] });
+    expect(() => change(plain).putAssoc("leaves", [])).toThrow(
+      expect.objectContaining({ schema: "Volume", association: "leaves" }),
+    );
   });
 });
 

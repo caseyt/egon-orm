@@ -5,17 +5,18 @@ robustness). Owner decision 4 of 2026-10-23: the changeset survivors are a `0.1.
 closed with tests only; a real bug would stop the work and be reported first. Input: the
 changeset run of `status/21-robustness.md` §4 (83.14%, `7bda82b`), its 530 logic survivors.
 Review round 1 (below) found the ledger's equivalent class less reliable than the first
-version of this note claimed; every equivalent row was read again, and the counts here are
-those after that pass.
+version of this note claimed; every equivalent row was read again. Review round 2 found
+four more that a key planted on `Object.prototype` reaches. The counts here are those
+after both rounds.
 
 ## Summary
 
 | Item | Result |
 |---|---|
-| Logic survivors of the base run, each looked at | **530 of 530**: 194 now tested, 131 equivalent, 205 low value (3 of them held for the owner, see Requests) |
-| Real gaps closed | **195** (194 of the 530, and one the first re-run showed), each with a test checked against its hand-applied mutant |
+| Logic survivors of the base run, each looked at | **530 of 530**: 199 now tested, 126 equivalent, 205 low value (3 of them held for the owner, see Requests) |
+| Real gaps closed | **200** (199 of the 530, and one the first re-run showed), each with a test checked against its hand-applied mutant |
 | Production bugs found | **None**. Every gap was a missing test. One behaviour is asked of the owner (a field name listed twice gives two identical errors) |
-| Changeset area, Stryker after the tests | **88.14%** (from 83.14%), on `01b6cf0` |
+| Changeset area, Stryker after the tests | **88.14%** (from 83.14%), on `01b6cf0`; the five round-2 tests came after it and were checked by hand, not by another run |
 | Files changed | Test files only, and this note and `status/21-robustness.md`; no source or config change |
 
 Tests added (all unit tests, no database), each in the test file of its subject:
@@ -35,6 +36,10 @@ Tests added (all unit tests, no database), each in the test file of its subject:
 - `changeset/validators/validate.test.ts`: routing (with a symbol in a path), `only`,
   `apply`, `validateField`.
 - `changeset/validators/generated.test.ts`: the builders of a schema class.
+- `test/security/hostile-params.test.ts`: under a key planted on `Object.prototype` (its
+  `plant()` helper and cleanup), a stored row cast again is no change, a changeset that
+  settles a relation stays valid, an unchanged embedded item stays the stored row, a
+  validator does not see the key, and dropped routed issues leave the parent valid.
 - `changeset/validators/codegen-late.test.ts` (9 cases): a runtime that refuses
   `new Function` after N constructions. It stays a file of its own because each case
   stubs the global `Function` and loads the modules afresh (`vi.resetModules()`), so the
@@ -56,7 +61,9 @@ Tests added (all unit tests, no database), each in the test file of its subject:
    `null` and `undefined` items in params, empty keys (`primaryKey: false`), fields with
    several options (`.default()` with `.autogenerate()`), custom types whose cast accepts
    `null` or refuses its own values, names listed twice, and rows that come from
-   `applyChanges` (a new embedded row there can lack a key or a required value). Where I
+   `applyChanges` (a new embedded row there can lack a key or a required value). In round
+   2, every row of every class whose reason rests on a plain object having no inherited
+   keys was checked again under a key planted on `Object.prototype`. Where I
    was not sure, a scratch test was run against the hand-applied mutant.
 3. Each was put in one class:
    - **tested**: a real gap. A test was written and run against the mutant applied by hand
@@ -90,17 +97,17 @@ the order of equal keys (4,075 of 4,082 mutants matched; the 7 unmatched were al
 | File | Logic survivors | Tested now | Equivalent | Low value |
 |---|---|---|---|---|
 | `changeset.ts` | 149 | 42 | 24 | 83 |
-| `nested/change.ts` | 117 | 53 | 28 | 36 |
+| `nested/change.ts` | 117 | 55 | 26 | 36 |
 | `nested/relation.ts` | 97 | 29 | 19 | 49 |
-| `validators/validate.ts` | 93 | 37 | 32 | 24 |
-| `nested/embed.ts` | 33 | 24 | 9 | 0 |
+| `validators/validate.ts` | 93 | 39 | 30 | 24 |
+| `nested/embed.ts` | 33 | 25 | 8 | 0 |
 | `spec.ts` | 20 | 6 | 3 | 11 |
 | `measure.ts` | 12 | 0 | 12 | 0 |
 | `nested/build.ts` | 6 | 2 | 2 | 2 |
 | `validators/generated.ts` | 3 | 1 | 2 | 0 |
-| **all** | **530** | **194** | **131** | **205** |
+| **all** | **530** | **199** | **126** | **205** |
 
-Plus one gap outside the 530 (`nested/relation.ts:310`, below), so 195 tested in all.
+Plus one gap outside the 530 (`nested/relation.ts:310`, below), so 200 tested in all.
 Three equivalent rows and one low-value row were killed by the final run anyway (a test
 written for another mutant reaches them); they keep their class in the ledger. The full
 ledger, one row per mutant, is in the appendix.
@@ -119,13 +126,15 @@ What the real gaps were, in short (the ledger names the test for each):
   `indexOfRow`, `NotLoadedError` fields, `keyFinder` with a key two rows share, a has-many
   to a keyless schema, options given as a list, `null`/`undefined`/non-plain items in
   params, a key type whose cast refuses its own values, applied embedded rows without a key
-  or a required value.
+  or a required value, a key planted on `Object.prototype` (no change, still valid).
 - `validators/validate.ts`: routing of issues to children (leaving children, embedded
   lists, positions as text, a symbol where a position would be), `only`, `apply` over
   nulls, dates, undefined and a field with no value yet, a Standard Schema result with
-  `issues: []`, a rejected promise from `validateField`.
+  `issues: []`, a rejected promise from `validateField`, a key planted on
+  `Object.prototype` (not seen by a validator, no error of the parent).
 - `nested/embed.ts`: `missingEmbedded` and `embedChanges` in full, virtual fields of
-  embedded rows, a field with both a default and autogenerate.
+  embedded rows, a field with both a default and autogenerate, an unchanged item under a
+  planted key.
 - `spec.ts`: a source that is not one gets the `QueryError` its contract names.
 - `validators/generated.ts`: a runtime that refuses code generation late, and the builders
   of a schema class made once and kept.
@@ -149,8 +158,15 @@ to 85.14%, `validators/generated.ts` 88.46% to 92.31%, `measure.ts` 88.12% (unch
 12 survivors are all equivalent). `nested/relation.ts` stays lowest because most of its
 survivors are error messages and their advice parameters (low value).
 
-The final run's 484 survivors: 76 error ids, 76 error messages, 332 logic. The 332 logic
-survivors are 128 equivalent and 204 low value; no row classed tested survives.
+The final run's 484 survivors: 76 error ids, 76 error messages, 332 logic. Error ids went
+from 81 to 76 because five new tests match the error id in the message they expect, which
+kills the mutants that blank those ids: `query.changesetSource`, `query.schemalessShape`
+and `query.schemalessData` (`spec.ts`, the `cast` sources that are not one), and
+`query.nestedOptions` and `query.nestedValue` (`nested/change.ts`, list options and a
+non-plain value given to `putAssoc`). The 332 logic survivors are 123
+equivalent, 204 low value, and the 5 rows tested in review round 2, after this run: their
+tests were checked against the hand-applied mutants, and Stryker was not run again for
+them (coordinator, 2026-10-24).
 
 Earlier runs showed these, each applied by hand again:
 
@@ -178,7 +194,8 @@ Earlier runs showed these, each applied by hand again:
 ## Checks
 
 - `pnpm check` (lint, typecheck, unit with coverage, type tests, build) passed on
-  `01b6cf0` (unit: 156 files, 6,565 tests; type tests: 35 files, 608 tests).
+  `01b6cf0` (unit: 156 files, 6,565 tests; type tests: 35 files, 608 tests), and again
+  after round 2 (unit: 156 files, 6,569 tests; type tests: 35 files, 608 tests).
 - No integration test was run: this step changes unit tests only.
 
 ## Checks I changed, exempted or worked around
@@ -191,7 +208,7 @@ None. No configuration changed, no Stryker patch, no TypeScript checker for Stry
   equivalent rows; each has its reason in the ledger, but they were not each proven by a
   test. Scratch tests against the hand-applied mutant back the ones I was unsure of (the
   `-0` keys in `keyFinder`, `finishOne`'s `required` at line 632, `new User()`, rows from
-  `applyChanges`).
+  `applyChanges`, a key planted on `Object.prototype`).
 
 ## Requests
 
@@ -240,6 +257,33 @@ untested behaviours. Fixed in this round:
 5. The placeholder test "Post exists for the shared imports" is gone with its import.
 6. The unseeded fast-check caveat moved to Requests.
 7. The note says the base report was not kept (Method step 1).
+
+## Review round 2
+
+Review of `b03cb37`: CHANGES REQUESTED, one finding. Round 1 verified; no test was lost in
+the move.
+
+1. **Rows that rest on "no inherited keys".** Four rows classed equivalent were wrong once
+   `Object.prototype` holds an enumerable key, which the repo treats as in scope
+   (`test/security/hostile-params.test.ts`). Each now has a test under a key planted with
+   that file's `plant()` helper, checked against its hand-applied mutant: 2132
+   (`nested/change.ts:308`, a stored row cast again records a change), 2619
+   (`nested/embed.ts:59`, an unchanged item becomes a new row), 1974 (`nested/change.ts:164`,
+   every changeset that settles a relation becomes invalid), 3999
+   (`validators/validate.ts:595`, the validator sees the planted key). A search of the
+   ledger for every for…in loop and every reason about plain objects or own properties
+   found one more: 3988 (`validators/validate.ts:580`, "the loop only visits keys the
+   errors have"): under a planted key the parent turned invalid after routing. Tested the
+   same way. 1956 (`nested/change.ts:152`) and 2761 (`nested/embed.ts:182`) hold: the
+   planted value is plain data, which is no changeset or nested value, so it is skipped
+   either way (both survive by hand under the planted key); their reasons now say so.
+   Row 30 (`changeset.ts:200`) holds as well: it reads with `hasOwn`, which a planted key
+   does not reach.
+2. The Summary, the Results table, the final-run lines and the round sections carry the new
+   counts: 199 tested, 126 equivalent, 205 low value.
+3. The final-run section explains why error ids went from 81 to 76 (five tests match an id each, three of them in `spec.ts`).
+
+Stryker was not re-run for this round; the five new tests were checked by hand.
 
 ## Appendix: the ledger
 
@@ -415,12 +459,12 @@ that run. "Tested now" rows name the test that kills the mutant.
 | 1947 | 119 | EqualityOperator: `child.model === null` → `child.model !== null` | low value | wording of an error message |
 | 1949 | 120 | ObjectLiteral: `{ params: { target: relation.targetMeta.name ` → `{}` | low value | advice parameters of an error |
 | 1950 | 120 | ObjectLiteral: `{ target: relation.targetMeta.name }` → `{}` | low value | advice parameters of an error |
-| 1956 | 152 | ConditionalExpression: `!hasOwn(changes, key)` → `false` | equivalent | the changes are a plain object with no inherited keys |
+| 1956 | 152 | ConditionalExpression: `!hasOwn(changes, key)` → `false` | equivalent | a key planted on Object.prototype is visited, but its value is plain data, which is no changeset or nested value, so it is skipped either way; checked by hand under a planted key |
 | 1958 | 154 | ConditionalExpression: `value instanceof Changeset` → `false` | tested | an invalid single child makes the parent invalid (nested/nested.test.ts) |
 | 1959 | 154 | BlockStatement: `(several lines)` → `{}` | tested | an invalid single child makes the parent invalid (nested/nested.test.ts) |
 | 1962 | 155 | ConditionalExpression: `!value.valid` → `false` | tested | an invalid single child makes the parent invalid (nested/nested.test.ts) |
 | 1963 | 155 | BooleanLiteral: `false` → `true` | tested | an invalid single child makes the parent invalid (nested/nested.test.ts) |
-| 1974 | 164 | ConditionalExpression: `hasOwn(errors, key)` → `true` | equivalent | the errors are a plain object with no inherited keys |
+| 1974 | 164 | ConditionalExpression: `hasOwn(errors, key)` → `true` | tested | a changeset that settles a relation stays valid, under a planted key (test/security/hostile-params.test.ts) |
 | 1980 | 174 | ConditionalExpression: `existing === undefined` → `true` | tested | a relation keeps both of two errors of its own (nested/nested.test.ts) |
 | 1984 | 174 | ArrayDeclaration (no coverage): `[...existing, error]` → `[]` | tested | a relation keeps both of two errors of its own (nested/nested.test.ts) |
 | 1987 | 190 | ConditionalExpression: `value === undefined` → `false` | tested | dropping a nested change leaves no key holding undefined (cast.test.ts) |
@@ -453,7 +497,7 @@ that run. "Tested now" rows name the test that kills the mutant.
 | 2126 | 307 | LogicalOperator: `!child.valid \|\| child.action !== "update"` → `!child.valid && child.action !== "u` | tested | a stored row put back with an error and no change makes the parent invalid (nested/nested.test.ts) |
 | 2128 | 307 | ConditionalExpression: `child.action !== "update"` → `false` | equivalent | a matched child always comes from childOf as an update |
 | 2131 | 307 | BooleanLiteral (no coverage): `false` → `true` | tested | a stored row put back with an error and no change makes the parent invalid (nested/nested.test.ts) |
-| 2132 | 308 | ConditionalExpression: `hasOwn(child.changes, key)` → `true` | equivalent | the changes are a plain object with no inherited keys |
+| 2132 | 308 | ConditionalExpression: `hasOwn(child.changes, key)` → `true` | tested | the same stored row cast again records no change, under a planted key (test/security/hostile-params.test.ts) |
 | 2148 | 322 | ConditionalExpression: `child.action !== "insert" \|\| !child.valid` → `false` | tested | an invalid keyless item equal to the stored one is a change (nested/nested.test.ts) |
 | 2149 | 322 | LogicalOperator: `child.action !== "insert" \|\| !child.valid` → `child.action !== "insert" && !child` | tested | an invalid keyless item equal to the stored one is a change (nested/nested.test.ts) |
 | 2150 | 322 | ConditionalExpression: `child.action !== "insert"` → `false` | tested | a stored row of a keyless list put back as its own changeset is written again (nested/nested.test.ts) |
@@ -690,10 +734,10 @@ that run. "Tested now" rows name the test that kills the mutant.
 | 3970 | 547 | StringLiteral: `"assoc"` → `""` | equivalent | any relation kind but embed is looked up as an association |
 | 3976 | 559 | BooleanLiteral: `false` → `true` | equivalent | the children's apply option is never read: only routed issues reach them |
 | 3979 | 563 | MethodExpression: `value.slice()` → `value` | tested | validate leaves the earlier changeset's nested list alone (change.test.ts) |
-| 3988 | 580 | ConditionalExpression: `hasOwn(out.errors, key)` → `true` | equivalent | the loop only visits keys the errors have |
+| 3988 | 580 | ConditionalExpression: `hasOwn(out.errors, key)` → `true` | tested | dropped routed issues leave the parent valid, under a planted key (test/security/hostile-params.test.ts) |
 | 3989 | 580 | ConditionalExpression: `hasOwn(out.errors, key)` → `false` | tested | the parent's own error keeps it invalid when every routed issue is dropped (validators/validate.test.ts) |
 | 3990 | 580 | BooleanLiteral: `false` → `true` | tested | the parent's own error keeps it invalid when every routed issue is dropped (validators/validate.test.ts) |
-| 3999 | 595 | ConditionalExpression: `!hasOwn(changes, key)` → `false` | equivalent | the changes are a plain object with no inherited keys |
+| 3999 | 595 | ConditionalExpression: `!hasOwn(changes, key)` → `false` | tested | a validator does not see a planted key (test/security/hostile-params.test.ts) |
 | 4000 | 597 | ConditionalExpression: `fields.has(key)` → `true` | equivalent | only lists field names, so an association name is never in it |
 | 4013 | 599 | ConditionalExpression: `only !== undefined` → `false` | tested | with only, an association change is left out (validators/validate.test.ts) |
 | 4017 | 602 | ConditionalExpression: `Array.isArray(value)` → `true` | tested | a to-one change of null is seen as null (validators/validate.test.ts) |
@@ -730,7 +774,7 @@ that run. "Tested now" rows name the test that kills the mutant.
 | 2590 | 27 | BooleanLiteral: `false` → `true` | tested | an issue on an item of a plain list field stays on the field (validators/validate.test.ts) |
 | 2596 | 41 | LogicalOperator: `!Array.isArray(value) \|\| !isNestedValue(val` → `!Array.isArray(value) && !isNestedV` | equivalent | a list that is no nested change is copied with the same items |
 | 2601 | 44 | ConditionalExpression: `item instanceof Changeset` → `true` | equivalent | the items of a nested embed list are all changesets |
-| 2619 | 59 | ConditionalExpression: `hasOwn(changeset.changes, key)` → `true` | equivalent | the changes are a plain object with no inherited keys |
+| 2619 | 59 | ConditionalExpression: `hasOwn(changeset.changes, key)` → `true` | tested | an unchanged embedded item stays the stored row, under a planted key (test/security/hostile-params.test.ts) |
 | 2622 | 60 | BooleanLiteral (no coverage): `false` → `true` | tested | an unchanged stored embed item is the stored row (nested/nested.test.ts) |
 | 2625 | 66 | ConditionalExpression: `data !== null && !hasChanges(child)` → `false` | tested | an unchanged stored embed item is the stored row (nested/nested.test.ts) |
 | 2647 | 76 | ConditionalExpression: `data !== null` → `false` | tested | an embedded field with a default and autogenerate takes the default on insert, a value on update (nested/nested.test.ts) |
@@ -753,7 +797,7 @@ that run. "Tested now" rows name the test that kills the mutant.
 | 2723 | 146 | BooleanLiteral: `false` → `true` | tested | missingEmbedded marks the parent invalid (nested/nested.test.ts) |
 | 2733 | 159 | ConditionalExpression: `data === null` → `true` | tested | a stored row with null in its generated key is reported (validations.test.ts) |
 | 2756 | 165 | BooleanLiteral: `false` → `true` | tested | missingEmbedded marks the child invalid (cast.test.ts) |
-| 2761 | 182 | ConditionalExpression: `!hasOwn(changes, key)` → `false` | equivalent | the changes are a plain object with no inherited keys |
+| 2761 | 182 | ConditionalExpression: `!hasOwn(changes, key)` → `false` | equivalent | a key planted on Object.prototype is visited, but its value is plain data, which is no changeset or nested value, so it is skipped either way; checked by hand under a planted key |
 | 2764 | 184 | ConditionalExpression: `!isNestedValue(value)` → `false` | equivalent | a value that is no nested change becomes the same value |
 | 2766 | 186 | ConditionalExpression: `field === undefined \|\| embedTypeInfo(field.` → `false` | tested | embedChanges leaves an association change as it is (cast.test.ts) |
 | 2767 | 186 | LogicalOperator: `field === undefined \|\| embedTypeInfo(field.` → `field === undefined && embedTypeInf` | tested | embedChanges leaves an association change as it is (cast.test.ts) |

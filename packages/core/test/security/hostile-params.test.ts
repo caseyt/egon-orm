@@ -9,10 +9,11 @@
 import { User } from "@egon-orm/test-support";
 import fc from "fast-check";
 import { afterEach, describe, expect, test } from "vitest";
+import { embedValue } from "../../src/changeset/nested/embed.js";
 import { indexOfKey, keyFinder } from "../../src/changeset/nested/relation.js";
 import type { AnySchema, FieldMeta, Row } from "../../src/contracts/schema.js";
 import { CastError, QueryError } from "../../src/errors.js";
-import { cast, EmbeddedSchema, hasMany, meta, Schema, t } from "../../src/index.js";
+import { cast, change, EmbeddedSchema, hasMany, meta, Schema, t } from "../../src/index.js";
 
 /** A row as the database would return it, with `assocs` loaded. */
 function loaded<S extends AnySchema>(
@@ -131,6 +132,48 @@ describe("prototype pollution", () => {
     }
     expect(() => cast(User, new Body(), ["role"])).toThrow(CastError);
     expect(() => cast(User, [["role", "admin"]], ["role"])).toThrow(CastError);
+  });
+
+  describe("a key planted on Object.prototype is no change, no error and no value", () => {
+    const owner = () =>
+      loaded(Owner, { id: 7, title: null }, { leaves: [loaded(Leaf, { id: 1, ownerId: 7, name: "one" })] });
+
+    test("the same stored row cast again records no change", () => {
+      plant("planted", "x");
+      const cs = cast(owner(), { leaves: [{ id: 1, name: "one" }] }, []).castAssoc("leaves");
+      expect(Object.keys(cs.changes)).toEqual([]);
+    });
+
+    test("a changeset that settles a relation stays valid", () => {
+      plant("planted", "x");
+      const cs = change(owner()).putAssoc("leaves", [{ id: 1, name: "two" }] as never);
+      expect(cs.valid).toBe(true);
+    });
+
+    test("an unchanged embedded item stays the stored row", () => {
+      plant("planted", "x");
+      const [first, second] = [loaded(Note, { text: "a" }), loaded(Note, { text: "b" })];
+      const board = loaded(Board, { id: 1, notes: [first, second] });
+      const cs = change(board).putEmbed("notes", [
+        change(first as Note),
+        change(second as Note, { text: "c" }),
+      ] as never);
+      const rows = embedValue((cs.changes as { notes: unknown }).notes, "built") as Note[];
+      expect(rows[0]).toBe(first);
+    });
+
+    test("a validator does not see it, and dropped routed issues leave the parent valid", () => {
+      plant("planted", "x");
+      let seen: object = {};
+      cast(Owner, { title: "t" }, ["title"]).validate((values) => {
+        seen = values as object;
+      });
+      expect(Object.hasOwn(seen, "planted")).toBe(false);
+      const cs = change(owner())
+        .putAssoc("leaves", [{ id: 1, name: "two" }] as never)
+        .validate(() => [{ path: ["leaves", 0, "ownerId"], message: "is odd" }], { scope: "changed" });
+      expect(cs.valid).toBe(true);
+    });
   });
 });
 

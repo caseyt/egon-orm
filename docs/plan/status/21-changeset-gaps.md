@@ -113,8 +113,11 @@ the order of equal keys (4,075 of 4,082 mutants matched; the 7 unmatched were al
 | **all** | **530** | **202** | **123** | **205** |
 
 Plus one gap outside the 530 (`nested/relation.ts:310`, below), so 203 tested in all.
-Three equivalent rows and one low-value row were killed by the final run anyway (a test
-written for another mutant reaches them); they keep their class in the ledger. The full
+Two equivalent rows and one low-value row were killed by the final run anyway (a test
+written for another mutant reaches them, or a timeout): 3270 (`spec.ts:131`, a timeout),
+4000 (`validators/validate.ts:597`) and 3266 (`spec.ts:128`, a timeout). They keep their
+class in the ledger. (A third equivalent row the first version of this sentence counted,
+1552, has been tested since round 3.) The full
 ledger, one row per mutant, is in the appendix.
 
 What the real gaps were, in short (the ledger names the test for each):
@@ -226,6 +229,12 @@ None. No configuration changed, no Stryker patch, no TypeScript checker for Stry
   earlier changeset dedupes. Three mutants turn on it (ids 411, 1526, 1544). They are held
   as low value until the owner says whether two errors are intended (then a test pins it)
   or not (then it is a source change, outside this tests-only step).
+- **For the owner: a validator's options inherit a planted `message`.** Found by the
+  reviewer in round 4: with `message` planted on `Object.prototype`, an options object the
+  developer passes inherits it, so `validateRequired(["email"], {})` reports the planted
+  text instead of "can't be blank" (the validators read `options?.message`, which an
+  inherited key reaches). Without options the message is right. The fix is to read options
+  with `hasOwn`, a source change outside this tests-only step.
 - **For the owner: seeding the fast-check properties in mutation runs.** A property without
   a fixed seed can kill a mutant in one run and not the next (`nested/relation.ts:310`
   above), so a mutation run cannot be repeated exactly. The reviewer's suggestion: a setup

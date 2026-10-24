@@ -1,10 +1,18 @@
-import { Post, Tag, User } from "@egon-orm/test-support";
+import { Post, Tag, User, UserSettings } from "@egon-orm/test-support";
 import { describe, expect, test } from "vitest";
 import type { AnySchema, Row } from "../contracts/schema.js";
 import { ROW } from "../contracts/schema.js";
 import { InvalidChangesetError, QueryError } from "../errors.js";
-import { meta, t } from "../schema/index.js";
-import { applyAction, applyActionOrThrow, Changeset, cast, change } from "./changeset.js";
+import { meta, stateOf, t } from "../schema/index.js";
+import {
+  applyAction,
+  applyActionOrThrow,
+  Changeset,
+  cast,
+  change,
+  rebuild,
+  withAction,
+} from "./changeset.js";
 
 function loaded<S extends AnySchema>(schema: S, values: Readonly<Record<string, unknown>>): Row<S> {
   const info = meta(schema);
@@ -477,5 +485,85 @@ describe("the constructor", () => {
     expect(() => new Ctor(Symbol("changeset"))).toThrowErrorMatchingInlineSnapshot(
       `[QueryError: query.changesetConstructor: Changeset has no public constructor. Make one with cast(User, params, [...]) or change(User, values). See https://egon-orm.github.io/egon-orm/reference/errors/query#query-changesetconstructor]`,
     );
+  });
+});
+
+const lin = (): User => loaded(User, { id: 1, email: "a@b.c", role: "member", lockVersion: 1 });
+
+describe("merge: errors and actions", () => {
+  test("keeps two errors that differ only in their constraint", () => {
+    const user = lin();
+    const taken = (constraint: string) =>
+      rebuild(change(user), {
+        errors: { email: [{ message: "has already been taken", constraint, meta: {} }] },
+        valid: false,
+      });
+    expect(taken("unique").merge(taken("foreign")).errors.email).toHaveLength(2);
+    expect(taken("unique").merge(taken("unique")).errors.email).toHaveLength(1);
+  });
+
+  test("takes an action from either side, the same action on both, and refuses two different ones", () => {
+    const user = lin();
+    const none = change(user);
+    const update = withAction(change(user), "update");
+    expect(none.merge(update).action).toBe("update");
+    expect(update.merge(none).action).toBe("update");
+    expect(update.merge(withAction(change(user), "update")).action).toBe("update");
+    expect(() => update.merge(withAction(change(user), "delete"))).toThrow(QueryError);
+  });
+});
+
+describe("reads: an embed change", () => {
+  test("getField and fetchField give the embedded row as a built row", () => {
+    const cs = change(lin()).putEmbed("settings", { theme: "dark" } as never);
+    expect(stateOf(cs.getField("settings") as object)).toBe("built");
+    expect(stateOf(cs.fetchField("settings")?.value as object)).toBe("built");
+  });
+});
+
+describe("applyChanges: defaults and embeds", () => {
+  test("without a schema class, the data's value wins over the field's default", () => {
+    const search = change({ data: { q: "held" }, types: { q: t.string().default("dflt") } });
+    expect(search.applyChanges()).toEqual({ q: "held" });
+  });
+
+  test("without a schema class, a field with no value and no default is not a key", () => {
+    const search = change({ data: {}, types: { q: t.string(), page: t.integer().default(1) } });
+    expect(Object.keys(search.applyChanges())).toEqual(["page"]);
+  });
+
+  test("without a schema class, an embed the data holds stays when it has no change", () => {
+    const settings = loaded(UserSettings, { theme: "dark", emailNotifications: true });
+    const prefs = change({
+      data: { s: settings },
+      types: { s: t.embedOne(() => UserSettings, { onReplace: "update" }) },
+    });
+    expect(prefs.applyChanges().s).toBe(settings);
+    const put = prefs.putEmbed("s", { theme: "light" } as never).applyChanges().s;
+    expect(stateOf(put as object)).toBe("built");
+  });
+
+  test("an embed change becomes a built row", () => {
+    const applied = change(lin())
+      .putEmbed("settings", { theme: "dark" } as never)
+      .applyChanges();
+    expect(stateOf(applied.settings as object)).toBe("built");
+  });
+});
+
+describe("change: embeds and changesets without a schema class", () => {
+  test("refuses an embed field, which putEmbed changes", () => {
+    expect(() => change(lin(), { settings: { theme: "dark" } } as never)).toThrow(/^query\.changeEmbed: /);
+  });
+
+  test("two changesets of the same data and types are of the same record, and merge", () => {
+    const source = { data: { q: "a" }, types: { q: t.string(), page: t.integer() } };
+    const merged = change(source, { q: "b" }).merge(change(source, { page: 2 }));
+    expect(merged.changes).toEqual({ q: "b", page: 2 });
+  });
+
+  test("an unknown field name is refused with a QueryError", () => {
+    const search = change({ data: {}, types: { q: t.string() } });
+    expect(() => search.putChange("nope" as never, "x" as never)).toThrow(QueryError);
   });
 });

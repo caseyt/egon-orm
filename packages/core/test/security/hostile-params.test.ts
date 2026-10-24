@@ -9,10 +9,11 @@
 import { User } from "@egon-orm/test-support";
 import fc from "fast-check";
 import { afterEach, describe, expect, test } from "vitest";
+import { embedValue } from "../../src/changeset/nested/embed.js";
 import { indexOfKey, keyFinder } from "../../src/changeset/nested/relation.js";
 import type { AnySchema, FieldMeta, Row } from "../../src/contracts/schema.js";
-import { CastError, QueryError } from "../../src/errors.js";
-import { cast, EmbeddedSchema, hasMany, meta, Schema, t } from "../../src/index.js";
+import { CastError, NotLoadedError, QueryError } from "../../src/errors.js";
+import { cast, change, EmbeddedSchema, hasMany, hasOne, meta, Schema, t } from "../../src/index.js";
 
 /** A row as the database would return it, with `assocs` loaded. */
 function loaded<S extends AnySchema>(
@@ -131,6 +132,72 @@ describe("prototype pollution", () => {
     }
     expect(() => cast(User, new Body(), ["role"])).toThrow(CastError);
     expect(() => cast(User, [["role", "admin"]], ["role"])).toThrow(CastError);
+  });
+
+  describe("a key planted on Object.prototype is no change, no error and no value", () => {
+    const owner = () =>
+      loaded(Owner, { id: 7, title: null }, { leaves: [loaded(Leaf, { id: 1, ownerId: 7, name: "one" })] });
+
+    test("the same stored row cast again records no change", () => {
+      plant("planted", "x");
+      const cs = cast(owner(), { leaves: [{ id: 1, name: "one" }] }, []).castAssoc("leaves");
+      expect(Object.keys(cs.changes)).toEqual([]);
+    });
+
+    test("a changeset that settles a relation stays valid", () => {
+      plant("planted", "x");
+      const cs = change(owner()).putAssoc("leaves", [{ id: 1, name: "two" }] as never);
+      expect(cs.valid).toBe(true);
+    });
+
+    test("an unchanged embedded item stays the stored row", () => {
+      plant("planted", "x");
+      const [first, second] = [loaded(Note, { text: "a" }), loaded(Note, { text: "b" })];
+      const board = loaded(Board, { id: 1, notes: [first, second] });
+      const cs = change(board).putEmbed("notes", [
+        change(first as Note),
+        change(second as Note, { text: "c" }),
+      ] as never);
+      const rows = embedValue((cs.changes as { notes: unknown }).notes, "built") as Note[];
+      expect(rows[0]).toBe(first);
+    });
+
+    test("a validator does not see it", () => {
+      plant("planted", "x");
+      let seen: object = {};
+      cast(Owner, { title: "t" }, ["title"]).validate((values) => {
+        seen = values as object;
+      });
+      expect(Object.hasOwn(seen, "planted")).toBe(false);
+    });
+
+    test("routed issues that the child drops leave the parent valid", () => {
+      plant("planted", "x");
+      const cs = change(owner())
+        .putAssoc("leaves", [{ id: 1, name: "two" }] as never)
+        .validate(() => [{ path: ["leaves", 0, "ownerId"], message: "is odd" }], { scope: "changed" });
+      expect(cs.valid).toBe(true);
+    });
+
+    test("a field's name planted with the value given is still a change of a new record", () => {
+      plant("title", "x");
+      expect(cast(Owner, { title: "x" }, ["title"]).changes).toEqual({ title: "x" });
+    });
+
+    test("an association's name planted as loaded and empty is still not preloaded", () => {
+      plant("leaves", []);
+      const bare = loaded(Owner, { id: 7, title: null });
+      expect(() => change(bare).putAssoc("leaves", [])).toThrow(NotLoadedError);
+    });
+
+    test("a to-one association's name planted as null is still not preloaded", () => {
+      class Lamp extends Schema("lamps", { id: t.integer().primaryKey(), deskId: t.integer().nullable() }) {}
+      class Desk extends Schema("desks", { id: t.integer().primaryKey() }) {
+        static lamp = hasOne(() => Lamp, { foreignKey: "deskId", onReplace: "delete" });
+      }
+      plant("lamp", null);
+      expect(() => change(loaded(Desk, { id: 1 })).putAssoc("lamp", null)).toThrow(NotLoadedError);
+    });
   });
 });
 

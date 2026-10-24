@@ -28,6 +28,10 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm db:up
       - run: pnpm build
-      # Pinned; the bun package on npm installs the release binary for this platform.
-      - run: npm install --global bun@1.4.2
+      # Pinned by SHA (v2.2.0) and Bun's version; npm's global install left no bun on PATH.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun --version
+      # An ES module, CommonJS through require(), and the esbuild bundles of both, run on Bun.
       - run: pnpm --filter @egon-orm/example-runtime run check:bun

@@ -13,7 +13,7 @@ TypeScript 5.8 minimum) and `8b1aeea` (#72, owner decisions). After the last mer
 | Soak test, 30 min, pool of 5, random `pg_terminate_backend` | **Pass** on the final code: 166,467 operations, 1,007 kills, 0 unexpected failures, 0 unhandled rejections, 0 connections left checked out, 0 backends after `close()`, heap +0.49 MB. Two earlier runs **found a hang** (bug 1 below), now fixed. |
 | Fault injection, every await point | **Pass**: 22 scenarios, 105 await points, 210 faulted runs, no connection left checked out, the injected error surfaces every time. |
 | Runtime matrix | **Pass** on Node 22.12.0, 22.23.1 and 24.14.1 (ESM, `require()`, esbuild ESM and CJS bundles, Next.js 16.4.2 build), Postgres and SQLite. Bun 1.4.2 (best effort): Postgres passes in all four forms; SQLite fails because Bun cannot load `better-sqlite3`. Found bug 3 (SQLite in a CommonJS bundle). |
-| Mutation testing, ≥ 80% per area | **Pass** (Stryker's own scores, `ignoreStatic: false`): compiler 93.04%, query 83.46%, changeset 83.14%. Not fully triaged: sampled real-gap rates are compiler 13%, query 13%, changeset about 20% (about 33-50% in its two largest files); the changeset survivors are a `0.1.0` gate (owner decision 4) and are triaged one by one in `step/21-changeset-gaps`. |
+| Mutation testing, ≥ 80% per area | **Pass** (Stryker's own scores, `ignoreStatic: false`): compiler 93.04%, query 83.46%, changeset 83.14%. Not fully triaged: sampled real-gap rates are compiler 13%, query 13%, changeset about 27% (50% in its two largest files); the changeset survivors are a `0.1.0` gate (owner decision 4) and are triaged one by one in `step/21-changeset-gaps`. |
 
 Bugs found and fixed here, each with a test that fails without the fix:
 
@@ -137,7 +137,9 @@ on the error path disabled, 10 of the scenarios fail.
   `needs`, so required: each Node runs the consumer matrix, `examples/runtime` and
   `examples/next-app` (owner decision 1 below).
 - `.github/workflows/runtime.yml` (new, on pull requests and `main`): only the Bun job
-  (`continue-on-error`, best effort), which runs `check:bun` (Postgres only).
+  (`continue-on-error`, best effort). It installs Bun 1.4.2 with `oven-sh/setup-bun`
+  (pinned by SHA, v2.2.0), prints `bun --version`, and runs `check:bun` (Postgres only): the
+  ES module, `require()`, and both esbuild bundles, each run on Bun.
 
 Results (local, macOS arm64):
 
@@ -148,6 +150,10 @@ Results (local, macOS arm64):
 | Node 24.14.1 | pg ✓ sqlite ✓ | pg ✓ sqlite ✓ | pg ✓ sqlite ✓ | pg ✓ sqlite ✓ | not run locally (CI) |
 | Bun 1.4.2 | pg ✓ sqlite ✗ | pg ✓ sqlite ✗ | pg ✓ sqlite ✗ | pg ✓ sqlite ✗ | — |
 
+The Bun bundle columns were run on 2026-10-24, with Bun 1.4.2 and `bundle.mjs` started by
+Bun, which runs each bundle with `process.execPath`; until review round 1, `check:bun` ran
+only the ES module and `require()`, so CI did not check the bundles.
+
 Node 24.14.1 also passed `consumer.mjs --no-types` (ESM and `require()` from the packed,
 installed packages). Bun's SQLite failure is Bun's: "'better-sqlite3' is not yet supported
 in Bun" (oven-sh/bun#4290). Before bug 3 was fixed, the esbuild CJS bundle failed on SQLite
@@ -157,18 +163,19 @@ on every Node; before bug 2, one run in three of the Node 24 bundles crashed aft
 
 `pnpm test:mutation [area]` (`scripts/mutation.mjs`) runs Stryker 10 with the Vitest runner
 over the `core:unit` tests (`vitest.mutation.config.ts`), one run per area, concurrency 2,
-`ignoreStatic: false` (see Decisions for why). Local runs on macOS arm64, Node 22.23.1, on
-the branch as of `6f16bc4` (the compiler and changeset runs include this step's new tests;
-the query run started before the query tests of `7bda82b`).
+`ignoreStatic: false` (see Decisions for why). Local runs on macOS arm64, Node 22.23.1. Each
+run tests the working tree as it was when it started: compiler on `b2beef5` (so without the
+compiler tests of `6f16bc4`), query on `4bf2837` (without the query tests of `7bda82b`),
+changeset on `7bda82b` (with every changeset test of this step).
 
-| Area | Files | Mutants | Killed | Timeout | Survived | No coverage | Score | Time |
-|---|---|---|---|---|---|---|---|---|
-| compiler | 11 | 5,317 | 4,748 | 199 | 365 | 5 | **93.04%** | 3 h 32 min |
-| query | 21 | 5,969 | 4,962 | 20 | 982 | 5 | **83.46%** | 4 h 30 min |
-| changeset | 15 | 4,077 | 3,358 | 29 | 662 | 25 | **83.14%** | 32 min |
+| Area | Files with mutants | Mutants | Killed | Timeout | Survived | No coverage | Runtime error | Score | Time |
+|---|---|---|---|---|---|---|---|---|---|
+| compiler | 10 | 5,317 | 4,748 | 199 | 365 | 5 | 0 | **93.04%** | 3 h 32 min |
+| query | 19 | 5,969 | 4,962 | 20 | 982 | 5 | 0 | **83.46%** | 4 h 30 min |
+| changeset | 10 | 4,077 | 3,358 | 29 | 662 | 25 | 3 | **83.14%** | 32 min |
 
 Score = (killed + timeout) / (killed + timeout + survived + no coverage), as Stryker reports
-it. These are the scores Stryker measured. They count every survivor as a survivor,
+it; runtime errors (mutants whose test run crashed outside a test) are left out of it. These are the scores Stryker measured. They count every survivor as a survivor,
 including the classes below that are not test gaps. No adjusted score is given.
 
 Earlier runs, kept for the record and not used above: compiler 80.59% (with
@@ -198,16 +205,21 @@ true`), changeset 80.71% (`ignoreStatic: false`, before this step's changeset te
 
 | Area | Pool | Real gap (now tested) | Equivalent | Low value | Tool artifact | Gap rate (95% interval) | Estimated untested in pool |
 |---|---|---|---|---|---|---|---|
-| compiler | 264 | 4 | 17 | 9 | 0 | 13% (5-30%) | about 35 (13-80) |
-| query | 798 | 4 | 14 | 10 | 2 | 13% (5-30%) | about 105 (40-240) |
-| changeset, all files | 625 (first run) | 6 | 11 | 11 | 0 | 20% (8-39%) | about 125 (50-245) |
-| changeset.ts + nested/change.ts | 305 (first run) | 10 (+5 closed earlier the same day) | 2 | 13 | 0 | 33% (19-51%), 50% counting the 5 | about 100-150 |
+| compiler | 264 | 4 | 17 | 9 | 0 | 13.3% (5.3-29.7%) | about 35 (14-78) |
+| query | 798 | 4 | 14 | 10 | 2 | 13.3% (5.3-29.7%) | about 106 (42-237) |
+| changeset, all files | 625 (first run) | 8 | 11 | 11 | 0 | 26.7% (14.2-44.4%) | about 167 (89-278) |
+| changeset.ts + nested/change.ts | 305 (first run) | 15 | 2 | 13 | 0 | 50.0% (33.2-66.8%) | about 153 (101-204) |
 
-  The intervals are Wilson intervals on 30 draws; the estimates scale the rate to the pool.
-  The compiler and query samples were drawn from the runs above; the changeset samples from
-  its first run (80.71%), so some of the gaps they found are closed in the 83.14% run.
-  **The changeset area is not fully triaged**: by the estimate, roughly a hundred untested
-  behaviours remain, most in `changeset.ts` and `nested/change.ts`. They are a `0.1.0`
+  Each interval is the Wilson score interval at 95% (z = 1.96) for k real gaps in 30
+  draws; the estimate is the rate, and its interval, times the pool. The compiler and query
+  samples were drawn from the runs above; the changeset samples from its first run (80.71%,
+  `5ea82e8`), so the gaps they found are closed in the 83.14% run. In the first changeset
+  sample, 2 of the 8 gaps (and in the second, 5 of the 15) had been closed by tests written
+  after that run but before the sample was classified; an earlier version of this note
+  counted them apart, which made the first row add up to 28. The appendix lists every
+  sampled mutant. **The changeset area is not fully triaged**: by the estimate, between
+  about 90 and 280 untested behaviours remained in its first run, most in `changeset.ts` and
+  `nested/change.ts`. They are a `0.1.0`
   gate (owner decision 4) and are triaged one by one in `step/21-changeset-gaps`.
   "Equivalent" means the mutant cannot change behaviour (a check that another check already
   makes, a cache shortcut to the same result, a separator that keeps keys unique without
@@ -303,8 +315,8 @@ the worktree grew.
    written otherwise; the exemption is limited to those three paths, as the existing one
    for the edge worker is.
 4. **The changeset survivors are a `0.1.0` gate.** Reason: the samples put the changeset
-   area's untested behaviour at about 20% of its logic survivors, and 33-50% in
-   `changeset.ts` and `nested/change.ts`, more than the other areas (13%). Their triage, one
+   area's untested behaviour at about 27% of its logic survivors (14-44%), and 50% (33-67%)
+   in `changeset.ts` and `nested/change.ts`, more than the other areas (13%). Their triage, one
    survivor at a time with a test for each real gap, follows in `step/21-changeset-gaps`,
    started from this branch.
 
@@ -340,3 +352,183 @@ the worktree grew.
   report (bug 1 is a release blocker class: a hung pool after a database restart).
 - **21-packaging (overlap):** none in their files; `runtime.yml` reuses
   `examples/smoke/consumer.mjs --no-types` as it is.
+
+## Appendix: the mutation samples
+
+**Method.** `scripts/mutation-sample.mjs` draws each sample from a Stryker JSON report. It
+puts every survived or uncovered mutant into one of three classes, and samples the third:
+
+1. **error id**: a StringLiteral mutant whose original text is an id such as
+   `"query.deleteNoKey"` (`/^"[a-z]+\.[A-Za-z]+"$/`);
+2. **error message**: any other StringLiteral mutant on a line where, counting the three
+   lines before it, the message pattern matches (default `` Error\(|`\$\{fn\} ``; the compiler
+   sample also matched `unsupported\(`, the compiler's helper for refusals);
+3. **logic**: everything else.
+
+The draw is a linear congruential generator, `seed = (seed × 1103515245 + 12345) mod 2^31`,
+whose value `seed / 2^31` picks an index into the logic pool in report order, skipping
+repeats, until 30 are picked; the pick is listed by file and line. The seeds and commands are
+under each table. The reports are not committed (8 to 16 MB each). To reproduce a sample,
+check out the commit named in its title, run `pnpm test:mutation <area>`, and run the
+command on `reports/mutation/<area>.json`. With the same report, the script gives the same
+30 mutants. Every class below was given by hand after reading the code. Every real gap was
+closed with a test, and that test was checked against the hand-applied mutant. Each tool
+artifact was applied by hand and failed a test file at load. Reasons in short: "equivalent"
+means the mutant cannot change behaviour; "low value" means only a message, its advice
+parameters, or a path for misuse or a malformed AST.
+
+#### Changeset, all files: seed 21, first changeset run (`5ea82e8`)
+
+`node scripts/mutation-sample.mjs reports/mutation/changeset.json --seed 21`
+
+real gap 8, low value 11, equivalent 11.
+
+| # | Location | Mutant | Class | Reason, or the test that kills it now |
+|---|---|---|---|---|
+| 1 | `changeset/changeset.ts:124` (id 10, static) | StringLiteral: `"replace"` → `""` | real gap | `change.test.ts` "takes each of the five actions" (bab9417) |
+| 2 | `changeset/changeset.ts:959` (id 463) | StringLiteral: `"inclusion"` → `""` | low value | function name in an error message |
+| 3 | `changeset/changeset.ts:991` (id 493) | StringLiteral: `"validateSubset"` → `""` | low value | function name in an error message |
+| 4 | `changeset/changeset.ts:1000` (id 525) | ConditionalExpression: `allowed === element` → `false` | equivalent | identity shortcut; deepEqual gives the same answer |
+| 5 | `changeset/changeset.ts:1453` (id 858) | StringLiteral: `"addError"` → `""` | low value | function name in an error message |
+| 6 | `changeset/changeset.ts:1678` (id 1018) | ConditionalExpression: `typeof options !== "object"` → `false` | real gap | `constraints.test.ts` "options that are not an object…" (a3be40b) |
+| 7 | `changeset/measure.ts:19` (id 1678) | EqualityOperator: `code === 0x0d` → `code !== 0x0d` | equivalent | the fast path and the segmenter count a lone C1 control alike |
+| 8 | `changeset/measure.ts:19` (id 1671) | ConditionalExpression: `code >= 0x80 \|\| code === 0x0d` → `true` | equivalent | always segmenting gives the same count |
+| 9 | `changeset/measure.ts:24` (id 1682) | ConditionalExpression: `simple` → `false` | equivalent | always segmenting gives the same count |
+| 10 | `changeset/measure.ts:53` (id 1730) | EqualityOperator: `code < 0x800` → `code <= 0x800` | real gap | `measure.test.ts` boundary list, U+0800 (4bf2837) |
+| 11 | `changeset/nested/change.ts:284` (id 2082) | ConditionalExpression: `relation.kind === "embed"` → `true` | equivalent | an association's key is never empty |
+| 12 | `changeset/nested/embed.ts:53` (id 2616, no coverage) | EqualityOperator: `fallback.kind === "value"` → `fallback.kind !== "value"` | real gap | `nested.test.ts` "a new row takes each field's default" (bab9417) |
+| 13 | `changeset/nested/embed.ts:83` (id 2659) | ConditionalExpression: `made && value instanceof Date` → `false` | real gap | `nested.test.ts` "the timestamps of one new row are one value" (bab9417) |
+| 14 | `changeset/nested/embed.ts:161` (id 2745, no coverage) | ConditionalExpression: `value === null` → `false` | real gap | `nested.test.ts` "a stored row that holds null in a required field" (bab9417) |
+| 15 | `changeset/nested/embed.ts:186` (id 2770) | ConditionalExpression: `embedTypeInfo(field.type) === undefined` → `false` | low value | a field that is not an embed cannot hold a nested change |
+| 16 | `changeset/nested/relation.ts:58` (id 2777) | ConditionalExpression: `value === null` → `false` | low value | wording of an error message |
+| 17 | `changeset/nested/relation.ts:60` (id 2783) | ConditionalExpression: `typeof value === "object"` → `true` | low value | wording of an error message |
+| 18 | `changeset/nested/relation.ts:96` (id 2817) | EqualityOperator: `model === null` → `model !== null` | low value | wording of an error message |
+| 19 | `changeset/nested/relation.ts:120` (id 2857) | ConditionalExpression: `fn === "castEmbed"` → `true` | low value | advice parameters of an error |
+| 20 | `changeset/nested/relation.ts:207` (id 2960) | ObjectLiteral: `{ schema: relation.ownerName, association: name }` → `{}` | low value | details of a NotLoadedError |
+| 21 | `changeset/nested/relation.ts:232` (id 2995) | ConditionalExpression: `value === ""` → `false` | real gap | `nested.test.ts` "an empty string is no key" (bab9417) |
+| 22 | `changeset/spec.ts:185` (id 3340) | StringLiteral: ``a ${typeof params}`` → ```` | low value | wording of an error message |
+| 23 | `changeset/validators/validate.ts:342` (id 3699) | EqualityOperator: `last <= 0xdbff` → `last < 0xdbff` | low value | truncation of a value shown in an error message |
+| 24 | `changeset/validators/validate.ts:411` (id 3794) | ConditionalExpression: `typeof raw !== "object"` → `false` | equivalent | a primitive has no string message and is refused anyway |
+| 25 | `changeset/validators/validate.ts:501` (id 3903) | ConditionalExpression: `path.length === 1` → `false` | equivalent | slice(1) of a one-key path is the same empty path |
+| 26 | `changeset/validators/validate.ts:527` (id 3929) | LogicalOperator: `typeof at === "string" && /^\\d+$/.test(at)` → `typeof at === "string" \|\| /^\\d+$/.tes` | equivalent | a path position that is not a number or digits is -1 either way |
+| 27 | `changeset/validators/validate.ts:527` (id 3930) | ConditionalExpression: `typeof at === "string"` → `true` | equivalent | a path position that is not a number or digits is -1 either way |
+| 28 | `changeset/validators/validate.ts:598` (id 4011, no coverage) | BooleanLiteral: `!only.includes(key)` → `only.includes(key)` | real gap | `validate.test.ts` "only keeps a nested change of a listed embed" (bab9417) |
+| 29 | `changeset/validators/validate.ts:645` (id 4050) | ConditionalExpression: `typeof output !== "object"` → `false` | equivalent | Object.keys of a primitive output names no field |
+| 30 | `changeset/validators/validate.ts:660` (id 4074) | ConditionalExpression: `result.meta === undefined` → `false` | equivalent | spreading undefined meta adds nothing |
+
+#### Changeset, `changeset.ts` and `nested/change.ts`: seed 2026, first changeset run (`5ea82e8`)
+
+`node scripts/mutation-sample.mjs reports/mutation/changeset.json --seed 2026 --files 'changeset/changeset\.ts$|nested/change\.ts$'`
+
+real gap 15, low value 13, equivalent 2.
+
+| # | Location | Mutant | Class | Reason, or the test that kills it now |
+|---|---|---|---|---|
+| 1 | `changeset/changeset.ts:124` (id 10, static) | StringLiteral: `"replace"` → `""` | real gap | `change.test.ts` "takes each of the five actions" (bab9417) |
+| 2 | `changeset/changeset.ts:236` (id 97) | ConditionalExpression: `(multi)` → `true` | real gap | `change.test.ts` "keeps both of two errors that differ…" (b2beef5) |
+| 3 | `changeset/changeset.ts:549` (id 209) | StringLiteral: `"forceChange"` → `""` | low value | function name in an error message |
+| 4 | `changeset/changeset.ts:1030` (id 540) | ConditionalExpression: `typeof options !== "object"` → `false` | low value | options that are not an object are refused anyway, by the no-limit check |
+| 5 | `changeset/changeset.ts:1098` (id 670) | ConditionalExpression: `typeof options !== "object"` → `false` | low value | options that are not an object are refused anyway (unknown option or no limit) |
+| 6 | `changeset/changeset.ts:1128` (id 747) | StringLiteral: `"message"` → `""` | real gap | `validations.test.ts` "a message option is not a limit" (b2beef5) |
+| 7 | `changeset/changeset.ts:1162` (id 757) | StringLiteral: `"validateConfirmation"` → `""` | low value | function name in an error message |
+| 8 | `changeset/changeset.ts:1619` (id 964) | ConditionalExpression: `options.name === ""` → `false` | real gap | `constraints.test.ts` "…an empty check name are refused" (a3be40b) |
+| 9 | `changeset/changeset.ts:1660` (id 1002) | OptionalChaining: `this.#spec.meta?.assocs` → `this.#spec.meta.assocs` | real gap | `constraints.test.ts` "a changeset without a schema class has no associations" (a3be40b) |
+| 10 | `changeset/changeset.ts:1678` (id 1018) | ConditionalExpression: `typeof options !== "object"` → `false` | real gap | `constraints.test.ts` "options that are not an object…" (a3be40b) |
+| 11 | `changeset/changeset.ts:1678` (id 1023) | BlockStatement: `(multi)` → `{}` | real gap | `constraints.test.ts` "options that are not an object…" (a3be40b) |
+| 12 | `changeset/changeset.ts:1931` (id 1219) | ConditionalExpression: `value > limit` → `false` | real gap | `validations.test.ts` notEqualTo above the limit (b2beef5) |
+| 13 | `changeset/changeset.ts:1999` (id 1326) | ConditionalExpression: `at.argumentKey !== undefined` → `true` | real gap | `errors.test.ts` validations() with toStrictEqual (b2beef5) |
+| 14 | `changeset/changeset.ts:2070` (id 1395) | ConditionalExpression: `Array.isArray(value) && value.some((item) => item ` → `false` | real gap | `errors.test.ts` "nested changesets, alone or in a list…" (b2beef5) |
+| 15 | `changeset/changeset.ts:2089` (id 1409) | ObjectLiteral: `{ ...changes }` → `{}` | real gap | `errors.test.ts` "nested changesets, alone or in a list…" (b2beef5) |
+| 16 | `changeset/changeset.ts:2353` (id 1600, static) | StringLiteral: `"change"` → `""` | low value | function name in an error message |
+| 17 | `changeset/changeset.ts:2370` (id 1608, static) | ConditionalExpression: `typeof values !== "object"` → `false` | low value | change() values that are not an object are refused anyway, with another error |
+| 18 | `changeset/nested/change.ts:119` (id 1947) | EqualityOperator: `child.model === null` → `child.model !== null` | low value | wording of an error message |
+| 19 | `changeset/nested/change.ts:208` (id 2012) | ConditionalExpression: `relation.kind === "embed"` → `true` | low value | wording of an error message |
+| 20 | `changeset/nested/change.ts:215` (id 2027) | ObjectLiteral: `(multi)` → `{}` | low value | advice parameters of an error |
+| 21 | `changeset/nested/change.ts:219` (id 2036) | StringLiteral: `""` → `"Stryker was here!"` | low value | advice parameters of an error |
+| 22 | `changeset/nested/change.ts:338` (id 2171) | ConditionalExpression: `value === stored` → `false` | equivalent | identity shortcut; the next comparisons give the same answer |
+| 23 | `changeset/nested/change.ts:339` (id 2181) | EqualityOperator: `value === null` → `value !== null` | real gap | `nested.test.ts` "a keyless embedded item equal to the stored one…" (b2beef5) |
+| 24 | `changeset/nested/change.ts:353` (id 2204) | ConditionalExpression: `data === current` → `false` | real gap | `nested.test.ts` "a change of the stored keyless embed is that row" (b2beef5) |
+| 25 | `changeset/nested/change.ts:354` (id 2214) | ConditionalExpression: `typeof data !== "object"` → `false` | equivalent | a child's data is a row or null, never a primitive |
+| 26 | `changeset/nested/change.ts:434` (id 2308) | StringLiteral: `"castEmbed"` → `""` | low value | function name in an error message |
+| 27 | `changeset/nested/change.ts:435` (id 2311) | StringLiteral: `"assoc"` → `""` | low value | kind name in an error message |
+| 28 | `changeset/nested/change.ts:488` (id 2411) | ConditionalExpression: `indexOfKey([existing], relation.key, key) === 0` → `true` | real gap | `nested.test.ts` "a keyed embedOne cast with another key is a new row" (b2beef5) |
+| 29 | `changeset/nested/change.ts:510` (id 2429) | UnaryOperator: `-1` → `+1` | real gap | `nested.test.ts` "a new child changeset put into a list matches no stored row" (b2beef5) |
+| 30 | `changeset/nested/change.ts:558` (id 2498) | ObjectLiteral: `{ params: { target: targetMeta.name } }` → `{}` | low value | advice parameters of an error |
+
+#### Query: seed 4242, query run (`4bf2837`)
+
+`node scripts/mutation-sample.mjs reports/mutation/query.json --seed 4242`
+
+low value 10, tool artifact 2, real gap 4, equivalent 14.
+
+| # | Location | Mutant | Class | Reason, or the test that kills it now |
+|---|---|---|---|---|
+| 1 | `query/advanced/cte.ts:67` (id 169) | ObjectLiteral: `{ params: { name } }` → `{}` | low value | advice parameters of an error |
+| 2 | `query/advanced/dynamic.ts:210` (id 249, static) | ConditionalExpression: `args.length === 1` → `false` | tool artifact | verified by hand: breaks `advanced/small.test.ts` at load, which the runner counts as survived |
+| 3 | `query/advanced/dynamic.ts:218` (id 269, static) | EqualityOperator: `schemas === null` → `schemas !== null` | tool artifact | verified by hand: breaks `advanced/small.test.ts` at load, which the runner counts as survived |
+| 4 | `query/advanced/tuple.ts:283` (id 1076, static) | BooleanLiteral: `false` → `true` | low value | marks a tuple comparison redacted: hides values in logs only |
+| 5 | `query/advanced/windows.ts:828` (id 1477, static) | CallExpression: `visit(clause, node.expr, windows);` → `;` | real gap | `windows.test.ts` "a window named inside a JSON path is checked too" (7bda82b) |
+| 6 | `query/assoc.ts:159` (id 1641) | LogicalOperator: `column.type?.db.kind ?? ""` → `column.type?.db.kind && ""` | real gap | `builder.test.ts` "…an array value on an array column is equality" (7bda82b) |
+| 7 | `query/assoc.ts:237` (id 1740, no coverage) | ConditionalExpression: `field.column === column` → `true` | real gap | `preload.test.ts` "manyToMany through a join schema…" (7bda82b) |
+| 8 | `query/ast.ts:286` (id 2104, static) | ConditionalExpression: `typeof value === "number"` → `true` | equivalent | Number.isFinite is false for anything but a number |
+| 9 | `query/ast.ts:755` (id 2363, static) | StringLiteral: `"cast"` → `""` | equivalent | a kind seed only has to differ from the others |
+| 10 | `query/ast.ts:757` (id 2365, static) | StringLiteral: `"jsonPath"` → `""` | equivalent | a kind seed only has to differ from the others |
+| 11 | `query/ast.ts:764` (id 2372, static) | StringLiteral: `"window"` → `""` | equivalent | a kind seed only has to differ from the others |
+| 12 | `query/builder.ts:1272` (id 3058, static) | ConditionalExpression: `named.length === 0` → `false` | equivalent | a cache of the canonical named parameters, computed again when absent |
+| 13 | `query/builder.ts:1473` (id 3199) | ObjectLiteral: `{ key }` → `{}` | low value | advice parameters of an error |
+| 14 | `query/builder.ts:1914` (id 3354, static) | StringLiteral: `"select"` → `""` | low value | label in an error message |
+| 15 | `query/builder.ts:2594` (id 3674, static) | ConditionalExpression: `lists.length === 0` → `false` | equivalent | an empty list in place of the shared empty list |
+| 16 | `query/builder.ts:2716` (id 3766) | BooleanLiteral: `true` → `false` | equivalent | preloads add no parameters to the main list, so there is nothing to replace |
+| 17 | `query/builder.ts:2733` (id 3786) | BooleanLiteral: `true` → `false` | real gap | `set-operations.test.ts` "exclude(setOperations) also drops the values…" (7bda82b) |
+| 18 | `query/builder.ts:2809` (id 3829) | ObjectLiteral: `{ params: { alias: root.alias } }` → `{}` | low value | advice parameters of an error |
+| 19 | `query/builder.ts:3301` (id 4211) | ConditionalExpression: `value !== null` → `true` | low value | a null preload value (misuse) throws a TypeError instead of a QueryError |
+| 20 | `query/builder.ts:3368` (id 4322) | BooleanLiteral: `true` → `false` | equivalent | a re-sorted nested list is a new node, so the result is the new list anyway |
+| 21 | `query/builder.ts:3456` (id 4450) | ConditionalExpression: `value.expr.kind === "column"` → `true` | equivalent | a non-column expression has no binding to match |
+| 22 | `query/builder.ts:3494` (id 4490, static) | StringLiteral: `""` → `"Stryker was here!"` | low value | text of render(), a debugging aid |
+| 23 | `query/builder.ts:3635` (id 4747) | MethodExpression: `ast.ctes.some((node) => node.recursive)` → `ast.ctes.every(node => node.recursive)` | low value | text of render(), a debugging aid |
+| 24 | `query/expr.ts:1201` (id 4998, static) | StringLiteral: `"remove"` → `""` | low value | method name in an error message |
+| 25 | `query/expr.ts:1201` (id 4999, static) | BooleanLiteral: `false` → `true` | low value | the comparison flag only words an error |
+| 26 | `query/expr.ts:1587` (id 5093, static) | ConditionalExpression: `type === undefined` → `false` | equivalent | elementTypeOf(undefined) gives the same undefined (a test was added anyway, 7bda82b) |
+| 27 | `query/functions.ts:288` (id 5555, static) | ConditionalExpression: `named.length === 0` → `false` | equivalent | an empty list in place of the shared empty list |
+| 28 | `query/functions.ts:849` (id 5801, static) | ConditionalExpression: `typeof query !== "object"` → `false` | equivalent | a function or a primitive has no subquery method and is refused anyway |
+| 29 | `query/select.ts:224` (id 6121, static) | ConditionalExpression: `named.length === 0` → `true` | equivalent | applied by hand, every test passes: the named parameters are collected elsewhere |
+| 30 | `query/widen.ts:50` (id 6194, static) | ConditionalExpression: `l !== undefined` → `true` | equivalent | with l undefined, r > l is false |
+
+#### Compiler: seed 7777, compiler run (`b2beef5`)
+
+`node scripts/mutation-sample.mjs reports/mutation/compiler.json --seed 7777 --messages 'Error\(|unsupported\(|`\$\{fn\}'`
+
+equivalent 17, low value 9, real gap 4.
+
+| # | Location | Mutant | Class | Reason, or the test that kills it now |
+|---|---|---|---|---|
+| 1 | `compiler/bind.ts:28` (id 10) | CallExpression: `namesOfSlots.set(slots, names);` → `;` | equivalent | a cache of the slot names, computed again when absent |
+| 2 | `compiler/cache.ts:153` (id 229) | BlockStatement: `(multi)` → `{}` | equivalent | the identity level is a shortcut to the same plan |
+| 3 | `compiler/cache.ts:241` (id 285) | CallExpression: `entries.push(entry);` → `;` | equivalent | the identity level is a shortcut to the same plan |
+| 4 | `compiler/compiler.ts:218` (id 463) | LogicalOperator: `typeof node !== "object" \|\| node === null` → `typeof node !== "object" && node === nul` | low value | a null node (malformed AST) throws a TypeError instead of a QueryError |
+| 5 | `compiler/compiler.ts:268` (id 511) | ConditionalExpression: `this.#expands && nodes.length > 0` → `true` | equivalent | a list-length key on any dialect only splits the cache |
+| 6 | `compiler/compiler.ts:268` (id 514) | ConditionalExpression: `nodes.length > 0` → `true` | equivalent | a list-length key with no lists is a constant |
+| 7 | `compiler/compiler.ts:380` (id 578) | LogicalOperator: `typeof update !== "object" \|\| update === null` → `typeof update !== "object" && update ===` | low value | a null update (malformed) throws a TypeError instead of a QueryError |
+| 8 | `compiler/compiler.ts:385` (id 584, static) | ArrayDeclaration: `[]` → `["Stryker was here"]` | equivalent | a constant nothing reads |
+| 9 | `compiler/compiler.ts:399` (id 600) | StringLiteral: `"-"` → `""` | equivalent | the key part stays distinct from a JSON string |
+| 10 | `compiler/compiler.ts:399` (id 598) | ConditionalExpression: `schema === undefined` → `false` | equivalent | the key part stays distinct from a JSON string |
+| 11 | `compiler/compiler.ts:417` (id 628) | StringLiteral: `"v"` → `""` | equivalent | the cell key stays distinct from the other cell kinds |
+| 12 | `compiler/compiler.ts:426` (id 637) | StringLiteral: ``e${shapeOf(cell.expr)}`` → ```` | equivalent | expression cells are also compared by sameNodes, which catches a collision |
+| 13 | `compiler/compiler.ts:441` (id 652) | StringLiteral: `"n"` → `""` | equivalent | the conflict key stays distinct from the other forms |
+| 14 | `compiler/dialect.ts:761` (id 1057) | ConditionalExpression: `!dialect.capabilities.arrays` → `false` | real gap | `value-typing.test.ts` "a cast to an array type is refused…" (6f16bc4) |
+| 15 | `compiler/emit.ts:327` (id 1273) | ConditionalExpression: `typeof name !== "string"` → `false` | low value | a name that is not a string (malformed AST) |
+| 16 | `compiler/emit.ts:417` (id 1375) | ConditionalExpression: `typeof value === "number"` → `true` | equivalent | Number.isFinite is false for anything but a number |
+| 17 | `compiler/emit.ts:439` (id 1403) | ObjectLiteral: `{ dialect: ctx.dialect.name }` → `{}` | low value | advice parameters of an error |
+| 18 | `compiler/emit.ts:589` (id 1596) | ConditionalExpression: `type.db === null` → `false` | low value | a cast type without db (malformed AST) |
+| 19 | `compiler/emit.ts:763` (id 1809) | StringLiteral: `"namedParam"` → `""` | equivalent | a named parameter cannot be an operand of an integer division here |
+| 20 | `compiler/emit.ts:898` (id 1966) | ConditionalExpression: `node.name === "coalesce"` → `true` | equivalent | only reached for operands that are all bound values; another function has a SQL type |
+| 21 | `compiler/emit.ts:1074` (id 2227) | ConditionalExpression: `node.kind === "param" \|\| node.kind === "namedPar` → `true` | real gap | `value-typing.test.ts` "a cast inside a fragment is written once" (6f16bc4) |
+| 22 | `compiler/emit.ts:1124` (id 2305) | ConditionalExpression: `type === undefined` → `false` | real gap | `value-typing.test.ts` "a selected CASE gives an untyped nested compound…" (6f16bc4) |
+| 23 | `compiler/emit.ts:1166` (id 2369) | EqualityOperator: `node.args.length > 0` → `node.args.length >= 0` | low value | coalesce() with no arguments (malformed AST) |
+| 24 | `compiler/emit.ts:1188` (id 2402) | ConditionalExpression: `typeof node.name !== "string"` → `false` | low value | a name that is not a string (malformed AST) |
+| 25 | `compiler/emit.ts:1208` (id 2433, static) | StringLiteral: `"notLike"` → `""` | real gap | `value-typing.test.ts` "notLike of two bound values…" (6f16bc4) |
+| 26 | `compiler/plan.ts:387` (id 3764) | BooleanLiteral: `false` → `true` | equivalent | the flag is read only for the root's schema, undefined for these sources |
+| 27 | `compiler/plan.ts:738` (id 4146) | ConditionalExpression: `branch.kind !== "row"` → `false` | equivalent | a branch that is not a row has no meta, so main is returned anyway |
+| 28 | `compiler/plan.ts:775` (id 4199) | ConditionalExpression: `main.length === 0` → `false` | equivalent | merging two empty lists gives an empty list |
+| 29 | `compiler/write.ts:103` (id 4937) | ConditionalExpression: `typeof field !== "object" \|\| field === null` → `false` | low value | a null field (misuse) throws a TypeError instead of a QueryError |
+| 30 | `compiler/write.ts:377` (id 5286) | ConditionalExpression: `first === undefined` → `false` | low value | unreachable: a schema always has a column |

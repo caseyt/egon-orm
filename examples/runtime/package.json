@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "check": "node esm.mjs && node cjs.cjs && node bundle.mjs",
-    "check:bun": "RUNTIME_TARGETS=postgres bun esm.mjs && RUNTIME_TARGETS=postgres bun cjs.cjs"
+    "check:bun": "RUNTIME_TARGETS=postgres bun esm.mjs && RUNTIME_TARGETS=postgres bun cjs.cjs && RUNTIME_TARGETS=postgres bun bundle.mjs"
   },
   "dependencies": {
     "@egon-orm/postgres": "workspace:*",

@@ -168,9 +168,19 @@ on every Node; before bug 2, one run in three of the Node 24 bundles crashed aft
 `pnpm test:mutation [area]` (`scripts/mutation.mjs`) runs Stryker 10 with the Vitest runner
 over the `core:unit` tests (`vitest.mutation.config.ts`), one run per area, concurrency 2,
 `ignoreStatic: false` (see Decisions for why). Local runs on macOS arm64, Node 22.23.1. Each
-run tests the working tree as it was when it started: compiler on `b2beef5` (so without the
-compiler tests of `6f16bc4`), query on `4bf2837` (without the query tests of `7bda82b`),
-changeset on `7bda82b` (with every changeset test of this step).
+run tests the working tree as it was when it started (the time its configuration file in
+`reports/mutation/` was written), matched against the commit times:
+
+- query, 14:28:11: `5ea82e8` plus the uncommitted changeset tests that were committed as
+  `4bf2837` at 14:30:30 (`measure.test.ts`). Those tests are outside the query area, so the
+  query score is the score of `5ea82e8`; it has none of the query tests of `7bda82b`.
+- compiler, 18:59:13: `b2beef5` (committed 14:41:33; the next commit, `7bda82b`, came at
+  19:11:01), so without the compiler tests of `6f16bc4`.
+- changeset, 22:32:07: `7bda82b` (committed 19:11:01; `6f16bc4` came at 22:38:01, and its
+  compiler test edits may already have been in the working tree; they are outside the
+  changeset area), so with every changeset test of this step.
+- the first changeset run (80.71%, the source of the changeset samples), 13:59:21:
+  `5ea82e8` (committed 13:08:48; the next commit came at 14:30:30).
 
 | Area | Files with mutants | Mutants | Killed | Timeout | Survived | No coverage | Runtime error | Score | Time |
 |---|---|---|---|---|---|---|---|---|---|
@@ -192,7 +202,12 @@ true`), changeset 80.71% (`ignoreStatic: false`, before this step's changeset te
 |---|---|---|---|---|
 | compiler | 92 | 14 | 264 | 370 |
 | query | 147 | 42 | 798 | 987 |
-| changeset | 82 | 67 | 538 | 687 |
+| changeset | 81 | 76 | 530 | 687 |
+
+The counts are those of `scripts/mutation-sample.mjs` on the reports behind the scores above
+(the compiler with its message pattern, see the appendix). The first changeset run (80.71%)
+gives 81 / 80 / 625 for the same classes; its logic pool of 625 is the one the changeset
+samples were drawn from.
 
 - **Error id, rejected by tsc (verified by sample).** A `QueryError` id replaced with `""`.
   Ids are typed `IdsOf<"query">`, so such a mutant does not compile; it survives only
@@ -378,6 +393,17 @@ addressed in `d8e4a13` and the commit after it:
 7. "Gaps and unverified claims" has the CI results; main's tier-2 failure on `8b1aeea` is
    recorded under bug 2.
 
+## Review round 2
+
+Findings of https://github.com/egon-orm/egon-orm/pull/73#issuecomment-6381012937:
+
+1. The changeset row of "Survivors by class" now has the script's counts on the report
+   behind the 83.14% score (81 / 76 / 530); the old 82 / 67 / 538 came from an earlier
+   classifier and are replaced. The first run's counts (81 / 80 / 625) are given beside it.
+2. The query run started at 14:28:11, before `4bf2837` was committed (14:30:30): it tested
+   `5ea82e8` plus the uncommitted `measure.test.ts` changes, which are outside the query
+   area. Every run is now matched against the commit times in §4.
+
 ## Requests
 
 - **21-audit:** the three bugs above are fixed here; please re-verify them in the readiness
@@ -487,7 +513,7 @@ real gap 15, low value 13, equivalent 2.
 | 29 | `changeset/nested/change.ts:510` (id 2429) | UnaryOperator: `-1` → `+1` | real gap | `nested.test.ts` "a new child changeset put into a list matches no stored row" (b2beef5) |
 | 30 | `changeset/nested/change.ts:558` (id 2498) | ObjectLiteral: `{ params: { target: targetMeta.name } }` → `{}` | low value | advice parameters of an error |
 
-#### Query: seed 4242, query run (`4bf2837`)
+#### Query: seed 4242, query run (`5ea82e8` plus the uncommitted `measure.test.ts` changes of `4bf2837`)
 
 `node scripts/mutation-sample.mjs reports/mutation/query.json --seed 4242`
 
